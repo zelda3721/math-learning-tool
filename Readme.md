@@ -131,6 +131,10 @@ math_learning_tool/
 
 ## 本系统暂时只是一个简单的原型，可能存在一些问题，尤其是视频生成质量，欢迎反馈和贡献。
 
+## 许可证
+
+本项目采用MIT许可证。详情请参阅[LICENSE](LICENSE)文件。
+
 ## 致谢
 
 - 本项目使用了[LangChain](https://github.com/langchain-ai/langchain)
