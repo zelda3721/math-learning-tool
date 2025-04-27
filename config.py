@@ -7,13 +7,8 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-# Xinference设置
-# XINFERENCE_API_BASE = os.getenv("XINFERENCE_API_BASE", "http://localhost:9997/v1")  # Xinference API基础URL
-# XINFERENCE_API_KEY = os.getenv("XINFERENCE_API_KEY", "sk-453593f571ee4d618693343431dba9f3")  # 如果需要的话
-# MODEL_NAME = os.getenv("MODEL_NAME", "QwQ-32B")  # 使用的模型名称
-
 XINFERENCE_API_BASE = os.getenv("XINFERENCE_API_BASE", "https://api.deepseek.com/v1")  # Xinference API基础URL
-XINFERENCE_API_KEY = os.getenv("XINFERENCE_API_KEY", "sk-453593f571ee4d618693343431dba9f3")  # 如果需要的话
+XINFERENCE_API_KEY = os.getenv("XINFERENCE_API_KEY", "your_actual_api_key")  # 如果需要的话
 MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-chat")  # 使用的模型名称
 
 # Manim设置
