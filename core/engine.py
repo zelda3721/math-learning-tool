@@ -22,26 +22,44 @@ logger = logging.getLogger(__name__)
 
 class MathTutorEngine:
     """数学辅导工具核心引擎"""
-    
-    def __init__(self):
-        """初始化核心引擎"""
+
+    def __init__(self, performance_config: Optional[Dict[str, Any]] = None):
+        """
+        初始化核心引擎
+
+        Args:
+            performance_config: 性能配置字典，包含:
+                - enable_understanding: 是否启用理解Agent
+                - enable_review: 是否启用审查Agent
+                - max_debug_attempts: 最大调试次数
+                - manim_quality: Manim渲染质量
+        """
         # 创建LLM模型
         self.llm = create_llm()
-        
+
         # 创建各个Agent
         self.understanding_agent = UnderstandingAgent(model=self.llm)
         self.solving_agent = SolvingAgent(model=self.llm)
         self.visualization_agent = VisualizationAgent(model=self.llm)
         self.debugging_agent = DebuggingAgent(model=self.llm)
-        self.review_agent = ReviewAgent(model=self.llm) 
-        
-        # 创建Manim执行器
-        self.manim_executor = ManimExecutor()
-        
-        # 设置最大调试尝试次数
-        self.max_debug_attempts = 3
-        
-        logger.info("核心引擎初始化完成")
+        self.review_agent = ReviewAgent(model=self.llm)
+
+        # 性能优化设置：优先使用传入的配置，否则使用config文件中的默认值
+        if performance_config:
+            self.enable_understanding_agent = performance_config.get('enable_understanding', config.ENABLE_UNDERSTANDING_AGENT)
+            self.enable_review_agent = performance_config.get('enable_review', config.ENABLE_REVIEW_AGENT)
+            self.max_debug_attempts = performance_config.get('max_debug_attempts', config.MAX_DEBUG_ATTEMPTS)
+            manim_quality = performance_config.get('manim_quality', config.MANIM_QUALITY)
+        else:
+            self.enable_understanding_agent = config.ENABLE_UNDERSTANDING_AGENT
+            self.enable_review_agent = config.ENABLE_REVIEW_AGENT
+            self.max_debug_attempts = config.MAX_DEBUG_ATTEMPTS
+            manim_quality = config.MANIM_QUALITY
+
+        # 创建Manim执行器，传入质量设置
+        self.manim_executor = ManimExecutor(quality=manim_quality)
+
+        logger.info(f"核心引擎初始化完成 (理解Agent: {'启用' if self.enable_understanding_agent else '禁用'}, 审查Agent: {'启用' if self.enable_review_agent else '禁用'}, 最大调试次数: {self.max_debug_attempts}, 渲染质量: {manim_quality})")
     
     async def process_problem(self, problem_text: str) -> Dict[str, Any]:
         """
@@ -56,11 +74,19 @@ class MathTutorEngine:
         logger.info(f"开始处理数学问题: {problem_text[:50]}...")
         
         try:
-            # 1. 使用理解Agent分析题目
-            logger.info("正在分析题目...")
-            analysis_result = await self.understanding_agent.analyze_problem(problem_text)
-            logger.info(f"题目分析完成: {analysis_result}")
-            
+            # 1. 使用理解Agent分析题目（可选，禁用可加速）
+            if self.enable_understanding_agent:
+                logger.info("正在分析题目...")
+                analysis_result = await self.understanding_agent.analyze_problem(problem_text)
+                logger.info(f"题目分析完成: {analysis_result}")
+            else:
+                logger.info("理解Agent已禁用，使用简化分析（极速模式）")
+                analysis_result = {
+                    "题目类型": "待解析",
+                    "核心知识点": [],
+                    "关键信息": {"已知条件": [], "待求问题": problem_text}
+                }
+
             # 2. 使用解题Agent解决问题
             logger.info("正在解题...")
             solution_result = await self.solving_agent.solve_problem(problem_text, analysis_result)
@@ -72,18 +98,22 @@ class MathTutorEngine:
                 problem_text, analysis_result, solution_result
             )
             logger.info(f"可视化代码生成完成: {visualization_code[:100]}...")
-            
-            # 4. 使用审查Agent检查和优化布局和场景切换
-            logger.info("正在审查代码布局和场景切换...")
-            reviewed_code = await self.review_agent.review_code(
-                visualization_code, problem_text
-            )
-            logger.info(f"代码审查完成: {reviewed_code[:100]}...")
+
+            # 4. 使用审查Agent检查和优化布局和场景切换（可选，用于提高质量）
+            if self.enable_review_agent:
+                logger.info("正在审查代码布局和场景切换...")
+                reviewed_code = await self.review_agent.review_code(
+                    visualization_code, problem_text
+                )
+                logger.info(f"代码审查完成: {reviewed_code[:100]}...")
+            else:
+                logger.info("审查Agent已禁用，跳过审查步骤（提速模式）")
+                reviewed_code = visualization_code
 
             # 5. 执行Manim代码生成视频，如果失败则使用调试Agent修复
             logger.info("正在生成可视化视频...")
             success, video_path, error_msg = await self._execute_with_debugging(
-                visualization_code, problem_text, analysis_result, solution_result
+                reviewed_code, problem_text, analysis_result, solution_result
             )
             
             if success:
@@ -157,12 +187,14 @@ class MathTutorEngine:
                 current_code, error_msg, self.debug_attempts
             )
 
-            # 如果调试Agent修复了代码，使用审查Agent检查布局和场景切换
-            if fixed_code != current_code:
+            # 如果调试Agent修复了代码，且启用了审查Agent，则检查布局和场景切换
+            if fixed_code != current_code and self.enable_review_agent:
                 logger.info("调试Agent修复了代码，正在进行布局和场景切换审查...")
                 fixed_code = await self.review_agent.review_code(
                     fixed_code, problem_text, error_msg
                 )
+            elif fixed_code != current_code:
+                logger.info("调试Agent修复了代码（审查Agent已禁用，提速模式）")
             
             # 如果调试Agent无法修复代码，尝试使用可视化Agent重新生成
             if fixed_code == current_code and self.debug_attempts == self.max_debug_attempts - 1:

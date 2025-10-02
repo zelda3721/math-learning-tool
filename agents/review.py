@@ -8,47 +8,11 @@ from typing import Dict, Any, List, Optional, Tuple
 from langchain_openai import ChatOpenAI
 
 from agents.base import BaseAgent
+from utils.prompts import REVIEW_AGENT_PROMPT
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# 审查Agent的系统提示词
-REVIEW_AGENT_PROMPT = """你是一个专业的Manim代码审查专家，专注于优化数学可视化代码的布局和场景切换。
-你的任务是分析Manim代码，识别并修复以下问题：
-
-1. **元素重叠问题**：
-   - 检查元素定位是否合理，避免文字与图形、图形与图形之间的重叠
-   - 确保所有元素都在屏幕可见范围内，不会被裁剪
-   - 优化元素的大小和位置，确保视觉清晰度
-
-2. **场景切换问题**：
-   - 检查场景之间的过渡是否流畅
-   - 确保上一个场景的元素在新场景开始前被适当清除或移动
-   - 优化动画序列，避免突兀的变化
-
-3. **布局优化**：
-   - 使用VGroup和arrange方法组织相关元素
-   - 实现一致的布局策略（如标题在顶部，说明在中间，图形在底部）
-   - 确保文字和图形的大小适中，不会占据过多屏幕空间
-
-4. **动画流畅性**：
-   - 检查动画时间是否合理，避免过快或过慢
-   - 确保相关元素的动画连贯，表现出逻辑关系
-   - 添加适当的等待时间，让观众有足够时间理解内容
-
-请分析代码并提供具体的修改建议，重点关注布局和场景切换问题。你的修改应该保持原代码的功能和意图不变，只优化视觉表现。
-
-输出格式：
-```python
-# 完整的、优化后的Manim代码
-from manim import *
-
-class MathVisualization(Scene):
-    def construct(self):
-        # 优化后的代码
-        ...
-        请确保你的修改是最小必要的，保留原始代码的意图和结构，同时解决所有布局和场景切换问题。"""
 
 class ReviewAgent(BaseAgent):
     """审查Agent类"""
@@ -80,19 +44,28 @@ class ReviewAgent(BaseAgent):
             优化后的代码
         """
         # 构建提示词，包含代码和可能的错误信息
-        prompt = f"""请审查并优化以下Manim代码的布局和场景切换。
-        {'题目：\n' + problem_text + '\n\n' if problem_text else ''}
-{'之前遇到的问题：\n' + error_message + '\n\n' if error_message else ''}
-
-当前代码：
-{code}
-请重点检查以下问题：
-
-1. 元素重叠：确保文字与图形、图形与图形之间不会重叠
-2. 场景切换：确保场景之间的过渡流畅，上一个场景的元素在新场景开始前被适当清除或移动
-3. 布局优化：使用VGroup和arrange方法组织相关元素，实现一致的布局策略
-4. 动画流畅性：确保动画时间合理，相关元素的动画连贯
-请提供优化后的完整代码。"""
+        context_parts = ["请审查并优化以下Manim代码的布局和场景切换。"]
+        
+        if problem_text:
+            context_parts.append(f"题目：\n{problem_text}\n")
+        
+        if error_message:
+            context_parts.append(f"之前遇到的问题：\n{error_message}\n")
+        
+        context_parts.extend([
+            f"当前代码：\n{code}",
+            "",
+            "请重点检查以下问题：",
+            "1. 元素重叠：确保文字与图形、图形与图形之间不会重叠",
+            "2. 场景切换：确保场景之间的过渡流畅，上一个场景的元素在新场景开始前被适当清除或移动",
+            "3. 布局优化：使用VGroup和arrange方法组织相关元素，实现一致的布局策略",
+            "4. 动画流畅性：确保动画时间合理，相关元素的动画连贯",
+            "",
+            "请提供优化后的完整代码。"
+        ])
+        
+        prompt = "\n".join(context_parts)
+        
         response = await self.arun(prompt)
         logger.info(f"审查Agent优化完成: {response[:100]}...")
     
@@ -143,13 +116,16 @@ class ReviewAgent(BaseAgent):
             布局问题分析报告
         """
         prompt = f"""请分析以下Manim代码中可能存在的布局和场景切换问题，并提供详细报告。
-        {code}
-        请重点分析以下几个方面：
 
+代码内容：
+{code}
+
+请重点分析以下几个方面：
 1. 元素重叠问题
 2. 场景切换问题
 3. 布局不合理问题
 4. 动画流畅性问题
+
 输出格式：
 ```json
 {{
@@ -159,8 +135,7 @@ class ReviewAgent(BaseAgent):
       "行号": "大约行号",
       "问题描述": "具体描述",
       "修复建议": "建议"
-    }},
-    ...
+    }}
   ],
   "场景切换问题": [...],
   "布局问题": [...],
@@ -168,7 +143,10 @@ class ReviewAgent(BaseAgent):
   "总体评价": "总体评价",
   "优化建议": "整体优化建议"
 }}
+```
+
 请提供尽可能详细的分析。"""
+        
         response = await self.arun(prompt)
         logger.info(f"布局问题分析完成: {response[:100]}...")
         
@@ -203,6 +181,6 @@ class ReviewAgent(BaseAgent):
                 "场景切换问题": [],
                 "布局问题": [],
                 "动画问题": [],
-                "总体评价": "处理出错",
+                "总体评价": "处理失败",
                 "优化建议": str(e)
             }

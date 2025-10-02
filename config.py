@@ -13,11 +13,19 @@ MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-chat")  # 使用的模型名称
 
 # Manim设置
 MANIM_OUTPUT_DIR = os.getenv("MANIM_OUTPUT_DIR", "./media")  # Manim输出目录
-MANIM_QUALITY = os.getenv("MANIM_QUALITY", "medium_quality")  # 视频质量（low_quality, medium_quality, high_quality）
+MANIM_QUALITY = os.getenv("MANIM_QUALITY", "low_quality")  # 视频质量（low_quality, medium_quality, high_quality）
+# low_quality: 480p15, 速度快，适合预览
+# medium_quality: 720p30, 平衡质量和速度
+# high_quality: 1080p60, 高质量但慢
 
 # Agent设置
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.6"))  # 模型温度
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "8192"))  # 生成的最大token数
+
+# 性能优化设置
+ENABLE_REVIEW_AGENT = os.getenv("ENABLE_REVIEW_AGENT", "false").lower() == "true"  # 是否启用审查Agent（耗时但质量更好）
+ENABLE_UNDERSTANDING_AGENT = os.getenv("ENABLE_UNDERSTANDING_AGENT", "true").lower() == "true"  # 是否启用理解Agent（可跳过加速）
+MAX_DEBUG_ATTEMPTS = int(os.getenv("MAX_DEBUG_ATTEMPTS", "2"))  # 最大调试次数（减少可提速）
 
 # Streamlit设置
 PAGE_TITLE = "小学数学辅导工具"

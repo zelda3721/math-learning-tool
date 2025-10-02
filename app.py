@@ -47,31 +47,118 @@ st.markdown("""
 
 # 侧边栏
 with st.sidebar:
+    st.header("⚙️ 性能设置")
+
+    # 性能模式预设
+    performance_mode = st.selectbox(
+        "性能模式",
+        options=["平衡模式 (推荐)", "极速模式", "高质量模式", "自定义"],
+        help="选择预设模式或自定义配置"
+    )
+
+    # 根据模式设置默认值
+    if performance_mode == "极速模式":
+        default_understanding = False
+        default_review = False
+        default_debug = 1
+        default_quality = "low_quality"
+    elif performance_mode == "高质量模式":
+        default_understanding = True
+        default_review = True
+        default_debug = 3
+        default_quality = "medium_quality"
+    else:  # 平衡模式
+        default_understanding = True
+        default_review = False
+        default_debug = 2
+        default_quality = "low_quality"
+
+    # 自定义模式下显示详细配置
+    if performance_mode == "自定义":
+        st.markdown("---")
+        enable_understanding = st.checkbox(
+            "启用题目理解分析",
+            value=True,
+            help="详细分析题目特征（禁用可加速约15-30秒）"
+        )
+
+        enable_review = st.checkbox(
+            "启用代码审查优化",
+            value=False,
+            help="审查和优化布局代码（启用提升质量但增加约15-30秒）"
+        )
+
+        max_debug_attempts = st.slider(
+            "最大调试次数",
+            min_value=1,
+            max_value=3,
+            value=2,
+            help="代码执行失败时的最大重试次数"
+        )
+
+        manim_quality = st.selectbox(
+            "视频渲染质量",
+            options=["low_quality", "medium_quality", "high_quality"],
+            index=0,
+            format_func=lambda x: {"low_quality": "低质量 (480p, 快)",
+                                   "medium_quality": "中等质量 (720p, 平衡)",
+                                   "high_quality": "高质量 (1080p, 慢)"}[x],
+            help="视频分辨率和帧率"
+        )
+    else:
+        enable_understanding = default_understanding
+        enable_review = default_review
+        max_debug_attempts = default_debug
+        manim_quality = default_quality
+
+        # 显示当前模式的配置信息
+        quality_map = {'low_quality': '低', 'medium_quality': '中', 'high_quality': '高'}
+        st.info(f"""
+        **当前配置**：
+        - 题目分析: {'启用' if enable_understanding else '禁用'}
+        - 代码审查: {'启用' if enable_review else '禁用'}
+        - 调试次数: {max_debug_attempts}
+        - 视频质量: {quality_map[manim_quality]}
+        """)
+
+    # 估算处理时间
+    estimated_time = 25  # 基础时间
+    if enable_understanding:
+        estimated_time += 20
+    if enable_review:
+        estimated_time += 25
+    estimated_time += 30  # 可视化代码生成
+    estimated_time += {"low_quality": 20, "medium_quality": 40, "high_quality": 60}[manim_quality]
+
+    st.success(f"⏱️ 预计耗时: {estimated_time//60}分{estimated_time%60}秒")
+
+    # 保存配置到session state
+    st.session_state['performance_config'] = {
+        'enable_understanding': enable_understanding,
+        'enable_review': enable_review,
+        'max_debug_attempts': max_debug_attempts,
+        'manim_quality': manim_quality
+    }
+
+    st.markdown("---")
+
     st.header("关于")
     st.markdown("""
     本工具利用多Agent技术，提供小学数学题目的详细解析和直观演示。
-    
+
     主要特点：
     - 🧠 深度理解数学题目
     - 📝 详细的步骤解答
     - 🎬 数形结合的可视化视频
     """)
-    
-    st.header("使用方法")
-    st.markdown("""
-    1. 在输入框中输入小学数学题目
-    2. 点击"开始分析"按钮
-    3. 等待系统处理（这可能需要一些时间）
-    4. 查看分析结果、解题过程和可视化视频
-    """)
-    
+
     st.header("示例题目")
     example_problems = [
         "小明有25个糖果，他给了小红8个，又给了小刚5个，然后小明的妈妈又给了他10个糖果。请问小明现在有多少个糖果？",
         # "一个长方形的长是12厘米，宽是8厘米。如果把长方形分成面积相等的4个小长方形，每个小长方形的周长是多少厘米？",
         # "光明小学有学生760人，其中男生人数比女生人数的3倍少40人，男、女生各有多少人？",
     ]
-    
+
     for i, example in enumerate(example_problems, 1):
         if st.button(f"示例 {i}", key=f"example_{i}"):
             st.session_state.problem_text = example
@@ -97,9 +184,13 @@ if st.button("开始分析", type="primary", disabled=st.session_state['processi
         
         with st.spinner("正在分析题目..."):
             try:
-                # 初始化引擎（如果尚未初始化）
-                if st.session_state['engine'] is None:
-                    st.session_state['engine'] = MathTutorEngine()
+                # 获取性能配置
+                perf_config = st.session_state.get('performance_config', {})
+
+                # 初始化引擎（如果尚未初始化或配置已变化）
+                if st.session_state['engine'] is None or st.session_state.get('last_config') != perf_config:
+                    st.session_state['engine'] = MathTutorEngine(performance_config=perf_config)
+                    st.session_state['last_config'] = perf_config
                 
                 # 创建进度条
                 progress_bar = st.progress(0)

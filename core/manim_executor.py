@@ -16,20 +16,21 @@ logger = logging.getLogger(__name__)
 
 class ManimExecutor:
     """Manim执行器类"""
-    
-    def __init__(self, output_dir: Optional[str] = None):
+
+    def __init__(self, output_dir: Optional[str] = None, quality: Optional[str] = None):
         """
         初始化Manim执行器
-        
+
         Args:
             output_dir: 输出目录，默认使用配置文件中的目录
+            quality: 渲染质量，默认使用配置文件中的质量
         """
         self.output_dir = output_dir or config.MANIM_OUTPUT_DIR
-        self.quality = config.MANIM_QUALITY
-        
+        self.quality = quality or config.MANIM_QUALITY
+
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
-        logger.info(f"Manim执行器初始化完成，输出目录: {self.output_dir}")
+        logger.info(f"Manim执行器初始化完成，输出目录: {self.output_dir}, 渲染质量: {self.quality}")
     
     def execute_code(self, code: str) -> Tuple[bool, str, str]:
         """
