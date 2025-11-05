@@ -30,3 +30,17 @@ MAX_DEBUG_ATTEMPTS = int(os.getenv("MAX_DEBUG_ATTEMPTS", "2"))  # 最大调试�
 # Streamlit设置
 PAGE_TITLE = "小学数学辅导工具"
 PAGE_ICON = "🧮"
+
+# API Provider设置（新增 - 用于大学版）
+API_PROVIDER = os.getenv("API_PROVIDER", "deepseek")  # deepseek/openai/anthropic/xinference/custom
+
+# Anthropic Skills设置（可选）
+ENABLE_ANTHROPIC_SKILLS = os.getenv("ENABLE_ANTHROPIC_SKILLS", "false").lower() == "true"
+
+# 大学版特有设置
+UNIVERSITY_MODE = os.getenv("UNIVERSITY_MODE", "false").lower() == "true"
+SUPPORTED_SUBJECTS = ["数学", "经济学", "计算机科学"]
+DEFAULT_VIDEO_DURATION = int(os.getenv("DEFAULT_VIDEO_DURATION", "900"))  # 15分钟
+
+# 知识图谱设置
+ENABLE_KNOWLEDGE_GRAPH = os.getenv("ENABLE_KNOWLEDGE_GRAPH", "true").lower() == "true"

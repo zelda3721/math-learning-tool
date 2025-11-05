@@ -10,3 +10,18 @@ requests
 aiohttp
 watchdog
 asyncio
+
+# 文档处理依赖
+PyMuPDF
+python-pptx
+Pillow
+pdfplumber
+sympy
+
+# Anthropic Skills支持（可选）
+anthropic
+
+# 知识图谱可视化
+networkx
+matplotlib
+plotly
