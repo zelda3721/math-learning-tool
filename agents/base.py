@@ -3,7 +3,7 @@
 """
 import logging
 from typing import Dict, Any, List, Optional
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 

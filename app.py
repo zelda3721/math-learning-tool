@@ -12,7 +12,7 @@ import time
 # 添加当前目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.engine import MathTutorEngine
+from core.engine import MathTutorEngineV2 as MathTutorEngine
 from utils.parser import format_analysis_result, format_solution_result, extract_main_visualization_class
 import config
 
