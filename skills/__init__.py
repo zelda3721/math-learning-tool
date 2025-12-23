@@ -1,24 +1,12 @@
 """
-可视化技能模块
+Skills 模块
 
-提供预定义的、可复用的数学可视化技能
+提供统一的技能加载和管理系统
 """
-from skills.visualization_skills import (
-    skill_registry,
-    AdditionSkill,
-    SubtractionSkill,
-    MultiplicationSkill,
-    ComparisonSkill,
-    detect_operation_type,
-    extract_numbers
-)
+from skills.skill_loader import skill_loader, Skill, SkillLoader
 
 __all__ = [
-    'skill_registry',
-    'AdditionSkill',
-    'SubtractionSkill',
-    'MultiplicationSkill',
-    'ComparisonSkill',
-    'detect_operation_type',
-    'extract_numbers'
+    'skill_loader',
+    'Skill', 
+    'SkillLoader'
 ]

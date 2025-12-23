@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from langchain_openai import ChatOpenAI
 
 from agents.base import BaseAgent
-from utils.prompts import DEBUGGING_AGENT_PROMPT
+from skills.skill_loader import skill_loader
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -24,10 +24,13 @@ class DebuggingAgent(BaseAgent):
         Args:
             model: LLM模型实例
         """
+        # 从skills系统获取提示词
+        system_prompt = skill_loader.get_agent_prompt('debugging')
+        
         super().__init__(
             name="调试Agent",
             description="修复Manim代码中的错误",
-            system_prompt=DEBUGGING_AGENT_PROMPT,
+            system_prompt=system_prompt,
             model=model
         )
         logger.info("调试Agent初始化完成")

@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
 
 from agents.base import BaseAgent
-from utils.prompts import UNDERSTANDING_AGENT_PROMPT
+from skills.skill_loader import skill_loader
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,10 +23,13 @@ class UnderstandingAgent(BaseAgent):
         Args:
             model: LLM模型实例
         """
+        # 从skills系统获取提示词
+        system_prompt = skill_loader.get_agent_prompt('understanding')
+        
         super().__init__(
             name="理解Agent",
             description="分析数学题目并提取关键信息",
-            system_prompt=UNDERSTANDING_AGENT_PROMPT,
+            system_prompt=system_prompt,
             model=model
         )
         logger.info("理解Agent初始化完成")
