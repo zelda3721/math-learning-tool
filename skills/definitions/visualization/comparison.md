@@ -81,16 +81,17 @@ self.wait(1)
 ### 步骤3：高亮差异部分
 ```python
 # 1. 计算差异并高亮
+# 注意：这里的 difference 是在运行时计算的，不是模板参数
 larger_num = {num1} if {num1} > {num2} else {num2}
 smaller_num = {num2} if {num1} > {num2} else {num1}
-diff = larger_num - smaller_num
+difference = larger_num - smaller_num
 
 # 找出多出的那部分图形 (VGroup支持切片)
 if {num1} > {num2}:
-    excess_group = group1[-diff:]
+    excess_group = group1[-difference:]
     direction = UP
 else:
-    excess_group = group2[-diff:]
+    excess_group = group2[-difference:]
     direction = DOWN
 
 # 动画：改变颜色以示区别
@@ -99,7 +100,8 @@ self.play(excess_group.animate.set_color(YELLOW).set_opacity(1))
 # 2. 添加大括号和文字
 # 严禁使用 brace.get_text()，因为它默认使用LaTeX不支持中文
 brace = Brace(excess_group, direction)
-diff_text = Text(f"多 {diff} 个", font="Microsoft YaHei", font_size=24, color=YELLOW)
+# 使用字符串拼接避免模板解析问题
+diff_text = Text("多 " + str(difference) + " 个", font="Microsoft YaHei", font_size=24, color=YELLOW)
 diff_text.next_to(brace, direction, buff=0.1)
 
 self.play(Create(brace), Write(diff_text))
