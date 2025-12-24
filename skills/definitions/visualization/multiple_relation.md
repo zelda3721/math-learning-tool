@@ -91,6 +91,39 @@ self.play(Create(brace), Write(brace_label))
 self.wait(2)
 ```
 
+### 步骤2.5：状态变化过渡（可选，用于变化问题）
+```python
+# 当题目涉及状态变化时（如"各减少100人后"），使用Transform展示
+# 示例：从3倍变为4倍的平滑过渡
+
+# 1. 变化提示
+change_text = Text("现在各减少100人...", font="Microsoft YaHei", font_size=24, color=ORANGE)
+change_text.to_edge(UP, buff=0.3)
+self.play(Write(change_text))
+self.wait(1)
+
+# 2. 用动画展示"收缩"效果（而不是重建）
+# 方法A：颜色/透明度变化表示减少
+self.play(
+    unit_bar_group[0].animate.set_fill(RED, opacity=0.3),  # 基准也减少
+    multiple_bar[-1].animate.set_fill(RED, opacity=0.3)    # 最后一段变淡
+)
+self.wait(0.5)
+
+# 方法B：如果需要新的倍数关系，用Transform转换
+# new_multiple_bar = VGroup(*[...])  # 新的N份
+# self.play(ReplacementTransform(multiple_bar, new_multiple_bar))
+
+# 3. 更新标签
+new_label = Text("变化后比例", font="Microsoft YaHei", font_size=20, color=YELLOW)
+new_label.next_to(multiple_bar, LEFT, buff=0.3)
+self.play(ReplacementTransform(multiple_label, new_label))
+self.wait(1)
+
+# 4. 淡出提示文字
+self.play(FadeOut(change_text))
+```
+
 ### 步骤3：显示结果
 ```python
 # 结论文字
