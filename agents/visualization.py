@@ -206,6 +206,14 @@ class VisualizationAgentV2WithSkills(BaseAgent):
                 for i, step in enumerate(steps[:5], 1):
                     logger.info(f"处理步骤 {i}: {step.get('步骤说明', '')[:30]}...")
 
+                    # 添加步骤之间的过渡 (清除上一步的元素)
+                    if i > 1:
+                        code_parts.append('''
+        # ===== 场景过渡：清除上一步内容 =====
+        self.play(*[FadeOut(mob) for mob in self.mobjects], run_time=0.5)
+        self.wait(0.3)
+''')
+
                     # 使用检测到的技能优先匹配
                     step_code = await self._match_and_use_skill(
                         problem_text, step, i, self._detected_skills
@@ -257,7 +265,7 @@ class VisualizationAgentV2WithSkills(BaseAgent):
             return None
 
         # 从步骤中提取参数
-        params = self._extract_parameters_from_step(step_data, skill.parameters)
+        params = await self._extract_parameters_from_step(step_data, skill.parameters, problem_text=problem_text)
 
         if not params:
             logger.debug(f"无法从步骤中提取参数，将使用LLM直接生成")
@@ -350,27 +358,21 @@ class VisualizationAgentV2WithSkills(BaseAgent):
             logger.error(f"LLM选择技能失败: {e}")
             return None
 
-    def _extract_parameters_from_step(
+    async def _extract_parameters_from_step(
         self,
         step_data: Dict[str, Any],
-        required_params: Dict[str, str]
+        required_params: Dict[str, str],
+        problem_text: str = ""
     ) -> Optional[Dict[str, Any]]:
         """
-        从步骤数据中提取参数
-
-        Args:
-            step_data: 步骤数据
-            required_params: 需要的参数及其描述
-
-        Returns:
-            参数字典，失败返回None
+        从步骤数据中提取参数 (Regex + LLM Fallback)
         """
         import re
-
-        # 从步骤的具体操作和结果中提取数字
+        import json
+        
+        # 1. 尝试 Regex 提取 (Fast path)
         text = str(step_data.get("具体操作", "")) + " " + str(step_data.get("结果", ""))
         numbers = re.findall(r'\d+', text)
-
         params = {}
 
         # 根据需要的参数类型提取
@@ -406,11 +408,51 @@ class VisualizationAgentV2WithSkills(BaseAgent):
 
         # 检查是否提取到所有必需参数
         if all(param in params for param in required_params.keys()):
-            logger.info(f"成功提取参数: {params}")
+            logger.info(f"Regex成功提取参数: {params}")
             return params
-        else:
-            logger.debug(f"参数提取不完整: 需要 {list(required_params.keys())}, 得到 {list(params.keys())}，将使用LLM直接生成")
-            return None
+            
+        # 2. LLM 提取 (Robust path)
+        logger.info(f"Regex提取失败，尝试LLM提取参数: {list(required_params.keys())}")
+        
+        prompt = f"""
+请从以下解题步骤中提取可视化参数。
+
+## 题目
+{problem_text}
+
+## 步骤信息
+- 说明: {step_data.get('步骤说明', '')}
+- 详情: {step_data.get('具体操作', '')}
+- 结果: {step_data.get('结果', '')}
+
+## 目标参数
+请提取以下参数 (JSON格式):
+{json.dumps(required_params, ensure_ascii=False, indent=2)}
+
+## 要求
+1. 只返回JSON对象，不要Markdown格式。
+2. 必须包含所有目标参数。
+3. 如果无法找到对应数值，请根据题目逻辑推断。
+
+## 示例返回
+{{
+  "num1": 10,
+  "num2": 5,
+  "name1": "小明",
+  "name2": "小红",
+  "result": 15
+}}
+"""
+        try:
+            response = await self.arun(prompt)
+            data = self._parse_skill_selection(response) # 复用解析JSON的方法
+            if data and all(k in data for k in required_params.keys()):
+                logger.info(f"LLM成功提取参数: {data}")
+                return data
+        except Exception as e:
+            logger.error(f"LLM参数提取失败: {e}")
+            
+        return None
 
     def _parse_skill_selection(self, response: str) -> Optional[Dict[str, Any]]:
         """
@@ -443,16 +485,27 @@ class VisualizationAgentV2WithSkills(BaseAgent):
             return None
 
     def _generate_problem_display(self, problem_text: str) -> str:
-        """生成题目显示代码"""
-        safe_text = problem_text.replace('"', '\\"')[:60]
+        """生成题目显示代码 - 支持长文本换行和淡出"""
+        # 处理长文本：每20个字符换行
+        safe_text = problem_text.replace('"', '\\"').replace('\n', '\\n')
+        max_chars_per_line = 25
+        lines = []
+        for i in range(0, len(safe_text), max_chars_per_line):
+            lines.append(safe_text[i:i+max_chars_per_line])
+        wrapped_text = '\\n'.join(lines[:4])  # 最多4行
+        
         return f'''
-        # 显示题目
-        problem = Text("{safe_text}", font="Noto Sans CJK SC", font_size=32)
-        problem.to_edge(UP, buff=1.0)
-        self.play(Write(problem))
+        # 显示题目 (自动换行，显示后淡出)
+        problem = Text("{wrapped_text}", font="Microsoft YaHei", font_size=28, line_spacing=0.8)
+        problem.to_edge(UP, buff=0.5)
+        problem.scale_to_fit_width(config.frame_width - 1.5)  # 确保不超出边界
+        
+        self.play(Write(problem), run_time=2)
         self.wait(2)
-        self.play(problem.animate.scale(0.6))
-        self.wait(0.5)
+        
+        # 淡出题目，为后续步骤腾出空间
+        self.play(FadeOut(problem), run_time=0.5)
+        self.wait(0.3)
 
 '''
 
@@ -582,7 +635,7 @@ self.play(Create(group_all))
             skill = skill_loader.get_skill(skill_name)
             if skill and skill_name not in ['reasoning', 'quality_validator']:
                 # 尝试提取参数
-                params = self._extract_parameters_from_step(step_data, skill.parameters)
+                params = await self._extract_parameters_from_step(step_data, skill.parameters, problem_text=problem_text)
                 if params:
                     try:
                         rendered_code = skill.render(**params)
