@@ -4,8 +4,8 @@
 import logging
 from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
-from langchain.callbacks.manager import CallbackManager
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_core.callbacks import BaseCallbackManager
+from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import config
 
 # 设置日志
@@ -28,7 +28,7 @@ def create_llm(
     Returns:
         ChatOpenAI实例
     """
-    callback_manager = CallbackManager([StreamingStdOutCallbackHandler()]) if streaming else None
+    callbacks = [StreamingStdOutCallbackHandler()] if streaming else None
     
     # 使用OpenAI兼容接口连接Xinference
     logger.info(f"Creating LLM with base_url: {config.XINFERENCE_API_BASE}, model: {config.MODEL_NAME}")
@@ -38,7 +38,7 @@ def create_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         streaming=streaming,
-        callback_manager=callback_manager,
+        callbacks=callbacks,
         base_url=config.XINFERENCE_API_BASE,
         api_key=config.XINFERENCE_API_KEY or "dummy_key"  # xinference可能不需要API密钥
     )
