@@ -162,6 +162,16 @@ class VisualizationAgentV2WithSkills(BaseAgent):
             if is_word_problem:
                 logger.info("检测到复杂应用题，将使用word_problem技能")
 
+            # 5. 检查是否是差倍问题（倍数变化+差不变）
+            is_difference_invariance = (
+                ('倍' in problem_text and ('变' in problem_text or '后' in problem_text)) or
+                ('各减' in problem_text or '各增' in problem_text or '同时' in problem_text) or
+                ('原来' in problem_text and '现在' in problem_text and '倍' in problem_text)
+            )
+            if is_difference_invariance:
+                self._detected_skills.insert(0, 'difference_invariance')
+                logger.info("检测到差倍问题，将使用difference_invariance技能展示'差不变'原理")
+
             steps = solution_result.get("详细步骤", [])
 
             # 如果没有步骤，使用降级方案
@@ -206,12 +216,16 @@ class VisualizationAgentV2WithSkills(BaseAgent):
                 for i, step in enumerate(steps[:5], 1):
                     logger.info(f"处理步骤 {i}: {step.get('步骤说明', '')[:30]}...")
 
-                    # 添加步骤之间的过渡 (清除上一步的元素)
+                    # 添加步骤之间的过渡 (保持视觉连续性)
                     if i > 1:
                         code_parts.append('''
-        # ===== 场景过渡：清除上一步内容 =====
-        self.play(*[FadeOut(mob) for mob in self.mobjects], run_time=0.5)
-        self.wait(0.3)
+        # ===== 场景过渡：平滑转换 =====
+        # 添加分隔标题，但不完全清除上一步内容
+        transition_text = Text("下一步...", font="Microsoft YaHei", font_size=24, color=YELLOW)
+        transition_text.to_edge(UP, buff=0.3)
+        self.play(Write(transition_text), run_time=0.5)
+        self.wait(0.5)
+        self.play(FadeOut(transition_text), run_time=0.3)
 ''')
 
                     # 使用检测到的技能优先匹配
@@ -539,7 +553,7 @@ class VisualizationAgentV2WithSkills(BaseAgent):
         detail = step_data.get("具体操作", "")
         result = str(step_data.get("结果", ""))
         
-        prompt = f"""请为这个解题步骤生成Manim可视化代码。
+        prompt = f"""为这个解题步骤生成Manim图形化代码。
 
 ## 题目
 {problem_text}
@@ -549,49 +563,84 @@ class VisualizationAgentV2WithSkills(BaseAgent):
 - 详情: {detail}
 - 结果: {result}
 
-## 核心要求 (Must Follow)
-1. **彻底拒绝纯文字**: 严禁只显示Text! 必须把数字/概念转化为图形。
-2. **单位 visualization**:
-   - 如果数字代表数量，使用 **小矩形(Unit Bar)** 代表"1份"或"1个单位"。
-   - 例如: "A是B的3倍" -> 画1个蓝色矩形代表B，3个绿色矩形排成一行代表A。
-   - 不要画几百个圆点，使用长条(Rectangle)代表大数值。
-3. **布局规范**:
-   - 所有的图形元素必须放入 `VGroup`，并使用 `.arrange(RIGHT, buff=0.1)` 等方法自动排列。
-   - 必须使用 `.next_to()` 进行相对定位，禁止硬编码坐标。
-   - 标题放顶部 (`.to_edge(UP)`), 结果放底部 (`.to_edge(DOWN)`), 图形居中。
-4. **动态演示**:
-   - 使用 `ReplacementTransform` 展示变化 (例如: 短线段 -> 长线段)。
-   - 涉及比较时，使用 `Brace` (大括号) 标注数值。
-
-### 🛡️ 严格代码规范 (Critical)
-1. **字体强制**: 所有Text/Tex必须指定 `font="Microsoft YaHei"` (Windows环境)。
-   - ❌ `Text("你好")` -> 乱码
-   - ✅ `Text("你好", font="Microsoft YaHei")`
-2. **布局强制**: 
-   - 严禁使用 absolute coordinates (如 `[3, 2, 0]`)。
-   - 必须使用 `VGroup` + `.arrange()`。
-3. **防Hallucination**: 
-   - 严禁使用 `brace.get_text()` (内部调用TeX不支持中文)。
-   - 严禁使用 `ORANGE_E` 等非标准颜色。
-
-## 代码模板
+# ⛔ 绝对禁止 (HARD REJECTION)
+以下代码模式将导致失败：
 ```python
-# 示例: 3倍关系
-unit = Square(side_length=1).set_fill(BLUE, opacity=0.5)
-group_b = VGroup(unit.copy()).arrange(RIGHT) # B (1份)
-group_a = VGroup(*[unit.copy().set_fill(GREEN, 0.5) for _ in range(3)]).arrange(RIGHT) # A (3份)
+# ❌ 禁止：只用Text显示文字
+text = Text("原来人数差: 2份")  # 错误！
+self.play(Write(text))  # 错误！
 
-group_all = VGroup(group_b, group_a).arrange(DOWN, buff=1, aligned_edge=LEFT)
-self.play(Create(group_all))
+# ❌ 禁止：用文字描述数学关系
+Text("2份 = 3份")  # 错误！应该用图形展示
 ```
 
-只输出代码片段，假设已在construct中，不要包含类定义。
+# ✅ 必须使用 (MANDATORY)
+## 每个步骤都必须包含以下图形元素：
+
+### 1. 用矩形条表示"份"
+```python
+# 每个"份"都必须是一个Rectangle
+unit = Rectangle(width=1.0, height=0.4, fill_opacity=0.6)
+old_2_parts = VGroup(*[unit.copy().set_fill(BLUE) for _ in range(2)])
+old_2_parts.arrange(RIGHT, buff=0)
+```
+
+### 2. 用并排对比展示等价关系
+```python
+# "2份(原) = 3份(新)" 必须用图形对比
+new_3_parts = VGroup(*[unit.copy().set_fill(GREEN) for _ in range(3)])
+new_3_parts.arrange(RIGHT, buff=0)
+
+# 左右并排
+old_group = VGroup(Text("原2份", font="Microsoft YaHei", font_size=18), old_2_parts).arrange(DOWN)
+new_group = VGroup(Text("新3份", font="Microsoft YaHei", font_size=18), new_3_parts).arrange(DOWN)
+all_groups = VGroup(old_group, Text("=", font_size=40), new_group).arrange(RIGHT, buff=1)
+self.play(Create(all_groups))
+```
+
+### 3. 用动画展示转换过程
+```python
+# 关键：用stretch动画展示"2份=3份"的等价
+self.play(
+    old_2_parts.animate.stretch_to_fit_width(3),
+    new_3_parts.animate.stretch_to_fit_width(3)
+)
+# 或者用分割线展示
+divider = Line(UP*0.3, DOWN*0.3, color=YELLOW)
+self.play(Create(divider))
+```
+
+### 4. 用Brace标注数值 (中文用Text而非get_text)
+```python
+brace = Brace(old_2_parts, DOWN)
+label = Text("人数差", font="Microsoft YaHei", font_size=16)
+label.next_to(brace, DOWN, buff=0.1)
+self.play(Create(brace), Write(label))
+```
+
+## 请生成代码
+根据当前步骤"{desc}"，生成包含以下的代码：
+1. 至少2个VGroup包含Rectangle
+2. 使用arrange/next_to布局
+3. 如果涉及"份"的转换，必须用stretch动画展示
+4. 数值用Brace+Text标注
+
+只输出代码片段，假设已在construct中。
 """
         try:
             # 尝试调用LLM生成
             response = await self.arun(prompt)
             code = self._extract_code(response)
             if code:
+                # 验证：必须包含图形元素，不能只有Text
+                has_graphics = any(kw in code for kw in ['Rectangle', 'VGroup', 'Circle', 'Square', 'Line', 'Brace'])
+                text_only = code.count('Text(') > 2 and not has_graphics
+                
+                if text_only:
+                    logger.warning("LLM生成了纯文字代码，重新生成图形版本...")
+                    # 强制使用图形化版本
+                    code = self._generate_graphical_step(step_number, desc, detail, result)
+                
                 return '\n' + code + '\n'
         except Exception as e:
             logger.error(f"通用步骤LLM生成失败: {e}")
@@ -609,6 +658,62 @@ self.play(Create(group_all))
         self.wait(2)
 
         self.play(FadeOut(step_label), FadeOut(detail_text))
+'''
+
+    def _generate_graphical_step(self, step_number: int, desc: str, detail: str, result: str) -> str:
+        """
+        保证图形化输出的fallback方法
+        当LLM生成纯文字时，使用此方法生成基本的图形可视化
+        """
+        # 从描述中提取数字
+        import re
+        numbers = re.findall(r'\d+', desc + detail + result)
+        num1 = int(numbers[0]) if len(numbers) > 0 else 2
+        num2 = int(numbers[1]) if len(numbers) > 1 else 3
+        
+        # 限制数量避免过多图形
+        num1 = min(num1, 10)
+        num2 = min(num2, 10)
+        
+        safe_desc = desc.replace('"', '\\"')[:25]
+        
+        return f'''
+        # ===== 步骤 {step_number}: {safe_desc} (图形化) =====
+        # 创建图形表示
+        unit = Rectangle(width=1.0, height=0.4, fill_opacity=0.6)
+        
+        # 第一组
+        group1 = VGroup(*[unit.copy().set_fill(BLUE) for _ in range({num1})])
+        group1.arrange(RIGHT, buff=0.05)
+        label1 = Text("数量1: {num1}份", font="Microsoft YaHei", font_size=18)
+        row1 = VGroup(label1, group1).arrange(RIGHT, buff=0.5)
+        
+        # 第二组
+        group2 = VGroup(*[unit.copy().set_fill(GREEN) for _ in range({num2})])
+        group2.arrange(RIGHT, buff=0.05)
+        label2 = Text("数量2: {num2}份", font="Microsoft YaHei", font_size=18)
+        row2 = VGroup(label2, group2).arrange(RIGHT, buff=0.5)
+        
+        # 整体布局
+        all_groups = VGroup(row1, row2).arrange(DOWN, buff=0.8, aligned_edge=LEFT)
+        all_groups.move_to(ORIGIN)
+        
+        self.play(Create(all_groups))
+        self.wait(1)
+        
+        # 如果数量不同，用stretch展示等价
+        if {num1} != {num2}:
+            self.play(
+                group1.animate.stretch_to_fit_width(3),
+                group2.animate.stretch_to_fit_width(3)
+            )
+            
+            # 等号标注
+            equals = Text("=", font="Microsoft YaHei", font_size=36, color=YELLOW)
+            equals.move_to((group1.get_right() + group2.get_right()) / 2 + RIGHT * 0.5)
+            self.play(Write(equals))
+        
+        self.wait(1.5)
 '''
 
     async def _match_and_use_skill(
