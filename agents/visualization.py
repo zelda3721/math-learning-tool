@@ -802,7 +802,7 @@ self.play(Create(brace), Write(label))
         - 使用Transform而非重建
         - 保持元素可见性连贯
         """
-        # 提取数字信息
+        # 提取初始数字（题目中的第一个数）
         numbers = re.findall(r'\d+', problem_text)
         
         if len(numbers) < 2:
@@ -811,18 +811,52 @@ self.play(Create(brace), Write(label))
         
         initial = int(numbers[0])
         
-        # 分析操作序列
+        # 从题目文本直接解析操作序列（更可靠）
         operations = []
-        for i, step in enumerate(steps):
-            step_text = step.get('步骤说明', '') + step.get('具体操作', '')
-            step_numbers = re.findall(r'\d+', step_text)
-            
-            if '减' in step_text or '-' in step_text or '拿走' in step_text or '给' in step_text:
-                if step_numbers:
-                    operations.append(('subtract', int(step_numbers[0]), step.get('步骤说明', '')))
-            elif '加' in step_text or '+' in step_text or '买' in step_text or '又' in step_text:
-                if step_numbers:
-                    operations.append(('add', int(step_numbers[0]), step.get('步骤说明', '')))
+        
+        # 使用更精确的模式匹配题目中的操作
+        # 模式: "给了...N个" = 减法, "又给了他N个" = 加法（给他）
+        
+        # 减法模式：给了别人
+        subtract_patterns = [
+            r'给了?\s*\w+\s*(\d+)\s*个',  # 给了小红8个
+            r'拿走了?\s*(\d+)\s*个',
+            r'吃了?\s*(\d+)\s*个',
+            r'用了?\s*(\d+)\s*个',
+            r'花了?\s*(\d+)\s*个',
+        ]
+        
+        # 加法模式：别人给他
+        add_patterns = [
+            r'又给了?他\s*(\d+)\s*个',  # 妈妈又给了他10个
+            r'给他\s*(\d+)\s*个',
+            r'买了?\s*(\d+)\s*个',
+            r'得到了?\s*(\d+)\s*个',
+            r'收到了?\s*(\d+)\s*个',
+        ]
+        
+        # 先找所有减法
+        for pattern in subtract_patterns:
+            for match in re.finditer(pattern, problem_text):
+                amount = int(match.group(1))
+                if amount > 0 and amount != initial:  # 排除0和初始值
+                    operations.append(('subtract', amount, f"减少{amount}个"))
+        
+        # 再找所有加法
+        for pattern in add_patterns:
+            for match in re.finditer(pattern, problem_text):
+                amount = int(match.group(1))
+                if amount > 0:  # 排除0
+                    operations.append(('add', amount, f"增加{amount}个"))
+        
+        # 如果没有匹配到，尝试从题目中的数字序列推断
+        if not operations:
+            logger.info(f"从题目数字推断操作: {numbers}")
+            for num_str in numbers[1:]:  # 跳过初始值
+                num = int(num_str)
+                if num != initial:
+                    # 默认根据上下文判断（这里简化处理）
+                    operations.append(('subtract', num, f"操作{num}个"))
         
         # 获取最终结果
         result = solution_result.get('最终答案', '')
@@ -913,6 +947,10 @@ self.play(Create(brace), Write(label))
         self.play(Transform(step_label, final_label))
         self.play(current_items.animate.set_color(GREEN))
         self.wait(2)
+        
+        # 清除圆点图形，为答案腾出空间
+        self.play(FadeOut(current_items), FadeOut(step_label))
+        self.wait(0.3)
 '''
         
         return code
