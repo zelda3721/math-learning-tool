@@ -221,23 +221,16 @@ class AgentCoordinator:
     def should_skip_understanding(self, fast_mode: bool = False) -> bool:
         """
         判断是否应跳过理解Agent
+        
+        注意：已禁用自动跳过，所有题目都需要理解Agent
 
         Args:
             fast_mode: 是否快速模式
 
         Returns:
-            是否跳过
+            始终返回False（不跳过）
         """
-        # 快速模式下跳过
-        if fast_mode:
-            logger.info("快速模式: 跳过理解Agent")
-            return True
-
-        # 如果题目很简单（少于20字），可以跳过
-        if self.memory and len(self.memory.problem_text) < 20:
-            logger.info("简单题目: 跳过理解Agent")
-            return True
-
+        # 已禁用：所有题目都需要理解Agent进行分析
         return False
 
     def should_skip_review(

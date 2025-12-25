@@ -213,31 +213,32 @@ class VisualizationAgentV2WithSkills(BaseAgent):
                     code_parts.append(step_code)
             else:
                 # 默认：逐步处理
+                used_skills = set()  # 记录已使用的技能，避免重复
+                
                 for i, step in enumerate(steps[:5], 1):
                     logger.info(f"处理步骤 {i}: {step.get('步骤说明', '')[:30]}...")
-
-                    # 添加步骤之间的过渡 (保持视觉连续性)
-                    if i > 1:
-                        code_parts.append('''
-        # ===== 场景过渡：平滑转换 =====
-        # 添加分隔标题，但不完全清除上一步内容
-        transition_text = Text("下一步...", font="Microsoft YaHei", font_size=24, color=YELLOW)
-        transition_text.to_edge(UP, buff=0.3)
-        self.play(Write(transition_text), run_time=0.5)
-        self.wait(0.5)
-        self.play(FadeOut(transition_text), run_time=0.3)
-''')
 
                     # 使用检测到的技能优先匹配
                     step_code = await self._match_and_use_skill(
                         problem_text, step, i, self._detected_skills
                     )
+                    
                     if step_code:
+                        # 检查是否是重复的技能渲染
+                        # 如果同一技能已经渲染过完整流程，跳过后续步骤
+                        skill_key = f"{self._detected_skills[0] if self._detected_skills else 'generic'}"
+                        if skill_key in used_skills:
+                            logger.info(f"跳过步骤 {i}：技能 {skill_key} 已完整渲染")
+                            continue
+                        
+                        used_skills.add(skill_key)
                         code_parts.append(step_code)
                     else:
-                        # 降级到通用步骤
-                        step_code = await self._generate_generic_step(step, i, problem_text)
-                        code_parts.append(step_code)
+                        # 降级到通用步骤（只在第一次未匹配技能时使用）
+                        if 'generic' not in used_skills:
+                            step_code = await self._generate_generic_step(step, i, problem_text)
+                            code_parts.append(step_code)
+                            used_skills.add('generic')
 
             # 显示最终答案
             final_answer = solution_result.get("最终答案", "未知")
@@ -572,7 +573,20 @@ self.play(Write(text))  # 错误！
 
 # ❌ 禁止：用文字描述数学关系
 Text("2份 = 3份")  # 错误！应该用图形展示
+
+# ❌ 禁止：使用不存在的rate_func
+rate_func=ease_out_sine  # 错误！不存在
+rate_func=ease_in_out  # 错误！不存在
+# ✅ 只能使用: smooth, linear, rush_into, rush_from, there_and_back
+
+# ❌ 禁止：使用不存在的颜色
+ORANGE_E, BLUE_D, RED_A  # 错误！
+# ✅ 只能使用: BLUE, RED, GREEN, YELLOW, ORANGE, PURPLE, WHITE
+
+# ❌ 禁止：使用brace.get_text()
+brace.get_text()  # 错误！中文会乱码
 ```
+
 
 # ✅ 必须使用 (MANDATORY)
 ## 每个步骤都必须包含以下图形元素：
@@ -632,7 +646,14 @@ self.play(Create(brace), Write(label))
             response = await self.arun(prompt)
             code = self._extract_code(response)
             if code:
-                # 验证：必须包含图形元素，不能只有Text
+                # 1. 清理无效的rate_func和颜色
+                import re
+                # 移除无效的rate_func参数
+                code = re.sub(r',?\s*rate_func\s*=\s*(ease_\w+|easeIn\w*|easeOut\w*)', '', code)
+                # 替换无效的颜色名称
+                code = re.sub(r'\b(ORANGE_E|BLUE_D|BLUE_E|RED_A|GREEN_E)\b', 'BLUE', code)
+                
+                # 2. 验证：必须包含图形元素，不能只有Text
                 has_graphics = any(kw in code for kw in ['Rectangle', 'VGroup', 'Circle', 'Square', 'Line', 'Brace'])
                 text_only = code.count('Text(') > 2 and not has_graphics
                 

@@ -43,7 +43,7 @@ self.play(LaggedStart(
     *[GrowFromCenter(item) for item in total_items],
     lag_ratio=0.12,
     run_time=1.5
-), rate_func=ease_out_sine)
+))
 
 self.play(Write(label), rate_func=smooth)
 self.wait(2)  # 给学生数数的时间
@@ -82,7 +82,6 @@ self.wait(1)
 # 🎬 向右上方移出屏幕（模拟被拿走）
 self.play(
     remove_items.animate.shift(RIGHT * 4 + UP * 1).set_opacity(0.3),
-    rate_func=ease_in_sine,  # 加速离开
     run_time=1.2
 )
 
