@@ -110,7 +110,7 @@ self.wait(1)
 # 更新提示
 result_hint = Text("还剩多少个？", font="Microsoft YaHei", font_size=28, color=YELLOW)
 result_hint.to_edge(UP, buff=0.5)
-self.play(Transform(hint, result_hint), rate_func=smooth)
+self.play(Transform(label, result_hint), rate_func=smooth)  # 使用label，不是hint
 self.wait(1)
 
 # 🎬 逐个高亮计数剩余的
@@ -142,7 +142,17 @@ self.play(
 
 # 🎬 强调结果
 self.play(Circumscribe(result, color=YELLOW, run_time=1))
-self.wait(3)
+self.wait(2)
+
+# 清理所有元素，为最终答案腾出空间
+self.play(
+    FadeOut(remain_items),
+    FadeOut(label),  # 注意：Transform(label, hint)修改的是label，不是hint
+    FadeOut(result_box),
+    FadeOut(result),
+    run_time=0.8
+)
+self.wait(0.3)
 ```
 
 ---
