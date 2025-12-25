@@ -48,18 +48,16 @@ class ManimExecutor:
         script_path = os.path.join(temp_dir, f"manim_script_{file_id}.py")
         
         try:
+            # 先清理代码中的LLM幻觉（无效API等）
+            code = self._sanitize_code(code)
+            
             # 尝试检测代码是否为有效的Python代码
             try:
                 compile(code, script_path, 'exec')
             except SyntaxError as se:
-                # 如果有语法错误，尝试修复常见问题
-                code = self._sanitize_code(code)
-                # 再次尝试编译
-                try:
-                    compile(code, script_path, 'exec')
-                except SyntaxError as se_again:
-                    logger.error(f"代码存在语法错误，无法执行: {se_again}")
-                    return False, "", f"代码存在语法错误: {str(se_again)}"
+                # 如果有语法错误，返回错误
+                logger.error(f"代码存在语法错误，无法执行: {se}")
+                return False, "", f"代码存在语法错误: {str(se)}"
             
             # 写入代码到临时文件
             with open(script_path, 'w', encoding='utf-8') as f:
@@ -133,21 +131,24 @@ class ManimExecutor:
         Returns:
             修复后的代码
         """
+        import re
+        
+        # 0. 移除LLM幻觉的无效API
+        # 移除无效的rate_func参数
+        code = re.sub(r',?\s*rate_func\s*=\s*(ease_\w+|easeIn\w*|easeOut\w*)', '', code)
+        # 替换无效的颜色名称
+        code = re.sub(r'\b(ORANGE_E|BLUE_D|BLUE_E|RED_A|GREEN_E|GREEN_D|YELLOW_E)\b', 'BLUE', code)
+        # 移除不存在的方法调用
+        code = re.sub(r'\.get_text\(\)', '', code)
+        
         # 分割代码行
         lines = code.split('\n')
         clean_lines = []
         
-        # 标记是否在代码块内
-        in_code_block = True
-        
         for line in lines:
-            # 检查行是否包含中文或其他非ASCII字符
-            if any(ord(c) > 127 for c in line) and not line.strip().startswith('#'):
-                # 如果包含中文且不是注释，转换为注释
-                clean_lines.append(f"# {line}")
-            else:
-                # 保留原行
-                clean_lines.append(line)
+            # 保留所有代码行，包括包含中文的行
+            # 中文字符串在 Text("...") 中是有效的，不应该注释掉
+            clean_lines.append(line)
         
         # 如果没有找到有效的Scene类，添加一个默认的
         clean_code = '\n'.join(clean_lines)
