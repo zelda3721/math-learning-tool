@@ -257,6 +257,7 @@ def _route_after_execute(state: dict) -> str:
     if video_path:
         return END
     
+    # Check total attempts (debug + visualize) to prevent infinite loops
     if debug_attempts >= 3:
         logger.warning("Max debug attempts reached, falling back")
         return "fallback"
@@ -266,8 +267,12 @@ def _route_after_execute(state: dict) -> str:
         return "debug"
     
     if error_type == "structure":
-        logger.info("Structure error, regenerating visualization")
-        return "visualize"
+        # Structure errors go back to debug, not visualize (to prevent infinite loop)
+        logger.info("Structure error, attempting debug")
+        return "debug"
+    
+    # Runtime error - try debug
+    return "debug"
     
     # Runtime error - try debug
     return "debug"

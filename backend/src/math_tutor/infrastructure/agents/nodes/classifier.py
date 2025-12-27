@@ -39,7 +39,7 @@ async def classifier_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str,
     Returns:
         Updated state with problem_type and problem_difficulty
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
     
     # Quick heuristics for obvious cases
     if _is_simple_arithmetic(problem_text):

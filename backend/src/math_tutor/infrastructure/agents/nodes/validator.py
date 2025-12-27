@@ -32,7 +32,7 @@ async def validator_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, 
     
     If validation fails, the workflow will route back to solving.
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
     solution = state.get("solution", {})
     answer = state.get("answer", "")
     

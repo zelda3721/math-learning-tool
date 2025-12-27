@@ -38,7 +38,7 @@ async def solving_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, An
     """
     Solve complex problems with detailed steps.
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
     analysis = state.get("analysis", {})
     solve_attempts = state.get("solve_attempts", 0)
     
@@ -76,7 +76,7 @@ async def solve_simple_node(state: dict[str, Any], model: ChatOpenAI) -> dict[st
     """
     Solve simple problems directly without deep analysis.
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
     
     logger.info(f"Simple solving: {problem_text[:50]}...")
     
