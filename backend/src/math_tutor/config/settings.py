@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Manim Settings
     manim_quality: Literal["low", "medium", "high"] = "low"
     manim_output_dir: str = "./media"
+    manim_use_latex: bool = False
     
     # Performance Settings
     enable_understanding: bool = True
