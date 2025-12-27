@@ -69,22 +69,42 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 答案：{answer}
 """
     
+    system_prompt = """你是一个Manim可视化专家。请为数学题目生成可视化代码。
+
+重要限制（CRITICAL）：
+1. 系统【没有安装LaTeX】环境。
+2. 严禁使用 MathTex, Tex, Matrix 等需要LaTeX编译的类。
+3. 所有文本必须使用 Text 类。
+4. 显示数学公式时，用普通字符串表示，例如 Text("x² + y² = 1")。
+"""
+    
     if skill_context:
-        prompt = f"""你是一个Manim可视化专家。请基于参考模板为题目生成代码。
+        prompt = f"""{system_prompt}
+
+请基于以下参考模板为题目生成代码：
         
 {skill_context}
 
 基本要求：
 1. 生成完整的Scene类代码 (从 from manim import * 开始)
-2. 使用模板中的可视化原则（如假设法动画、数量对应等）
-3. 动态计算和展示题目中的具体数值（不要硬编码模板中的数字）
+2. 使用模板中的可视化原则（但不要使用任何 MathTex/Tex）
+3. 动态计算和展示题目中的具体数值
 4. 确保所有变量在使用前定义
 5. 支持中文显示 (font="Microsoft YaHei" 或类似)
 
 输出格式：直接输出完整Python代码。"""
     else:
         # Default prompt if no skill matched
-        prompt = VISUALIZE_PROMPT
+        prompt = f"""{system_prompt}
+
+要求：
+1. 生成完整的Scene类代码
+2. 使用图形化展示，不要只有文字
+3. 每个步骤都有动画过渡
+4. 最后展示答案
+5. 所有文本使用 Text 类，font="Microsoft YaHei"
+
+输出格式：直接输出完整Python代码，从 from manim import * 开始。"""
         
     try:
         response = await model.ainvoke([
