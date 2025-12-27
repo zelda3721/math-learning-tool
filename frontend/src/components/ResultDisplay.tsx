@@ -7,7 +7,7 @@ interface ResultDisplayProps {
 export function ResultDisplay({ result }: ResultDisplayProps) {
     if (result.error) {
         return (
-            <div className="glass p-6 border-red-500/30">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 border-red-500/30">
                 <h3 className="text-lg font-semibold text-red-400 mb-2">处理失败</h3>
                 <p className="text-zinc-400">{result.error}</p>
             </div>
@@ -18,7 +18,7 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
         <div className="space-y-6">
             {/* Analysis Section */}
             {result.analysis && (
-                <div className="glass p-6">
+                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                     <h3 className="text-lg font-semibold gradient-text mb-4">📊 题目分析</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -49,7 +49,7 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
 
             {/* Solution Section */}
             {result.solution && (
-                <div className="glass p-6">
+                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                     <h3 className="text-lg font-semibold gradient-text mb-4">📝 解题步骤</h3>
                     <div className="space-y-4">
                         {result.solution.steps?.map((step) => (
@@ -75,7 +75,7 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
 
             {/* Video Section */}
             {result.video_url && (
-                <div className="glass p-6">
+                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                     <h3 className="text-lg font-semibold gradient-text mb-4">🎬 可视化视频</h3>
                     <video
                         src={result.video_url}
@@ -87,7 +87,7 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
 
             {/* Code Section */}
             {result.visualization_code && (
-                <details className="glass p-6">
+                <details className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                     <summary className="cursor-pointer text-lg font-semibold text-zinc-400 hover:text-white transition-colors">
                         💻 查看Manim代码
                     </summary>

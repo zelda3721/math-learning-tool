@@ -72,7 +72,7 @@ function App() {
 
         {/* Error */}
         {processMutation.isError && (
-          <div className="glass p-6 border-red-500/30">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 border-red-500/30">
             <p className="text-red-400">
               处理失败: {(processMutation.error as Error).message}
             </p>

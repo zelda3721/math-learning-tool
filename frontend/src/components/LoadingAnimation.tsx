@@ -1,6 +1,6 @@
 export function LoadingAnimation() {
     return (
-        <div className="glass p-8 flex flex-col items-center justify-center gap-6">
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 flex flex-col items-center justify-center gap-6">
             {/* Animated Math Symbols */}
             <div className="flex gap-4 text-4xl">
                 {['➕', '➖', '✖️', '➗', '🔢'].map((symbol, i) => (

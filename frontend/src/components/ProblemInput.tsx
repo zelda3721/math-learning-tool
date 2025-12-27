@@ -23,7 +23,7 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
 
     return (
         <div className="space-y-4">
-            <div className="glass p-6">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label htmlFor="problem" className="block text-sm font-medium text-zinc-400 mb-2">
@@ -35,7 +35,7 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
                             onChange={(e) => setProblem(e.target.value)}
                             placeholder="请输入您想解决的数学问题..."
                             rows={4}
-                            className="input-glass resize-none"
+                            className="input-bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl resize-none"
                             disabled={isLoading}
                         />
                     </div>
@@ -69,7 +69,7 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
                             key={i}
                             onClick={() => setProblem(example)}
                             disabled={isLoading}
-                            className="text-xs px-3 py-1.5 glass text-zinc-400 hover:text-white 
+                            className="text-xs px-3 py-1.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl text-zinc-400 hover:text-white 
                        hover:border-purple-500/30 transition-all truncate max-w-[200px]"
                         >
                             {example.slice(0, 30)}...
