@@ -111,13 +111,24 @@ def build_workflow(
 
 
 def _run_async(coro):
-    """Helper to run async nodes synchronously"""
+    """Helper to run async nodes synchronously in LangGraph"""
     import asyncio
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
+    try:
+        # Try to get the current event loop
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop, create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    else:
+        # Already in an async context, use nest_asyncio
         import nest_asyncio
         nest_asyncio.apply()
-    return loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
 
 
 def _route_after_classify(state: dict) -> str:
@@ -227,8 +238,23 @@ class LangGraphEngine:
         
         logger.info(f"Processing problem: {problem_text[:50]}...")
         
-        # Run the workflow
-        final_state = self.app.invoke(initial_state)
+        try:
+            # Run the workflow
+            final_state = self.app.invoke(initial_state)
+            logger.info(f"Workflow completed with status: {final_state.get('status')}")
+        except Exception as e:
+            logger.exception(f"Workflow failed with exception: {e}")
+            return {
+                "status": "failed",
+                "problem": problem_text,
+                "grade": grade.value,
+                "analysis": None,
+                "solution": None,
+                "visualization_code": None,
+                "video_path": None,
+                "error": str(e),
+                "fallback_content": None,
+            }
         
         return {
             "status": final_state.get("status", "failed"),
