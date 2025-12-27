@@ -100,7 +100,7 @@ def build_workflow(
     workflow.add_node("solve_simple", lambda s: _sync_solve_simple(s, model))
     workflow.add_node("solve", lambda s: _sync_solving(s, model, skill_repo))
     workflow.add_node("validate", lambda s: _sync_validator(s, model))
-    workflow.add_node("visualize", lambda s: _sync_visualize(s, model))
+    workflow.add_node("visualize", lambda s: _sync_visualize(s, model, skill_repo))
     workflow.add_node("execute", lambda s: _sync_execute(s, manim_executor))
     workflow.add_node("debug", lambda s: _sync_debug(s, model))
     workflow.add_node("fallback", lambda s: _sync_fallback(s))
@@ -199,13 +199,21 @@ def _sync_validator(state: dict, model) -> dict:
         return {"is_valid": True}  # Skip validation on error
 
 
-def _sync_visualize(state: dict, model) -> dict:
-    """Sync wrapper for visualize_node"""
+def _sync_visualize(state: WorkflowState, model: ChatOpenAI, skill_repo: ISkillRepository | None = None) -> WorkflowState:
+    """Sync wrapper for visualize node"""
     try:
-        return _run_in_thread(visualize_node(state, model))
+        # Pass state as dict to node
+        # _run_in_thread already handles creating a new event loop and running the async function
+        result = _run_in_thread(visualize_node(state, model, skill_repo))
+        
+        return WorkflowState(**result) # type: ignore
     except Exception as e:
         logger.exception(f"Visualize failed: {e}")
-        return {"manim_code": ""}
+        return WorkflowState(
+            error_message=str(e),
+            error_type="structure",
+            status="failed"
+        ) # type: ignore
 
 
 def _sync_execute(state: dict, manim_executor) -> dict:
