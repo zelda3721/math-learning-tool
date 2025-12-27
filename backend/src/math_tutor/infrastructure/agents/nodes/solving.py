@@ -89,7 +89,7 @@ SIMPLE_SOLVING_PROMPT = """你是一个数学解题专家。这是一道简单�
 }"""
 
 
-async def solving_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]:
+async def solving_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: Any = None) -> dict[str, Any]:
     """
     Solve complex problems with detailed steps.
     """
@@ -100,9 +100,40 @@ async def solving_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, An
     
     logger.info(f"Solving (attempt {solve_attempts + 1}): {problem_text[:50]}...")
     
+    # Context retrieval using Skills
+    skill_context = ""
+    if skill_repo:
+        # Try to find a matching skill based on problem text or analysis concepts
+        # First try precise matching if analysis has concepts
+        best_skill = None
+        
+        # 1. Search by concepts from analysis (if available)
+        if analysis and "concepts" in analysis:
+            for concept in analysis["concepts"]:
+                skill = skill_repo.find_best_match(concept, grade_level)
+                if skill:
+                    best_skill = skill
+                    break
+        
+        # 2. Fallback to problem text search
+        if not best_skill:
+            best_skill = skill_repo.find_best_match(problem_text, grade_level)
+            
+        if best_skill:
+            logger.info(f"Matched skill: {best_skill.name}")
+            skill_context = f"""
+【参考技能：{best_skill.name}】
+{best_skill.description}
+
+关键点：{', '.join(best_skill.keywords)}
+"""
+    
     context = f"题目：{problem_text}"
     if analysis:
         context += f"\n\n分析结果：{json.dumps(analysis, ensure_ascii=False)}"
+    
+    if skill_context:
+        context += f"\n\n{skill_context}"
     
     # Get grade-appropriate prompt
     solving_prompt = _get_solving_prompt(grade_level)
