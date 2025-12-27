@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Custom design tokens */
+:root {
+  --color-primary: #667eea;
+  --color-secondary: #764ba2;
+  --color-accent: #f093fb;
+  --color-background: #0f0f23;
+  --color-surface: #1a1a2e;
+  --color-text: #e4e4e7;
+  --color-text-muted: #a1a1aa;
+}
+
+/* Base styles */
+body {
+  @apply bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen text-zinc-200;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Glass effect */
+.glass {
+  @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl;
+}
+
+/* Gradient text */
+.gradient-text {
+  @apply bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 bg-clip-text text-transparent;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-medium
+         hover:from-purple-500 hover:to-pink-500 transition-all duration-300
+         shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40;
+}
+
+/* Input styles */
+.input-glass {
+  @apply w-full px-4 py-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl
+         focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20
+         placeholder:text-zinc-500 text-zinc-200 transition-all duration-300;
+}
+
+/* Card styles */
+.card {
+  @apply glass p-6 hover:border-purple-500/30 transition-all duration-300;
+}
+
+/* Animation */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
