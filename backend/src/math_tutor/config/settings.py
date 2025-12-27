@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     api_debug: bool = False
     
     # LLM Settings
-    llm_api_base: str = "https://api.deepseek.com/v1"
+    llm_api_base: str = "https://api.deepseek.com"
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
     llm_temperature: float = 0.6
