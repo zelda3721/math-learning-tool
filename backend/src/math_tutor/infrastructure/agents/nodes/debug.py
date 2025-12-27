@@ -1,3 +1,4 @@
+import json
 """
 Debug Node - Fix Manim code errors
 """
@@ -20,17 +21,41 @@ DEBUG_PROMPT = """你是一个Manim代码调试专家。请修复以下代码中
 请直接输出修复后的完整代码，从 from manim import * 开始。"""
 
 
+REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成失败或超时。请根据题目重新生成完整的Manim代码。
+
+要求：
+1. 从 from manim import * 开始
+2. 使用简单的动画（Write, FadeIn, Create）
+3. 确保类名为 SolutionScene
+4. 代码要短小精悍，不要太复杂以免超时
+
+请直接输出完整代码。"""
+
+
 async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]:
     """
     Debug and fix Manim code errors.
+    If code is missing (e.g. timeout), regenerate it.
     """
     manim_code = state.get("manim_code", "")
     error_message = state.get("error_message", "")
     debug_attempts = state.get("debug_attempts", 0)
     
+    # Context retrieval
+    problem_text = state.get("problem_text", "")
+    solution = state.get("solution", {})
+    
     logger.info(f"Debugging code (attempt {debug_attempts + 1})...")
     
-    context = f"""
+    # Case 1: Timeout or missing code -> Regenerate
+    if not manim_code or "Timeout" in error_message:
+        logger.warning("No code found or timeout detected. Regenerating...")
+        context = f"题目：{problem_text}\n\n解答：{json.dumps(solution, ensure_ascii=False)}\n\n错误：{error_message}"
+        prompt = REGENERATE_PROMPT
+    
+    # Case 2: Existing code with error -> Fix
+    else:
+        context = f"""
 错误信息：
 {error_message}
 
@@ -41,10 +66,11 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
 
 这是第 {debug_attempts + 1} 次调试。请修复所有错误。
 """
+        prompt = DEBUG_PROMPT
     
     try:
         response = await model.ainvoke([
-            SystemMessage(content=DEBUG_PROMPT),
+            SystemMessage(content=prompt),
             HumanMessage(content=context),
         ])
         
