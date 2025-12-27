@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { Send, Pencil } from 'lucide-react'
+import { Send, Pencil, Lightbulb } from 'lucide-react'
+import type { Grade } from '../services/api'
 
 interface ProblemInputProps {
     onSubmit: (problem: string) => void
     isLoading: boolean
+    selectedGrade?: string
+    grades?: Grade[]
 }
 
-export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
+export function ProblemInput({ onSubmit, isLoading, selectedGrade, grades }: ProblemInputProps) {
     const [problem, setProblem] = useState('')
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -23,6 +26,10 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
         }
     }
 
+    // Get current grade's example problem
+    const currentGrade = grades?.find(g => g.level === selectedGrade)
+    const exampleProblem = currentGrade?.example_problem || "小明有5个苹果，吃了2个，还剩几个？"
+
     return (
         <form onSubmit={handleSubmit} className="w-full relative">
             <div className="absolute -top-3 left-4 bg-gradient-to-r from-sky-400 to-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md z-10 flex items-center gap-1">
@@ -35,7 +42,7 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
                     value={problem}
                     onChange={(e) => setProblem(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="例如：小明有5个苹果，吃了2个，还剩几个？..."
+                    placeholder={`例如：${exampleProblem}`}
                     className="input-hero min-h-[140px] resize-none pt-6 pl-6 pr-24 text-lg md:text-xl leading-relaxed"
                 />
 
@@ -63,17 +70,25 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
                 </div>
             </div>
 
-            {/* Helper Chips */}
+            {/* Grade-specific Example Chips */}
             <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                <button type="button" onClick={() => setProblem("25 + 18 = ?")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
-                    🎲 25 + 18 = ?
-                </button>
-                <button type="button" onClick={() => setProblem("鸡兔同笼，头35，脚94，各多少？")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
-                    🐰 鸡兔同笼
-                </button>
-                <button type="button" onClick={() => setProblem("一个长方形长5cm宽3cm，求面积")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
-                    📐 几何面积
-                </button>
+                <div className="text-xs text-slate-400 flex items-center gap-1 mr-2">
+                    <Lightbulb size={14} />
+                    <span>试试这些：</span>
+                </div>
+                {grades?.slice(0, 4).map((grade) => (
+                    <button
+                        key={grade.level}
+                        type="button"
+                        onClick={() => setProblem(grade.example_problem)}
+                        className={`text-xs px-3 py-1.5 rounded-full transition-colors ${selectedGrade === grade.level
+                                ? 'bg-sky-100 text-sky-700 ring-1 ring-sky-300'
+                                : 'bg-slate-100 text-slate-500 hover:bg-sky-50 hover:text-sky-600'
+                            }`}
+                    >
+                        {grade.display_name}：{grade.example_problem.slice(0, 15)}...
+                    </button>
+                ))}
             </div>
         </form>
     )

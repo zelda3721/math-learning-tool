@@ -9,6 +9,7 @@ export interface Grade {
     display_name: string;
     thinking_style: string;
     visualization_style: string;
+    example_problem: string;
 }
 
 export interface ProcessProblemRequest {
