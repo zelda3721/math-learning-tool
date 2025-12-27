@@ -110,12 +110,8 @@ def build_workflow(
     
     # Conditional edges
     workflow.add_conditional_edges("classify", _route_after_classify)
-    workflow.add_conditional_edges("understand", _route_after_understand)
-    workflow.add_conditional_edges("solve", _route_after_solve)
     workflow.add_conditional_edges("validate", _route_after_validate)
-    workflow.add_conditional_edges("visualize", _route_after_visualize)
     workflow.add_conditional_edges("execute", _route_after_execute)
-    workflow.add_conditional_edges("debug", _route_after_debug)
     
     # Regular edges
     workflow.add_edge("understand", "solve")
