@@ -1,4 +1,4 @@
-import { Grade } from '../services/api'
+import type { Grade } from '../services/api'
 
 interface GradeSelectorProps {
     grades: Grade[]
@@ -19,7 +19,7 @@ export function GradeSelector({
                 {[1, 2, 3, 4, 5].map((i) => (
                     <div
                         key={i}
-                        className="h-12 w-28 glass animate-pulse rounded-xl"
+                        className="h-12 w-28 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl animate-pulse"
                     />
                 ))}
             </div>
@@ -35,8 +35,8 @@ export function GradeSelector({
                         key={grade.level}
                         onClick={() => onSelect(grade.level)}
                         className={`px-4 py-3 rounded-xl font-medium transition-all duration-300 ${selectedGrade === grade.level
-                                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                                : 'glass text-zinc-400 hover:text-white hover:border-purple-500/30'
+                            ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
+                            : 'bg-white/5 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:border-purple-500/30'
                             }`}
                     >
                         {grade.display_name}
@@ -46,3 +46,4 @@ export function GradeSelector({
         </div>
     )
 }
+

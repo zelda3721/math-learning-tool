@@ -1,6 +1,6 @@
 export function Header() {
     return (
-        <header className="glass border-b border-white/10 sticky top-0 z-50">
+        <header className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl border-b border-white/10 sticky top-0 z-50">
             <div className="container mx-auto px-4 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
