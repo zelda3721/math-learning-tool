@@ -175,10 +175,10 @@ def _sync_solve_simple(state: dict, model) -> dict:
         return {"solution": None, "answer": ""}
 
 
-def _sync_solving(state: dict, model) -> dict:
+def _sync_solving(state: dict, model, skill_repo: ISkillRepository | None = None) -> dict:
     """Sync wrapper for solving_node"""
     try:
-        result = _run_in_thread(solving_node(state, model))
+        result = _run_in_thread(solving_node(state, model, skill_repo))
         result["solve_attempts"] = state.get("solve_attempts", 0) + 1
         return result
     except Exception as e:
