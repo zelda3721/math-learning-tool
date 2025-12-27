@@ -131,7 +131,7 @@ def build_workflow(
 import concurrent.futures
 import functools
 
-def _run_in_thread(async_func, timeout_seconds: int = 60):
+def _run_in_thread(async_func, timeout_seconds: int = 120):
     """Run an async function in a separate thread with its own event loop"""
     import asyncio
     
@@ -200,7 +200,7 @@ def _sync_visualize(state: WorkflowState, model: ChatOpenAI, skill_repo: ISkillR
     try:
         # Pass state as dict to node
         # _run_in_thread already handles creating a new event loop and running the async function
-        result = _run_in_thread(visualize_node(state, model, skill_repo))
+        result = _run_in_thread(visualize_node(state, model, skill_repo), timeout_seconds=300)
         
         return WorkflowState(**result) # type: ignore
     except Exception as e:
