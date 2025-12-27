@@ -5,6 +5,8 @@ import logging
 import re
 from typing import Any
 
+from ...config import get_settings
+from ...application.interfaces import ISkillRepository
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -69,14 +71,28 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 答案：{answer}
 """
     
-    system_prompt = """你是一个Manim可视化专家。请为数学题目生成可视化代码。
-
+    settings = get_settings()
+    
+    base_prompt = "你是一个Manim可视化专家。请为数学题目生成可视化代码。"
+    
+    latex_constraint = ""
+    if not settings.manim_use_latex:
+        latex_constraint = """
 重要限制（CRITICAL）：
 1. 系统【没有安装LaTeX】环境。
 2. 严禁使用 MathTex, Tex, Matrix 等需要LaTeX编译的类。
 3. 所有文本必须使用 Text 类。
 4. 显示数学公式时，用普通字符串表示，例如 Text("x² + y² = 1")。
 """
+    else:
+        # If LaTeX is enabled, we still prefer Text for Chinese to avoid font issues
+        latex_constraint = """
+注意事项： 
+1. 中文内容推荐使用 Text(..., font="Microsoft YaHei")。
+2. 确实需要优美公式时可以使用 MathTex。
+"""
+
+    system_prompt = f"{base_prompt}\n{latex_constraint}"
     
     if skill_context:
         prompt = f"""{system_prompt}
@@ -87,7 +103,7 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 
 基本要求：
 1. 生成完整的Scene类代码 (从 from manim import * 开始)
-2. 使用模板中的可视化原则（但不要使用任何 MathTex/Tex）
+2. 使用模板中的可视化原则
 3. 动态计算和展示题目中的具体数值
 4. 确保所有变量在使用前定义
 5. 支持中文显示 (font="Microsoft YaHei" 或类似)
