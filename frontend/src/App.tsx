@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { api, ProcessProblemResponse, Grade } from './services/api'
+import { api } from './services/api'
+import type { ProcessProblemResponse, Grade } from './services/api'
 
 // Components
 import { Header } from './components/Header'

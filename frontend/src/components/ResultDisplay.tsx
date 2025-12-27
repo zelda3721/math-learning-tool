@@ -1,4 +1,4 @@
-import { ProcessProblemResponse } from '../services/api'
+import type { ProcessProblemResponse } from '../services/api'
 
 interface ResultDisplayProps {
     result: ProcessProblemResponse
