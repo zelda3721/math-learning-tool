@@ -17,6 +17,7 @@ async def list_grades() -> list[dict]:
             "display_name": grade.display_name,
             "thinking_style": profile.thinking_style,
             "visualization_style": profile.visualization_style,
+            "example_problem": profile.example_problem,
         }
         for grade, profile in GRADE_PROFILES.items()
     ]

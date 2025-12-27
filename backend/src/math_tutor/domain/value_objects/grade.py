@@ -10,18 +10,18 @@ class EducationLevel(str, Enum):
     
     ELEMENTARY_LOWER = "elementary_lower"  # 小学低年级 1-3
     ELEMENTARY_UPPER = "elementary_upper"  # 小学高年级 4-6
-    MIDDLE_SCHOOL = "middle_school"        # 初中 7-9
-    HIGH_SCHOOL = "high_school"            # 高中 10-12
-    UNIVERSITY = "university"              # 大学微积分
+    MIDDLE_SCHOOL = "middle"               # 初中 7-9
+    HIGH_SCHOOL = "high"                   # 高中 10-12
+    ADVANCED = "advanced"                  # 高等数学
     
     @property
     def display_name(self) -> str:
         names = {
-            "elementary_lower": "小学低年级 (1-3年级)",
-            "elementary_upper": "小学高年级 (4-6年级)",
-            "middle_school": "初中",
-            "high_school": "高中",
-            "university": "大学微积分",
+            "elementary_lower": "小学低年级",
+            "elementary_upper": "小学高年级",
+            "middle": "初中",
+            "high": "高中",
+            "advanced": "高等数学",
         }
         return names.get(self.value, self.value)
 
@@ -33,6 +33,7 @@ class GradeProfile:
     level: EducationLevel
     thinking_style: str
     visualization_style: str
+    example_problem: str  # Example problem for this grade
     available_skills: list[str] = field(default_factory=list)
     
     # Visual style configuration
@@ -42,12 +43,13 @@ class GradeProfile:
     use_3d: bool = False
 
 
-# Pre-defined grade profiles
+# Pre-defined grade profiles with example problems
 GRADE_PROFILES: dict[EducationLevel, GradeProfile] = {
     EducationLevel.ELEMENTARY_LOWER: GradeProfile(
         level=EducationLevel.ELEMENTARY_LOWER,
-        thinking_style="具象思维：实物演示、数形结合",
+        thinking_style="具象思维：画图法、实物演示",
         visualization_style="卡通图标、实物动画、色彩鲜明",
+        example_problem="小明有5个苹果，吃了2个，还剩几个？",
         available_skills=["counting", "addition", "subtraction"],
         colors=["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4"],
         animation_speed=0.8,
@@ -55,8 +57,9 @@ GRADE_PROFILES: dict[EducationLevel, GradeProfile] = {
     ),
     EducationLevel.ELEMENTARY_UPPER: GradeProfile(
         level=EducationLevel.ELEMENTARY_UPPER,
-        thinking_style="具象到抽象过渡：数形结合、简单推理",
-        visualization_style="图形动画、数字变换",
+        thinking_style="数学思维：假设法、逆推法、列表法",
+        visualization_style="图形动画、表格对比、分步图解",
+        example_problem="鸡兔同笼，头35，脚94，各多少？",
         available_skills=[
             "counting", "addition", "subtraction", "multiplication", 
             "division", "fraction", "geometry"
@@ -66,8 +69,9 @@ GRADE_PROFILES: dict[EducationLevel, GradeProfile] = {
     ),
     EducationLevel.MIDDLE_SCHOOL: GradeProfile(
         level=EducationLevel.MIDDLE_SCHOOL,
-        thinking_style="抽象思维：符号运算、几何推理",
+        thinking_style="代数思维：方程与函数",
         visualization_style="几何图形、方程变换、坐标系",
+        example_problem="解方程：2x + 5 = 13",
         available_skills=[
             "equation_balance", "coordinate_plane", "linear_graph",
             "triangle_proof", "geometry"
@@ -77,8 +81,9 @@ GRADE_PROFILES: dict[EducationLevel, GradeProfile] = {
     ),
     EducationLevel.HIGH_SCHOOL: GradeProfile(
         level=EducationLevel.HIGH_SCHOOL,
-        thinking_style="形式推理：函数思想、逻辑证明",
+        thinking_style="初等数学深化：数形结合、分类讨论",
         visualization_style="函数图像、向量动画、3D视图",
+        example_problem="求函数 f(x) = x² - 4x + 3 的最小值",
         available_skills=[
             "quadratic_parabola", "trigonometry_circle", 
             "vector_arrow", "sequence_series"
@@ -86,10 +91,11 @@ GRADE_PROFILES: dict[EducationLevel, GradeProfile] = {
         colors=["#1e3a8a", "#3730a3", "#4f46e5", "#6366f1"],
         animation_speed=1.5,
     ),
-    EducationLevel.UNIVERSITY: GradeProfile(
-        level=EducationLevel.UNIVERSITY,
-        thinking_style="极限思想：无穷小、连续变化、严格证明",
+    EducationLevel.ADVANCED: GradeProfile(
+        level=EducationLevel.ADVANCED,
+        thinking_style="高等数学：极限、微积分、线性代数",
         visualization_style="极限动画、积分面积、3D曲面",
+        example_problem="求极限：lim(x→0) sin(x)/x",
         available_skills=[
             "limit_epsilon_delta", "derivative_tangent",
             "integral_area", "taylor_series", "multivariable_3d"
