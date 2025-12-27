@@ -94,8 +94,8 @@ VISUAL_STYLES: dict[EducationLevel, VisualStyle] = {
         use_gradients=True,
     ),
     
-    # University: 3Blue1Brown inspired, abstract beauty
-    EducationLevel.UNIVERSITY: VisualStyle(
+    # Advanced (高等数学): 3Blue1Brown inspired, abstract beauty
+    EducationLevel.ADVANCED: VisualStyle(
         primary_color="BLUE_E",
         secondary_color="TEAL_E",
         accent_color="YELLOW_D",
