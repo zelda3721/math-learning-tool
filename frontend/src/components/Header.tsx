@@ -1,4 +1,4 @@
-import { Menu, Settings, Bell } from 'lucide-react'
+import { Settings, Bell } from 'lucide-react'
 
 export function Header() {
     return (

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Send, Sparkles, Pencil } from 'lucide-react'
+import { Send, Pencil } from 'lucide-react'
 
 interface ProblemInputProps {
     onSubmit: (problem: string) => void
