@@ -5,8 +5,8 @@ import logging
 import re
 from typing import Any
 
-from ...config import get_settings
-from ...application.interfaces import ISkillRepository
+from math_tutor.config import get_settings
+from math_tutor.application.interfaces import ISkillRepository
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 

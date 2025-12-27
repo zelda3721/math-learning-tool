@@ -103,10 +103,18 @@ class ManimExecutor(IVideoGenerator):
             )
             
             if process.returncode == 0:
-                video_path = self._find_video_file(scene_name)
+                # Try to parse path from stdout/stderr first
+                output_log = process.stdout + "\n" + process.stderr
+                video_path = self._parse_video_path_from_log(output_log)
+                
+                if not video_path:
+                    logger.warning("Could not parse video path from logs, falling back to search")
+                    video_path = self._find_video_file(scene_name)
+                
                 if video_path:
                     logger.info(f"Video generated: {video_path}")
                     return VideoResult(success=True, video_path=str(video_path))
+                
                 return VideoResult(
                     success=False,
                     error_message="Video file not found after execution",
@@ -200,3 +208,14 @@ class DefaultMathVisualization(Scene):
                     latest_video = file_path
         
         return latest_video
+
+    def _parse_video_path_from_log(self, log: str) -> Path | None:
+        """Parse video file path from Manim execution log"""
+        # Manim pattern: "File ready at:  /path/to/video.mp4"
+        match = re.search(r"File ready at:\s+['\"]?([^'\"]+\.mp4)['\"]?", log)
+        if match:
+            path_str = match.group(1).strip()
+            path = Path(path_str)
+            if path.exists():
+                return path
+        return None
