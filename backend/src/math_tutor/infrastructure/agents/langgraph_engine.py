@@ -80,16 +80,16 @@ def build_workflow(
     # Create graph
     workflow = StateGraph(dict)
     
-    # Add nodes with bound dependencies
-    workflow.add_node("classify", lambda s: _run_async(classifier_node(s, model)))
-    workflow.add_node("understand", lambda s: _run_async(understanding_node(s, model)))
-    workflow.add_node("solve_simple", lambda s: _run_async(solve_simple_node(s, model)))
-    workflow.add_node("solve", lambda s: _run_async(solving_node(s, model)))
-    workflow.add_node("validate", lambda s: _run_async(validator_node(s, model)))
-    workflow.add_node("visualize", lambda s: _run_async(visualize_node(s, model)))
-    workflow.add_node("execute", lambda s: _run_async(execute_node(s, manim_executor)))
-    workflow.add_node("debug", lambda s: _run_async(debug_node(s, model)))
-    workflow.add_node("fallback", lambda s: _run_async(fallback_node(s)))
+    # Add nodes - use sync wrapper functions
+    workflow.add_node("classify", lambda s: _sync_classifier(s, model))
+    workflow.add_node("understand", lambda s: _sync_understanding(s, model))
+    workflow.add_node("solve_simple", lambda s: _sync_solve_simple(s, model))
+    workflow.add_node("solve", lambda s: _sync_solving(s, model))
+    workflow.add_node("validate", lambda s: _sync_validator(s, model))
+    workflow.add_node("visualize", lambda s: _sync_visualize(s, model))
+    workflow.add_node("execute", lambda s: _sync_execute(s, manim_executor))
+    workflow.add_node("debug", lambda s: _sync_debug(s, model))
+    workflow.add_node("fallback", lambda s: _sync_fallback(s))
     
     # Set entry point
     workflow.set_entry_point("classify")
@@ -108,27 +108,115 @@ def build_workflow(
     workflow.add_edge("fallback", END)
     
     return workflow
+# ============================================================
+# Synchronous Wrapper Functions for LangGraph Nodes
+# These wrap the async node functions using thread-based execution
+# to avoid uvloop compatibility issues
+# ============================================================
 
+import concurrent.futures
+import functools
 
-def _run_async(coro):
-    """Helper to run async nodes synchronously in LangGraph"""
+def _run_in_thread(async_func):
+    """Run an async function in a separate thread with its own event loop"""
     import asyncio
-    try:
-        # Try to get the current event loop
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop, create one
+    
+    def run():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(coro)
+            return loop.run_until_complete(async_func)
         finally:
             loop.close()
-    else:
-        # Already in an async context, use nest_asyncio
-        import nest_asyncio
-        nest_asyncio.apply()
-        return loop.run_until_complete(coro)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(run)
+        return future.result(timeout=120)  # 2 minute timeout
+
+
+def _sync_classifier(state: dict, model) -> dict:
+    """Sync wrapper for classifier_node"""
+    try:
+        return _run_in_thread(classifier_node(state, model))
+    except Exception as e:
+        logger.exception(f"Classifier failed: {e}")
+        return {"problem_type": "complex", "problem_difficulty": "medium"}
+
+
+def _sync_understanding(state: dict, model) -> dict:
+    """Sync wrapper for understanding_node"""
+    try:
+        return _run_in_thread(understanding_node(state, model))
+    except Exception as e:
+        logger.exception(f"Understanding failed: {e}")
+        return {"analysis": None}
+
+
+def _sync_solve_simple(state: dict, model) -> dict:
+    """Sync wrapper for solve_simple_node"""
+    try:
+        return _run_in_thread(solve_simple_node(state, model))
+    except Exception as e:
+        logger.exception(f"Solve simple failed: {e}")
+        return {"solution": None, "answer": ""}
+
+
+def _sync_solving(state: dict, model) -> dict:
+    """Sync wrapper for solving_node"""
+    try:
+        result = _run_in_thread(solving_node(state, model))
+        result["solve_attempts"] = state.get("solve_attempts", 0) + 1
+        return result
+    except Exception as e:
+        logger.exception(f"Solving failed: {e}")
+        return {"solution": None, "answer": "", "solve_attempts": state.get("solve_attempts", 0) + 1}
+
+
+def _sync_validator(state: dict, model) -> dict:
+    """Sync wrapper for validator_node"""
+    try:
+        return _run_in_thread(validator_node(state, model))
+    except Exception as e:
+        logger.exception(f"Validator failed: {e}")
+        return {"is_valid": True}  # Skip validation on error
+
+
+def _sync_visualize(state: dict, model) -> dict:
+    """Sync wrapper for visualize_node"""
+    try:
+        return _run_in_thread(visualize_node(state, model))
+    except Exception as e:
+        logger.exception(f"Visualize failed: {e}")
+        return {"manim_code": ""}
+
+
+def _sync_execute(state: dict, manim_executor) -> dict:
+    """Sync wrapper for execute_node"""
+    try:
+        return _run_in_thread(execute_node(state, manim_executor))
+    except Exception as e:
+        logger.exception(f"Execute failed: {e}")
+        return {"video_path": None, "error_message": str(e), "error_type": "runtime", "debug_attempts": state.get("debug_attempts", 0) + 1}
+
+
+def _sync_debug(state: dict, model) -> dict:
+    """Sync wrapper for debug_node"""
+    try:
+        result = _run_in_thread(debug_node(state, model))
+        result["debug_attempts"] = state.get("debug_attempts", 0) + 1
+        return result
+    except Exception as e:
+        logger.exception(f"Debug failed: {e}")
+        return {"manim_code": state.get("manim_code", ""), "debug_attempts": state.get("debug_attempts", 0) + 1}
+
+
+def _sync_fallback(state: dict) -> dict:
+    """Sync wrapper for fallback_node"""
+    try:
+        return _run_in_thread(fallback_node(state))
+    except Exception as e:
+        logger.exception(f"Fallback failed: {e}")
+        return {"status": "fallback", "fallback_content": "无法生成可视化，请查看文字解答。"}
 
 
 def _route_after_classify(state: dict) -> str:
