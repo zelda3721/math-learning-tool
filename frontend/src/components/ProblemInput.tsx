@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { Send, Sparkles, Pencil } from 'lucide-react'
 
 interface ProblemInputProps {
     onSubmit: (problem: string) => void
-    isLoading?: boolean
+    isLoading: boolean
 }
 
 export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
@@ -11,72 +12,69 @@ export function ProblemInput({ onSubmit, isLoading }: ProblemInputProps) {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         if (problem.trim() && !isLoading) {
-            onSubmit(problem.trim())
+            onSubmit(problem)
         }
     }
 
-    const exampleProblems = [
-        '小明有25个糖果，给了小红8个，又给了小刚5个，然后妈妈给了他10个。现在有多少个糖果？',
-        '一个长方形的长是12厘米，宽是8厘米，求它的周长和面积。',
-        '甲乙两车分别从A、B两地同时出发相向而行，甲车速度60公里/小时，乙车速度40公里/小时，AB两地相距200公里，问多久相遇？',
-    ]
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            handleSubmit(e)
+        }
+    }
 
     return (
-        <div className="space-y-4">
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label htmlFor="problem" className="block text-sm font-medium text-zinc-400 mb-2">
-                            输入数学题目
-                        </label>
-                        <textarea
-                            id="problem"
-                            value={problem}
-                            onChange={(e) => setProblem(e.target.value)}
-                            placeholder="请输入您想解决的数学问题..."
-                            rows={4}
-                            className="input-bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl resize-none"
-                            disabled={isLoading}
-                        />
-                    </div>
+        <form onSubmit={handleSubmit} className="w-full relative">
+            <div className="absolute -top-3 left-4 bg-gradient-to-r from-sky-400 to-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md z-10 flex items-center gap-1">
+                <Pencil size={12} />
+                <span>输入题目</span>
+            </div>
 
+            <div className="relative group">
+                <textarea
+                    value={problem}
+                    onChange={(e) => setProblem(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="例如：小明有5个苹果，吃了2个，还剩几个？..."
+                    className="input-hero min-h-[140px] resize-none pt-6 pl-6 pr-24 text-lg md:text-xl leading-relaxed"
+                />
+
+                <div className="absolute bottom-4 right-4 flex items-center gap-2">
+                    <span className={`text-xs transition-opacity duration-300 ${problem.length > 0 ? 'opacity-100' : 'opacity-0'} text-slate-400`}>
+                        Shift + Enter 换行
+                    </span>
                     <button
                         type="submit"
                         disabled={!problem.trim() || isLoading}
-                        className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                        className={`
+                            h-12 w-12 rounded-2xl flex items-center justify-center transition-all duration-300
+                            ${!problem.trim() || isLoading
+                                ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                                : 'bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-200 hover:scale-110 hover:shadow-sky-300 active:scale-95'
+                            }
+                        `}
                     >
                         {isLoading ? (
-                            <span className="flex items-center justify-center gap-2">
-                                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                </svg>
-                                处理中...
-                            </span>
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
-                            '开始分析 ✨'
+                            <Send size={22} className={problem.trim() ? 'ml-0.5' : ''} />
                         )}
                     </button>
-                </form>
-            </div>
-
-            {/* Example Problems */}
-            <div>
-                <p className="text-xs text-zinc-500 mb-2">示例题目：</p>
-                <div className="flex flex-wrap gap-2">
-                    {exampleProblems.map((example, i) => (
-                        <button
-                            key={i}
-                            onClick={() => setProblem(example)}
-                            disabled={isLoading}
-                            className="text-xs px-3 py-1.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl text-zinc-400 hover:text-white 
-                       hover:border-purple-500/30 transition-all truncate max-w-[200px]"
-                        >
-                            {example.slice(0, 30)}...
-                        </button>
-                    ))}
                 </div>
             </div>
-        </div>
+
+            {/* Helper Chips */}
+            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                <button type="button" onClick={() => setProblem("25 + 18 = ?")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
+                    🎲 25 + 18 = ?
+                </button>
+                <button type="button" onClick={() => setProblem("鸡兔同笼，头35，脚94，各多少？")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
+                    🐰 鸡兔同笼
+                </button>
+                <button type="button" onClick={() => setProblem("一个长方形长5cm宽3cm，求面积")} className="text-xs px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-sky-50 hover:text-sky-600 transition-colors">
+                    📐 几何面积
+                </button>
+            </div>
+        </form>
     )
 }

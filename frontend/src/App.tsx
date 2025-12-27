@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from './services/api'
-import type { ProcessProblemResponse, Grade } from './services/api'
 
 // Components
 import { Header } from './components/Header'
@@ -11,75 +10,89 @@ import { ResultDisplay } from './components/ResultDisplay'
 import { LoadingAnimation } from './components/LoadingAnimation'
 
 function App() {
-  const [selectedGrade, setSelectedGrade] = useState('elementary_upper')
-  const [result, setResult] = useState<ProcessProblemResponse | null>(null)
+  const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
 
-  // Fetch grades
-  const { data: grades, isLoading: gradesLoading } = useQuery<Grade[]>({
+  // Queries
+  const gradesQuery = useQuery({
     queryKey: ['grades'],
-    queryFn: api.getGrades,
+    queryFn: () => api.getGrades(),
   })
 
-  // Process problem mutation
-  const processMutation = useMutation({
+  // Mutations
+  const solveMutation = useMutation({
     mutationFn: (problem: string) =>
       api.processProblem({ problem, grade: selectedGrade }),
-    onSuccess: (data) => {
-      setResult(data)
-    },
   })
 
-  const handleSubmit = (problem: string) => {
-    setResult(null)
-    processMutation.mutate(problem)
-  }
-
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex flex-col relative overflow-hidden">
+      {/* Dynamic Background Orbs (Adding more via JS/CSS if needed, but CSS handles base) */}
+
       <Header />
 
-      <main className="container mx-auto px-4 py-8 max-w-4xl">
-        {/* Grade Selector */}
-        <section className="mb-8">
-          <GradeSelector
-            grades={grades || []}
-            selectedGrade={selectedGrade}
-            onSelect={setSelectedGrade}
-            isLoading={gradesLoading}
-          />
-        </section>
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 md:py-12 flex flex-col gap-8 relative z-10">
 
-        {/* Problem Input */}
-        <section className="mb-8">
-          <ProblemInput
-            onSubmit={handleSubmit}
-            isLoading={processMutation.isPending}
-          />
-        </section>
-
-        {/* Loading State */}
-        {processMutation.isPending && (
-          <section className="mb-8">
-            <LoadingAnimation />
-          </section>
-        )}
-
-        {/* Results */}
-        {result && (
-          <section>
-            <ResultDisplay result={result} />
-          </section>
-        )}
-
-        {/* Error */}
-        {processMutation.isError && (
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 border-red-500/30">
-            <p className="text-red-400">
-              处理失败: {(processMutation.error as Error).message}
+        {/* Hero Section */}
+        <section className="flex flex-col items-center text-center space-y-6 max-w-3xl mx-auto mt-8">
+          <div className="space-y-2">
+            <h1 className="text-hero leading-tight">
+              让数学变得<br /><span className="text-sky-500">简单又有趣</span>
+            </h1>
+            <p className="text-slate-500 text-lg md:text-xl max-w-xl mx-auto">
+              选择年级，输入题目，我会一步步教你解题，就像看动画片一样简单。
             </p>
           </div>
-        )}
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent my-4" />
+
+          <div className="w-full">
+            <GradeSelector
+              grades={gradesQuery.data || []}
+              selectedGrade={selectedGrade}
+              onSelect={setSelectedGrade}
+              isLoading={gradesQuery.isLoading}
+            />
+          </div>
+        </section>
+
+        {/* Interaction Section */}
+        <section className="w-full max-w-3xl mx-auto">
+          <div className="soft-glass p-1"> {/* Glass wrapper for polish */}
+            <div className="bg-white/50 rounded-[1.4rem] p-6 md:p-8 backdrop-blur-sm">
+              <ProblemInput
+                onSubmit={(problem) => solveMutation.mutate(problem)}
+                isLoading={solveMutation.isPending}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Results Section */}
+        <section className="w-full pb-20">
+          {solveMutation.isPending && (
+            <div className="flex justify-center py-12">
+              <LoadingAnimation />
+            </div>
+          )}
+
+          {solveMutation.isError && (
+            <div className="soft-glass-panel p-6 border-l-4 border-red-400 bg-red-50/50">
+              <h3 className="font-semibold text-red-600 mb-1">出错了</h3>
+              <p className="text-slate-600">{solveMutation.error.message}</p>
+            </div>
+          )}
+
+          {solveMutation.isSuccess && solveMutation.data && (
+            <ResultDisplay result={solveMutation.data} />
+          )}
+        </section>
+
       </main>
+
+      {/* Simple Footer */}
+      <footer className="py-6 text-center text-slate-400 text-sm">
+        <p>© 2025 AI Math Tutor • Luminous Horizon Edition</p>
+      </footer>
     </div>
   )
 }
