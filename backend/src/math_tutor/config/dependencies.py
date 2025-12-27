@@ -44,8 +44,12 @@ def get_llm_service(
     return LangChainService(skill_repository=skill_repository)
 
 
-@lru_cache
-def get_langgraph_engine() -> LangGraphEngine:
-    """Get LangGraph workflow engine (recommended)"""
-    return LangGraphEngine()
+# Note: We don't cache LangGraphEngine here because it depends on skill_repository which is a Depends dependency.
+# If we want caching, we should cache the internal build_workflow result or use a singleton pattern.
+# For now, instantiating per request is safe as compiled graph is lightweight or we can optimize later.
+def get_langgraph_engine(
+    skill_repository: ISkillRepository = Depends(get_skill_repository),
+) -> LangGraphEngine:
+    """Get LangGraph workflow engine"""
+    return LangGraphEngine(skill_repo=skill_repository)
 

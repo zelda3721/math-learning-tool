@@ -23,6 +23,7 @@ from .nodes import (
 from ..manim import ManimExecutor
 from ...domain.value_objects import EducationLevel
 from ...config import get_settings
+from ...application.interfaces import ISkillRepository
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class WorkflowState(TypedDict, total=False):
 def build_workflow(
     model: ChatOpenAI | None = None,
     manim_executor: ManimExecutor | None = None,
+    skill_repo: ISkillRepository | None = None,
 ) -> StateGraph:
     """
     Build the LangGraph workflow for math problem processing.
@@ -96,7 +98,7 @@ def build_workflow(
     workflow.add_node("classify", lambda s: _sync_classifier(s, model))
     workflow.add_node("understand", lambda s: _sync_understanding(s, model))
     workflow.add_node("solve_simple", lambda s: _sync_solve_simple(s, model))
-    workflow.add_node("solve", lambda s: _sync_solving(s, model))
+    workflow.add_node("solve", lambda s: _sync_solving(s, model, skill_repo))
     workflow.add_node("validate", lambda s: _sync_validator(s, model))
     workflow.add_node("visualize", lambda s: _sync_visualize(s, model))
     workflow.add_node("execute", lambda s: _sync_execute(s, manim_executor))
@@ -108,8 +110,12 @@ def build_workflow(
     
     # Conditional edges
     workflow.add_conditional_edges("classify", _route_after_classify)
+    workflow.add_conditional_edges("understand", _route_after_understand)
+    workflow.add_conditional_edges("solve", _route_after_solve)
     workflow.add_conditional_edges("validate", _route_after_validate)
+    workflow.add_conditional_edges("visualize", _route_after_visualize)
     workflow.add_conditional_edges("execute", _route_after_execute)
+    workflow.add_conditional_edges("debug", _route_after_debug)
     
     # Regular edges
     workflow.add_edge("understand", "solve")
@@ -301,8 +307,9 @@ class LangGraphEngine:
         self,
         model: ChatOpenAI | None = None,
         manim_executor: ManimExecutor | None = None,
+        skill_repo: ISkillRepository | None = None,
     ):
-        self.workflow = build_workflow(model, manim_executor)
+        self.workflow = build_workflow(model, manim_executor, skill_repo)
         self.app = self.workflow.compile()
     
     async def process_problem(
