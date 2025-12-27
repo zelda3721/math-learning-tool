@@ -17,13 +17,16 @@ from ..infrastructure.llm import LangChainService
 from ..infrastructure.agents.langgraph_engine import LangGraphEngine
 
 
-@lru_cache
-def get_skill_repository(
-    settings: Settings = Depends(get_settings),
-) -> ISkillRepository:
+_skill_repo_instance: ISkillRepository | None = None
+
+
+def get_skill_repository() -> ISkillRepository:
     """Get cached skill repository instance"""
-    skills_dir = Path(__file__).parent.parent / "infrastructure" / "skills" / "definitions"
-    return FileSkillRepository(skills_dir)
+    global _skill_repo_instance
+    if _skill_repo_instance is None:
+        skills_dir = Path(__file__).parent.parent / "infrastructure" / "skills" / "definitions"
+        _skill_repo_instance = FileSkillRepository(skills_dir)
+    return _skill_repo_instance
 
 
 def get_video_generator(
