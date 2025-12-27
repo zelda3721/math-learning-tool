@@ -45,7 +45,7 @@ export function GradeSelector({
                             `}
                         >
                             {isSelected && (
-                                <span className="absolute inset-0 bg-white rounded-full shadow-sm z-0" loading="lazy" />
+                                <span className="absolute inset-0 bg-white rounded-full shadow-sm z-0" />
                             )}
                             <span className="relative z-10 flex items-center gap-2">
                                 {grade.display_name}
