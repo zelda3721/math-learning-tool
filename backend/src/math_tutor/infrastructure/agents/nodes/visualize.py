@@ -21,27 +21,47 @@ VISUALIZE_PROMPT = """你是一个Manim可视化专家。请为数学题目生�
 输出格式：直接输出完整Python代码，从 from manim import * 开始。"""
 
 
-async def visualize_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]:
+async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: Any = None) -> dict[str, Any]:
     """
     Generate Manim visualization code.
+    Uses Skill System to retrieve code templates and visualization principles.
     """
     problem_text = state.get("problem_text", "")
     problem_type = state.get("problem_type", "complex")
+    grade_level = state.get("grade_level", "elementary_upper")
     solution = state.get("solution", {})
     steps = state.get("steps", [])
     answer = state.get("answer", "")
     
     logger.info(f"Generating visualization for: {problem_text[:50]}...")
     
+    # Context Engineering: Retrieve relevant skill
+    skill_context = ""
+    if skill_repo:
+        best_skill = skill_repo.find_best_match(problem_text, grade_level)
+        
+        if best_skill:
+            logger.info(f"Matched visualization skill: {best_skill.name}")
+            skill_context = f"""
+【参考可视化模板：{best_skill.name}】
+{best_skill.prompt_template}
+
+### 代码模板（请参考此结构实现，但要适配具体题目数据）
+```python
+{best_skill.code_template}
+```
+"""
+
     # Format steps
     steps_text = "\n".join(
         f"{s.get('step_number', i+1)}. {s.get('description', '')}: {s.get('operation', '')}"
         for i, s in enumerate(steps)
     )
     
-    context = f"""
+    problem_context = f"""
 题目：{problem_text}
 题型：{problem_type}
+年级：{grade_level}
 
 解题步骤：
 {steps_text}
@@ -49,10 +69,27 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, 
 答案：{answer}
 """
     
+    if skill_context:
+        prompt = f"""你是一个Manim可视化专家。请基于参考模板为题目生成代码。
+        
+{skill_context}
+
+基本要求：
+1. 生成完整的Scene类代码 (从 from manim import * 开始)
+2. 使用模板中的可视化原则（如假设法动画、数量对应等）
+3. 动态计算和展示题目中的具体数值（不要硬编码模板中的数字）
+4. 确保所有变量在使用前定义
+5. 支持中文显示 (font="Microsoft YaHei" 或类似)
+
+输出格式：直接输出完整Python代码。"""
+    else:
+        # Default prompt if no skill matched
+        prompt = VISUALIZE_PROMPT
+        
     try:
         response = await model.ainvoke([
-            SystemMessage(content=VISUALIZE_PROMPT),
-            HumanMessage(content=context),
+            SystemMessage(content=prompt),
+            HumanMessage(content=problem_context),
         ])
         
         code = _extract_code(response.content)
@@ -65,6 +102,8 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, 
         logger.error(f"Visualization failed: {e}")
         return {
             "manim_code": _fallback_code(problem_text, answer),
+            "error_type": "structure",
+            "error_message": str(e)
         }
 
 
