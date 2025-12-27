@@ -25,7 +25,7 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, 
     """
     Generate Manim visualization code.
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
     problem_type = state.get("problem_type", "complex")
     solution = state.get("solution", {})
     steps = state.get("steps", [])

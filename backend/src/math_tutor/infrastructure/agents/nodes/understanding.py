@@ -36,7 +36,10 @@ async def understanding_node(state: dict[str, Any], model: ChatOpenAI) -> dict[s
     This node is only called for complex problems that need
     detailed understanding before solving.
     """
-    problem_text = state["problem_text"]
+    problem_text = state.get("problem_text", "")
+    if not problem_text:
+        logger.error("No problem_text in state!")
+        return {"analysis": {}, "concepts": [], "known_conditions": [], "question": ""}
     
     logger.info(f"Understanding: {problem_text[:50]}...")
     
