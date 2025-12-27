@@ -27,13 +27,25 @@ from ...config import get_settings
 logger = logging.getLogger(__name__)
 
 
-# State type definition
-class WorkflowState(dict):
-    """Workflow state dictionary with type hints"""
+# State type definition using TypedDict for proper LangGraph state merging
+from typing import TypedDict, Annotated
+from operator import add
+
+
+def _replace_reducer(current, update):
+    """Simple reducer that replaces old value with new value"""
+    return update if update is not None else current
+
+
+class WorkflowState(TypedDict, total=False):
+    """
+    Workflow state with proper type hints.
+    All fields are optional to allow partial updates.
+    """
     problem_text: str
     grade_level: str
-    problem_type: Literal["simple", "complex", "geometry", "word"]
-    problem_difficulty: Literal["easy", "medium", "hard"]
+    problem_type: str  # "simple", "complex", "geometry", "word"
+    problem_difficulty: str  # "easy", "medium", "hard"
     analysis: dict | None
     solution: dict | None
     steps: list[dict]
@@ -44,9 +56,9 @@ class WorkflowState(dict):
     manim_code: str
     video_path: str | None
     error_message: str
-    error_type: Literal["syntax", "runtime", "structure", "none"]
+    error_type: str  # "syntax", "runtime", "structure", "none"
     debug_attempts: int
-    status: Literal["pending", "success", "failed", "fallback"]
+    status: str  # "pending", "success", "failed", "fallback"
     fallback_content: str | None
 
 
@@ -77,8 +89,8 @@ def build_workflow(
     if manim_executor is None:
         manim_executor = ManimExecutor()
     
-    # Create graph
-    workflow = StateGraph(dict)
+    # Create graph with typed state schema
+    workflow = StateGraph(WorkflowState)
     
     # Add nodes - use sync wrapper functions
     workflow.add_node("classify", lambda s: _sync_classifier(s, model))
