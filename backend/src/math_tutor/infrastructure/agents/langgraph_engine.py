@@ -129,7 +129,7 @@ def build_workflow(
 import concurrent.futures
 import functools
 
-def _run_in_thread(async_func):
+def _run_in_thread(async_func, timeout_seconds: int = 60):
     """Run an async function in a separate thread with its own event loop"""
     import asyncio
     
@@ -143,7 +143,7 @@ def _run_in_thread(async_func):
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(run)
-        return future.result(timeout=120)  # 2 minute timeout
+        return future.result(timeout=timeout_seconds)  # Configurable timeout
 
 
 def _sync_classifier(state: dict, model) -> dict:
