@@ -14,49 +14,68 @@ logger = logging.getLogger(__name__)
 def _get_solving_prompt(grade_level: str) -> str:
     """Get grade-appropriate solving prompt"""
     
+    # Common visualization emphasis for ALL grades
+    visualization_emphasis = """
+【核心要求 - 可视化思维】
+- 不要只是罗列解题步骤，要用可视化的方式解释数学原理
+- 每个关键步骤都要说明"为什么这样做"，而不只是"怎么做"
+- 用图形、表格、类比等方式帮助理解抽象概念
+- 强调数学思维过程，让学生"看见"数学的美"""
+
     # Grade-specific method guidance
     method_guidance = {
         "elementary_lower": """
-【解题方法要求 - 小学低年级(1-3年级)】
+【小学低年级(1-3年级)】
 - 禁止使用: 方程、未知数x/y、代数式
 - 推荐方法: 画图法、实物演示、逐步数数、凑十法
 - 语言要求: 简单易懂，用"个"、"只"等具象单位
-- 举例说明: 用苹果、小动物等生活化例子""",
+- 可视化: 用苹果、小动物等生活化例子，配合图示说明""",
         
         "elementary_upper": """
-【解题方法要求 - 小学高年级(4-6年级)】
+【小学高年级(4-6年级)】
 - 优先使用: 假设法、列表法、画图分析、逆推法
 - 对于"鸡兔同笼"类问题: 必须用"假设法"（假设全是鸡/兔），不要用方程
 - 五六年级可选: 简单的设未知数方法
-- 语言要求: 清晰的步骤说明，强调数学思维过程""",
+- 可视化: 用表格对比、画图推理、分步图解""",
 
         "middle": """
-【解题方法要求 - 初中】
+【初中】
 - 可使用: 代数方程、函数思想、几何证明
 - 推荐: 列方程组解决实际问题
-- 强调: 解题思路的完整性和逻辑性""",
+- 可视化: 用坐标图、函数图像、几何图形辅助理解""",
 
         "high": """
-【解题方法要求 - 高中】
-- 可使用: 高等数学方法、复杂函数、数列、向量
-- 强调: 数学建模思想、抽象概括能力""",
+【高中】
+- 仍以初等数学思想为主，向高等数学思想过渡
+- 可使用: 函数与方程、数形结合、分类讨论、化归转化
+- 限制: 不要过多使用大学水平的方法（如极限、微积分思想仅作了解）
+- 可视化: 用函数图像、向量图示、空间几何模型""",
+        
+        "advanced": """
+【高等数学】
+- 面向大学及以上水平
+- 可使用: 微积分、线性代数、概率统计等高等数学方法
+- 可视化: 用三维图形、动态变化图、数学软件辅助理解""",
     }
     
     guidance = method_guidance.get(grade_level, method_guidance["elementary_upper"])
     
-    return f"""你是一个针对{grade_level}学生的数学解题专家。
+    return f"""你是一个专业的数学老师，面向{grade_level}学生。
+
+{visualization_emphasis}
 
 {guidance}
 
-请根据题目给出详细的解题步骤，输出JSON格式：
+请根据题目给出详细的解题过程，输出JSON格式：
 {{
   "strategy": "解题策略名称（如：假设法、画图法）",
   "steps": [
-    {{"step_number": 1, "description": "步骤描述", "operation": "运算式或推理过程", "result": "结果"}},
+    {{"step_number": 1, "description": "步骤描述", "operation": "运算式或推理过程", "explanation": "为什么这样做", "result": "结果"}},
     ...
   ],
   "answer": "最终答案（完整句子）",
-  "key_points": ["思维要点1", "思维要点2"]
+  "visualization_hint": "给Manim可视化提示：如何用动画展示这个解题过程",
+  "key_points": ["数学思维要点1", "数学思维要点2"]
 }}"""
 
 
