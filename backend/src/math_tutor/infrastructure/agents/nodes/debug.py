@@ -21,6 +21,12 @@ DEBUG_PROMPT = """你是一个Manim代码调试专家。请修复以下代码中
 请直接输出修复后的完整代码，从 from manim import * 开始。"""
 
 
+LATEX_FIX_PROMPT = """你是一个Manim代码调试专家。系统报错提示环境缺少 LaTeX。
+请修复代码，【将所有 MathTex, Tex 和 Matrix 对象替换为 Text 对象】。
+严禁使用任何 LaTeX 语法。
+请直接输出修复后的完整代码，从 from manim import * 开始。"""
+
+
 REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成失败或超时。请根据题目重新生成完整的Manim代码。
 
 要求：
@@ -28,6 +34,7 @@ REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成�
 2. 使用简单的动画（Write, FadeIn, Create）
 3. 确保类名为 SolutionScene
 4. 代码要短小精悍，不要太复杂以免超时
+5. 【严禁使用 MathTex/Tex】，全部使用 Text 类（因系统无LaTeX）
 
 请直接输出完整代码。"""
 
@@ -45,11 +52,17 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
     problem_text = state.get("problem_text", "")
     solution = state.get("solution", {})
     
-    logger.info(f"Debugging code (attempt {debug_attempts + 1})...")
+    logger.info(f"Debugging code (attempt {debug_attempts + 1})... Code length: {len(manim_code)}")
     
+    # Case 0: LaTeX Error -> Special fix
+    if "latex" in error_message.lower() or "dvipng" in error_message.lower():
+        logger.warning("LaTeX error detected. Switching to Text-only mode.")
+        prompt = LATEX_FIX_PROMPT
+        context = f"错误：{error_message}\n\n当前代码：\n```python\n{manim_code}\n```"
+
     # Case 1: Timeout or missing code -> Regenerate
-    if not manim_code or "Timeout" in error_message:
-        logger.warning("No code found or timeout detected. Regenerating...")
+    elif not manim_code or "Timeout" in error_message:
+        logger.warning(f"No code found (len={len(manim_code)}) or timeout detected. Regenerating...")
         context = f"题目：{problem_text}\n\n解答：{json.dumps(solution, ensure_ascii=False)}\n\n错误：{error_message}"
         prompt = REGENERATE_PROMPT
     
