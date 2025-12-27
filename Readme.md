@@ -91,7 +91,7 @@ math-learning-tool/
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-repo/math-learning-tool.git
+git clone https://github.com/zelda3721/math-learning-tool.git
 cd math-learning-tool
 
 # 2. 配置环境变量

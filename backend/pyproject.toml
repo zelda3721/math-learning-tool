@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "math-tutor"
 version = "2.0.0"
 description = "AI-powered math tutoring tool with multi-grade support"
-readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.109.0",
