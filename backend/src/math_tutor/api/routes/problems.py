@@ -1,10 +1,14 @@
 """
 Problems API endpoints - main processing routes
+
+Uses LangGraph workflow for intelligent problem processing.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...domain.value_objects import EducationLevel
+from ...config.dependencies import get_langgraph_engine
+from ...infrastructure.agents.langgraph_engine import LangGraphEngine
 
 router = APIRouter()
 
@@ -31,50 +35,83 @@ class ProcessProblemResponse(BaseModel):
     analysis: dict | None = None
     solution: dict | None = None
     visualization_code: str | None = None
-    video_url: str | None = None
+    video_path: str | None = None
     error: str | None = None
+    fallback_content: str | None = None
 
 
 @router.post("/process", response_model=ProcessProblemResponse)
-async def process_problem(request: ProcessProblemRequest) -> ProcessProblemResponse:
+async def process_problem(
+    request: ProcessProblemRequest,
+    engine: LangGraphEngine = Depends(get_langgraph_engine),
+) -> ProcessProblemResponse:
     """
-    Process a math problem end-to-end.
+    Process a math problem end-to-end using LangGraph workflow.
     
-    This endpoint:
-    1. Analyzes the problem
-    2. Generates a solution
-    3. Creates visualization code
-    4. Renders the video
+    Flow:
+    1. Classify problem complexity
+    2. Analyze (complex only)
+    3. Solve and validate
+    4. Generate visualization
+    5. Execute Manim
+    6. Debug or fallback on error
     """
-    # TODO: Inject use case via dependency
-    # For now, return a placeholder response
-    return ProcessProblemResponse(
-        status="pending",
-        problem=request.problem,
-        grade=request.grade.value,
-        analysis=None,
-        solution=None,
-        visualization_code=None,
-        video_url=None,
-        error="Processing not yet implemented - infrastructure layer needed",
-    )
+    try:
+        result = await engine.process_problem(
+            problem_text=request.problem,
+            grade=request.grade,
+        )
+        
+        return ProcessProblemResponse(
+            status=result.get("status", "failed"),
+            problem=result.get("problem", request.problem),
+            grade=result.get("grade", request.grade.value),
+            analysis=result.get("analysis"),
+            solution=result.get("solution"),
+            visualization_code=result.get("visualization_code"),
+            video_path=result.get("video_path"),
+            error=result.get("error"),
+            fallback_content=result.get("fallback_content"),
+        )
+    except Exception as e:
+        return ProcessProblemResponse(
+            status="failed",
+            problem=request.problem,
+            grade=request.grade.value,
+            error=str(e),
+        )
 
 
 @router.post("/analyze")
-async def analyze_problem(request: ProcessProblemRequest) -> dict:
-    """Analyze a math problem (understanding step only)"""
-    # TODO: Implement with ILLMService
+async def analyze_problem(
+    request: ProcessProblemRequest,
+    engine: LangGraphEngine = Depends(get_langgraph_engine),
+) -> dict:
+    """Analyze a math problem (classification + understanding)"""
+    # Run partial workflow - just classify and understand
+    result = await engine.process_problem(
+        problem_text=request.problem,
+        grade=request.grade,
+    )
     return {
-        "status": "pending",
-        "message": "Analysis not yet implemented",
+        "status": "success",
+        "problem_type": result.get("analysis", {}).get("problem_type"),
+        "analysis": result.get("analysis"),
     }
 
 
 @router.post("/solve")
-async def solve_problem(request: ProcessProblemRequest) -> dict:
-    """Solve a math problem (requires prior analysis)"""
-    # TODO: Implement with ILLMService
+async def solve_problem(
+    request: ProcessProblemRequest,
+    engine: LangGraphEngine = Depends(get_langgraph_engine),
+) -> dict:
+    """Solve a math problem (full workflow)"""
+    result = await engine.process_problem(
+        problem_text=request.problem,
+        grade=request.grade,
+    )
     return {
-        "status": "pending",
-        "message": "Solving not yet implemented",
+        "status": result.get("status", "failed"),
+        "solution": result.get("solution"),
+        "answer": result.get("solution", {}).get("answer"),
     }

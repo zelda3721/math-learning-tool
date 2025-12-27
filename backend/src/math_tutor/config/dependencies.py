@@ -14,6 +14,7 @@ from ..application.interfaces import ISkillRepository, ILLMService, IVideoGenera
 from ..infrastructure.skills import FileSkillRepository
 from ..infrastructure.manim import ManimExecutor
 from ..infrastructure.llm import LangChainService
+from ..infrastructure.agents.langgraph_engine import LangGraphEngine
 
 
 @lru_cache
@@ -39,5 +40,12 @@ def get_llm_service(
     settings: Settings = Depends(get_settings),
     skill_repository: ISkillRepository = Depends(get_skill_repository),
 ) -> ILLMService:
-    """Get LLM service instance"""
+    """Get LLM service instance (legacy)"""
     return LangChainService(skill_repository=skill_repository)
+
+
+@lru_cache
+def get_langgraph_engine() -> LangGraphEngine:
+    """Get LangGraph workflow engine (recommended)"""
+    return LangGraphEngine()
+
