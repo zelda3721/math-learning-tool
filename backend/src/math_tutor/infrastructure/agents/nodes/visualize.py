@@ -37,12 +37,15 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
     
     logger.info(f"Generating visualization for: {problem_text[:50]}...")
     
-    # Context Engineering: Retrieve relevant skill
-    skill_context = ""
-    if skill_repo:
+    # Context Engineering: Retrieve relevant skill using pre-fetched data or repo
+    skill_context = state.get("skill_context_str", "")
+    skill_name = state.get("skill_name", None)
+    
+    if not skill_context and skill_repo:
         best_skill = skill_repo.find_best_match(problem_text, grade_level)
         
         if best_skill:
+            skill_name = best_skill.name
             logger.info(f"Matched visualization skill: {best_skill.name}")
             skill_context = f"""
 【参考可视化模板：{best_skill.name}】
@@ -105,8 +108,8 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 1. 生成完整的Scene类代码 (从 from manim import * 开始)
 2. 使用模板中的可视化原则
 3. 动态计算和展示题目中的具体数值
-4. 确保所有变量在使用前定义
-5. 支持中文显示 (font="Microsoft YaHei" 或类似)
+4. 【排版美观】：使用 VGroup.arrange(), next_to() 等方法防止文字重叠
+5. 字体清晰：支持中文显示 (font="Microsoft YaHei" 或类似)
 
 输出格式：直接输出完整Python代码。"""
     else:
@@ -116,9 +119,9 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 要求：
 1. 生成完整的Scene类代码
 2. 使用图形化展示，不要只有文字
-3. 每个步骤都有动画过渡
-4. 最后展示答案
-5. 所有文本使用 Text 类，font="Microsoft YaHei"
+3. 【排版美观】：使用 VGroup.arrange(), next_to() 等方法防止文字重叠
+4. 每个步骤都有动画过渡
+5. 最后展示答案
 
 输出格式：直接输出完整Python代码，从 from manim import * 开始。"""
         
@@ -133,11 +136,15 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
         
         return {
             "manim_code": code,
+            "skill_name": skill_name,
+            "skill_context_str": skill_context,
         }
     except Exception as e:
-        logger.error(f"Visualization failed: {e}")
+        logger.error(f"Visualization generation failed: {e}")
         return {
             "manim_code": _fallback_code(problem_text, answer),
+            "skill_name": skill_name,
+            "skill_context_str": skill_context,
             "error_type": "structure",
             "error_message": str(e)
         }

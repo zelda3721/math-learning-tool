@@ -61,6 +61,8 @@ class WorkflowState(TypedDict, total=False):
     debug_attempts: int
     status: str  # "pending", "success", "failed", "fallback"
     fallback_content: str | None
+    skill_name: str | None  # Name of the skill used for visualization
+    skill_context_str: str | None  # Full skill context for regeneration
 
 
 def build_workflow(
@@ -197,10 +199,40 @@ def _sync_validator(state: dict, model) -> dict:
 
 def _sync_visualize(state: WorkflowState, model: ChatOpenAI, skill_repo: ISkillRepository | None = None) -> WorkflowState:
     """Sync wrapper for visualize node"""
+    # Pre-fetch skill context to ensure it survives timeouts
+    skill_context_str = None
+    skill_name = None
+    
+    if skill_repo:
+        try:
+            problem_text = state.get("problem_text", "")
+            grade_level = state.get("grade_level", "elementary_upper")
+            best_skill = skill_repo.find_best_match(problem_text, grade_level)
+            
+            if best_skill:
+                skill_name = best_skill.name
+                logger.info(f"Pre-fetched visualization skill: {best_skill.name}")
+                skill_context_str = f"""
+【参考可视化模板：{best_skill.name}】
+{best_skill.prompt_template}
+
+### 代码模板（请参考此结构实现，但要适配具体题目数据）
+```python
+{best_skill.code_template}
+```
+"""
+        except Exception as e:
+            logger.warning(f"Failed to pre-fetch skill: {e}")
+
     try:
-        # Pass state as dict to node
+        # Pass pre-fetched skill info to node via state
+        state_with_skill = dict(state).copy()
+        if skill_context_str:
+            state_with_skill["skill_context_str"] = skill_context_str
+            state_with_skill["skill_name"] = skill_name
+
         # _run_in_thread already handles creating a new event loop and running the async function
-        result = _run_in_thread(visualize_node(state, model, skill_repo), timeout_seconds=300)
+        result = _run_in_thread(visualize_node(state_with_skill, model, skill_repo), timeout_seconds=300)
         
         return WorkflowState(**result) # type: ignore
     except Exception as e:
@@ -208,7 +240,9 @@ def _sync_visualize(state: WorkflowState, model: ChatOpenAI, skill_repo: ISkillR
         return WorkflowState(
             error_message=str(e),
             error_type="structure",
-            status="failed"
+            status="failed",
+            skill_context_str=skill_context_str,
+            skill_name=skill_name
         ) # type: ignore
 
 

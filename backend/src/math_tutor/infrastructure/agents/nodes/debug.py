@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from math_tutor.config import get_settings
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -63,8 +64,30 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
     # Case 1: Timeout or missing code -> Regenerate
     elif not manim_code or "Timeout" in error_message:
         logger.warning(f"No code found (len={len(manim_code)}) or timeout detected. Regenerating...")
+        
+        skill_ctx = state.get("skill_context_str", "")
+        if skill_ctx:
+            logger.info("Regenerating using preserved Skill Context")
+            settings = get_settings()
+            latex_note = "【严禁使用 MathTex/Tex】，全部使用 Text 类" if not settings.manim_use_latex else "可以使用 MathTex"
+            
+            prompt = f"""你是一个Manim可视化专家。之前的代码生成失败或超时。
+请基于以下参考模板重新生成代码。
+
+{skill_ctx}
+
+要求：
+1. 从 from manim import * 开始
+2. 严格遵循模板的可视化逻辑（如假设法动画步骤）
+3. 确保类名为 SolutionScene
+4. {latex_note}
+5. 保持代码逻辑清晰，但不要过度复杂
+
+请直接输出完整代码。"""
+        else:
+            prompt = REGENERATE_PROMPT
+            
         context = f"题目：{problem_text}\n\n解答：{json.dumps(solution, ensure_ascii=False)}\n\n错误：{error_message}"
-        prompt = REGENERATE_PROMPT
     
     # Case 2: Existing code with error -> Fix
     else:
