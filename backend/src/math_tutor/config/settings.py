@@ -31,8 +31,13 @@ class Settings(BaseSettings):
     enable_review: bool = False
     max_debug_attempts: int = 2
     
-    # CORS Settings
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # CORS Settings - comma-separated string parsed by validator
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse comma-separated CORS origins into a list"""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
     
     model_config = {
         "env_file": "../.env",  # .env is in project root, one level up from backend/
