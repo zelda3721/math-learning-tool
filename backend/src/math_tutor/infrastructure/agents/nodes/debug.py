@@ -28,6 +28,34 @@ LATEX_FIX_PROMPT = """你是一个Manim代码调试专家。系统报错提示�
 请直接输出修复后的完整代码，从 from manim import * 开始。"""
 
 
+# Banned Manim objects that have API issues or are too complex
+BANNED_OBJECTS = [
+    "Sector",           # outer_radius parameter conflict
+    "AnnularSector",    # outer_radius parameter conflict  
+    "Annulus",          # Complex geometry
+    "ThreeDScene",      # 3D not supported in simple mode
+    "Surface",          # 3D surface
+]
+
+BANNED_FIX_PROMPT = """你是一个Manim代码调试专家。代码使用了不兼容的Manim对象。
+
+## 禁止使用的对象（已检测到）：
+{banned_found}
+
+## 替代方案：
+- Sector/AnnularSector → 使用 Arc + Line 组合，或直接用 Axes.plot() 画函数
+- 3D对象 → 使用2D投影表示
+
+## 简化要求：
+1. 使用简单的 Axes + plot() 画函数图像
+2. 用 Dot 表示移动的点
+3. 用 Text 显示公式（不用 MathTex）
+4. 动态演示用循环 + animate
+
+请完全重写代码，使用简单的方法实现相同的教学效果。
+从 from manim import * 开始输出完整代码。"""
+
+
 REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成失败。请重新生成高质量的Manim代码。
 
 ## 强制执行规则（必须遵守）
@@ -112,9 +140,22 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
     
     logger.info(f"Debugging code (attempt {debug_attempts + 1})... Code length: {len(manim_code)}")
     
-    # Case 0: LaTeX Error -> Special fix (more precise detection)
+    # Case 0a: Banned Object Error -> Rewrite code without banned objects
+    banned_found = [obj for obj in BANNED_OBJECTS if obj in manim_code]
+    is_banned_error = len(banned_found) > 0 and any([
+        "outer_radius" in error_message.lower(),
+        "annularsector" in error_message.lower(),
+        "sector" in error_message.lower() and "error" in error_message.lower(),
+    ])
+    
+    if is_banned_error:
+        logger.warning(f"Banned Manim object detected: {banned_found}. Requesting simpler code.")
+        prompt = BANNED_FIX_PROMPT.format(banned_found=", ".join(banned_found))
+        context = f"错误：{error_message}\n\n题目：{problem_text}\n\n当前代码：\n```python\n{manim_code}\n```"
+    
+    # Case 0b: LaTeX Error -> Special fix (more precise detection)
     # Only trigger for actual LaTeX-related errors, not just any message containing "latex"
-    is_latex_error = any([
+    elif any([
         "filenotfounderror" in error_message.lower() and "latex" in error_message.lower(),
         "no such file or directory" in error_message.lower() and "latex" in error_message.lower(),
         "dvipng" in error_message.lower(),
@@ -122,9 +163,7 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
         "latex error converting" in error_message.lower(),  # From manim error output
         "mathtex" in error_message.lower() and ("failed" in error_message.lower() or "error" in error_message.lower()),
         "compilation failed" in error_message.lower() and "tex" in error_message.lower(),
-    ])
-    
-    if is_latex_error:
+    ]):
         logger.warning("LaTeX error detected. Switching to Text-only mode.")
         prompt = LATEX_FIX_PROMPT
         context = f"错误：{error_message}\n\n当前代码：\n```python\n{manim_code}\n```"
