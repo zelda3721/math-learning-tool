@@ -51,7 +51,14 @@ def create_app() -> FastAPI:
     )
     
     # Mount static files for videos
-    # app.mount("/videos", StaticFiles(directory=settings.manim_output_dir), name="videos")
+    import os
+    from pathlib import Path
+    media_path = Path(settings.manim_output_dir)
+    if not media_path.is_absolute():
+        # Make relative path absolute based on project root
+        media_path = Path(os.getcwd()) / media_path
+    media_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
     
     # Register routes
     app.include_router(health.router, prefix="/api", tags=["Health"])
