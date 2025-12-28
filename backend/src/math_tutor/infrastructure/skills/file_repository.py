@@ -193,3 +193,50 @@ class FileSkillRepository(ISkillRepository):
         # TODO: Add grade-specific customization
         
         return prompt
+    
+    def get_visualization_patterns(self, problem_text: str, problem_type: str = "") -> str:
+        """
+        Get relevant visualization patterns based on problem keywords.
+        Returns concatenated pattern content for LLM prompt injection.
+        """
+        patterns_dir = self.skills_dir / "patterns"
+        if not patterns_dir.exists():
+            return ""
+        
+        problem_lower = problem_text.lower()
+        selected_patterns = []
+        
+        # Pattern selection logic
+        pattern_keywords = {
+            "counting": ["多少", "几个", "共", "加", "减", "数", "+", "-"],
+            "comparison": ["比", "多", "少", "相差", "大", "小"],
+            "transformation": ["变", "换", "替换", "鸡", "兔", "脚", "腿"],
+            "process": ["第一", "然后", "最后", "先", "后", "步"],
+        }
+        
+        # Always include counting for word problems
+        if problem_type == "word":
+            selected_patterns.append("counting")
+        
+        # Match patterns based on keywords
+        for pattern_name, keywords in pattern_keywords.items():
+            if any(kw in problem_lower for kw in keywords):
+                if pattern_name not in selected_patterns:
+                    selected_patterns.append(pattern_name)
+        
+        # Default to counting + process if no specific match
+        if not selected_patterns:
+            selected_patterns = ["counting", "process"]
+        
+        # Load and concatenate pattern content
+        result = []
+        for pattern_name in selected_patterns[:3]:  # Max 3 patterns to avoid token overflow
+            pattern_path = patterns_dir / f"{pattern_name}.md"
+            if pattern_path.exists():
+                content = pattern_path.read_text(encoding="utf-8")
+                # Extract just the core code section to save tokens
+                code_match = re.search(r"## 核心代码\n\n```python\n(.*?)```", content, re.DOTALL)
+                if code_match:
+                    result.append(f"### {pattern_name} 模式\n```python\n{code_match.group(1).strip()}\n```")
+        
+        return "\n\n".join(result)

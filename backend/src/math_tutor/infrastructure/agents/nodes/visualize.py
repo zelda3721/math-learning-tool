@@ -44,12 +44,15 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
     # Get visualization agent system prompt (defines strict quality requirements)
     agent_system_prompt = ""
     animation_guidelines = ""
+    visualization_patterns = ""
     
     if skill_repo:
         # Try to get the visualization agent prompt (core quality requirements)
         agent_system_prompt = skill_repo.get_agent_prompt("visualization") or ""
         # Get animation guidelines (detailed animation standards)
         animation_guidelines = skill_repo.get_animation_guidelines() or ""
+        # Get relevant visualization patterns for this problem type
+        visualization_patterns = skill_repo.get_visualization_patterns(problem_text, problem_type)
         
         if not skill_context:
             best_skill = skill_repo.find_best_match(problem_text, grade_level)
@@ -186,18 +189,30 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 
 直接输出完整Python代码："""
     else:
+        # Build patterns section if available
+        patterns_section = ""
+        if visualization_patterns:
+            patterns_section = f"""
+## 可复用的可视化模式
+以下是适用于此题型的代码模式，请参考使用：
+
+{visualization_patterns}
+"""
+
         prompt = f"""{base_prompt}
 
 {latex_constraint}
 
 {animation_section}
 
+{patterns_section}
+
 ---
 
 # 生成要求
 1. 从 from manim import * 开始
-2. 必须使用图形元素（Circle, Rectangle, Line, Arrow等）
-3. 操作过程用动画展示（移动、变色、消失）
+2. 必须使用图形元素（Circle, Rectangle, Line, Arrow等）展示解题过程
+3. 所有计算过程通过图形动画展示，不是纯文字
 4. 使用 VGroup、arrange、next_to 组织布局
 5. 中文使用 font="Microsoft YaHei"
 6. 类名为 SolutionScene
