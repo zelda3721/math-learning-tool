@@ -63,6 +63,7 @@ function App() {
                 onSubmit={(problem) => solveMutation.mutate(problem)}
                 isLoading={solveMutation.isPending}
                 selectedGrade={selectedGrade}
+                onGradeChange={setSelectedGrade}
                 grades={gradesQuery.data || []}
               />
             </div>
