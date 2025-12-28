@@ -32,20 +32,24 @@ REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成�
 
 ## 强制执行规则（必须遵守）
 
+### 屏幕分区（防止文字图形重叠）
+- 标题：title.to_edge(UP, buff=0.3)
+- 步骤文字：step.next_to(title, DOWN, buff=0.2)
+- 图形：graphics.scale(0.6).move_to(ORIGIN)
+- 答案：answer.to_edge(DOWN, buff=0.5)
+- ⚠️ 文字永远在图形上方或下方，不得重叠！
+
+### 其他规则
 1. **防止重叠**：所有元素用 VGroup + arrange_in_grid 组织，scale(0.5~0.6)
-2. **逐个出现**：多个元素用 LaggedStart，示例：
-   ```python
-   self.play(LaggedStart(*[FadeIn(i) for i in items], lag_ratio=0.1))
-   ```
+2. **逐个出现**：多个元素用 LaggedStart
 3. **渐进变换**：变化过程用动画展示，不要直接显示结果
 4. **等待时间**：题目2秒、步骤1.5秒、答案3秒
-5. **清理旧元素**：场景切换前 FadeOut 旧内容
-6. **图形表达**：数量用 Circle，脚用 Line，禁止纯文字
+5. **图形表达**：数量用 Circle，禁止纯文字
 
 ## 代码要求
 1. 从 from manim import * 开始
 2. 类名为 SolutionScene
-3. 【严禁使用 MathTex/Tex】，全部使用 Text 类（因系统可能无LaTeX）
+3. 【严禁使用 MathTex/Tex】，全部使用 Text 类
 4. 中文用 font="Microsoft YaHei"
 
 请直接输出完整代码。"""
@@ -60,6 +64,14 @@ QUALITY_PATTERNS = [
     (r"VGroup", "元素组织 (VGroup)"),
 ]
 
+# Layout patterns to prevent overlap
+LAYOUT_PATTERNS = [
+    (r"to_edge\s*\(\s*UP", "标题在顶部 (to_edge UP)"),
+    (r"to_edge\s*\(\s*DOWN", "答案在底部 (to_edge DOWN)"),
+    (r"move_to\s*\(\s*ORIGIN|move_to\s*\(\s*DOWN|move_to\s*\(\s*UP", "图形定位 (move_to)"),
+    (r"next_to\s*\(", "相对定位 (next_to)"),
+]
+
 
 def validate_code_quality(code: str) -> list[str]:
     """
@@ -68,6 +80,18 @@ def validate_code_quality(code: str) -> list[str]:
     """
     missing = []
     for pattern, description in QUALITY_PATTERNS:
+        if not re.search(pattern, code):
+            missing.append(description)
+    return missing
+
+
+def validate_layout(code: str) -> list[str]:
+    """
+    检查代码是否遵循屏幕分区布局规范。
+    返回缺失的布局模式列表。
+    """
+    missing = []
+    for pattern, description in LAYOUT_PATTERNS:
         if not re.search(pattern, code):
             missing.append(description)
     return missing
