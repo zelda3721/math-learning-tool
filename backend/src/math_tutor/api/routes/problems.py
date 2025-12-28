@@ -61,6 +61,19 @@ async def process_problem(
             problem_text=request.problem,
             grade=request.grade,
         )
+        # Convert filesystem path to URL
+        video_path = result.get("video_path")
+        video_url = None
+        if video_path:
+            # video_path is like: media/videos/.../file.mp4
+            # Convert to URL: /media/videos/.../file.mp4
+            if video_path.startswith("media/"):
+                video_url = "/" + video_path
+            elif "/media/" in video_path:
+                # Absolute path, extract from /media/ onwards
+                video_url = "/media/" + video_path.split("/media/")[-1]
+            else:
+                video_url = "/media/" + video_path
         
         return ProcessProblemResponse(
             status=result.get("status", "failed"),
@@ -69,7 +82,7 @@ async def process_problem(
             analysis=result.get("analysis"),
             solution=result.get("solution"),
             visualization_code=result.get("visualization_code"),
-            video_path=result.get("video_path"),
+            video_path=video_url,
             error=result.get("error"),
             fallback_content=result.get("fallback_content"),
         )
