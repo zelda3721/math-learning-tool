@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings, setup_logging
-from .routes import problems, grades, skills, health
+from .routes import problems, grades, skills, health, videos
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(grades.router, prefix="/api/v1/grades", tags=["Grades"])
     app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])
     app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problems"])
+    app.include_router(videos.router, prefix="/api/v1/media", tags=["Videos"])
     
     return app
 
