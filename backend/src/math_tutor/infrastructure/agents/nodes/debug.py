@@ -28,16 +28,49 @@ LATEX_FIX_PROMPT = """你是一个Manim代码调试专家。系统报错提示�
 请直接输出修复后的完整代码，从 from manim import * 开始。"""
 
 
-REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成失败或超时。请根据题目重新生成完整的Manim代码。
+REGENERATE_PROMPT = """你是一个Manim可视化专家。之前的代码生成失败。请重新生成高质量的Manim代码。
 
-要求：
+## 强制执行规则（必须遵守）
+
+1. **防止重叠**：所有元素用 VGroup + arrange_in_grid 组织，scale(0.5~0.6)
+2. **逐个出现**：多个元素用 LaggedStart，示例：
+   ```python
+   self.play(LaggedStart(*[FadeIn(i) for i in items], lag_ratio=0.1))
+   ```
+3. **渐进变换**：变化过程用动画展示，不要直接显示结果
+4. **等待时间**：题目2秒、步骤1.5秒、答案3秒
+5. **清理旧元素**：场景切换前 FadeOut 旧内容
+6. **图形表达**：数量用 Circle，脚用 Line，禁止纯文字
+
+## 代码要求
 1. 从 from manim import * 开始
-2. 使用简单的动画（Write, FadeIn, Create）
-3. 确保类名为 SolutionScene
-4. 代码要短小精悍，不要太复杂以免超时
-5. 【严禁使用 MathTex/Tex】，全部使用 Text 类（因系统无LaTeX）
+2. 类名为 SolutionScene
+3. 【严禁使用 MathTex/Tex】，全部使用 Text 类（因系统可能无LaTeX）
+4. 中文用 font="Microsoft YaHei"
 
 请直接输出完整代码。"""
+
+
+# Required patterns for quality code
+QUALITY_PATTERNS = [
+    (r"arrange|arrange_in_grid", "布局函数 (arrange)"),
+    (r"scale\s*\(\s*0\.[4-7]", "缩放 (scale 0.4-0.7)"),
+    (r"LaggedStart", "逐个出现 (LaggedStart)"),
+    (r"self\.wait\s*\(", "等待时间 (wait)"),
+    (r"VGroup", "元素组织 (VGroup)"),
+]
+
+
+def validate_code_quality(code: str) -> list[str]:
+    """
+    检查代码是否符合质量规范。
+    返回缺失的模式列表。
+    """
+    missing = []
+    for pattern, description in QUALITY_PATTERNS:
+        if not re.search(pattern, code):
+            missing.append(description)
+    return missing
 
 
 async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]:
@@ -81,17 +114,24 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
             settings = get_settings()
             latex_note = "【严禁使用 MathTex/Tex】，全部使用 Text 类" if not settings.manim_use_latex else "可以使用 MathTex"
             
-            prompt = f"""你是一个Manim可视化专家。之前的代码生成失败或超时。
-请基于以下参考模板重新生成代码。
+            prompt = f"""你是一个Manim可视化专家。之前的代码生成失败。
+请基于以下参考模板重新生成高质量代码。
 
 {skill_ctx}
 
-要求：
+## 强制执行规则（必须遵守）
+1. **防止重叠**：VGroup + arrange_in_grid + scale(0.5~0.6)
+2. **逐个出现**：LaggedStart(*[FadeIn(i) for i in items], lag_ratio=0.1)
+3. **渐进变换**：变化过程用动画展示
+4. **等待时间**：题目2秒、步骤1.5秒、答案3秒
+5. **图形表达**：数量用 Circle，脚用 Line
+
+## 代码要求
 1. 从 from manim import * 开始
-2. 严格遵循模板的可视化逻辑（如假设法动画步骤）
-3. 确保类名为 SolutionScene
+2. 严格遵循模板的可视化逻辑
+3. 类名为 SolutionScene
 4. {latex_note}
-5. 保持代码逻辑清晰，但不要过度复杂
+5. 中文用 font="Microsoft YaHei"
 
 请直接输出完整代码。"""
         else:

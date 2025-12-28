@@ -121,17 +121,43 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 5. **动态变化**：操作过程用动画展示
 """
 
-    # Add animation guidelines (truncated for context window)
-    animation_section = ""
-    if animation_guidelines:
-        # Only include key parts to avoid token overflow
-        animation_section = """
-## 动画规范要点
-1. 使用 LaggedStart 错开显示多个元素
-2. 使用 rate_func=smooth 让动画流畅
-3. 使用 VGroup.arrange() 和 next_to() 防止重叠
-4. 使用 FadeOut 清理旧元素后再显示新内容
-5. 题目等2秒、步骤等1.5秒、答案等3秒
+    # Add animation guidelines - MANDATORY RULES
+    animation_section = """
+## ⚠️ 强制执行规则（违反任何一条即为失败）
+
+### 规则1：禁止元素重叠
+- 所有元素必须使用 VGroup + arrange() 或 arrange_in_grid()
+- 所有主视觉元素必须 scale(0.5~0.7) 防止溢出屏幕
+- 文字标签必须用 next_to(obj, DOWN/UP, buff=0.3)
+
+### 规则2：禁止一次性呈现多个元素
+- 3个以上元素必须用 LaggedStart 逐个出现
+- 示例：self.play(LaggedStart(*[FadeIn(i) for i in items], lag_ratio=0.1))
+
+### 规则3：必须有渐进变换过程
+- 数量变化必须用动画展示（如脚的增加要用 GrowFromCenter）
+- 颜色变化必须用 animate.set_color() 过渡
+- 禁止直接 FadeIn 结果
+
+### 规则4：必须有等待时间
+- 题目展示后: self.wait(2)
+- 每个步骤后: self.wait(1.5)
+- 最终答案后: self.wait(3)
+- 场景切换前: self.wait(0.5)
+
+### 规则5：必须用VGroup组织元素
+- 示例：circles = VGroup(*[Circle() for _ in range(n)])
+- 必须：circles.arrange_in_grid(rows=3, buff=0.2).scale(0.6)
+
+### 规则6：场景切换必须清理旧元素
+- 必须：self.play(FadeOut(old_group))
+- 然后：self.wait(0.3)
+- 最后：self.play(FadeIn(new_group))
+
+### 规则7：图形化表达数学概念
+- 数量用 Circle 表示（能数出来）
+- 脚/腿用 Line 表示
+- 变化过程用动画展示（不是纯文字）
 """
 
     # Build the final prompt
