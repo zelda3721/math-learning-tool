@@ -90,6 +90,56 @@ self.play(FadeIn(new_group))
 
 ---
 
+## 📐 通用屏幕布局（Universal Screen Layout）
+
+**所有可视化必须遵循此布局，确保文字与图形不重叠：**
+
+```
+┌─────────────────────────────────────────────────┐
+│  🏷️ 标题区 (y ≈ 3.2)                            │
+│     title.to_edge(UP, buff=0.3)                 │
+├─────────────────────────────────────────────────┤
+│  📝 步骤文字区 (y ≈ 2.5)                         │
+│     step_text.next_to(title, DOWN, buff=0.2)    │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  🔵 图形区 (y ∈ [-1.5, 1.5])                    │
+│     graphics.move_to(ORIGIN)                    │
+│     graphics.scale(0.5~0.7)                     │
+│                                                 │
+├─────────────────────────────────────────────────┤
+│  ✅ 答案/计数器区 (y ≈ -2.5)                     │
+│     answer.to_edge(DOWN, buff=0.5)              │
+└─────────────────────────────────────────────────┘
+```
+
+### 规则：
+1. **文字永远在图形上方或下方** - 不得在同一Y坐标
+2. **步骤文字跟随标题** - 使用 `next_to(title, DOWN)`
+3. **图形居中并缩放** - `scale(0.5~0.7).move_to(ORIGIN)`
+4. **答案在底部** - `to_edge(DOWN, buff=0.5)`
+
+### 代码模板：
+```python
+# 标题区
+title = Text("题目", font="Microsoft YaHei", font_size=28)
+title.to_edge(UP, buff=0.3)
+
+# 步骤文字区
+step = Text("第一步：...", font="Microsoft YaHei", font_size=20)
+step.next_to(title, DOWN, buff=0.2)
+
+# 图形区
+graphics = VGroup(...)
+graphics.scale(0.6).move_to(ORIGIN)
+
+# 答案区
+answer = Text("答案：...", font="Microsoft YaHei", font_size=24)
+answer.to_edge(DOWN, buff=0.5)
+```
+
+---
+
 ## 一、动画流畅性原则
 
 ### 1.1 缓动函数（rate_func）
