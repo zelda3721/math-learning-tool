@@ -1,40 +1,32 @@
 # 二次函数最值可视化 (Quadratic Function Min/Max)
 
 ## 描述
-通过**图形动态演示**帮助学生理解二次函数的最值，让学生"看到"为什么顶点处取得最小/最大值。
+通过**图形动态演示**帮助学生理解二次函数的最值，让学生"看到"为什么顶点处取得最小/最大值，并理解公式的来源。
 
 ## 核心理念
-> **图形即理解** - 不是画个图再做代数，而是让图形本身解释数学本质
+> **图形理解 → 公式推导 → 解题方法** 三步走
 
 ## 何时使用
 - 题目中包含"函数"、"最小值"、"最大值"、"顶点"、"二次"等关键词
 - 形如 f(x) = ax² + bx + c 的二次函数求极值
 
 ## ⚠️ 严禁
-- **严禁在图像区域内放置公式** - 公式只能在图像外侧
-- **严禁先代数后图形** - 必须先让学生看到图形变化
+- **严禁在图像区域内放置公式** - 公式只能在图像右侧
+- **严禁箭头和文字重叠** - 所有文字要有足够间距
 - **严禁静态展示** - 必须有动态点在曲线上移动
 
-## 布局规则（左右分离）
+## 布局规则（严格Y坐标）
 ```
-┌────────────────────────────────────────────────────────┐
-│  标题：求函数 f(x) = ... 的最小值                        │
-├──────────────────────┬─────────────────────────────────┤
-│                      │                                 │
-│   坐标系+抛物线       │   步骤说明                       │
-│   (占2/3宽度)        │   (占1/3宽度)                    │
-│   左侧居中            │   右侧靠上                       │
-│                      │                                 │
-├──────────────────────┴─────────────────────────────────┤
-│  底部：当前状态/答案                                     │
-└────────────────────────────────────────────────────────┘
+Y坐标:
+  3.5  标题
+  3.0  -----
+  2.5  右侧标题区
+  1.5  右侧信息1
+  0.5  右侧信息2
+ -0.5  右侧信息3（不要更低！）
+ -2.5  图形标注区（顶点标签在这里）
+ -3.0  底部答案区
 ```
-
-## 视觉演示原则
-1. **动态轨迹** - 一个点沿抛物线移动
-2. **实时y值** - 点移动时显示当前 f(x) 值
-3. **顶点高亮** - 到达顶点时特殊标记
-4. **最值强调** - 用水平虚线标注最小值位置
 
 ---
 
@@ -62,15 +54,15 @@ class SolutionScene(Scene):
         self.wait(1)
         
         # ========== 第2幕：画坐标系和抛物线 ==========
-        # 坐标系（左侧2/3区域）
+        # 坐标系（左侧区域，不要太大）
         axes = Axes(
             x_range=[-1, 5, 1],
-            y_range=[-2, 5, 1],
-            x_length=5,
-            y_length=4,
+            y_range=[-2, 4, 1],
+            x_length=4.5,
+            y_length=3.5,
             axis_config={"color": WHITE, "include_tip": True},
         )
-        axes.shift(LEFT * 1.5)
+        axes.shift(LEFT * 2 + DOWN * 0.5)
         
         # 函数曲线
         def f(x):
@@ -78,173 +70,160 @@ class SolutionScene(Scene):
         
         curve = axes.plot(f, x_range=[-0.5, 4.5], color=YELLOW)
         
-        # 绘制坐标系
         self.play(Create(axes), run_time=1)
         self.play(Create(curve), run_time=1.5)
         self.wait(1)
         
-        # 右侧说明区
-        info_title = Text("观察曲线", font="Microsoft YaHei", font_size=18, color=YELLOW)
-        info_title.move_to(RIGHT * 4 + UP * 2)
+        # ========== 第3幕：动态演示 - 点沿曲线移动 ==========
+        # 右侧标题
+        info_title = Text("观察 y 值变化：", font="Microsoft YaHei", font_size=16, color=YELLOW)
+        info_title.move_to(RIGHT * 4.5 + UP * 2.5)
         self.play(Write(info_title))
         
-        # ========== 第3幕：动态演示 - 点沿曲线移动 ==========
         # 创建移动的点
-        dot = Dot(color=RED, radius=0.1)
+        dot = Dot(color=RED, radius=0.08)
         dot.move_to(axes.c2p(0, f(0)))
         
-        # y值显示（右侧信息区）
-        y_label = Text(f"f(0) = {f(0):.0f}", font="Microsoft YaHei", font_size=16, color=WHITE)
-        y_label.move_to(RIGHT * 4 + UP * 1)
+        # y值显示
+        y_label = Text(f"f(0) = {f(0):.0f}", font="Microsoft YaHei", font_size=14, color=WHITE)
+        y_label.move_to(RIGHT * 4.5 + UP * 1.8)
         
         self.play(FadeIn(dot), Write(y_label))
-        self.wait(0.5)
         
-        # 更新y值的函数
-        def update_label(x_val):
-            new_label = Text(f"f({x_val:.1f}) = {f(x_val):.1f}", font="Microsoft YaHei", font_size=16, color=WHITE)
-            new_label.move_to(RIGHT * 4 + UP * 1)
-            return new_label
+        # 点移动
+        x_values = np.linspace(0, 4, 15)
+        vertex_dot = None
         
-        # 点从左向右移动，学生看到y值先减后增
-        x_values = np.linspace(0, 4, 20)
         for i, x in enumerate(x_values):
-            new_pos = axes.c2p(x, f(x))
-            new_label = update_label(x)
-            
             if i == 0:
                 continue
             
-            # 到达顶点附近时特殊处理
-            if abs(x - vertex_x) < 0.2:
+            new_pos = axes.c2p(x, f(x))
+            new_label = Text(f"f({x:.1f}) = {f(x):.1f}", font="Microsoft YaHei", font_size=14, color=WHITE)
+            new_label.move_to(RIGHT * 4.5 + UP * 1.8)
+            
+            # 到达顶点时
+            if abs(x - vertex_x) < 0.3 and vertex_dot is None:
                 self.play(
                     dot.animate.move_to(new_pos),
                     Transform(y_label, new_label),
-                    run_time=0.3
+                    run_time=0.2
                 )
                 # 顶点高亮
-                vertex_dot = Dot(axes.c2p(vertex_x, vertex_y), color=GREEN, radius=0.15)
-                vertex_ring = Circle(radius=0.25, color=GREEN).move_to(vertex_dot.get_center())
-                self.play(FadeIn(vertex_dot), Create(vertex_ring), run_time=0.5)
+                vertex_dot = Dot(axes.c2p(vertex_x, vertex_y), color=GREEN, radius=0.12)
+                self.play(FadeIn(vertex_dot), run_time=0.3)
                 
-                # 显示这是最小值
-                min_info = Text("这是最低点！", font="Microsoft YaHei", font_size=16, color=GREEN)
-                min_info.move_to(RIGHT * 4 + UP * 0.3)
+                # 最低点提示（在右侧，足够高的位置）
+                min_info = Text("↓ 这里最低！", font="Microsoft YaHei", font_size=14, color=GREEN)
+                min_info.move_to(RIGHT * 4.5 + UP * 1.0)
                 self.play(Write(min_info))
-                self.wait(1)
+                self.wait(0.8)
             else:
                 self.play(
                     dot.animate.move_to(new_pos),
                     Transform(y_label, new_label),
-                    run_time=0.08
+                    run_time=0.06
                 )
         
         self.wait(1)
         
-        # ========== 第4幕：标注顶点和最小值 ==========
-        # 顶点坐标
-        vertex_label = Text(f"顶点({vertex_x:.0f}, {vertex_y:.0f})", font="Microsoft YaHei", font_size=14, color=GREEN)
-        vertex_label.next_to(axes.c2p(vertex_x, vertex_y), DOWN + RIGHT, buff=0.2)
-        self.play(Write(vertex_label))
-        
-        # 水平虚线表示最小值
-        min_line = DashedLine(
-            axes.c2p(-1, vertex_y),
-            axes.c2p(5, vertex_y),
-            color=GREEN,
-            dash_length=0.1
-        )
-        self.play(Create(min_line))
-        
-        # 最小值标注
-        min_text = Text(f"最小值 = {vertex_y:.0f}", font="Microsoft YaHei", font_size=18, color=GREEN)
-        min_text.next_to(min_line, RIGHT, buff=0.2)
-        self.play(Write(min_text))
-        self.wait(2)
-        
-        # ========== 第5幕：连接图形与公式 ==========
+        # ========== 第4幕：解释公式来源 ==========
         # 清理动态元素
-        self.play(
-            FadeOut(dot), FadeOut(y_label), FadeOut(info_title), FadeOut(min_info)
-        )
-        self.wait(0.5)
+        self.play(FadeOut(dot), FadeOut(y_label), FadeOut(info_title), FadeOut(min_info))
+        self.wait(0.3)
         
-        # 右侧显示解题方法
-        method_title = Text("📐 解题方法", font="Microsoft YaHei", font_size=18, color=YELLOW)
-        method_title.move_to(RIGHT * 4 + UP * 2)
+        # 右侧显示配方法
+        method_title = Text("为什么 x = 2 ？", font="Microsoft YaHei", font_size=16, color=YELLOW)
+        method_title.move_to(RIGHT * 4.5 + UP * 2.5)
         self.play(Write(method_title))
         
-        # 公式推导（右侧信息区，不在图上）
-        step1 = Text("顶点 x = -b/(2a)", font="Microsoft YaHei", font_size=14, color=WHITE)
-        step1.move_to(RIGHT * 4 + UP * 1.2)
-        self.play(Write(step1))
+        # 配方法解释
+        explain1 = Text("f(x) = x² - 4x + 3", font="Microsoft YaHei", font_size=12, color=WHITE)
+        explain1.move_to(RIGHT * 4.5 + UP * 1.8)
+        self.play(Write(explain1))
         self.wait(0.5)
         
-        step2 = Text(f"= -({b})/(2×{a})", font="Microsoft YaHei", font_size=14, color=WHITE)
-        step2.move_to(RIGHT * 4 + UP * 0.6)
-        self.play(Write(step2))
+        explain2 = Text("= (x-2)² - 4 + 3", font="Microsoft YaHei", font_size=12, color=WHITE)
+        explain2.move_to(RIGHT * 4.5 + UP * 1.2)
+        self.play(Write(explain2))
         self.wait(0.5)
         
-        step3 = Text(f"= {vertex_x:.0f}", font="Microsoft YaHei", font_size=14, color=GREEN)
-        step3.move_to(RIGHT * 4 + UP * 0)
-        self.play(Write(step3))
-        self.wait(1)
+        explain3 = Text("= (x-2)² - 1", font="Microsoft YaHei", font_size=12, color=GREEN)
+        explain3.move_to(RIGHT * 4.5 + UP * 0.6)
+        self.play(Write(explain3))
+        self.wait(0.5)
         
-        # 指向图上的顶点（连接图形和公式）
-        arrow = Arrow(
-            step3.get_left() + LEFT * 0.2,
-            axes.c2p(vertex_x, vertex_y) + RIGHT * 0.3,
-            color=GREEN,
-            stroke_width=2
+        # 关键理解
+        key_point = Text("(x-2)² ≥ 0 恒成立", font="Microsoft YaHei", font_size=12, color=ORANGE)
+        key_point.move_to(RIGHT * 4.5 + DOWN * 0.0)
+        self.play(Write(key_point))
+        self.wait(0.5)
+        
+        conclusion = Text("∴ x=2 时最小", font="Microsoft YaHei", font_size=12, color=GREEN)
+        conclusion.move_to(RIGHT * 4.5 + DOWN * 0.5)
+        self.play(Write(conclusion))
+        self.wait(1.5)
+        
+        # ========== 第5幕：通用公式 ==========
+        self.play(
+            FadeOut(method_title), FadeOut(explain1), FadeOut(explain2), 
+            FadeOut(explain3), FadeOut(key_point), FadeOut(conclusion)
         )
-        self.play(Create(arrow))
-        self.wait(1)
+        
+        formula_title = Text("📐 通用公式", font="Microsoft YaHei", font_size=16, color=YELLOW)
+        formula_title.move_to(RIGHT * 4.5 + UP * 2.5)
+        self.play(Write(formula_title))
+        
+        formula = Text("顶点 x = -b/(2a)", font="Microsoft YaHei", font_size=14, color=WHITE)
+        formula.move_to(RIGHT * 4.5 + UP * 1.8)
+        self.play(Write(formula))
+        
+        calc = Text(f"= -({b})/(2×{a}) = {vertex_x:.0f}", font="Microsoft YaHei", font_size=14, color=GREEN)
+        calc.move_to(RIGHT * 4.5 + UP * 1.2)
+        self.play(Write(calc))
+        self.wait(1.5)
         
         # ========== 第6幕：完整答案 ==========
-        # 清理解题方法区
         self.play(
-            FadeOut(method_title), FadeOut(step1), FadeOut(step2), FadeOut(step3), FadeOut(arrow),
-            FadeOut(axes), FadeOut(curve), FadeOut(vertex_dot), FadeOut(vertex_ring),
-            FadeOut(vertex_label), FadeOut(min_line), FadeOut(min_text)
+            FadeOut(formula_title), FadeOut(formula), FadeOut(calc),
+            FadeOut(axes), FadeOut(curve), FadeOut(vertex_dot)
         )
         self.wait(0.3)
         
-        # 完整解题步骤框
-        solution_box = Rectangle(width=7, height=3, color=GREEN, fill_opacity=0.05, stroke_width=2)
-        solution_box.move_to(ORIGIN)
+        # 答案框
+        answer_box = Rectangle(width=7, height=2.5, color=GREEN, fill_opacity=0.05, stroke_width=2)
+        answer_box.move_to(ORIGIN)
         
-        solution = VGroup(
-            Text("解题步骤：", font="Microsoft YaHei", font_size=20, color=YELLOW),
-            Text(f"① 识别：a={a}, b={b}, c={c}", font="Microsoft YaHei", font_size=16, color=WHITE),
-            Text(f"② 顶点 x = -b/(2a) = {vertex_x:.0f}", font="Microsoft YaHei", font_size=16, color=WHITE),
-            Text(f"③ 代入：f({vertex_x:.0f}) = {vertex_y:.0f}", font="Microsoft YaHei", font_size=16, color=WHITE),
-            Text(f"④ 答案：最小值 = {vertex_y:.0f}", font="Microsoft YaHei", font_size=18, color=GREEN),
-        ).arrange(DOWN, buff=0.25, aligned_edge=LEFT)
-        solution.move_to(solution_box.get_center())
+        answer = VGroup(
+            Text("解答：", font="Microsoft YaHei", font_size=18, color=YELLOW),
+            Text(f"f(x) = (x-{vertex_x:.0f})² + ({vertex_y:.0f})", font="Microsoft YaHei", font_size=16, color=WHITE),
+            Text(f"∵ (x-{vertex_x:.0f})² ≥ 0", font="Microsoft YaHei", font_size=16, color=WHITE),
+            Text(f"∴ 当 x = {vertex_x:.0f} 时，f(x)最小 = {vertex_y:.0f}", font="Microsoft YaHei", font_size=18, color=GREEN),
+        ).arrange(DOWN, buff=0.2, aligned_edge=LEFT)
+        answer.move_to(answer_box.get_center())
         
-        self.play(Create(solution_box))
-        for line in solution:
-            self.play(Write(line), run_time=0.6)
-            self.wait(0.3)
+        self.play(Create(answer_box))
+        for line in answer:
+            self.play(Write(line), run_time=0.5)
         
         self.wait(3)
 ```
 
-## 关键视觉效果
+## 设计要点
 
-### 动态理解（不是静态展示）
-1. **点沿曲线移动** - 学生看到 y 值先减小后增大
-2. **到达顶点时高亮** - 特殊标记+文字提示
-3. **水平虚线** - 视觉强调最小值水平线
+### 1. 严格的Y坐标分配
+- 右侧所有文字从 UP*2.5 开始，每行间隔 0.5-0.6
+- 绝不低于 DOWN*0.5（避免和图形重叠）
 
-### 布局分离
-- **左侧**: 坐标系 + 抛物线 + 动态点
-- **右侧**: 实时 f(x) 值显示
-- **底部**: 最终答案
+### 2. 公式来源解释（配方法）
+- f(x) = x² - 4x + 3
+- = (x-2)² - 4 + 3
+- = (x-2)² - 1
+- (x-2)² ≥ 0 → x=2时最小
 
-### 为什么这样设计
-| 传统方式 | 图形优先方式 |
-|----------|--------------|
-| 先讲配方法 | 先看曲线形状 |
-| 公式推导顶点 | 点移动找最低点 |
-| 学生被动接受 | 学生主动观察 |
+### 3. 三步理解
+| 步骤 | 内容 |
+|------|------|
+| 图形观察 | 点移动，看到y先减后增 |
+| 公式推导 | 配方法解释为什么 |
+| 通用方法 | x = -b/(2a) |
