@@ -165,6 +165,13 @@ class FileSkillRepository(ISkillRepository):
         
         return best_skill if best_score > 0 else None
     
+    def get_animation_guidelines(self) -> str:
+        """Get the animation guidelines content"""
+        guidelines_path = self.skills_dir / "visualization" / "animation_guidelines.md"
+        if guidelines_path.exists():
+            return guidelines_path.read_text(encoding="utf-8")
+        return ""
+    
     def get_agent_prompt(
         self,
         agent_name: str,
