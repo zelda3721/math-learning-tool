@@ -36,6 +36,7 @@ class ProcessProblemResponse(BaseModel):
     solution: dict | None = None
     visualization_code: str | None = None
     video_path: str | None = None
+    video_url: str | None = None  # Alias for video_path (frontend compatibility)
     error: str | None = None
     fallback_content: str | None = None
 
@@ -83,6 +84,7 @@ async def process_problem(
             solution=result.get("solution"),
             visualization_code=result.get("visualization_code"),
             video_path=video_url,
+            video_url=video_url,  # Frontend uses this field
             error=result.get("error"),
             fallback_content=result.get("fallback_content"),
         )

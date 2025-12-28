@@ -55,8 +55,18 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
     
     logger.info(f"Debugging code (attempt {debug_attempts + 1})... Code length: {len(manim_code)}")
     
-    # Case 0: LaTeX Error -> Special fix
-    if "latex" in error_message.lower() or "dvipng" in error_message.lower():
+    # Case 0: LaTeX Error -> Special fix (more precise detection)
+    # Only trigger for actual LaTeX-related errors, not just any message containing "latex"
+    is_latex_error = any([
+        "filenotfounderror" in error_message.lower() and "latex" in error_message.lower(),
+        "no such file or directory" in error_message.lower() and "latex" in error_message.lower(),
+        "dvipng" in error_message.lower(),
+        "dvisvgm" in error_message.lower() and "error" in error_message.lower(),
+        "mathtex" in error_message.lower() and ("failed" in error_message.lower() or "error" in error_message.lower()),
+        "compilation failed" in error_message.lower() and "tex" in error_message.lower(),
+    ])
+    
+    if is_latex_error:
         logger.warning("LaTeX error detected. Switching to Text-only mode.")
         prompt = LATEX_FIX_PROMPT
         context = f"错误：{error_message}\n\n当前代码：\n```python\n{manim_code}\n```"
