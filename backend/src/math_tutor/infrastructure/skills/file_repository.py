@@ -101,10 +101,20 @@ class FileSkillRepository(ISkillRepository):
                     description = line[2:].strip()
                     break
             
-            # Look for keywords section
+            # Look for keywords section - try multiple formats
+            # Format 1: 关键词：xxx, yyy
             keyword_match = re.search(r"关键词[：:]\s*(.+)", content)
             if keyword_match:
                 keywords = [k.strip() for k in keyword_match.group(1).split(",")]
+            
+            # Format 2: 题目中包含"xxx"、"yyy"等关键词
+            if not keywords:
+                pattern_match = re.search(r'题目中包含["“]([^"”]+)["”]', content)
+                if pattern_match:
+                    # Extract all quoted keywords
+                    # Use a non-greedy match for quoted strings
+                    all_keywords = re.findall(r'["“]([^"”]+)["”]', content[:500])  # First 500 chars
+                    keywords = [k.strip() for k in all_keywords if len(k) <= 5]  # Short words only
             
             # Extract ALL code blocks and use the largest one as the template
             code_blocks = re.findall(r"```python\n(.*?)```", content, re.DOTALL)
