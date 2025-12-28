@@ -32,7 +32,6 @@
 
 ```python
 from manim import *
-import numpy as np
 
 class SolutionScene(Scene):
     def construct(self):
@@ -140,23 +139,11 @@ class SolutionScene(Scene):
             # 1. 头变蓝色
             self.play(animals[i][0].animate.set_color(BLUE), run_time=0.15)
             
-            # 2. 添加2只新脚 - 获取当前动物位置来定位新脚
-            animal_center = animals[i].get_center()
-            # 缩放后的腿长度和偏移（原始scale是0.45）
-            scaled_leg_length = 0.2 * 0.45
-            scaled_offset_y = 0.15 * 0.45
-            scaled_spread = 0.16 * 0.45  # 新脚在外侧
-            
-            new_leg1 = Line(
-                start=animal_center + np.array([-scaled_spread, -scaled_offset_y, 0]),
-                end=animal_center + np.array([-scaled_spread, -scaled_offset_y - scaled_leg_length, 0]),
-                color=BLUE, stroke_width=2
-            )
-            new_leg2 = Line(
-                start=animal_center + np.array([scaled_spread, -scaled_offset_y, 0]),
-                end=animal_center + np.array([scaled_spread, -scaled_offset_y - scaled_leg_length, 0]),
-                color=BLUE, stroke_width=2
-            )
+            # 2. 添加2只新脚（这是核心：用图形展示脚的增加！）
+            new_leg1 = Line(ORIGIN, DOWN * 0.12, color=BLUE, stroke_width=2)
+            new_leg2 = Line(ORIGIN, DOWN * 0.12, color=BLUE, stroke_width=2)
+            new_leg1.next_to(animals[i][1], LEFT, buff=0.02)
+            new_leg2.next_to(animals[i][2], RIGHT, buff=0.02)
             
             # 脚的生长动画（不是直接出现！）
             self.play(
