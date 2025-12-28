@@ -161,6 +161,13 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 - 数量用 Circle 表示（能数出来）
 - 脚/腿用 Line 表示
 - 变化过程用动画展示（不是纯文字）
+
+### 规则8：屏幕分区（防止文字图形重叠）
+- 标题区：title.to_edge(UP, buff=0.3)
+- 步骤文字：step.next_to(title, DOWN, buff=0.2)
+- 图形区：graphics.scale(0.6).move_to(ORIGIN)
+- 答案区：answer.to_edge(DOWN, buff=0.5)
+- ⚠️ 文字永远在图形上方或下方，不得与图形同一Y坐标
 """
 
     # Build the final prompt
