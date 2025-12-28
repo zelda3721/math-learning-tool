@@ -57,15 +57,15 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
             if best_skill:
                 skill_name = best_skill.name
                 logger.info(f"Matched visualization skill: {best_skill.name}")
+                # prompt_template now contains the entire skill file
+                # including all guidelines and code template
                 skill_context = f"""
 【匹配到专用技能：{best_skill.name}】
 
 {best_skill.prompt_template}
 
-### 代码模板（严格参考此结构和动画效果）
-```python
-{best_skill.code_template}
-```
+---
+**重要：严格按照上述代码模板的结构和动画效果来实现！**
 """
 
     # Format steps
