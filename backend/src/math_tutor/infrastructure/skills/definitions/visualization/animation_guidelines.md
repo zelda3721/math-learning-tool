@@ -9,6 +9,87 @@
 
 ---
 
+## ⚠️ 强制执行规则（MANDATORY - 违反任何一条即为失败）
+
+### 规则1：禁止元素重叠
+```python
+# ❌ 失败：手动坐标容易重叠
+circle.move_to([0, 0, 0])
+text.move_to([0.1, 0, 0])  # 会重叠！
+
+# ✅ 必须：使用自动布局
+group = VGroup(circle, text).arrange(DOWN, buff=0.3)
+group.scale(0.6).move_to(ORIGIN)  # 缩放防溢出
+```
+
+### 规则2：禁止一次性呈现多个元素
+```python
+# ❌ 失败：所有元素同时出现
+self.play(FadeIn(a), FadeIn(b), FadeIn(c))
+
+# ✅ 必须：逐个错开出现
+self.play(LaggedStart(
+    *[FadeIn(item, shift=UP*0.1) for item in [a, b, c]],
+    lag_ratio=0.15
+))
+```
+
+### 规则3：必须有渐进变换过程
+```python
+# ❌ 失败：直接显示结果
+self.play(FadeIn(result))
+
+# ✅ 必须：展示变化过程
+for i in range(change_count):
+    self.play(item[i].animate.set_color(NEW_COLOR), run_time=0.2)
+    self.play(GrowFromCenter(new_part), run_time=0.3)
+```
+
+### 规则4：必须有充足等待时间
+```python
+# ❌ 失败：连续播放无等待
+self.play(Write(step1))
+self.play(Write(step2))
+
+# ✅ 必须：给理解时间
+self.play(Write(step1))
+self.wait(1.5)  # 步骤等待
+self.play(Write(step2))
+self.wait(1.5)
+
+# 等待时间标准：
+# - 题目展示后: self.wait(2)
+# - 每个步骤后: self.wait(1.5) 
+# - 最终答案后: self.wait(3)
+```
+
+### 规则5：必须使用VGroup组织元素
+```python
+# ❌ 失败：散落的元素难以管理
+circle1 = Circle()
+circle2 = Circle()
+self.play(FadeIn(circle1), FadeIn(circle2))
+
+# ✅ 必须：用VGroup统一管理
+circles = VGroup(*[Circle() for _ in range(n)])
+circles.arrange_in_grid(rows=3, buff=0.2)
+circles.scale(0.5)  # 统一缩放
+self.play(LaggedStart(*[FadeIn(c) for c in circles]))
+```
+
+### 规则6：场景切换必须清理旧元素
+```python
+# ❌ 失败：旧元素遮挡新内容
+self.play(FadeIn(new_group))  # 旧的还在！
+
+# ✅ 必须：先清理再显示
+self.play(FadeOut(old_group))
+self.wait(0.3)
+self.play(FadeIn(new_group))
+```
+
+---
+
 ## 一、动画流畅性原则
 
 ### 1.1 缓动函数（rate_func）
