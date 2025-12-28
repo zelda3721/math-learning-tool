@@ -106,16 +106,16 @@ class FileSkillRepository(ISkillRepository):
             if keyword_match:
                 keywords = [k.strip() for k in keyword_match.group(1).split(",")]
             
-            # Extract code template
-            code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
-            if code_match:
-                code_template = code_match.group(1).strip()
+            # Extract ALL code blocks and use the largest one as the template
+            code_blocks = re.findall(r"```python\n(.*?)```", content, re.DOTALL)
+            if code_blocks:
+                # Use the largest code block as the main template
+                # (usually the complete implementation is the longest)
+                code_template = max(code_blocks, key=len).strip()
             
-            # Everything before code block is prompt template
-            if code_match:
-                prompt_template = content[:code_match.start()].strip()
-            else:
-                prompt_template = content.strip()
+            # Use the ENTIRE file content as prompt_template
+            # This ensures all guidelines, principles, etc. are included
+            prompt_template = content.strip()
             
             return Skill(
                 name=name,
