@@ -37,8 +37,8 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
                         <div className="flex justify-between items-center pb-2 border-b border-indigo-100">
                             <span className="text-sm text-slate-500">难度</span>
                             <span className={`text-xs px-2 py-1 rounded-full font-bold ${result.analysis.difficulty === 'hard' ? 'bg-red-100 text-red-600' :
-                                    result.analysis.difficulty === 'medium' ? 'bg-amber-100 text-amber-600' :
-                                        'bg-green-100 text-green-600'
+                                result.analysis.difficulty === 'medium' ? 'bg-amber-100 text-amber-600' :
+                                    'bg-green-100 text-green-600'
                                 }`}>
                                 {result.analysis.difficulty?.toUpperCase() || 'NORMAL'}
                             </span>
@@ -65,6 +65,17 @@ export function ResultDisplay({ result }: ResultDisplayProps) {
                         <video src={result.video_url} controls className="w-full h-full object-contain rounded-xl z-10 relative" />
                         {/* Glow effect behind video */}
                         <div className="absolute inset-0 bg-blue-500/20 blur-3xl group-hover:bg-blue-500/30 transition-all duration-500"></div>
+                        {/* Code viewer for successful videos */}
+                        {result.visualization_code && (
+                            <details className="absolute bottom-2 right-2 z-20">
+                                <summary className="text-xs cursor-pointer bg-slate-800/80 px-2 py-1 rounded text-slate-400 hover:text-white">
+                                    查看代码
+                                </summary>
+                                <pre className="mt-2 p-2 bg-black/90 rounded text-[10px] text-green-400 overflow-auto max-h-48 max-w-md">
+                                    {result.visualization_code}
+                                </pre>
+                            </details>
+                        )}
                     </>
                 ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-4">

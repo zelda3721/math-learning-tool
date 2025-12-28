@@ -32,6 +32,7 @@
 
 ```python
 from manim import *
+import numpy as np
 
 class SolutionScene(Scene):
     def construct(self):
@@ -65,20 +66,31 @@ class SolutionScene(Scene):
         animals = VGroup()
         for i in range(heads):
             # 头（圆圈）
-            head = Circle(radius=0.1, color=ORANGE, fill_opacity=0.8)
-            # 2只脚（线条）
-            left_leg = Line(ORIGIN, DOWN * 0.12, color=ORANGE, stroke_width=2)
-            right_leg = Line(ORIGIN, DOWN * 0.12, color=ORANGE, stroke_width=2)
-            left_leg.next_to(head, DOWN, buff=0.02).shift(LEFT * 0.04)
-            right_leg.next_to(head, DOWN, buff=0.02).shift(RIGHT * 0.04)
+            head = Circle(radius=0.15, color=ORANGE, fill_opacity=0.8)
+            
+            # 2只脚（线条）- 使用相对于头部中心的固定偏移
+            leg_length = 0.2
+            leg_offset_y = 0.15  # 头部半径
+            leg_spread = 0.08   # 左右间距
+            
+            left_leg = Line(
+                start=[- leg_spread, -leg_offset_y, 0],
+                end=[- leg_spread, -leg_offset_y - leg_length, 0],
+                color=ORANGE, stroke_width=3
+            )
+            right_leg = Line(
+                start=[leg_spread, -leg_offset_y, 0],
+                end=[leg_spread, -leg_offset_y - leg_length, 0],
+                color=ORANGE, stroke_width=3
+            )
             
             animal = VGroup(head, left_leg, right_leg)
             animals.add(animal)
         
         # 自动排列防重叠
-        rows = min(5, heads // 5 + 1)
-        animals.arrange_in_grid(rows=rows, buff=0.12)
-        animals.scale(0.5).move_to(ORIGIN + DOWN * 0.5)
+        rows = min(5, max(2, heads // 7 + 1))
+        animals.arrange_in_grid(rows=rows, buff=0.2)
+        animals.scale(0.45).move_to(ORIGIN + DOWN * 0.3)
         
         # 逐个出现
         self.play(LaggedStart(
@@ -128,11 +140,23 @@ class SolutionScene(Scene):
             # 1. 头变蓝色
             self.play(animals[i][0].animate.set_color(BLUE), run_time=0.15)
             
-            # 2. 添加2只新脚（这是核心：用图形展示脚的增加！）
-            new_leg1 = Line(ORIGIN, DOWN * 0.12, color=BLUE, stroke_width=2)
-            new_leg2 = Line(ORIGIN, DOWN * 0.12, color=BLUE, stroke_width=2)
-            new_leg1.next_to(animals[i][1], LEFT, buff=0.02)
-            new_leg2.next_to(animals[i][2], RIGHT, buff=0.02)
+            # 2. 添加2只新脚 - 获取当前动物位置来定位新脚
+            animal_center = animals[i].get_center()
+            # 缩放后的腿长度和偏移（原始scale是0.45）
+            scaled_leg_length = 0.2 * 0.45
+            scaled_offset_y = 0.15 * 0.45
+            scaled_spread = 0.16 * 0.45  # 新脚在外侧
+            
+            new_leg1 = Line(
+                start=animal_center + np.array([-scaled_spread, -scaled_offset_y, 0]),
+                end=animal_center + np.array([-scaled_spread, -scaled_offset_y - scaled_leg_length, 0]),
+                color=BLUE, stroke_width=2
+            )
+            new_leg2 = Line(
+                start=animal_center + np.array([scaled_spread, -scaled_offset_y, 0]),
+                end=animal_center + np.array([scaled_spread, -scaled_offset_y - scaled_leg_length, 0]),
+                color=BLUE, stroke_width=2
+            )
             
             # 脚的生长动画（不是直接出现！）
             self.play(
