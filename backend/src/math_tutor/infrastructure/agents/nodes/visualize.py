@@ -60,8 +60,30 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
             if best_skill:
                 skill_name = best_skill.name
                 logger.info(f"Matched visualization skill: {best_skill.name}")
-                # prompt_template now contains the entire skill file
-                # including all guidelines and code template
+                
+                # TEMPLATE-FIRST STRATEGY: If skill has code template, use it directly!
+                if best_skill.code_template and len(best_skill.code_template) > 100:
+                    logger.info(f"Using template code directly (len={len(best_skill.code_template)})")
+                    
+                    # Sanitize and validate template code
+                    template_code = _sanitize_code(best_skill.code_template)
+                    valid, error = _validate_syntax(template_code)
+                    
+                    if valid:
+                        quality_ok, quality_error = _check_code_quality(template_code)
+                        if quality_ok:
+                            return {
+                                "manim_code": template_code,
+                                "skill_name": skill_name,
+                                "skill_context_str": f"【直接使用模板：{skill_name}】",
+                                "template_used": True,
+                            }
+                        else:
+                            logger.warning(f"Template quality issue: {quality_error}")
+                    else:
+                        logger.warning(f"Template syntax error: {error}")
+                
+                # Fallback: use prompt_template as context for LLM
                 skill_context = f"""
 【匹配到专用技能：{best_skill.name}】
 
@@ -180,19 +202,36 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
 
 ---
 
-# 专用模板参考
+# ⚠️ 禁止使用的 Manim 对象
+以下对象有 API 兼容问题，**绝对禁止使用**：
+- Sector（参数冲突）
+- AnnularSector（参数冲突）
+- Annulus（复杂几何）
+- ThreeDScene（不支持3D）
+- MathTex / Tex（无LaTeX环境）
+
+替代方案：
+- 用 Arc + Line 组合代替 Sector
+- 用 Axes.plot() 画函数曲线
+- 用 Text() 显示公式
+
+---
+
+# 🔒 必须复制的完整代码模板
+
+你**必须**严格按照以下模板代码来生成。不要自己设计新方法！
+直接复制模板中的 class 结构，只修改参数数值。
 
 {skill_context}
 
 ---
 
-# 生成要求
+# 生成要求（必须遵守）
 1. 从 from manim import * 开始
-2. 严格按照模板的动画流程和图形设计
-3. 动态计算题目中的具体数值
-4. 使用 VGroup、arrange、next_to 组织布局
-5. 中文使用 font="Microsoft YaHei" 或 "Noto Sans CJK SC"
-6. 类名为 SolutionScene
+2. ⚠️ 直接复制上面模板的代码结构
+3. ⚠️ 只修改题目中的具体数值
+4. ⚠️ 禁止使用 Sector、MathTex 等被禁对象
+5. 类名为 SolutionScene
 
 直接输出完整Python代码："""
     else:
@@ -275,6 +314,34 @@ def _sanitize_code(code: str) -> str:
         code = re.sub(rf"\b{color}\b", "BLUE", code)
     
     return code
+
+
+def _validate_syntax(code: str) -> tuple[bool, str]:
+    """Validate Python syntax before execution"""
+    try:
+        compile(code, "<string>", "exec")
+        return True, ""
+    except SyntaxError as e:
+        return False, f"Line {e.lineno}: {e.msg}"
+
+
+def _check_code_quality(code: str) -> tuple[bool, str]:
+    """Check code quality constraints"""
+    # Check length
+    if len(code) > 8000:
+        return False, f"代码太长 ({len(code)} 字符)，请简化到 5000 字符以内"
+    
+    # Check for banned objects
+    banned = ["Sector", "AnnularSector", "Annulus", "ThreeDScene", "Surface"]
+    found = [obj for obj in banned if obj in code]
+    if found:
+        return False, f"使用了禁用对象: {', '.join(found)}"
+    
+    # Check for required class
+    if "class SolutionScene" not in code and "class MathVisualization" not in code:
+        return False, "缺少必需的 SolutionScene 类"
+    
+    return True, ""
 
 
 def _fallback_code(problem: str, answer: str) -> str:

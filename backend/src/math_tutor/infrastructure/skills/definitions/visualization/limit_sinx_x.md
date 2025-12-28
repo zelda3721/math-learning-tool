@@ -1,38 +1,19 @@
-# 极限可视化 - lim(x→0) sin(x)/x
+# 极限可视化 - lim(x→0) sin(x)/x（几何夹逼证明）
 
 ## 关键词：极限, lim, 趋近, x→, sin(x)/x
 
 ## 描述
-通过**动态逼近**演示极限概念，让学生"看到"当x趋近于0时，sin(x)/x趋近于1。
+用几何夹逼法解释为什么 lim(x→0) sin(x)/x = 1
 
-## 核心理念
-> **动态逼近** - 不是静态展示，而是让学生看到数值如何逼近极限值
+## 数学原理
+在单位圆中：
+- 三角形OAB面积 = (1/2)sin(x)
+- 扇形OAB面积 = (1/2)x  
+- 三角形OAC面积 = (1/2)tan(x)
 
-## 何时使用
-- 题目中包含"极限"、"lim"、"趋近"、"x→"等关键词
-- 求极限类问题
-
-## ⚠️ 严禁
-- **严禁在图像区域内放置公式** - 公式只在右侧
-- **严禁静态展示** - 必须有动态点逼近
-- **严禁一次性显示所有数值** - 逐步逼近
-
-## 布局规则（左图右文）
-```
-┌───────────────────────────────────────────────────┐
-│  标题：求极限 lim(x→0) sin(x)/x                    │
-├──────────────────────┬────────────────────────────┤
-│                      │                            │
-│   📈 函数图像         │   📝 x 和 f(x) 实时值      │
-│   y = sin(x)/x       │   逐步逼近显示              │
-│   动态点逼近0         │                            │
-│                      │                            │
-├──────────────────────┴────────────────────────────┤
-│  ✅ 答案：极限 = 1                                 │
-└───────────────────────────────────────────────────┘
-```
-
----
+由 sin(x) < x < tan(x) 推出：
+sin(x)/x < 1 < 1/cos(x)
+当 x→0 时，cos(x)→1，由夹逼定理得 sin(x)/x → 1
 
 ## 完整代码模板
 
@@ -42,169 +23,134 @@ import numpy as np
 
 class SolutionScene(Scene):
     def construct(self):
-        # ========== 第1幕：显示题目 ==========
-        title = Text("求极限：lim(x→0) sin(x)/x", font="Microsoft YaHei", font_size=26)
+        # ========== 第1幕：标题 ==========
+        title = Text("求极限：lim(x→0) sin(x)/x", font="Microsoft YaHei", font_size=28)
         title.to_edge(UP, buff=0.3)
         self.play(Write(title))
         self.wait(1)
         
-        # ========== 第2幕：画函数图像 ==========
-        # 坐标系（左侧）
-        axes = Axes(
-            x_range=[-4, 4, 1],
-            y_range=[-0.5, 1.5, 0.5],
-            x_length=5,
-            y_length=3.5,
-            axis_config={"color": WHITE, "include_numbers": True},
-        )
-        axes.shift(LEFT * 2 + DOWN * 0.3)
+        # ========== 第2幕：建立几何模型 ==========
+        step1 = Text("Step 1: 几何模型", font="Microsoft YaHei", font_size=18, color=YELLOW)
+        step1.next_to(title, DOWN, buff=0.3)
+        self.play(Write(step1))
         
-        # 添加坐标轴标签
-        x_label = Text("x", font_size=16).next_to(axes.x_axis, RIGHT, buff=0.1)
-        y_label = Text("y", font_size=16).next_to(axes.y_axis, UP, buff=0.1)
+        # 单位圆（半径=2方便展示）
+        r = 2
+        circle = Circle(radius=r, color=WHITE)
+        circle.shift(LEFT * 2)
+        center = circle.get_center()
         
-        # 函数 y = sin(x)/x
-        def f(x):
-            if abs(x) < 0.001:
-                return 1  # 极限值
-            return np.sin(x) / x
+        # 角度 x（用30度作为示例）
+        angle = 30 * DEGREES
         
-        curve = axes.plot(f, x_range=[-4, -0.1], color=YELLOW)
-        curve2 = axes.plot(f, x_range=[0.1, 4], color=YELLOW)
+        # 点 A（圆上，角度x处）
+        point_a = center + r * np.array([np.cos(angle), np.sin(angle), 0])
+        # 点 B（A在x轴上的投影）
+        point_b = center + r * np.array([np.cos(angle), 0, 0])
+        # 点 C（切线与y轴的交点）
+        point_c = center + r * np.array([1, np.tan(angle), 0])
+        # 原点 O
+        point_o = center
+        # 点 D（圆与x轴的交点）
+        point_d = center + r * np.array([1, 0, 0])
         
-        # y=1 参考线
-        ref_line = DashedLine(
-            axes.c2p(-4, 1), axes.c2p(4, 1),
-            color=GREEN, dash_length=0.1
-        )
-        ref_label = Text("y = 1", font="Microsoft YaHei", font_size=12, color=GREEN)
-        ref_label.next_to(ref_line, RIGHT, buff=0.1)
+        self.play(Create(circle))
         
-        self.play(Create(axes), Write(x_label), Write(y_label), run_time=1)
-        self.play(Create(curve), Create(curve2), run_time=1.5)
-        self.play(Create(ref_line), Write(ref_label), run_time=0.5)
+        # 标注原点和单位圆
+        o_label = Text("O", font_size=16).next_to(point_o, DOWN + LEFT, buff=0.1)
+        self.play(Write(o_label))
+        
+        # ========== 第3幕：三个区域 ==========
+        # 三角形 OAB（面积 = 1/2 * sin(x)）
+        triangle_oab = Polygon(point_o, point_a, point_b, 
+                               fill_color=BLUE, fill_opacity=0.3, stroke_color=BLUE)
+        
+        # 扇形 OAD（面积 = 1/2 * x）- 用 Arc + Lines 代替 Sector
+        arc_oad = Arc(radius=r, angle=angle, arc_center=center, color=GREEN)
+        line_od = Line(point_o, point_d, color=GREEN)
+        line_oa = Line(point_o, point_a, color=GREEN)
+        
+        # 三角形 OCD（面积 = 1/2 * tan(x)）
+        triangle_ocd = Polygon(point_o, point_c, point_d,
+                               fill_color=RED, fill_opacity=0.3, stroke_color=RED)
+        
+        # 依次显示三个区域
+        self.play(FadeIn(triangle_oab))
+        area1 = Text("△OAB = ½sin(x)", font="Microsoft YaHei", font_size=14, color=BLUE)
+        area1.move_to(RIGHT * 3 + UP * 1.5)
+        self.play(Write(area1))
+        self.wait(0.5)
+        
+        self.play(Create(arc_oad), Create(line_od), Create(line_oa))
+        area2 = Text("扇形 = ½x", font="Microsoft YaHei", font_size=14, color=GREEN)
+        area2.move_to(RIGHT * 3 + UP * 0.7)
+        self.play(Write(area2))
+        self.wait(0.5)
+        
+        self.play(FadeIn(triangle_ocd))
+        area3 = Text("△OCD = ½tan(x)", font="Microsoft YaHei", font_size=14, color=RED)
+        area3.move_to(RIGHT * 3 + DOWN * 0.1)
+        self.play(Write(area3))
         self.wait(1)
         
-        # ========== 第3幕：动态逼近演示 ==========
-        # 右侧标题
-        approach_title = Text("观察：x 逼近 0", font="Microsoft YaHei", font_size=16, color=YELLOW)
-        approach_title.move_to(RIGHT * 4.5 + UP * 2.5)
-        self.play(Write(approach_title))
+        # ========== 第4幕：建立不等式 ==========
+        self.play(FadeOut(step1))
+        step2 = Text("Step 2: 面积不等式", font="Microsoft YaHei", font_size=18, color=YELLOW)
+        step2.next_to(title, DOWN, buff=0.3)
+        self.play(Write(step2))
         
-        # x值和f(x)值显示
-        x_display = Text("x = 2.0", font="Microsoft YaHei", font_size=14, color=WHITE)
-        x_display.move_to(RIGHT * 4.5 + UP * 1.8)
-        
-        fx_display = Text("f(x) = 0.455", font="Microsoft YaHei", font_size=14, color=WHITE)
-        fx_display.move_to(RIGHT * 4.5 + UP * 1.2)
-        
-        self.play(Write(x_display), Write(fx_display))
-        
-        # 创建移动的点（从右侧逼近0）
-        dot = Dot(color=RED, radius=0.08)
-        start_x = 2.0
-        dot.move_to(axes.c2p(start_x, f(start_x)))
-        self.play(FadeIn(dot))
-        
-        # 逐步逼近0
-        x_values = [2.0, 1.5, 1.0, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05, 0.01]
-        
-        for x in x_values[1:]:
-            new_pos = axes.c2p(x, f(x))
-            
-            new_x = Text(f"x = {x:.2f}", font="Microsoft YaHei", font_size=14, color=WHITE)
-            new_x.move_to(RIGHT * 4.5 + UP * 1.8)
-            
-            fx_val = f(x)
-            new_fx = Text(f"f(x) = {fx_val:.4f}", font="Microsoft YaHei", font_size=14, 
-                         color=GREEN if abs(fx_val - 1) < 0.01 else WHITE)
-            new_fx.move_to(RIGHT * 4.5 + UP * 1.2)
-            
-            self.play(
-                dot.animate.move_to(new_pos),
-                Transform(x_display, new_x),
-                Transform(fx_display, new_fx),
-                run_time=0.4
-            )
-            
-            # x很小时暂停
-            if x <= 0.1:
-                self.wait(0.5)
-        
-        # 强调结果
-        result_text = Text("→ 趋近于 1！", font="Microsoft YaHei", font_size=16, color=GREEN)
-        result_text.move_to(RIGHT * 4.5 + UP * 0.5)
-        self.play(Write(result_text))
+        # 不等式
+        ineq = Text("sin(x) < x < tan(x)", font="Microsoft YaHei", font_size=20, color=WHITE)
+        ineq.move_to(RIGHT * 3 + DOWN * 1)
+        self.play(Write(ineq))
         self.wait(1)
         
-        # ========== 第4幕：解释原理 ==========
-        self.play(FadeOut(approach_title), FadeOut(x_display), FadeOut(fx_display), FadeOut(result_text))
+        # ========== 第5幕：推导结论 ==========
+        self.play(FadeOut(step2))
+        step3 = Text("Step 3: 推导极限", font="Microsoft YaHei", font_size=18, color=YELLOW)
+        step3.next_to(title, DOWN, buff=0.3)
+        self.play(Write(step3))
         
-        explain_title = Text("为什么 = 1 ？", font="Microsoft YaHei", font_size=16, color=YELLOW)
-        explain_title.move_to(RIGHT * 4.5 + UP * 2.5)
-        self.play(Write(explain_title))
-        
-        # 泰勒展开解释
-        exp1 = Text("当 x→0 时：", font="Microsoft YaHei", font_size=12, color=WHITE)
-        exp1.move_to(RIGHT * 4.5 + UP * 1.8)
-        self.play(Write(exp1))
-        self.wait(0.3)
-        
-        exp2 = Text("sin(x) ≈ x - x³/6 + ...", font="Microsoft YaHei", font_size=12, color=WHITE)
-        exp2.move_to(RIGHT * 4.5 + UP * 1.2)
-        self.play(Write(exp2))
-        self.wait(0.3)
-        
-        exp3 = Text("sin(x)/x ≈ 1 - x²/6 + ...", font="Microsoft YaHei", font_size=12, color=WHITE)
-        exp3.move_to(RIGHT * 4.5 + UP * 0.6)
-        self.play(Write(exp3))
-        self.wait(0.3)
-        
-        exp4 = Text("→ 1  (当x→0)", font="Microsoft YaHei", font_size=14, color=GREEN)
-        exp4.move_to(RIGHT * 4.5 + UP * 0.0)
-        self.play(Write(exp4))
-        self.wait(1.5)
-        
-        # ========== 第5幕：完整答案 ==========
+        # 清理几何图形，保留不等式
         self.play(
-            FadeOut(dot), FadeOut(axes), FadeOut(curve), FadeOut(curve2),
-            FadeOut(ref_line), FadeOut(ref_label), FadeOut(x_label), FadeOut(y_label),
-            FadeOut(explain_title), FadeOut(exp1), FadeOut(exp2), FadeOut(exp3), FadeOut(exp4)
+            FadeOut(circle), FadeOut(triangle_oab), FadeOut(triangle_ocd),
+            FadeOut(arc_oad), FadeOut(line_od), FadeOut(line_oa),
+            FadeOut(area1), FadeOut(area2), FadeOut(area3), FadeOut(o_label)
         )
-        self.wait(0.3)
         
-        # 答案框
-        answer_box = Rectangle(width=7, height=2.2, color=GREEN, fill_opacity=0.05, stroke_width=2)
-        answer_box.move_to(ORIGIN)
+        # 移动不等式到中间
+        ineq.generate_target()
+        ineq.target.move_to(UP * 0.5)
+        self.play(MoveToTarget(ineq))
         
-        answer = VGroup(
-            Text("解答：", font="Microsoft YaHei", font_size=18, color=YELLOW),
-            Text("lim(x→0) sin(x)/x", font="Microsoft YaHei", font_size=16, color=WHITE),
-            Text("= lim(x→0) (x - x³/6 + ...)/x", font="Microsoft YaHei", font_size=14, color=WHITE),
-            Text("= lim(x→0) (1 - x²/6 + ...) = 1", font="Microsoft YaHei", font_size=16, color=GREEN),
-        ).arrange(DOWN, buff=0.2, aligned_edge=LEFT)
-        answer.move_to(answer_box.get_center())
+        # 推导步骤
+        derive1 = Text("除以 sin(x)：", font="Microsoft YaHei", font_size=16)
+        derive1.move_to(LEFT * 3 + DOWN * 0.3)
+        derive2 = Text("1 < x/sin(x) < 1/cos(x)", font="Microsoft YaHei", font_size=18)
+        derive2.move_to(DOWN * 0.3)
+        self.play(Write(derive1), Write(derive2))
+        self.wait(0.5)
         
-        self.play(Create(answer_box))
-        for line in answer:
-            self.play(Write(line), run_time=0.5)
+        derive3 = Text("取倒数：", font="Microsoft YaHei", font_size=16)
+        derive3.move_to(LEFT * 3 + DOWN * 1.1)
+        derive4 = Text("cos(x) < sin(x)/x < 1", font="Microsoft YaHei", font_size=18, color=GREEN)
+        derive4.move_to(DOWN * 1.1)
+        self.play(Write(derive3), Write(derive4))
+        self.wait(0.5)
         
-        self.wait(3)
+        derive5 = Text("当 x→0：cos(x)→1", font="Microsoft YaHei", font_size=16)
+        derive5.move_to(LEFT * 3 + DOWN * 1.9)
+        self.play(Write(derive5))
+        self.wait(0.5)
+        
+        # ========== 第6幕：最终答案 ==========
+        self.play(FadeOut(step3))
+        
+        answer = Text("∴ lim(x→0) sin(x)/x = 1", font="Microsoft YaHei", font_size=28, color=GREEN)
+        answer.move_to(DOWN * 2.5)
+        
+        # 框住答案
+        answer_box = SurroundingRectangle(answer, color=GREEN, buff=0.2)
+        self.play(Write(answer), Create(answer_box))
+        self.wait(2)
 ```
-
-## 设计要点
-
-### 1. 动态逼近演示
-- 点从 x=2 逐步移动到 x=0.01
-- 实时显示 x 和 f(x) 值
-- 学生**看到** f(x) 趋近于 1
-
-### 2. 布局分离
-- 左侧：坐标系 + 函数曲线 + 移动的点
-- 右侧：x 和 f(x) 实时值
-- 底部：最终答案
-
-### 3. 原理解释（泰勒展开）
-- sin(x) ≈ x - x³/6 + ...
-- 当 x→0 时，高阶项趋于0
-- 所以 sin(x)/x → 1
