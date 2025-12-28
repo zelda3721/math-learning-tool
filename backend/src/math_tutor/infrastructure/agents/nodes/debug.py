@@ -94,7 +94,8 @@ async def debug_node(state: dict[str, Any], model: ChatOpenAI) -> dict[str, Any]
         "filenotfounderror" in error_message.lower() and "latex" in error_message.lower(),
         "no such file or directory" in error_message.lower() and "latex" in error_message.lower(),
         "dvipng" in error_message.lower(),
-        "dvisvgm" in error_message.lower() and "error" in error_message.lower(),
+        "dvisvgm" in error_message.lower(),
+        "latex error converting" in error_message.lower(),  # From manim error output
         "mathtex" in error_message.lower() and ("failed" in error_message.lower() or "error" in error_message.lower()),
         "compilation failed" in error_message.lower() and "tex" in error_message.lower(),
     ])
