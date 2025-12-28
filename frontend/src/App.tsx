@@ -3,11 +3,14 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from './services/api'
 
 // Components
-import { Header } from './components/Header'
-import { GradeSelector } from './components/GradeSelector'
-import { ProblemInput } from './components/ProblemInput'
-import { ResultDisplay } from './components/ResultDisplay'
-import { LoadingAnimation } from './components/LoadingAnimation'
+// Components
+import {
+  Header,
+  GradeSelector,
+  ProblemInput,
+  ResultDisplay,
+  LoadingAnimation
+} from './components'
 
 function App() {
   const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
