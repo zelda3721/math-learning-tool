@@ -41,17 +41,28 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
     skill_context = state.get("skill_context_str", "")
     skill_name = state.get("skill_name", None)
     
-    if not skill_context and skill_repo:
-        best_skill = skill_repo.find_best_match(problem_text, grade_level)
+    # Get visualization agent system prompt (defines strict quality requirements)
+    agent_system_prompt = ""
+    animation_guidelines = ""
+    
+    if skill_repo:
+        # Try to get the visualization agent prompt (core quality requirements)
+        agent_system_prompt = skill_repo.get_agent_prompt("visualization") or ""
+        # Get animation guidelines (detailed animation standards)
+        animation_guidelines = skill_repo.get_animation_guidelines() or ""
         
-        if best_skill:
-            skill_name = best_skill.name
-            logger.info(f"Matched visualization skill: {best_skill.name}")
-            skill_context = f"""
-【参考可视化模板：{best_skill.name}】
+        if not skill_context:
+            best_skill = skill_repo.find_best_match(problem_text, grade_level)
+            
+            if best_skill:
+                skill_name = best_skill.name
+                logger.info(f"Matched visualization skill: {best_skill.name}")
+                skill_context = f"""
+【匹配到专用技能：{best_skill.name}】
+
 {best_skill.prompt_template}
 
-### 代码模板（请参考此结构实现，但要适配具体题目数据）
+### 代码模板（严格参考此结构和动画效果）
 ```python
 {best_skill.code_template}
 ```
@@ -64,6 +75,7 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
     )
     
     problem_context = f"""
+# 当前题目
 题目：{problem_text}
 题型：{problem_type}
 年级：{grade_level}
@@ -76,54 +88,95 @@ async def visualize_node(state: dict[str, Any], model: ChatOpenAI, skill_repo: A
     
     settings = get_settings()
     
-    base_prompt = "你是一个Manim可视化专家。请为数学题目生成可视化代码。"
-    
+    # Build comprehensive system prompt
     latex_constraint = ""
     if not settings.manim_use_latex:
         latex_constraint = """
-重要限制（CRITICAL）：
-1. 系统【没有安装LaTeX】环境。
-2. 严禁使用 MathTex, Tex, Matrix 等需要LaTeX编译的类。
-3. 所有文本必须使用 Text 类。
-4. 显示数学公式时，用普通字符串表示，例如 Text("x² + y² = 1")。
+## ⚠️ 环境限制
+系统【没有安装LaTeX】环境。必须：
+- 严禁使用 MathTex, Tex, Matrix 等需要LaTeX编译的类
+- 所有文本使用 Text 类
+- 公式用普通字符串表示，如 Text("x² + y² = 1")
 """
     else:
-        # If LaTeX is enabled, we still prefer Text for Chinese to avoid font issues
         latex_constraint = """
-注意事项： 
-1. 中文内容推荐使用 Text(..., font="Microsoft YaHei")。
-2. 确实需要优美公式时可以使用 MathTex。
+## 环境说明
+已安装 LaTeX。可以使用 MathTex 显示公式，但中文推荐使用 Text。
 """
 
-    system_prompt = f"{base_prompt}\n{latex_constraint}"
-    
-    if skill_context:
-        prompt = f"""{system_prompt}
+    # Construct the full prompt with all quality guidelines
+    if agent_system_prompt:
+        # Use the full visualization agent prompt as base (strict quality requirements)
+        base_prompt = agent_system_prompt
+    else:
+        # Fallback minimal prompt
+        base_prompt = """# Visualization Agent
+你是一个Manim可视化专家。
 
-请基于以下参考模板为题目生成代码：
-        
+## 核心原则
+1. **禁止纯文字罗列**：不能只是把解题步骤用Text显示出来
+2. **禁止PPT式动画**：不能只是文字的淡入淡出
+3. **图形优先**：每个概念都要用图形表示（Circle, Rectangle, Line, Arrow等）
+4. **可数可见**：数量用具体的物体表示，让学生能数
+5. **动态变化**：操作过程用动画展示
+"""
+
+    # Add animation guidelines (truncated for context window)
+    animation_section = ""
+    if animation_guidelines:
+        # Only include key parts to avoid token overflow
+        animation_section = """
+## 动画规范要点
+1. 使用 LaggedStart 错开显示多个元素
+2. 使用 rate_func=smooth 让动画流畅
+3. 使用 VGroup.arrange() 和 next_to() 防止重叠
+4. 使用 FadeOut 清理旧元素后再显示新内容
+5. 题目等2秒、步骤等1.5秒、答案等3秒
+"""
+
+    # Build the final prompt
+    if skill_context:
+        prompt = f"""{base_prompt}
+
+{latex_constraint}
+
+{animation_section}
+
+---
+
+# 专用模板参考
+
 {skill_context}
 
-基本要求：
-1. 生成完整的Scene类代码 (从 from manim import * 开始)
-2. 使用模板中的可视化原则
-3. 动态计算和展示题目中的具体数值
-4. 【排版美观】：使用 VGroup.arrange(), next_to() 等方法防止文字重叠
-5. 字体清晰：支持中文显示 (font="Microsoft YaHei" 或类似)
+---
 
-输出格式：直接输出完整Python代码。"""
+# 生成要求
+1. 从 from manim import * 开始
+2. 严格按照模板的动画流程和图形设计
+3. 动态计算题目中的具体数值
+4. 使用 VGroup、arrange、next_to 组织布局
+5. 中文使用 font="Microsoft YaHei" 或 "Noto Sans CJK SC"
+6. 类名为 SolutionScene
+
+直接输出完整Python代码："""
     else:
-        # Default prompt if no skill matched
-        prompt = f"""{system_prompt}
+        prompt = f"""{base_prompt}
 
-要求：
-1. 生成完整的Scene类代码
-2. 使用图形化展示，不要只有文字
-3. 【排版美观】：使用 VGroup.arrange(), next_to() 等方法防止文字重叠
-4. 每个步骤都有动画过渡
-5. 最后展示答案
+{latex_constraint}
 
-输出格式：直接输出完整Python代码，从 from manim import * 开始。"""
+{animation_section}
+
+---
+
+# 生成要求
+1. 从 from manim import * 开始
+2. 必须使用图形元素（Circle, Rectangle, Line, Arrow等）
+3. 操作过程用动画展示（移动、变色、消失）
+4. 使用 VGroup、arrange、next_to 组织布局
+5. 中文使用 font="Microsoft YaHei"
+6. 类名为 SolutionScene
+
+直接输出完整Python代码："""
         
     try:
         response = await model.ainvoke([
