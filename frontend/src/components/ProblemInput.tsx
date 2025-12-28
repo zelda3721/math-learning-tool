@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Send, Pencil, Lightbulb } from 'lucide-react'
 import type { Grade } from '../services/api'
 
@@ -6,11 +6,25 @@ interface ProblemInputProps {
     onSubmit: (problem: string) => void
     isLoading: boolean
     selectedGrade?: string
+    onGradeChange?: (grade: string) => void
     grades?: Grade[]
 }
 
-export function ProblemInput({ onSubmit, isLoading, selectedGrade, grades }: ProblemInputProps) {
+export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange, grades }: ProblemInputProps) {
     const [problem, setProblem] = useState('')
+    const examplesContainerRef = useRef<HTMLDivElement>(null)
+    const exampleRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({})
+
+    // Auto-scroll to selected grade's example when grade changes
+    useEffect(() => {
+        if (selectedGrade && exampleRefs.current[selectedGrade]) {
+            exampleRefs.current[selectedGrade]?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest',
+                inline: 'center'
+            })
+        }
+    }, [selectedGrade])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -23,6 +37,14 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, grades }: Pro
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             handleSubmit(e)
+        }
+    }
+
+    // Handle example click - sync both grade and problem
+    const handleExampleClick = (grade: Grade) => {
+        setProblem(grade.example_problem)
+        if (onGradeChange) {
+            onGradeChange(grade.level)
         }
     }
 
@@ -70,25 +92,31 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, grades }: Pro
                 </div>
             </div>
 
-            {/* Grade-specific Example Chips */}
-            <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                <div className="text-xs text-slate-400 flex items-center gap-1 mr-2">
+            {/* Grade-specific Example Chips - All grades, scrollable */}
+            <div className="mt-4">
+                <div className="text-xs text-slate-400 flex items-center gap-1 mb-2">
                     <Lightbulb size={14} />
-                    <span>试试这些：</span>
+                    <span>点击试试这些例题：</span>
                 </div>
-                {grades?.slice(0, 4).map((grade) => (
-                    <button
-                        key={grade.level}
-                        type="button"
-                        onClick={() => setProblem(grade.example_problem)}
-                        className={`text-xs px-3 py-1.5 rounded-full transition-colors ${selectedGrade === grade.level
-                                ? 'bg-sky-100 text-sky-700 ring-1 ring-sky-300'
-                                : 'bg-slate-100 text-slate-500 hover:bg-sky-50 hover:text-sky-600'
-                            }`}
-                    >
-                        {grade.display_name}：{grade.example_problem.slice(0, 15)}...
-                    </button>
-                ))}
+                <div
+                    ref={examplesContainerRef}
+                    className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent"
+                >
+                    {grades?.map((grade) => (
+                        <button
+                            key={grade.level}
+                            ref={(el) => { exampleRefs.current[grade.level] = el }}
+                            type="button"
+                            onClick={() => handleExampleClick(grade)}
+                            className={`text-xs px-3 py-1.5 rounded-full transition-all duration-300 whitespace-nowrap flex-shrink-0 ${selectedGrade === grade.level
+                                    ? 'bg-sky-500 text-white ring-2 ring-sky-300 shadow-md'
+                                    : 'bg-slate-100 text-slate-500 hover:bg-sky-50 hover:text-sky-600'
+                                }`}
+                        >
+                            {grade.display_name}
+                        </button>
+                    ))}
+                </div>
             </div>
         </form>
     )
