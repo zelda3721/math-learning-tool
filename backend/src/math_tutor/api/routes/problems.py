@@ -62,19 +62,18 @@ async def process_problem(
             problem_text=request.problem,
             grade=request.grade,
         )
-        # Convert filesystem path to URL
+        # Convert filesystem path to URL (use streaming endpoint)
         video_path = result.get("video_path")
         video_url = None
         if video_path:
             # video_path is like: media/videos/.../file.mp4
-            # Convert to URL: /media/videos/.../file.mp4
-            if video_path.startswith("media/"):
-                video_url = "/" + video_path
-            elif "/media/" in video_path:
-                # Absolute path, extract from /media/ onwards
-                video_url = "/media/" + video_path.split("/media/")[-1]
+            # Convert to streaming URL: /api/v1/media/videos/.../file.mp4
+            if "videos/" in video_path:
+                # Extract path from videos/ onwards
+                video_subpath = video_path.split("videos/", 1)[-1]
+                video_url = f"/api/v1/media/videos/{video_subpath}"
             else:
-                video_url = "/media/" + video_path
+                video_url = f"/api/v1/media/videos/{video_path}"
         
         return ProcessProblemResponse(
             status=result.get("status", "failed"),
