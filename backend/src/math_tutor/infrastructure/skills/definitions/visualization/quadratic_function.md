@@ -162,23 +162,71 @@ class SolutionScene(Scene):
         self.play(Write(min_text))
         self.wait(2)
         
-        # ========== 第5幕：总结 ==========
-        # 清理
+        # ========== 第5幕：连接图形与公式 ==========
+        # 清理动态元素
         self.play(
             FadeOut(dot), FadeOut(y_label), FadeOut(info_title), FadeOut(min_info)
         )
+        self.wait(0.5)
         
-        # 最终答案（底部）
-        answer_box = Rectangle(width=6, height=1.2, color=GREEN, fill_opacity=0.1, stroke_width=2)
-        answer_box.to_edge(DOWN, buff=0.3)
+        # 右侧显示解题方法
+        method_title = Text("📐 解题方法", font="Microsoft YaHei", font_size=18, color=YELLOW)
+        method_title.move_to(RIGHT * 4 + UP * 2)
+        self.play(Write(method_title))
         
-        answer = VGroup(
-            Text(f"当 x = {vertex_x:.0f} 时", font="Microsoft YaHei", font_size=20, color=WHITE),
-            Text(f"f(x) 取得最小值 = {vertex_y:.0f}", font="Microsoft YaHei", font_size=22, color=GREEN)
-        ).arrange(RIGHT, buff=0.3)
-        answer.move_to(answer_box.get_center())
+        # 公式推导（右侧信息区，不在图上）
+        step1 = Text("顶点 x = -b/(2a)", font="Microsoft YaHei", font_size=14, color=WHITE)
+        step1.move_to(RIGHT * 4 + UP * 1.2)
+        self.play(Write(step1))
+        self.wait(0.5)
         
-        self.play(Create(answer_box), Write(answer))
+        step2 = Text(f"= -({b})/(2×{a})", font="Microsoft YaHei", font_size=14, color=WHITE)
+        step2.move_to(RIGHT * 4 + UP * 0.6)
+        self.play(Write(step2))
+        self.wait(0.5)
+        
+        step3 = Text(f"= {vertex_x:.0f}", font="Microsoft YaHei", font_size=14, color=GREEN)
+        step3.move_to(RIGHT * 4 + UP * 0)
+        self.play(Write(step3))
+        self.wait(1)
+        
+        # 指向图上的顶点（连接图形和公式）
+        arrow = Arrow(
+            step3.get_left() + LEFT * 0.2,
+            axes.c2p(vertex_x, vertex_y) + RIGHT * 0.3,
+            color=GREEN,
+            stroke_width=2
+        )
+        self.play(Create(arrow))
+        self.wait(1)
+        
+        # ========== 第6幕：完整答案 ==========
+        # 清理解题方法区
+        self.play(
+            FadeOut(method_title), FadeOut(step1), FadeOut(step2), FadeOut(step3), FadeOut(arrow),
+            FadeOut(axes), FadeOut(curve), FadeOut(vertex_dot), FadeOut(vertex_ring),
+            FadeOut(vertex_label), FadeOut(min_line), FadeOut(min_text)
+        )
+        self.wait(0.3)
+        
+        # 完整解题步骤框
+        solution_box = Rectangle(width=7, height=3, color=GREEN, fill_opacity=0.05, stroke_width=2)
+        solution_box.move_to(ORIGIN)
+        
+        solution = VGroup(
+            Text("解题步骤：", font="Microsoft YaHei", font_size=20, color=YELLOW),
+            Text(f"① 识别：a={a}, b={b}, c={c}", font="Microsoft YaHei", font_size=16, color=WHITE),
+            Text(f"② 顶点 x = -b/(2a) = {vertex_x:.0f}", font="Microsoft YaHei", font_size=16, color=WHITE),
+            Text(f"③ 代入：f({vertex_x:.0f}) = {vertex_y:.0f}", font="Microsoft YaHei", font_size=16, color=WHITE),
+            Text(f"④ 答案：最小值 = {vertex_y:.0f}", font="Microsoft YaHei", font_size=18, color=GREEN),
+        ).arrange(DOWN, buff=0.25, aligned_edge=LEFT)
+        solution.move_to(solution_box.get_center())
+        
+        self.play(Create(solution_box))
+        for line in solution:
+            self.play(Write(line), run_time=0.6)
+            self.wait(0.3)
+        
         self.wait(3)
 ```
 
