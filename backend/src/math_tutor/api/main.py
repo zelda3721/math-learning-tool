@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings, setup_logging
-from .routes import problems, grades, skills, health, videos
+from ..config.dependencies import get_database, get_file_archive
+from .routes import chat, grades, health, problems, sessions, skills, videos
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     setup_logging(level="DEBUG" if settings.api_debug else "INFO")
     logger.info("Math Tutor API starting up...")
-    logger.info(f"LLM Model: {settings.llm_model}")
+    logger.info(f"LLM Model: {settings.llm_model} via {settings.llm_api_base}")
     logger.info(f"Manim Quality: {settings.manim_quality}")
+    # Eagerly initialize storage so we fail fast on bad paths.
+    get_database(settings)
+    get_file_archive(settings)
+    logger.info(f"Storage: db={settings.resolved_db_path} data_dir={settings.resolved_data_dir}")
     yield
     logger.info("Math Tutor API shutting down...")
 
@@ -65,8 +70,10 @@ def create_app() -> FastAPI:
     app.include_router(grades.router, prefix="/api/v1/grades", tags=["Grades"])
     app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])
     app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problems"])
+    app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
+    app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["Sessions"])
     app.include_router(videos.router, prefix="/api/v1/media", tags=["Videos"])
-    
+
     return app
 
 

@@ -1,0 +1,262 @@
+"""inspect_video — extract a few frames from the rendered Manim video and
+send them to a multimodal LLM for visual feedback.
+
+Output is markdown with `## 视觉评审`, `**整体质量**: ...`, and `### 问题/亮点/帧描述`
+sub-sections. JSON fallback is provided.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import logging
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from ....application.interfaces import (
+    ChatMessage,
+    ILLMProvider,
+    ITool,
+    ToolContext,
+    ToolResult,
+)
+from .. import markdown_extract as md
+from ..prompt_library import PromptLibrary
+
+logger = logging.getLogger(__name__)
+
+
+def _png_to_data_url(path: Path) -> str:
+    raw = path.read_bytes()
+    b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:image/png;base64,{b64}"
+
+
+async def _ffprobe_duration(video_path: Path) -> float | None:
+    if shutil.which("ffprobe") is None:
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        text = out.decode().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+async def _extract_frame(video_path: Path, time_s: float, out_path: Path) -> bool:
+    if shutil.which("ffmpeg") is None:
+        return False
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{max(0.0, time_s):.2f}",
+        "-i",
+        str(video_path),
+        "-vframes",
+        "1",
+        "-q:v",
+        "2",
+        str(out_path),
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=20)
+        return proc.returncode == 0 and out_path.exists()
+    except Exception:
+        logger.exception("ffmpeg frame extraction failed")
+        return False
+
+
+def _resolve_video_path(arg: str | None, ctx: ToolContext) -> Path | None:
+    candidates: list[str] = []
+    if arg:
+        candidates.append(arg)
+    state_path = ctx.state.get("latest_video_path")
+    if isinstance(state_path, str) and state_path:
+        candidates.append(state_path)
+    for c in candidates:
+        p = Path(c)
+        if p.exists():
+            return p
+        if c.startswith("/api/v1/media/"):
+            stripped = c.replace("/api/v1/media/", "")
+            p2 = Path("media") / stripped
+            if p2.exists():
+                return p2
+        p3 = Path(c)
+        if not p3.is_absolute():
+            for base in (Path.cwd(), Path.cwd() / "backend"):
+                candidate = base / c
+                if candidate.exists():
+                    return candidate
+    return None
+
+
+def _parse_review(done: Any) -> dict[str, Any] | None:
+    for source in (
+        getattr(done, "text", "") or "",
+        getattr(done, "reasoning", "") or "",
+    ):
+        if not source:
+            continue
+        section = md.find_section(source, "视觉评审", level=2) or md.find_section(
+            source, "视觉评审"
+        )
+        if section is not None:
+            return _md_to_review(section)
+        json_payload = md.parse_json_anywhere(source)
+        if json_payload:
+            return json_payload
+    return None
+
+
+def _md_to_review(section: str) -> dict[str, Any]:
+    return {
+        "overall_quality": md.get_field(section, "整体质量", "overall_quality"),
+        "issues": md.get_bullets(md.find_section(section, "问题")),
+        "highlights": md.get_bullets(md.find_section(section, "亮点")),
+        "frame_descriptions": md.get_bullets(md.find_section(section, "帧描述")),
+    }
+
+
+class InspectVideoTool(ITool):
+    def __init__(
+        self,
+        vision_llm: ILLMProvider,
+        prompts: PromptLibrary,
+        *,
+        vision_model: str | None = None,
+        frame_count: int = 3,
+    ) -> None:
+        self._llm = vision_llm
+        self._prompts = prompts
+        self._vision_model = vision_model
+        self._frame_count = max(1, min(5, frame_count))
+
+    @property
+    def name(self) -> str:
+        return "inspect_video"
+
+    @property
+    def description(self) -> str:
+        return (
+            "对刚渲染好的 Manim 视频抽 3 帧，送给多模态模型检查布局、重叠、"
+            "可读性、节奏等视觉问题。run_manim 成功后调用一次即可；如果"
+            "返回 overall_quality='bad'，把 issues 作为 error_hint 传给"
+            "下一次 generate_manim_code 修复。"
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "video_path": {
+                    "type": "string",
+                    "description": "（可选）要检查的视频路径，缺省使用最近一次 run_manim 的产物",
+                },
+            },
+            "required": [],
+        }
+
+    async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        video_path = _resolve_video_path(args.get("video_path"), ctx)
+        if video_path is None:
+            return ToolResult(success=False, summary="找不到视频文件", error="video_not_found")
+        if shutil.which("ffmpeg") is None:
+            return ToolResult(
+                success=False, summary="ffmpeg 未安装，无法抽帧", error="ffmpeg_missing"
+            )
+
+        duration = await _ffprobe_duration(video_path) or 6.0
+        n = self._frame_count
+        if n == 1:
+            offsets = [duration / 2]
+        else:
+            offsets = [duration * (i + 1) / (n + 1) for i in range(n)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            frame_paths: list[Path] = []
+            for i, offset in enumerate(offsets):
+                out = tmp_dir / f"frame_{i:02d}.png"
+                if await _extract_frame(video_path, offset, out):
+                    frame_paths.append(out)
+            if not frame_paths:
+                return ToolResult(
+                    success=False,
+                    summary="抽帧失败（ffmpeg 返回非 0）",
+                    error="frame_extraction_failed",
+                )
+
+            prompt_text = self._prompts.render("inspect_video", n=len(frame_paths))
+            content_parts: list[dict[str, Any]] = [
+                {"type": "text", "text": prompt_text}
+            ]
+            for fp in frame_paths:
+                content_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _png_to_data_url(fp)},
+                    }
+                )
+
+            try:
+                done = await self._llm.chat_complete(
+                    messages=[ChatMessage(role="user", content=content_parts)],
+                    model=self._vision_model,
+                    temperature=0.2,
+                    max_tokens=2048,
+                )
+            except Exception as exc:
+                logger.exception("inspect_video vision call failed")
+                return ToolResult(
+                    success=False, summary="视觉模型调用失败", error=str(exc)
+                )
+
+        payload = _parse_review(done)
+        if payload is None:
+            return ToolResult(
+                success=False,
+                summary="视觉模型未返回合法「## 视觉评审」section",
+                error="parse_error",
+                data={
+                    "raw_text": (done.text or "")[:600],
+                    "raw_reasoning": (done.reasoning or "")[:600],
+                },
+            )
+
+        overall = payload.get("overall_quality", "unknown")
+        issues = payload.get("issues") or []
+        ctx.state["last_visual_review"] = payload
+        if isinstance(issues, list) and issues:
+            ctx.state["last_visual_issues"] = "；".join(str(x) for x in issues[:5])
+
+        return ToolResult(
+            success=True,
+            summary=(
+                f"视觉评审：{overall}"
+                + (f"，问题 {len(issues)} 条" if issues else "")
+            ),
+            data=payload,
+        )
