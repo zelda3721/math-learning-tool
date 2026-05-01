@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3.6-35b-a3b"
     llm_temperature: float = 0.6
     llm_max_tokens: int = 8192
+    # Cap for the AgentLoop's main streaming calls (between-tools reasoning).
+    # Tools have their own much larger budgets; this only limits how long the
+    # agent rambles between tool calls. 1500-3000 is typical.
+    llm_agent_loop_max_tokens: int = 2048
     llm_request_timeout: float = 180.0
     # JSON string. Forwarded as `extra_body` to the OpenAI client. Useful for
     # provider-specific knobs like {"chat_template_kwargs": {"enable_thinking": true}}.
@@ -35,6 +39,14 @@ class Settings(BaseSettings):
     # tool_calls (or hang the LMStudio template renderer entirely). Set to
     # False if you actually want thinking + tools and your provider handles it.
     llm_disable_thinking_with_tools: bool = True
+
+    # Fast LLM endpoint — routes light-duty calls (analyze_problem,
+    # solve_problem, match_skill LLM-fallback) to a smaller / faster model
+    # (e.g. Qwen3-4B) while keeping the main 35B+ model for generate_manim_code
+    # where code quality matters. Empty model = use main LLM (no routing).
+    llm_fast_api_base: str = ""
+    llm_fast_api_key: str = ""
+    llm_fast_model: str = ""
 
     # Vision (multimodal) endpoint — used by inspect_video. If left empty,
     # falls back to the main LLM endpoint above (set them all the same when
@@ -103,6 +115,22 @@ class Settings(BaseSettings):
         except json.JSONDecodeError as exc:
             logger.warning("LLM_EXTRA_BODY is not valid JSON: %s", exc)
         return {}
+
+    @property
+    def resolved_fast_api_base(self) -> str:
+        return self.llm_fast_api_base.strip() or self.llm_api_base
+
+    @property
+    def resolved_fast_api_key(self) -> str:
+        return self.llm_fast_api_key.strip() or self.llm_api_key
+
+    @property
+    def resolved_fast_model(self) -> str:
+        return self.llm_fast_model.strip() or self.llm_model
+
+    @property
+    def fast_llm_enabled(self) -> bool:
+        return bool(self.llm_fast_model.strip())
 
     @property
     def resolved_vision_api_base(self) -> str:

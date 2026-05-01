@@ -20,55 +20,68 @@
 - 规则 7（图形化）：数量用 Circle，脚 / 腿用 Line，禁止纯文字
 - 规则 8（屏幕分区）：标题 to_edge(UP)，图形 move_to(ORIGIN)，答案 to_edge(DOWN)，文字与图形不得在同一 Y 坐标
 
-## ⚠️ 防 Y 轴碰撞（最常见的视觉故障）
+## ⚠️ 屏幕分配策略：分时段独占（不要同时挤）
 
-Manim 默认场景 Y ∈ [-4, +4]。三个区域必须**完全分离**：
+Manim 场景 Y ∈ [-4, +4]、X ∈ [-7, +7]，看似很大，但**同时显示标题+大图形+答案 = 必撞**。
 
-| 区域 | Y 范围 | 必须做 |
-|---|---|---|
-| 标题（title） | y ≈ +3.0 ~ +3.5 | `title.to_edge(UP, buff=0.4)` |
-| 主图形（graphics） | y ∈ [-1.8, +1.8] | `VGroup(...).scale(0.5~0.6).move_to(ORIGIN)`，且 `group.height ≤ 3.5` |
-| 答案（answer） | y ≈ -3.0 ~ -3.5 | `answer.to_edge(DOWN, buff=0.5)` |
+**正确做法：每个阶段独占屏幕**，让主图形看清楚。
 
-**绝对不要同时展示 title + 大图形 + answer 三者**——一定会撞。正确做法：
+```
+Phase 1（2 秒）  标题独占屏幕中央  →  play(Write(title))，wait(2)
+Phase 2（核心）  FadeOut(title)，主图形可以铺满 |y| ≤ 3 的范围
+Phase 3（3 秒）  FadeOut(主图形)，答案独占
+```
 
-1. 先展示标题，wait(2)
-2. 展示主图形，让它在 ORIGIN 附近做完动画
-3. **FadeOut(主图形)** 清场
-4. 在底部展示答案 + wait(3)
+### Phase 2 主图形的尺寸建议（务必让学生看清）
 
-如果你的主图形元素多（≥10 个）：用 `.scale(0.5)` 而非 `.scale(0.7)`；用 `arrange_in_grid(rows=N, buff=0.15)` 紧凑排列。
+| 元素类型 | 推荐尺寸 |
+|---|---|
+| Circle（数量计数）| `Circle(radius=0.35)` 然后 `.scale(0.8)`，最终 ≈ 0.28 半径，30+ 像素 |
+| Line（脚/腿）| `Line` 长度 0.5 ~ 0.8 |
+| 数量 ≤ 10 | `arrange(RIGHT, buff=0.25).scale(0.85)` |
+| 数量 11-25 | `arrange_in_grid(rows=3, buff=0.2).scale(0.75)` |
+| 数量 26-40 | `arrange_in_grid(rows=4, buff=0.18).scale(0.65)` |
+| 数量 ≥ 41 | 重新设计——这么多元素学生根本数不过来，应该用条形/分组 |
 
-## 推荐脚手架（请按此结构写）
+**核心原则：先用大尺寸做单个元素，最后整体 .scale() 微调到屏幕**。不要一开始就 `Circle(radius=0.1)`——结果一定看不清。
+
+## 推荐脚手架（请严格按此结构）
 
 ```python
 from manim import *
 
 class SolutionScene(Scene):
     def construct(self):
-        # ---- Phase 1: 标题区 ----
-        title = Text("...", font="Microsoft YaHei", font_size=36)
-        title.to_edge(UP, buff=0.4)
+        # ---- Phase 1: 标题独占 (2 秒) ----
+        title = Text("题目简短描述", font="Microsoft YaHei", font_size=42, color=BLUE)
         self.play(Write(title))
         self.wait(2)
+        self.play(FadeOut(title))   # 关键：清场，让主图形铺开
 
-        # ---- Phase 2: 主图形区（保持 |y| ≤ 1.8）----
-        main_group = VGroup(...)
-        main_group.arrange_in_grid(rows=2, buff=0.2).scale(0.55)
+        # ---- Phase 2: 主图形独占（核心教学，可以铺到 |y| ≤ 3）----
+        # 单个元素先做大，最后整体 scale 微调
+        main_group = VGroup(*[
+            Circle(radius=0.35, color=BLUE, fill_opacity=0.7) for _ in range(35)
+        ])
+        main_group.arrange_in_grid(rows=4, buff=0.2).scale(0.7)
         main_group.move_to(ORIGIN)
-        self.play(LaggedStart(*[FadeIn(c) for c in main_group], lag_ratio=0.08))
+        self.play(LaggedStart(*[GrowFromCenter(c) for c in main_group], lag_ratio=0.04))
         self.wait(1.5)
-        # ...一系列变换动画，每个之间 wait(1.5)...
 
-        # ---- Phase 3: 切场到答案区 ----
-        self.play(FadeOut(main_group))   # 必须 FadeOut，给答案让位
-        self.wait(0.5)
+        # 步骤动画...每个步骤后 wait(1.5)
+        # 颜色变化、增减元素、关键标注 都在这一阶段做
 
-        answer = Text("最终答案", font="Microsoft YaHei", font_size=32, color=GREEN)
-        answer.to_edge(DOWN, buff=0.5)
+        # 切场到答案
+        self.play(FadeOut(main_group))
+        self.wait(0.3)
+
+        # ---- Phase 3: 答案独占 (3 秒) ----
+        answer = Text("鸡 23 只 兔 12 只", font="Microsoft YaHei", font_size=44, color=GREEN)
         self.play(Write(answer))
         self.wait(3)
 ```
+
+**注意**：上面 Circle 的 radius=0.35（不是 0.1 或 0.2），最终 .scale(0.7)，每个圆的视觉直径 ≈ 0.5 单位，在 720p 视频里约 50px——清晰可见。
 
 ## 禁止使用的对象
 Sector / AnnularSector / Annulus / ThreeDScene / Surface
