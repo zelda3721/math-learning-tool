@@ -3,6 +3,7 @@ Sessions API — list and inspect persisted conversations, attach feedback.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -171,19 +172,45 @@ async def promote_to_example(
 
     artifacts = await store.list_artifacts(session_id)
     # There may be multiple manim_code artifacts when generate retried.
-    # Take the most recent — that's the one that produced the final video.
+    # Walk newest → oldest and return the first whose file actually exists.
     manim_artifacts = [a for a in artifacts if a.kind == "manim_code"]
     if not manim_artifacts:
         raise HTTPException(status_code=400, detail="session has no manim_code artifact")
-    code_artifact = manim_artifacts[-1]
 
-    # Read by the artifact's relative path (works for both legacy
-    # `solution.py` and new `code-turn{N}.py` filenames).
-    code = await store.archive.read_relative(code_artifact.path)
-    if not code:
+    code: str | None = None
+    code_artifact = None
+    tried: list[str] = []
+    for candidate in reversed(manim_artifacts):
+        # 1) the path stored in the artifact row
+        path_candidates = [candidate.path]
+        # 2) just the filename under the session dir (handles archive-root drift)
+        leaf = Path(candidate.path).name
+        path_candidates.append(f"sessions/{session_id}/{leaf}")
+        # 3) legacy "solution.py" location used by the old /process route
+        path_candidates.append(f"sessions/{session_id}/solution.py")
+
+        for p in path_candidates:
+            tried.append(p)
+            data = await store.archive.read_relative(p)
+            if data:
+                code = data
+                code_artifact = candidate
+                break
+        if code is not None:
+            break
+
+    if code is None or code_artifact is None:
+        # List what's actually in the session dir so the user can see the mismatch
+        session_dir = store.archive.session_dir(session_id)
+        on_disk = (
+            sorted(p.name for p in session_dir.iterdir()) if session_dir.exists() else []
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"manim_code artifact missing on disk (path={code_artifact.path})",
+            detail=(
+                "manim_code artifact missing on disk. "
+                f"Tried paths: {tried}. Files actually in session dir: {on_disk}"
+            ),
         )
 
     example_id = await examples.add_example(

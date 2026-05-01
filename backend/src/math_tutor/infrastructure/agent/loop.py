@@ -78,6 +78,7 @@ class AgentLoop:
         learned_memory: LearnedMemory | None = None,
         max_turns: int = 12,
         tool_timeout_s: float = 120.0,
+        per_turn_max_tokens: int = 2048,
     ) -> None:
         self._llm = llm
         self._registry = registry
@@ -87,6 +88,11 @@ class AgentLoop:
         self._learned_memory = learned_memory
         self._max_turns = max_turns
         self._tool_timeout = tool_timeout_s
+        # Cap on the agent's between-tools reasoning. Keeping this short is
+        # the single biggest knob for end-to-end latency: every extra token
+        # of "now I will call X" thinking costs wall-clock time on a local
+        # 35B model. Tool internals have their own (much larger) budgets.
+        self._per_turn_max_tokens = max(256, per_turn_max_tokens)
 
     async def run(
         self,
@@ -136,6 +142,7 @@ class AgentLoop:
                 async for evt in self._llm.chat_stream(
                     messages=history,
                     tools=tool_definitions,
+                    max_tokens=self._per_turn_max_tokens,
                 ):
                     if isinstance(evt, TextDelta):
                         text_acc.append(evt.text)

@@ -45,6 +45,7 @@ _skill_repo_instance: ISkillRepository | None = None
 _database_instance: Database | None = None
 _file_archive_instance: FileArchive | None = None
 _llm_provider_instance: ILLMProvider | None = None
+_fast_llm_provider_instance: ILLMProvider | None = None
 _vision_provider_instance: ILLMProvider | None = None
 _embedding_provider_instance: IEmbeddingProvider | None = None
 _semantic_index_instance: SemanticIndex | None = None
@@ -134,6 +135,32 @@ def get_llm_provider(
 ) -> ILLMProvider:
     """OpenAI-compatible LLM provider used by the new agent loop."""
     return _get_llm_provider(settings)
+
+
+def _get_fast_llm_provider(settings: Settings) -> ILLMProvider:
+    """Light-duty LLM (analyze / solve / match_skill fallback). Falls back
+    to the main provider when no fast model is configured."""
+    if not settings.fast_llm_enabled:
+        return _get_llm_provider(settings)
+    global _fast_llm_provider_instance
+    if _fast_llm_provider_instance is None:
+        _fast_llm_provider_instance = OpenAILLMProvider(
+            base_url=settings.resolved_fast_api_base,
+            api_key=settings.resolved_fast_api_key,
+            default_model=settings.resolved_fast_model,
+            default_temperature=settings.llm_temperature,
+            default_max_tokens=settings.llm_max_tokens,
+            timeout=settings.llm_request_timeout,
+            default_extra_body=settings.llm_extra_body_dict,
+            disable_thinking_with_tools=settings.llm_disable_thinking_with_tools,
+        )
+    return _fast_llm_provider_instance
+
+
+def get_fast_llm_provider(
+    settings: Settings = Depends(get_settings),
+) -> ILLMProvider:
+    return _get_fast_llm_provider(settings)
 
 
 def _get_vision_provider(settings: Settings) -> ILLMProvider:
@@ -253,6 +280,7 @@ def _get_tool_registry(settings: Settings) -> ToolRegistry:
     if _tool_registry_instance is None:
         _tool_registry_instance = build_default_registry(
             llm=_get_llm_provider(settings),
+            fast_llm=_get_fast_llm_provider(settings),
             skill_repo=get_skill_repository(),
             examples_store=ExamplesStore(_get_database(settings)),
             video_generator=ManimExecutor(
@@ -288,4 +316,5 @@ def get_agent_loop(
         store=ConversationStore(_get_database(settings), _get_file_archive(settings)),
         use_latex=settings.manim_use_latex,
         learned_memory=_get_learned_memory(settings),
+        per_turn_max_tokens=settings.llm_agent_loop_max_tokens,
     )

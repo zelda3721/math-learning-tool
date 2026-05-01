@@ -37,33 +37,36 @@ _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 阶段 D — 执行与视觉评审：
 8. run_manim        渲染 mp4
 9. 渲染失败 → generate_manim_code（fix 模式：previous_code + error_hint），最多 3 次
-10. inspect_video   渲染成功后**必须调用**（不要跳过！这是发现重叠/对齐/裁切等视觉问题的唯一手段）
-    - 返回 overall_quality='bad' → **必须**回到 generate_manim_code，把 issues 字段拼到 error_hint 再修一次
-    - 返回 overall_quality='acceptable' 且 issues 数 ≥ 2 → 也建议再修一次
-    - 返回 overall_quality='good' → 可以收手
-    - 工具自身报错（ffmpeg/vision 不可用） → 跳过，直接收手
-    - 视觉迭代最多 2 次（避免无限循环）
+10. inspect_video   **可选**——只在以下情况调用：
+    a) validate_manim_code 报了重叠 / 布局 / 动画密度 警告（structure_issues 或 overlap_risk_issues 非空）
+    b) 这是修复模式后的渲染（previous_code + error_hint 跑过的情况）
+    c) 用户在 extra_directives 里要求评审
+    没警告时**直接跳过 inspect_video，立即收手**——节省 ~15 秒
+    若调用：返回 overall_quality='bad' 时回到 generate_manim_code 修一次（最多 1 次迭代）
 
 阶段 E — 收尾：
 11. 一句话总结题目+答案+视频已生成，不再调任何工具，不要把代码塞进回复
 
-每一轮结束都要回看上一步结果决定下一步。**不要跳过 solve、不要跳过 validate、不要跳过 inspect_video**。
+每一轮结束都要回看上一步结果决定下一步。**不要跳过 solve、不要跳过 validate；inspect_video 按上面条件决定**。
 """
 
-_HARD_RULES = """# 硬约束
-- 工具调用之间的中文文字尽量短（≤ 2 句），主要靠工具往前推进
-- 最终给用户的文字要简短，像一句"题目: ... 答案: ... 视频已生成"
+_HARD_RULES = """# 硬约束（关于速度和简洁）
+- **不要写"我现在要调用 X 工具"这种解说**——直接 emit tool_call。每多一段解说都是浪费时间
+- 工具之间最多 **1 句**短评（"已分析" / "代码生成完成"），多了占预算
+- 最终给用户的文字一句话："题目: ... 答案: ... 视频已生成"
 - 千万不要把 Manim 代码贴回最终回复
+- 你的 between-tools 思考预算被限制（2048 tokens），保持简洁
 
-# 并行调用规则
-- 阶段 A 的三个工具完全独立，**强烈建议在同一轮里一起发起**（节省 2-3 倍时间）：
+# 并行调用规则（重要：速度核心）
+- 阶段 A 的三个工具完全独立，**必须在同一轮里一起发起**：
   · analyze_problem
   · match_skill
   · search_examples
-- 其他工具有依赖，**必须串行**（不要在同一轮发起多个）：
-  · solve_problem 应该看到 analyze 的结果（虽然不强依赖）
-  · generate_manim_code 必须在 solve / match / search 之后
-  · validate / run / inspect_video 之间严格串行
+  写法：一个 assistant turn 里同时 emit 这 3 个 tool_calls。错过 = 多花 2 倍时间
+- 其他工具有依赖，**必须串行**：
+  · solve_problem 在 analyze 之后
+  · generate_manim_code 必须在 solve / match / search 都完成之后
+  · validate / run / inspect_video 严格串行
 """
 
 

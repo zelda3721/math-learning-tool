@@ -41,6 +41,7 @@ def build_default_registry(
     video_generator: IVideoGenerator,
     use_latex: bool,
     prompts: PromptLibrary,
+    fast_llm: ILLMProvider | None = None,
     learned_memory: LearnedMemory | None = None,
     vision_llm: ILLMProvider | None = None,
     vision_model: str | None = None,
@@ -48,13 +49,17 @@ def build_default_registry(
     rerank_provider: IRerankProvider | None = None,
     rerank_pool_size: int = 10,
 ) -> ToolRegistry:
+    # `fast_llm` (Qwen3-4B / similar small model) handles light-duty calls;
+    # the main `llm` (35B+) is reserved for code generation where quality
+    # matters. Falls back to `llm` if no fast model is configured.
+    light_llm = fast_llm or llm
     registry = ToolRegistry()
-    registry.register(AnalyzeProblemTool(llm, prompts))
-    registry.register(SolveProblemTool(llm, prompts))
+    registry.register(AnalyzeProblemTool(light_llm, prompts))
+    registry.register(SolveProblemTool(light_llm, prompts))
     registry.register(
         MatchSkillTool(
             skill_repo,
-            llm=llm,
+            llm=light_llm,
             prompts=prompts,
             semantic_index=semantic_index,
         )
