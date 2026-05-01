@@ -4,13 +4,51 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LLM_API_BASE=${LLM_API_BASE:-https://api.deepseek.com/v1}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      # Core LLM (defaults to LMStudio on the host)
+      - LLM_API_BASE=${LLM_API_BASE:-http://host.docker.internal:1234/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-lm-studio}
+      - LLM_MODEL=${LLM_MODEL:-qwen/qwen3.6-35b-a3b}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.6}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-8192}
+      - LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-180}
+      - LLM_EXTRA_BODY=${LLM_EXTRA_BODY:-}
+      - LLM_DISABLE_THINKING_WITH_TOOLS=${LLM_DISABLE_THINKING_WITH_TOOLS:-true}
+
+      # Vision endpoint (inspect_video) — empty falls back to main LLM
+      - LLM_VISION_API_BASE=${LLM_VISION_API_BASE:-}
+      - LLM_VISION_API_KEY=${LLM_VISION_API_KEY:-}
+      - LLM_VISION_MODEL=${LLM_VISION_MODEL:-}
+
+      # Embedding endpoint — empty disables semantic search (keyword fallback)
+      - LLM_EMBEDDING_API_BASE=${LLM_EMBEDDING_API_BASE:-}
+      - LLM_EMBEDDING_API_KEY=${LLM_EMBEDDING_API_KEY:-}
+      - LLM_EMBEDDING_MODEL=${LLM_EMBEDDING_MODEL:-}
+      - LLM_EMBEDDING_DIMENSION=${LLM_EMBEDDING_DIMENSION:-0}
+
+      # Reranker endpoint — empty / disabled = pure embedding (no rerank stage)
+      - LLM_RERANK_API_BASE=${LLM_RERANK_API_BASE:-}
+      - LLM_RERANK_API_KEY=${LLM_RERANK_API_KEY:-}
+      - LLM_RERANK_MODEL=${LLM_RERANK_MODEL:-}
+      - LLM_RERANK_API_TYPE=${LLM_RERANK_API_TYPE:-cohere}
+      - LLM_RERANK_ENABLED=${LLM_RERANK_ENABLED:-true}
+      - LLM_RERANK_POOL_SIZE=${LLM_RERANK_POOL_SIZE:-10}
+
+      # Storage / Manim
+      - DATA_DIR=/app/data
+      - MANIM_OUTPUT_DIR=/app/media
+      - MANIM_QUALITY=${MANIM_QUALITY:-low}
+      - MANIM_USE_LATEX=${MANIM_USE_LATEX:-false}
+
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+    extra_hosts:
+      # Lets the container reach LMStudio / infinity / etc. running on the host
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./media:/app/media
+      - ./data:/app/data
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

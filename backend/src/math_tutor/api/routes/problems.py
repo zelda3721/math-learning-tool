@@ -1,131 +1,146 @@
 """
-Problems API endpoints - main processing routes
-
-Uses LangGraph workflow for intelligent problem processing.
+Problems API endpoints — synchronous wrapper that drains the harness
+AgentLoop and returns one consolidated JSON payload. Kept for backward
+compatibility (curl / scripts); the streaming UX lives at /api/v1/chat.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from ...config.dependencies import get_agent_loop
 from ...domain.value_objects import EducationLevel
-from ...config.dependencies import get_langgraph_engine
-from ...infrastructure.agents.langgraph_engine import LangGraphEngine
+from ...infrastructure.agent import (
+    AgentLoop,
+    DoneEvent,
+    ErrorEvent,
+    SessionCreated,
+    ToolCallResult,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 class ProcessProblemRequest(BaseModel):
-    """Request model for processing a math problem"""
     problem: str
     grade: EducationLevel = EducationLevel.ELEMENTARY_UPPER
-    
+
     class Config:
         json_schema_extra = {
             "example": {
-                "problem": "小明有25个糖果，他给了小红8个，又给了小刚5个，然后小明的妈妈又给了他10个糖果。请问小明现在有多少个糖果？",
-                "grade": "elementary_upper"
+                "problem": "鸡兔同笼，头35脚94，各多少？",
+                "grade": "elementary_upper",
             }
         }
 
 
 class ProcessProblemResponse(BaseModel):
-    """Response model for processed problem"""
     status: str
     problem: str
     grade: str
-    analysis: dict | None = None
-    solution: dict | None = None
+    session_id: str | None = None
+    analysis: dict[str, Any] | None = None
+    solution: dict[str, Any] | None = None
     visualization_code: str | None = None
     video_path: str | None = None
-    video_url: str | None = None  # Alias for video_path (frontend compatibility)
+    video_url: str | None = None
     error: str | None = None
     fallback_content: str | None = None
+
+
+async def _run_collected(
+    loop: AgentLoop,
+    problem: str,
+    grade: str,
+) -> dict[str, Any]:
+    session_id: str | None = None
+    final_video_url: str | None = None
+    final_video_path: str | None = None
+    final_text = ""
+    visualization_code: str | None = None
+    analysis: dict[str, Any] | None = None
+    error: str | None = None
+    status = "failed"
+    last_error_event: str | None = None
+
+    async for evt in loop.run(problem=problem, grade=grade):
+        if isinstance(evt, SessionCreated):
+            session_id = evt.session_id
+        elif isinstance(evt, ToolCallResult):
+            if not evt.success:
+                continue
+            if evt.name == "analyze_problem" and evt.data:
+                analysis = dict(evt.data)
+            elif evt.name == "generate_manim_code" and evt.data:
+                code = evt.data.get("code")
+                if isinstance(code, str):
+                    visualization_code = code
+            elif evt.name == "run_manim" and evt.data:
+                video_url = evt.data.get("video_url")
+                video_path = evt.data.get("video_path")
+                if isinstance(video_url, str):
+                    final_video_url = video_url
+                if isinstance(video_path, str):
+                    final_video_path = video_path
+        elif isinstance(evt, DoneEvent):
+            status = "success" if evt.status == "ok" else evt.status
+            final_text = evt.text or final_text
+            final_video_url = evt.final_video_url or final_video_url
+            final_video_path = evt.final_video_path or final_video_path
+        elif isinstance(evt, ErrorEvent):
+            last_error_event = evt.message
+            if evt.fatal:
+                status = "failed"
+
+    if status != "success" and last_error_event and not error:
+        error = last_error_event
+
+    return {
+        "session_id": session_id,
+        "status": status,
+        "analysis": analysis,
+        "visualization_code": visualization_code,
+        "video_url": final_video_url,
+        "video_path": final_video_path,
+        "fallback_content": final_text or None,
+        "error": error,
+    }
 
 
 @router.post("/process", response_model=ProcessProblemResponse)
 async def process_problem(
     request: ProcessProblemRequest,
-    engine: LangGraphEngine = Depends(get_langgraph_engine),
+    loop: AgentLoop = Depends(get_agent_loop),
 ) -> ProcessProblemResponse:
-    """
-    Process a math problem end-to-end using LangGraph workflow.
-    
-    Flow:
-    1. Classify problem complexity
-    2. Analyze (complex only)
-    3. Solve and validate
-    4. Generate visualization
-    5. Execute Manim
-    6. Debug or fallback on error
+    """Run the harness agent and return one consolidated response.
+
+    For real-time progress (recommended UX), use POST /api/v1/chat with SSE.
     """
     try:
-        result = await engine.process_problem(
-            problem_text=request.problem,
-            grade=request.grade,
-        )
-        # Convert filesystem path to URL (use streaming endpoint)
-        video_path = result.get("video_path")
-        video_url = None
-        if video_path:
-            # video_path is like: media/videos/.../file.mp4
-            # Convert to streaming URL: /api/v1/media/videos/.../file.mp4
-            if "videos/" in video_path:
-                # Extract path from videos/ onwards
-                video_subpath = video_path.split("videos/", 1)[-1]
-                video_url = f"/api/v1/media/videos/{video_subpath}"
-            else:
-                video_url = f"/api/v1/media/videos/{video_path}"
-        
-        return ProcessProblemResponse(
-            status=result.get("status", "failed"),
-            problem=result.get("problem", request.problem),
-            grade=result.get("grade", request.grade.value),
-            analysis=result.get("analysis"),
-            solution=result.get("solution"),
-            visualization_code=result.get("visualization_code"),
-            video_path=video_url,
-            video_url=video_url,  # Frontend uses this field
-            error=result.get("error"),
-            fallback_content=result.get("fallback_content"),
-        )
-    except Exception as e:
+        result = await _run_collected(loop, request.problem, request.grade.value)
+    except Exception as exc:
+        logger.exception("agent loop failed for /process")
         return ProcessProblemResponse(
             status="failed",
             problem=request.problem,
             grade=request.grade.value,
-            error=str(e),
+            error=str(exc),
         )
 
-
-@router.post("/analyze")
-async def analyze_problem(
-    request: ProcessProblemRequest,
-    engine: LangGraphEngine = Depends(get_langgraph_engine),
-) -> dict:
-    """Analyze a math problem (classification + understanding)"""
-    # Run partial workflow - just classify and understand
-    result = await engine.process_problem(
-        problem_text=request.problem,
-        grade=request.grade,
+    return ProcessProblemResponse(
+        status=result["status"],
+        problem=request.problem,
+        grade=request.grade.value,
+        session_id=result["session_id"],
+        analysis=result["analysis"],
+        solution=None,
+        visualization_code=result["visualization_code"],
+        video_path=result["video_url"],
+        video_url=result["video_url"],
+        error=result["error"],
+        fallback_content=result["fallback_content"],
     )
-    return {
-        "status": "success",
-        "problem_type": result.get("analysis", {}).get("problem_type"),
-        "analysis": result.get("analysis"),
-    }
-
-
-@router.post("/solve")
-async def solve_problem(
-    request: ProcessProblemRequest,
-    engine: LangGraphEngine = Depends(get_langgraph_engine),
-) -> dict:
-    """Solve a math problem (full workflow)"""
-    result = await engine.process_problem(
-        problem_text=request.problem,
-        grade=request.grade,
-    )
-    return {
-        "status": result.get("status", "failed"),
-        "solution": result.get("solution"),
-        "answer": result.get("solution", {}).get("answer"),
-    }

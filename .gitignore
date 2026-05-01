@@ -30,6 +30,12 @@ ENV/
 # Manim生成的媒体文件
 media/
 
+# 持久化数据（SQLite + 会话归档）
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # IDE相关
 .idea/
 .vscode/

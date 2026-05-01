@@ -1,4 +1,4 @@
 """API Routes"""
-from . import health, grades, skills, problems
+from . import chat, grades, health, problems, sessions, skills, videos
 
-__all__ = ["health", "grades", "skills", "problems"]
+__all__ = ["health", "grades", "skills", "problems", "sessions", "videos", "chat"]
