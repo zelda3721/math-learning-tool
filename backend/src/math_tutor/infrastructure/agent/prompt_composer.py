@@ -36,19 +36,28 @@ _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 阶段 D — 生成与校验：
 6. generate_manim_code   生成代码。state 里已有 solution/visual_plan/skill/pattern/examples，
                          你只需传 problem/grade，可省略大部分参数
-7. validate_manim_code   静态校验：语法 + 结构 + 重叠风险 + 动画密度
-8. 失败 → 回到 generate_manim_code，把 error_hint 字段填上 validate 给的 issues
+7. validate_manim_code   静态校验：语法 + 结构 + 重叠风险 + 动画密度 + occupancy
+8. 失败 → 回到 generate_manim_code，**用 ScopeRefine 三级修复**（见下面）
 
 阶段 E — 执行与视觉评审：
 9. run_manim        渲染 mp4
-10. 渲染失败 → generate_manim_code（fix 模式：previous_code + error_hint），最多 3 次
+10. 渲染失败 → generate_manim_code（fix 模式：previous_code + error_hint），由 ScopeRefine 自动选 line/block/global
 11. inspect_video   **必须调用**！抽帧 + 多模态模型评教学价值 (B 段) + 命中黑名单
     - overall_quality='bad' 触发分流：
-      · 第 1 次失败 → 回 generate_manim_code 局部修复（fix 模式）
-      · 第 2 次失败 → **必须重走 visual_plan**（换 primary_pattern），不要再继续 patch
-        当前 visual_plan 已被证明不奏效，继续打补丁是浪费 token
+      · 第 1 次失败 → generate_manim_code（fix 模式，ScopeRefine 自动选 scope）
+      · 第 2 次失败或 fix_budget_exhausted → **必须重走 visual_plan**（换 primary_pattern）
     - overall_quality='good' 或 'acceptable' 且无黑名单 → 收手
     - 工具自身报错（ffmpeg / vision 不可用）→ 跳过，直接收手
+
+# ScopeRefine 三级修复（重要）
+generate_manim_code 的 fix 模式有 3 种 scope，自动按错误类型分类：
+- **line**：SyntaxError / NameError / 单行错误 → 只改 ±1 行（≤512 token，最快）
+- **block**：禁用对象 / 重叠 / 动画过密 / occupancy 违规 → 只改一个 Phase 段（≤1536 token）
+- **global**：结构错（缺类）/ 视觉评审 bad / ImportError → 整文件重写（≤4096 token）
+
+预算：line 2 次 → block 2 次 → global 1 次 → fix_budget_exhausted（强制重走 visual_plan）
+
+你**通常不需要显式传 fix_scope** ——工具会自动从 error_hint 分类。但如果你看到 line scope 修了 2 次还是同一个错，可以显式传 `fix_scope="block"` 跳级。
 
 阶段 F — 收尾：
 12. 一句话总结题目+答案+视频已生成，不再调任何工具，不要把代码塞进回复
@@ -78,29 +87,39 @@ _HARD_RULES = """# 硬约束（关于速度和简洁）
 """
 
 
+_UNIVERSAL_PRINCIPLE = (
+    "**核心原则（无论哪个年级都一样）**：用数形结合 + 动画揭示数学的"
+    "**第一性原理 / 本质**——让学生看到'为什么成立'，而不是'怎么算出来'。"
+    "方程、积分、向量等抽象工具**允许使用**，但必须配几何锚点（天平 / 面积 / "
+    "数轴 / 坐标系 / 向量空间扭曲），脱离图形的纯符号链条 = 失败。"
+    "目标是 3Blue1Brown 那种'让本质显形'，不是把列竖式搬到屏幕。"
+)
+
+# 年级风格只是 *视觉细节偏好*，硬规则全部由上面那条贯穿
 _GRADE_STYLE: dict[str, str] = {
     "elementary_lower": (
-        "小学低年级（1-3）：默认数形结合——题目里的数量/关系/变化全部画出来，"
-        "用动画一步步演示，让学生能数能看。禁止方程/未知数/代数式；"
-        "用画图法、凑十法、实物演示；用苹果小动物等具象单位；图形与配色可爱友好"
+        "小学低年级（1-3）：图形优先用具象单位（苹果、小动物、糖果），"
+        "配色明亮可爱；旁白避免抽象代数符号——但用图形 + 数轴 + 数量对应"
+        "讲清楚的'方程思想'是欢迎的（如天平演示等量代换）"
     ),
     "elementary_upper": (
-        "小学高年级（4-6）：默认数形结合——优先假设法、列表法、画图分析、逆推法、"
-        "线段图，画出来再算。鸡兔同笼必须用假设法。"
-        "**禁用方程/未知数**——只有题面明确给出方程或明确要求用方程解时才允许，"
-        "其他情况一律用图形+动画把数量关系演示清楚；忌过度抽象"
+        "小学高年级（4-6）：典型工具是线段图、列表法、画图分析、假设法、"
+        "面积模型；鸡兔同笼用假设法（抬腿动画）。代数方程允许使用，"
+        "但必须配几何锚点（天平 / 线段图 / 阵列）"
     ),
     "middle": (
-        "初中：可使用代数方程、函数思想、几何证明；推荐列方程组解决实际问题；"
-        "可视化用坐标图、函数图像、几何图形辅助"
+        "初中：代数方程、函数思想、几何证明都可以放心用；"
+        "首选数形结合（坐标图 / 函数图象 / 几何变换）让代数与图形同步演化"
     ),
     "high": (
-        "高中：以初等数学为主，向高等数学过渡；可使用函数与方程、数形结合、"
-        "分类讨论、化归转化；不要过度使用大学方法"
+        "高中：函数与方程、坐标几何、向量、参数扫描；"
+        "推荐双面板（左几何 + 右图象）；可用极限可视化、面积逼近、"
+        "覆盖等手法揭示函数性态"
     ),
     "advanced": (
-        "高等数学：面向大学及以上；可使用微积分、线性代数、概率统计；"
-        "可视化可用 3D 投影、动态变化图"
+        "高等数学：可用微积分极限可视、矩阵=空间扭曲、3D 投影、"
+        "高维降维（参考 3Blue1Brown《线性代数本质》风格）；"
+        "**这一段最容易掉进纯符号陷阱**，必须强制几何同步"
     ),
 }
 
@@ -118,6 +137,8 @@ _STATE_NOTE = """# 工具间会自动共享的 state（你不必每次重传）
 - last_run_error      ← run_manim 写入（失败时）
 - last_visual_review / last_visual_issues      ← inspect_video 写入
 - last_visual_failed / visual_fail_count       ← inspect_video 写入（用于决定重走 plan）
+- occupancy_report    ← validate_manim_code 写入（哪个 anchor 上有哪些元素）
+- last_fix_scope / fix_attempt_count           ← generate_manim_code 写入（ScopeRefine 状态机）
 
 generate_manim_code 调用时，如果 args 里没传 solution_steps/answer/skill_template/
 good_example_code/error_hint，会自动从 state 取——所以你只需传题目和年级。
@@ -141,10 +162,11 @@ class PromptComposer:
         grade_block = _GRADE_STYLE.get(grade, _GRADE_STYLE["elementary_upper"])
         sections = [
             _IDENTITY,
+            f"# 通用原则\n{_UNIVERSAL_PRINCIPLE}",
             _WORKFLOW,
             _HARD_RULES,
             f"# 运行环境\n- {latex_line}",
-            f"# 学生年级风格（{grade}）\n{grade_block}",
+            f"# 年级视觉细节偏好（{grade}，仅样式提示，硬规则看上面通用原则）\n{grade_block}",
             _STATE_NOTE,
         ]
         if learned_context and learned_context.strip():
