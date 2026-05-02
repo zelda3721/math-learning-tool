@@ -357,6 +357,15 @@ class OpenAILLMProvider(ILLMProvider):
                     slot["arguments"],
                 )
                 args = {"_raw": slot["arguments"], "_parse_error": True}
+            # `json.loads` happily returns strings/ints/lists when the LLM
+            # emits a JSON value that's not an object (e.g. arguments='"foo"').
+            # Tools all expect dicts; coerce defensively so `.get(...)` works.
+            if not isinstance(args, dict):
+                logger.warning(
+                    "Tool call %s decoded args as non-dict (%s): %r",
+                    slot["name"], type(args).__name__, args,
+                )
+                args = {"_value": args}
             evt = ToolCallEvent(
                 id=slot["id"] or f"call_{idx}",
                 name=slot["name"],
