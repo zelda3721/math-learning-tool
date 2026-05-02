@@ -11,6 +11,12 @@ from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
+# Resolve the .env path absolutely (anchored to this file), so the loader
+# works regardless of which directory the process was started from.
+# settings.py → config/ → math_tutor/ → src/ → backend/ → <project_root>
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     """Application configuration"""
@@ -194,7 +200,7 @@ class Settings(BaseSettings):
         return Path(self.data_dir).expanduser().resolve()
 
     model_config = {
-        "env_file": "../.env",  # .env is in project root, one level up from backend/
+        "env_file": str(_ENV_FILE),
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
@@ -203,4 +209,10 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance"""
+    if not _ENV_FILE.exists():
+        logger.warning(
+            ".env file not found at %s — falling back to defaults / process env. "
+            "Model name and endpoints will be the in-code defaults.",
+            _ENV_FILE,
+        )
     return Settings()

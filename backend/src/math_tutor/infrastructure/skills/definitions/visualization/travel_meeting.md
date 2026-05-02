@@ -3,6 +3,29 @@
 ## 描述
 可视化行程问题中的相遇问题，两个物体从两端相向而行直到相遇。
 
+
+## 视觉契约（Visual Contract — 违反即重写）
+本 skill 必须遵守以下硬约束。inspect_video 评审时会按此打分；违反任一即触发 generate_manim_code 重新生成。
+
+### 必须出现的 mobject 类型
+- 至少 1 个非 Text 图形（Circle / Rectangle / Line / Arrow / NumberLine / Polygon 之一），数学概念必须用图形对应
+- 图形数量 ≥ Text 数量（不能让屏幕只剩文字）
+
+### 必须出现的动画类型
+- 至少 1 次 **变换/位移类** 动画（Transform / TransformFromCopy / animate.shift / animate.move_to / Rotate / GrowFromCenter）——不仅仅 Write 和 FadeIn/FadeOut
+- 至少 1 个动画的"前后状态"承载数学含义（颜色/位置/大小变化必须对应数量/关系/守恒的变化）
+
+### 禁用反模式（命中即 bad）
+- 连续 ≥3 个 `Write(Text(...))` + `FadeOut` 的翻页式步骤（PPT 翻页）
+- 屏幕同时存在 ≥3 行 Text/MathTex（公式墙）
+- 全片只有 Text，没有 Circle/Rectangle/Line 等图形（文字搬运）
+- 关键运算只用 Text 写出来而无图形动画对应（应该让"变化"看得见）
+
+### 三阶段教学锚点（每段必须出现且语义对应）
+- **setup**：把题目里的对象用图形表达（圆点/线段/方块），让学生先"看见"
+- **core/transform**：用动画展示数学关系——变换、增减、对比、守恒、对应
+- **verify/reveal**：用图形或动画回到题目，确认答案的合理性
+
 ## 何时使用
 - 题目中包含"相遇"、"相向"、"面对面"、"迎面"等关键词
 - 两个物体从不同地点出发相向运动
