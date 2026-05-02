@@ -57,6 +57,56 @@ _VALID_PATTERNS = {
     "real_world_anchor",
 }
 
+# Compact one-liner catalog — always present in the prompt so the LLM knows
+# which 14 enums are valid. Detailed examples for matched-relevant patterns
+# are injected separately via the `matched_pattern_details` slot.
+_PATTERN_CATALOG_TEXT = "\n".join(
+    [
+        "- `transformation_invariant` 变换揭示守恒（鸡兔同笼抬脚法、分数等值变形）",
+        "- `area_model` 面积模型（(a+b)²、两位数乘法、分配律）",
+        "- `dissection_proof` 拼图证明（勾股定理、几何级数）",
+        "- `limit_exhaustion` 极限可视（割圆术、积分、导数）",
+        "- `number_line` 数轴对应（整数加减、不等式）",
+        "- `dimension_lift` 维度跃迁（向量、复数、面积→体积）",
+        "- `symmetry_rotation` 对称/旋转复用结构（等腰、正多边形）",
+        "- `covariation_pair` 同步演化双面板（函数图象、相关速率）",
+        "- `bar_model` 线段图/条形模型（和差倍、行程、分数应用题、比例）",
+        "- `discrete_grouping` 离散物体合并/分组（加减、阵列乘法、等分）",
+        "- `partition_whole` 整体↔部分（分数、百分比、概率）",
+        "- `isomorphism_metaphor` 类比同构（行列式=面积比、卷积=滑窗）",
+        "- `extremes_sweep` 反例/极端化（参数扫描看极端形态）",
+        "- `real_world_anchor` 物理/真实世界锚定（速度、概率、分数=切披萨）",
+    ]
+)
+
+# Map from visual_plan archetypes (14) to the closest skills/patterns/*.md
+# code-pattern files (17). One archetype can map to multiple code patterns;
+# generate_manim_code uses this to inject *only* the relevant code (instead
+# of dumping all matched patterns from match_skill).
+_ARCHETYPE_TO_CODE_PATTERNS = {
+    "transformation_invariant": ["transformation", "assumption"],
+    "area_model": ["area_model"],
+    "dissection_proof": ["dissection_proof"],
+    "limit_exhaustion": ["limit_exhaustion"],
+    "number_line": ["counting", "comparison"],
+    "dimension_lift": ["dimension_lift", "coordinate"],
+    "symmetry_rotation": [],
+    "covariation_pair": ["covariation_pair", "coordinate"],
+    "bar_model": ["bar_model", "journey", "comparison"],
+    "discrete_grouping": ["counting", "partition"],
+    "partition_whole": ["partition"],
+    "isomorphism_metaphor": [],
+    "extremes_sweep": ["extremes_sweep"],
+    "real_world_anchor": ["journey"],
+}
+
+
+def archetype_to_code_pattern_names(archetype: str) -> list[str]:
+    """Public helper used by generate_manim_code for dynamic loading.
+    Returns the list of pattern md filenames most relevant to a given
+    visual_plan primary_pattern archetype."""
+    return list(_ARCHETYPE_TO_CODE_PATTERNS.get(archetype or "", []))
+
 _VALID_ROLES = {"setup", "transform", "reveal", "verify"}
 
 # "Why-style" signal words. essence_rationale must contain at least one to
@@ -469,16 +519,40 @@ class VisualPlanTool(ITool):
 
         patterns = ctx.state.get("matched_patterns") or []
         patterns_section = ""
-        if patterns:
+        if isinstance(patterns, list) and patterns:
             names = [
-                f"- {p.get('name')}：{p.get('description', '')[:60]}"
-                for p in patterns[:3]
+                f"- {p.get('name')}：{(p.get('description') or '')[:60]}"
+                for p in patterns[:3] if isinstance(p, dict)
             ]
-            patterns_section = (
-                "## 已匹配模式（来自 match_skill）\n"
-                + "\n".join(names)
-                + "\n\n*这些是初步候选，最终 primary_pattern 可以不一样。*"
-            )
+            if names:
+                patterns_section = (
+                    "## 已匹配模式（来自 match_skill）\n"
+                    + "\n".join(names)
+                    + "\n\n*这些是初步候选，最终 primary_pattern 可以不一样。*"
+                )
+
+        # Dynamic loading: only inject *detailed* descriptions for the
+        # patterns that match_skill flagged as relevant — keeps prompt
+        # short while giving the model focused inspiration.
+        matched_pattern_details = ""
+        if isinstance(patterns, list) and patterns:
+            chunks: list[str] = []
+            for p in patterns[:2]:
+                if not isinstance(p, dict):
+                    continue
+                pname = p.get("name") or ""
+                pdesc = p.get("description") or ""
+                if not pname:
+                    continue
+                # Only the first 250 chars of description as inspiration —
+                # the model just needs to know the gist. core_code is for
+                # generate_manim_code, not visual_plan.
+                chunks.append(f"### {pname}\n{pdesc[:250]}")
+            if chunks:
+                matched_pattern_details = (
+                    "### 重点参考（基于题目分析自动选出，可作为首选 primary_pattern）\n"
+                    + "\n\n".join(chunks)
+                )
 
         # If a previous visual plan was rejected by inspect_video, push the
         # reason to the prompt as a forced replan signal.
@@ -518,6 +592,8 @@ class VisualPlanTool(ITool):
             "visual_plan",
             grade=grade,
             problem=problem,
+            pattern_catalog=_PATTERN_CATALOG_TEXT,
+            matched_pattern_details=matched_pattern_details,
             analysis_section=analysis_section,
             solution_section=solution_section,
             patterns_section=patterns_section + replan_hint + validator_retry_hint,

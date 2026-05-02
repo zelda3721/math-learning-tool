@@ -24,6 +24,7 @@ from ...storage import ExamplesStore
 from ..learned_memory import LearnedMemory
 from ..prompt_library import PromptLibrary
 from .. import scope_refine as sref
+from .visual_plan import archetype_to_code_pattern_names
 
 logger = logging.getLogger(__name__)
 
@@ -574,12 +575,33 @@ class GenerateManimCodeTool(ITool):
                 + skill_template.strip()
             )
 
-        pattern_section = ""
-        if isinstance(pattern_codes, list) and pattern_codes:
-            chunks = ["## 可复用的可视化模式（已匹配，可直接调用其中的辅助函数）"]
+        # Dynamic-load patterns: prefer the ones mapped to visual_plan's
+        # primary_pattern over the full matched_patterns dump. This keeps
+        # pattern_section bounded (1-2 patterns × ~2200 chars instead of
+        # potentially 3-4 × 2200) regardless of how many match_skill found.
+        primary_archetype = ""
+        if isinstance(visual_plan, dict):
+            primary_archetype = (visual_plan.get("primary_pattern") or "").strip()
+
+        selected_patterns: list[dict[str, Any]] = []
+        if primary_archetype and isinstance(pattern_codes, list):
+            preferred_names = set(archetype_to_code_pattern_names(primary_archetype))
             for p in pattern_codes:
                 if not isinstance(p, dict):
                     continue
+                if p.get("name") in preferred_names:
+                    selected_patterns.append(p)
+        # Fallback: if visual_plan didn't set archetype (degraded mode) or
+        # nothing matched, take up to 2 from match_skill's selection.
+        if not selected_patterns and isinstance(pattern_codes, list):
+            selected_patterns = [
+                p for p in pattern_codes[:2] if isinstance(p, dict)
+            ]
+
+        pattern_section = ""
+        if selected_patterns:
+            chunks = ["## 可复用的可视化模式（已匹配 primary_pattern 自动选取）"]
+            for p in selected_patterns[:2]:  # cap at 2 to bound prompt size
                 pname = p.get("name") or ""
                 pdesc = p.get("description") or ""
                 pcode = p.get("core_code") or ""
