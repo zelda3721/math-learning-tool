@@ -31,7 +31,13 @@ _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 5. visual_plan      **必须调用**！从 14 种视觉模式里选 primary_pattern，
                    产出 3+ 场景脚本（必须包含 role=transform）。
                    *跳过这步 = 视频会退化成 PPT 翻页（已被命名为首要失败模式）。*
-                   工具会校验硬约束，违反返回 contract_violation；按错误提示重试一次。
+                   工具会校验硬约束，违反返回 contract_violation：
+                   · 第 1-2 次失败 → 调用方（你）应该再调一次 visual_plan；
+                     工具会自动把上次违规清单 + 上次输出片段塞回下一轮 prompt，
+                     模型应该精确修复（不要重写整份计划）
+                   · 第 3 次失败返回 visual_plan_budget_exhausted →
+                     **不要再调 visual_plan**，直接调 generate_manim_code 继续，
+                     接受没有 visual_plan 的降级流程
 
 阶段 D — 生成与校验：
 6. generate_manim_code   生成代码。state 里已有 solution/visual_plan/skill/pattern/examples，

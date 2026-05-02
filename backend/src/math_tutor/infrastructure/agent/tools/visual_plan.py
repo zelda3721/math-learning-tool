@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from ....application.interfaces import (
@@ -133,6 +134,114 @@ def _validate_essence_rationale(text: str, primary: str) -> list[str]:
 _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
 
 
+# ----- Lenient post-parse cleanup --------------------------------------------
+# LLMs frequently emit 80%-correct output with formatting noise (markdown
+# backticks around values, multiple zones in one field, smart quotes, etc.).
+# Rather than rejecting these and looping forever, we clean them up here so
+# the validator only sees structurally meaningful violations.
+
+_BACKTICKS = "`'\"‘’“”"
+
+
+def _strip_decorations(s: str) -> str:
+    """Remove markdown / quote / smart-quote decorations a value-string."""
+    if not s:
+        return ""
+    t = s.strip()
+    # Strip outer pairs of backticks/quotes (markdown code-formatting)
+    while len(t) >= 2 and t[0] in _BACKTICKS and t[-1] in _BACKTICKS:
+        t = t[1:-1].strip()
+    return t
+
+
+def _fuzzy_match_pattern(value: str) -> str:
+    """Map a noisy primary_pattern to one of the 14 valid enums.
+
+    Tries:
+      1. exact (case-insensitive) match
+      2. substring match against any enum
+      3. enum-contains-value
+    Returns "" if no plausible match.
+    """
+    if not value:
+        return ""
+    cleaned = _strip_decorations(value).lower().strip("` '\"")
+    for p in _VALID_PATTERNS:
+        if p == cleaned:
+            return p
+    for p in _VALID_PATTERNS:
+        if p.lower() == cleaned:
+            return p
+    # Substring either way
+    for p in _VALID_PATTERNS:
+        if p.lower() in cleaned or cleaned in p.lower():
+            return p
+    return ""
+
+
+_ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
+_SINGLE_ANCHOR_RE = re.compile(r"\b([A-Fa-f][1-6])\b")
+
+
+def _clean_zone(value: str) -> str:
+    """Pick the first valid zone-like substring out of a noisy field.
+
+    LLMs sometimes emit 'A1-F1, B2-E5' or '`B2-E5`' or 'B2 to E5 (top)'.
+    """
+    if not value:
+        return ""
+    t = _strip_decorations(value)
+    m = _ZONE_LIKE_RE.search(t)
+    if m:
+        return m.group(0).replace(" ", "")
+    # Fall back to single anchor if present
+    m2 = _SINGLE_ANCHOR_RE.search(t)
+    if m2:
+        return m2.group(1).upper()
+    return t.strip()
+
+
+def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Apply lenient cleanup across the whole plan dict in place."""
+    if not isinstance(plan, dict):
+        return plan
+
+    # Primary / secondary pattern names — fuzzy-match to valid enum
+    raw_primary = plan.get("primary_pattern") or ""
+    matched = _fuzzy_match_pattern(raw_primary)
+    if matched:
+        plan["primary_pattern"] = matched
+    else:
+        plan["primary_pattern"] = _strip_decorations(raw_primary).lower()
+
+    raw_secondary = plan.get("secondary_pattern") or ""
+    if raw_secondary:
+        matched_s = _fuzzy_match_pattern(raw_secondary)
+        plan["secondary_pattern"] = matched_s if matched_s else _strip_decorations(raw_secondary)
+
+    # essence_rationale — strip wrapping decorations only, leave content alone
+    plan["essence_rationale"] = _strip_decorations(plan.get("essence_rationale") or "")
+
+    # Scene-level cleanup
+    scenes = plan.get("scenes") or []
+    if isinstance(scenes, list):
+        for s in scenes:
+            if not isinstance(s, dict):
+                continue
+            s["role"] = _strip_decorations(s.get("role") or "").lower()
+            s["anchor_zone"] = _clean_zone(s.get("anchor_zone") or "")
+            s["key_objects"] = _strip_decorations(s.get("key_objects") or "")
+            s["action"] = _strip_decorations(s.get("action") or "")
+            s["invariant"] = _strip_decorations(s.get("invariant") or "")
+
+    # forbidden — strip per-bullet decorations
+    forbidden = plan.get("forbidden") or []
+    if isinstance(forbidden, list):
+        plan["forbidden"] = [_strip_decorations(x) for x in forbidden if x]
+
+    return plan
+
+
 def _parse_plan(done: Any) -> dict[str, Any] | None:
     for source in (
         getattr(done, "text", "") or "",
@@ -147,11 +256,12 @@ def _parse_plan(done: Any) -> dict[str, Any] | None:
                 break
         if section is not None:
             payload = _md_to_plan(section)
+            payload = _normalize_plan(payload)
             if payload.get("primary_pattern") and payload.get("scenes"):
                 return payload
         json_payload = md.parse_json_anywhere(source)
         if json_payload and json_payload.get("primary_pattern"):
-            return json_payload
+            return _normalize_plan(json_payload)
     return None
 
 
@@ -383,24 +493,45 @@ class VisualPlanTool(ITool):
                 f"**这次必须换一个 primary_pattern**，不能重复上次。"
             )
 
+        # If validator rejected the *previous* visual_plan call (within this
+        # same agent loop, so structured retry), include the violation list +
+        # last attempt so the LLM can fix the specific issues instead of
+        # blindly re-emitting from scratch.
+        validator_retry_hint = ""
+        last_violations = ctx.state.get("visual_plan_last_violations") or []
+        last_attempt_text = ctx.state.get("visual_plan_last_attempt") or ""
+        if last_violations:
+            violations_md = "\n".join(f"  - {v}" for v in last_violations[:8])
+            attempt_excerpt = (last_attempt_text or "")[:1200]
+            validator_retry_hint = (
+                "\n\n## ⚠️ 上一次输出被校验拒绝（请精确修复，别重写整份计划）\n"
+                f"### 违规清单\n{violations_md}\n\n"
+                "### 上次输出片段（请基于这个 80% 的版本只修复违规）\n"
+                f"```\n{attempt_excerpt}\n```\n\n"
+                "**修复要点**：保留有效字段；只针对违规清单逐条改；"
+                "primary_pattern 必须是 14 个枚举里的纯名称（不要反引号、不要引号）；"
+                "anchor_zone 一个场景写一个值（如 'B3-E5'，不要写多个）；"
+                "两个 transform 场景要分时显示 → 用不同 anchor_zone。"
+            )
+
         prompt = self._prompts.render(
             "visual_plan",
             grade=grade,
             problem=problem,
             analysis_section=analysis_section,
             solution_section=solution_section,
-            patterns_section=patterns_section + replan_hint,
+            patterns_section=patterns_section + replan_hint + validator_retry_hint,
         )
 
         try:
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.4,
-                # Pure structured-output task: just fill the markdown template.
-                # Disabling thinking saves Qwen3's ~2K reasoning budget for the
-                # actual answer. 4096 is plenty for a plan with 3-4 scenes +
-                # essence_rationale + forbidden list.
-                max_tokens=4096,
+                # 6144: even with thinking off, retry attempts include
+                # the previous attempt + violation list, which extends the
+                # input. Output also pads up when the model writes the
+                # essence_rationale paragraph carefully. 6K leaves comfort.
+                max_tokens=6144,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception as exc:
@@ -446,14 +577,50 @@ class VisualPlanTool(ITool):
             plan, grade, previous_pattern=prev_pattern, is_replan=is_replan
         )
         if violations:
-            # Don't crash — return a clear error for the agent to retry, with
-            # the violation list embedded so the next call can fix them.
+            # Persist what failed + raw text so the *next* visual_plan call
+            # can include them in the prompt (rather than re-prompting from
+            # scratch, which leads to the same failure mode again and again).
+            ctx.state["visual_plan_last_violations"] = violations
+            ctx.state["visual_plan_last_attempt"] = (
+                getattr(done, "text", "") or getattr(done, "reasoning", "") or ""
+            )[:2000]
+            retry_count = int(ctx.state.get("visual_plan_retry_count", 0)) + 1
+            ctx.state["visual_plan_retry_count"] = retry_count
+
+            # Budget control: after N attempts, give up and let the agent
+            # proceed without a visual_plan (degraded mode handled by the
+            # caller / prompt_composer workflow).
+            BUDGET = 3
+            if retry_count >= BUDGET:
+                logger.warning(
+                    "visual_plan: %d failed attempts, giving up. last violations: %s",
+                    retry_count, violations,
+                )
+                return ToolResult(
+                    success=False,
+                    summary=(
+                        f"视觉计划连续 {retry_count} 次违反硬约束，已放弃。"
+                        f"agent 应直接调 generate_manim_code（无 visual_plan）继续。"
+                        f"最后违规：{'；'.join(violations[:2])}"
+                    ),
+                    data={"plan": plan, "violations": violations, "exhausted": True},
+                    error="visual_plan_budget_exhausted",
+                )
+
             return ToolResult(
                 success=False,
-                summary="视觉计划违反硬约束：" + "；".join(violations[:3]),
-                data={"plan": plan, "violations": violations},
+                summary=(
+                    f"视觉计划违反硬约束（第 {retry_count}/{BUDGET} 次）："
+                    + "；".join(violations[:3])
+                ),
+                data={"plan": plan, "violations": violations, "retry_count": retry_count},
                 error="contract_violation",
             )
+
+        # Reset retry counter on success
+        ctx.state["visual_plan_retry_count"] = 0
+        ctx.state["visual_plan_last_violations"] = []
+        ctx.state["visual_plan_last_attempt"] = ""
 
         # Persist for downstream tools.
         ctx.state["visual_plan"] = plan
