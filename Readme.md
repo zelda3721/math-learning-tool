@@ -289,7 +289,7 @@ curl -X POST localhost:8000/api/v1/sessions/<id>/promote_example \
 | partition | 分割（分数、面积分解）|
 | coordinate | 坐标系绘图（函数、点轨迹）|
 | journey | 路径运动（相遇、追及）|
-| formula_step | 解方程逐步展开 |
+| derivation_with_geometry | 解方程逐步展开 + 几何同步（天平/面积/数轴）|
 
 ---
 

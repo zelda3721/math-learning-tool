@@ -121,7 +121,8 @@ Sector / AnnularSector / Annulus / ThreeDScene / Surface
 1. 必须从 `from manim import *` 开始
 2. 类名必须是 `SolutionScene` 且继承 `Scene`
 3. 中文文字使用 `font="Microsoft YaHei"`
-4. 整段代码长度 ≤ 8000 字符
+4. **整段代码长度 ≤ 4000 字符**（教学动画 200-600 行已足够；不要凑字数）
+5. 一定不要写注释行解释自己在做什么——节省 token
 
 ## 环境约束
 {latex_section}
@@ -130,6 +131,8 @@ Sector / AnnularSector / Annulus / ThreeDScene / Surface
 {grade_section}
 
 {learned_rules_section}
+
+{visual_plan_section}
 
 {skill_section}
 

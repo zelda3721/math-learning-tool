@@ -4,6 +4,29 @@
 可视化"差倍问题"的核心解题思路：当两个量按相同数值变化时，它们的**差不变**，但**倍数关系改变**。
 通过图形化展示为什么"原来的2份差 = 现在的3份差"，让学生直观理解而非使用方程。
 
+
+## 视觉契约（Visual Contract — 违反即重写）
+本 skill 必须遵守以下硬约束。inspect_video 评审时会按此打分；违反任一即触发 generate_manim_code 重新生成。
+
+### 必须出现的 mobject 类型
+- 至少 1 个非 Text 图形（Circle / Rectangle / Line / Arrow / NumberLine / Polygon 之一），数学概念必须用图形对应
+- 图形数量 ≥ Text 数量（不能让屏幕只剩文字）
+
+### 必须出现的动画类型
+- 至少 1 次 **变换/位移类** 动画（Transform / TransformFromCopy / animate.shift / animate.move_to / Rotate / GrowFromCenter）——不仅仅 Write 和 FadeIn/FadeOut
+- 至少 1 个动画的"前后状态"承载数学含义（颜色/位置/大小变化必须对应数量/关系/守恒的变化）
+
+### 禁用反模式（命中即 bad）
+- 连续 ≥3 个 `Write(Text(...))` + `FadeOut` 的翻页式步骤（PPT 翻页）
+- 屏幕同时存在 ≥3 行 Text/MathTex（公式墙）
+- 全片只有 Text，没有 Circle/Rectangle/Line 等图形（文字搬运）
+- 关键运算只用 Text 写出来而无图形动画对应（应该让"变化"看得见）
+
+### 三阶段教学锚点（每段必须出现且语义对应）
+- **setup**：把题目里的对象用图形表达（圆点/线段/方块），让学生先"看见"
+- **core/transform**：用动画展示数学关系——变换、增减、对比、守恒、对应
+- **verify/reveal**：用图形或动画回到题目，确认答案的合理性
+
 ## 何时使用
 - 题目涉及倍数变化（如"从3倍变成4倍"）
 - 题目条件包含"各减少/增加相同数量后"

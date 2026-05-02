@@ -19,10 +19,12 @@ from .run_manim import RunManimTool
 from .search_examples import SearchExamplesTool
 from .solve_problem import SolveProblemTool
 from .validate_manim_code import ValidateManimCodeTool
+from .visual_plan import VisualPlanTool
 
 __all__ = [
     "AnalyzeProblemTool",
     "SolveProblemTool",
+    "VisualPlanTool",
     "MatchSkillTool",
     "SearchExamplesTool",
     "GenerateManimCodeTool",
@@ -56,6 +58,7 @@ def build_default_registry(
     registry = ToolRegistry()
     registry.register(AnalyzeProblemTool(light_llm, prompts))
     registry.register(SolveProblemTool(light_llm, prompts))
+    registry.register(VisualPlanTool(light_llm, prompts))
     registry.register(
         MatchSkillTool(
             skill_repo,
