@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from ....application.interfaces import ITool, ToolContext, ToolResult
+from .. import occupancy_table as occ
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,28 @@ _BANNED_OBJECTS = (
     "ThreeDScene",
     "Surface",
 )
+
+
+def _extract_zone_map(scenes: list[dict]) -> dict[str, "occ.Zone"]:
+    """Heuristic: scan scene's key_objects text for variable-like names
+    (e.g. 'title', 'main_group', 'answer_box') and bind each to the scene's
+    zone. Empty if we can't infer any var names — better to skip the check
+    than emit false positives.
+    """
+    out: dict[str, "occ.Zone"] = {}
+    var_re = re.compile(r"\b([a-z][a-z0-9_]{2,})\b")
+    for s in scenes:
+        zone_label = (s.get("anchor_zone") or "").strip()
+        zone = occ.parse_zone(zone_label) if zone_label else None
+        if zone is None:
+            continue
+        text = (s.get("key_objects") or "").lower()
+        # Common pedagogical names
+        for token in var_re.findall(text):
+            if token in {"the", "and", "with", "for", "from", "this", "that"}:
+                continue
+            out.setdefault(token, zone)
+    return out
 
 _QUALITY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"arrange|arrange_in_grid", "缺少布局函数 (arrange)"),
@@ -192,6 +215,25 @@ class ValidateManimCodeTool(ITool):
         missing_layout = _check_patterns(code, _LAYOUT_PATTERNS)
         overlap_issues = _check_overlap_risk(code)
 
+        # Occupancy table — extract placements + check against visual_plan zones.
+        placements = occ.parse_placements_from_code(code)
+        occupancy_overlap = occ.detect_overlap(placements)
+        zone_violations: list[str] = []
+        visual_plan = ctx.state.get("visual_plan") or {}
+        scenes = visual_plan.get("scenes") or []
+        if scenes:
+            # Build {var_pattern: Zone} from key_objects (use scene index as
+            # the var prefix is unrealistic; fall back to "all elements in
+            # any zone"). Conservative: just check no cell has 3+ vars and
+            # log a summary.
+            declared = _extract_zone_map(scenes)
+            if declared:
+                zone_violations = occ.detect_zone_violation(
+                    placements, declared_zones=declared
+                )
+
+        ctx.state["occupancy_report"] = occ.build_occupancy_report(placements)
+
         valid = syntax_ok and not structure_issues
         # Quality + layout + overlap heuristics are warnings, not hard failures.
 
@@ -203,19 +245,28 @@ class ValidateManimCodeTool(ITool):
             "missing_quality_patterns": missing_quality,
             "missing_layout_patterns": missing_layout,
             "overlap_risk_issues": overlap_issues,
+            "occupancy_overlap_issues": occupancy_overlap,
+            "zone_violations": zone_violations,
             "code_length": len(code),
         }
 
         if valid:
             ctx.state["last_validation_passed"] = True
-            warn_count = len(missing_quality) + len(missing_layout) + len(overlap_issues)
+            warn_count = (
+                len(missing_quality)
+                + len(missing_layout)
+                + len(overlap_issues)
+                + len(occupancy_overlap)
+                + len(zone_violations)
+            )
             summary = "校验通过"
             if warn_count:
                 summary += f"，但有 {warn_count} 条质量警告"
-                if overlap_issues:
-                    # Surface overlap warnings prominently because they're the
-                    # most common silent failure cause.
-                    summary += "（含重叠风险：" + "；".join(overlap_issues[:2]) + "）"
+                priority_warns = (
+                    occupancy_overlap[:1] + zone_violations[:1] + overlap_issues[:1]
+                )
+                if priority_warns:
+                    summary += "（含布局问题：" + "；".join(priority_warns[:2]) + "）"
             return ToolResult(success=True, summary=summary, data=data)
 
         ctx.state["last_validation_passed"] = False

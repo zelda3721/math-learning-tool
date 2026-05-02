@@ -23,6 +23,7 @@ from ....application.interfaces import (
 from ...storage import ExamplesStore
 from ..learned_memory import LearnedMemory
 from ..prompt_library import PromptLibrary
+from .. import scope_refine as sref
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +35,30 @@ _LATEX_OFF = (
 _LATEX_ON = "已安装 LaTeX。可使用 MathTex 显示英文公式；中文仍推荐 Text。"
 
 
+# 通用原则（适用所有年级）：用数形结合 + 第一性原理揭示数学本质。
+# 抽象工具（方程/积分/向量）允许使用，但必须配几何锚点（天平/面积/数轴/坐标系）。
+# 下面只是各年级的 *视觉细节* 偏好。
 _GRADE_HINT: dict[str, str] = {
     "elementary_lower": (
-        "小学低年级：默认数形结合，所有数量/关系/变化都画成图形并用动画演示；"
-        "用苹果、小动物等具象单位；**禁止方程**；视频里不要出现 x / 设未知数 / 代数式"
+        "小学低年级：用具象单位（苹果/动物/糖果），颜色明亮可爱；"
+        "图形数量 ≥ 文字数量；演示一定要慢、可数"
     ),
     "elementary_upper": (
-        "小学高年级：默认数形结合——线段图、列表、画图分析、假设法。"
-        "鸡兔同笼必须用假设法。**除非题面明确写方程或明确要求用方程，"
-        "否则视频里不能出现 x / 设未知数 / 代数式**——一律用图形+动画把数量关系演示出来"
+        "小学高年级：线段图、列表、面积模型、阵列；"
+        "鸡兔同笼用假设法抬腿动画；用图形揭示数量关系比纯代数推导更直观"
     ),
-    "middle": "初中：可用代数方程、函数图像、几何证明",
-    "high": "高中：以初等数学为主，可用坐标系、向量、分类讨论",
-    "advanced": "大学及以上：可用微积分、线性代数、动态图",
+    "middle": (
+        "初中：双面板（几何+代数同步）、坐标图象、几何变换；"
+        "解方程时配天平/面积模型；不要让屏幕只有公式行"
+    ),
+    "high": (
+        "高中：函数图象、参数扫描、覆盖逼近、向量箭头、坐标变换；"
+        "三角函数用单位圆 + 旋转角度同步图象；导数用切线斜率随点移动"
+    ),
+    "advanced": (
+        "大学及以上：矩阵=空间扭曲、积分=矩形条求和的极限、复数=旋转；"
+        "**最容易掉进纯符号陷阱**——每一步代数都要配几何同步"
+    ),
 }
 
 
@@ -173,9 +185,96 @@ class GenerateManimCodeTool(ITool):
                 "previous_code": {"type": "string"},
                 "error_hint": {"type": "string"},
                 "extra_instructions": {"type": "string"},
+                "fix_scope": {
+                    "type": "string",
+                    "enum": ["line", "block", "global"],
+                    "description": "（可选）显式覆盖修复 scope；缺省自动从 error_hint 分类。"
+                                   "line=只改 ±1 行，block=改一个 Phase/method 段，global=整文件重写",
+                },
             },
             "required": ["problem", "grade", "solution_steps", "answer"],
         }
+
+    async def _do_scoped_fix(
+        self,
+        *,
+        fix_scope: sref.Scope,
+        previous_code: str,
+        error_hint: str,
+        ctx: ToolContext,
+    ) -> str | None:
+        """Surgically fix a region of the code without re-prompting from
+        scratch. Returns the patched full code, or None if the fix didn't
+        produce something usable (caller should fall back to global)."""
+        line_no = sref.extract_error_line(error_hint)
+        if line_no is None:
+            # Without a clear line number, line-scope fix is impossible;
+            # block-scope falls back to the file center as a worst case.
+            if fix_scope == "line":
+                return None
+            line_no = max(1, len(previous_code.split("\n")) // 2)
+
+        if fix_scope == "line":
+            snippet, lo, hi = sref.extract_line_context(
+                previous_code, line_no=line_no, radius=1
+            )
+            instr = (
+                "你是 Manim 代码修复器。下面是出错代码的 `±1 行片段`，"
+                "**只修复其中的语法/调用错误**，不要重写其它内容。\n\n"
+                f"### 错误信息\n{error_hint.strip()[:1000]}\n\n"
+                f"### 出错片段（行 {lo}-{hi}）\n```python\n{snippet}\n```\n\n"
+                "**直接输出修复后的同一段 Python 代码块**（行数尽量保持不变；"
+                "如果必须增减一行，可以接受），用 ```python``` 包起来。"
+                "不要解释、不要输出整文件。"
+            )
+            max_tokens = 512
+        else:  # block
+            block_text, lo, hi = sref.extract_enclosing_block(
+                previous_code, line_no=line_no
+            )
+            instr = (
+                "你是 Manim 代码修复器。下面是出错代码的 `一个 Phase/method 块`，"
+                "**只在这个块内修改**，让它满足下面的错误提示。块外代码已经"
+                "正常，请不要重写。\n\n"
+                f"### 错误信息\n{error_hint.strip()[:1500]}\n\n"
+                f"### 出错块（行 {lo}-{hi}）\n```python\n{block_text}\n```\n\n"
+                "**直接输出修复后的整段块代码**（保持开头/结尾的 Phase 注释或"
+                "缩进风格不变），用 ```python``` 包起来。不要输出整文件。"
+            )
+            max_tokens = 1536
+
+        try:
+            done = await self._llm.chat_complete(
+                messages=[ChatMessage(role="user", content=instr)],
+                temperature=0.2,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            logger.exception("scope_refine LLM call failed")
+            return None
+
+        snippet_out = _extract_code(getattr(done, "text", "") or "")
+        if not snippet_out:
+            snippet_out = _extract_code(getattr(done, "reasoning", "") or "")
+        if not snippet_out.strip():
+            return None
+
+        snippet_out = _sanitize_code(snippet_out)
+        patched = sref.splice_lines(
+            previous_code, start_line=lo, end_line=hi, replacement=snippet_out
+        )
+
+        # Sanity: must still be valid Python; otherwise fall back
+        try:
+            compile(patched, "<scoped_fix>", "exec")
+        except SyntaxError as exc:
+            logger.info(
+                "scope_refine: patched code still has syntax error %s; falling back",
+                exc,
+            )
+            return None
+
+        return patched
 
     async def _resolve_examples(
         self,
@@ -283,6 +382,72 @@ class GenerateManimCodeTool(ITool):
             or ""
         )
         is_fix_mode = bool(previous_code and error_hint)
+
+        # ---- ScopeRefine: decide if we should attempt a small-scope fix ----
+        # Three tiers: line / block / global. Smaller is faster & cheaper but
+        # risks getting stuck on hard errors. We auto-classify the error and
+        # honor an explicit `fix_scope` arg override. Attempts are tracked in
+        # state so we can escalate after K failures at one tier.
+        fix_scope: sref.Scope = "global"
+        if is_fix_mode:
+            attempts = dict(ctx.state.get("fix_attempt_count") or {})
+            requested = (args.get("fix_scope") or "").strip().lower()
+            if requested in {"line", "block", "global"}:
+                fix_scope = requested  # type: ignore[assignment]
+            else:
+                err_source = ctx.state.get("last_error_source") or "run"
+                inferred = sref.classify_error_scope(
+                    error_hint, source=err_source if err_source in ("validate", "run", "inspect") else "run"
+                )
+                # Escalate if we've already used up budget at the inferred tier
+                escalated = sref.next_scope(inferred, attempts_so_far=attempts)
+                if escalated is None:
+                    # Budget exhausted → tell caller to replan visually
+                    return ToolResult(
+                        success=False,
+                        summary="所有修复 scope 预算耗尽，需要重走 visual_plan",
+                        error="fix_budget_exhausted",
+                        data={"attempts": attempts, "last_error": error_hint[:300]},
+                    )
+                fix_scope = escalated
+            attempts[fix_scope] = attempts.get(fix_scope, 0) + 1
+            ctx.state["fix_attempt_count"] = attempts
+            ctx.state["last_fix_scope"] = fix_scope
+
+        # Fast path: line/block scope — surgically replace a small region
+        # without re-rendering the whole prompt. ~3-5× cheaper, finishes in
+        # 5-15s on a 35B local model instead of 30-60s.
+        if is_fix_mode and fix_scope in ("line", "block"):
+            patched = await self._do_scoped_fix(
+                fix_scope=fix_scope,
+                previous_code=previous_code,
+                error_hint=error_hint,
+                ctx=ctx,
+            )
+            if patched is not None:
+                ctx.state["latest_manim_code"] = patched
+                logger.info(
+                    "scope_refine: %s-fix succeeded for session %s",
+                    fix_scope, ctx.session_id,
+                )
+                return ToolResult(
+                    success=True,
+                    summary=f"已通过 {fix_scope}-scope 局部修复",
+                    data={"code": patched, "fix_scope": fix_scope},
+                    artifacts=[
+                        ArtifactSpec(
+                            kind="manim_code",
+                            content=patched,
+                            meta={"fix_scope": fix_scope},
+                        ),
+                    ],
+                )
+            # Falls through to global path if the scoped fix returned None
+            logger.info(
+                "scope_refine: %s-fix failed, falling through to global",
+                fix_scope,
+            )
+            ctx.state["last_fix_scope"] = "global"
 
         skill_template = (
             args.get("skill_template") or ctx.state.get("matched_skill_prompt")

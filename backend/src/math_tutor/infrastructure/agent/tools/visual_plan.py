@@ -33,6 +33,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..occupancy_table import Zone, parse_zone
 from ..prompt_library import PromptLibrary
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,13 @@ _VALID_PATTERNS = {
 }
 
 _VALID_ROLES = {"setup", "transform", "reveal", "verify"}
+
+
+def _zones_overlap(a: Zone, b: Zone) -> bool:
+    """Return True if anchor rectangles overlap (any shared cell)."""
+    a_anchors = {x.label for x in a.anchors()}
+    b_anchors = {x.label for x in b.anchors()}
+    return bool(a_anchors & b_anchors)
 
 
 def _parse_plan(done: Any) -> dict[str, Any] | None:
@@ -94,6 +102,7 @@ def _md_to_plan(section: str) -> dict[str, Any]:
         scenes.append(
             {
                 "role": (lowered.get("role") or "").strip().lower(),
+                "anchor_zone": (lowered.get("anchor_zone") or lowered.get("zone") or "").strip(),
                 "key_objects": lowered.get("key_objects") or lowered.get("objects") or "",
                 "action": lowered.get("action") or "",
                 "invariant": lowered.get("invariant") or "",
@@ -133,23 +142,53 @@ def _validate_plan(
     roles = [s.get("role", "") for s in scenes]
     if "transform" not in roles:
         errs.append("缺少 role=transform 场景（核心动画必须存在）")
+    parsed_zones: list[tuple[int, Zone]] = []
     for i, s in enumerate(scenes, start=1):
         r = s.get("role", "")
         if r and r not in _VALID_ROLES:
             errs.append(f"场景 {i} role='{r}' 不在允许集合 {sorted(_VALID_ROLES)}")
         if not (s.get("key_objects") or "").strip():
             errs.append(f"场景 {i} key_objects 为空（屏幕上必须有图形）")
+        zone_label = (s.get("anchor_zone") or "").strip()
+        if not zone_label:
+            errs.append(f"场景 {i} anchor_zone 为空（必须用 6×6 网格声明位置，如 'A1-F1'）")
+        else:
+            zone = parse_zone(zone_label)
+            if zone is None:
+                errs.append(f"场景 {i} anchor_zone='{zone_label}' 不符合 6×6 网格格式（如 'B3-E5'）")
+            else:
+                parsed_zones.append((i, zone))
+
+    # Same-time scenes must not collide on the same anchor cell.
+    # Heuristic: setup/transform/reveal that do NOT explicitly say "after
+    # FadeOut" (we can't tell from the plan) are assumed to share screen.
+    # Conservative rule: two scenes with the same role can't overlap zones.
+    by_role: dict[str, list[tuple[int, Zone]]] = {}
+    for i, z in parsed_zones:
+        role = scenes[i - 1].get("role", "")
+        by_role.setdefault(role, []).append((i, z))
+    for role, zlist in by_role.items():
+        if len(zlist) <= 1:
+            continue
+        for a_i, a_z in zlist:
+            for b_i, b_z in zlist:
+                if a_i >= b_i:
+                    continue
+                if _zones_overlap(a_z, b_z):
+                    errs.append(
+                        f"场景 {a_i} ({a_z.label}) 与场景 {b_i} ({b_z.label}) "
+                        f"同为 role={role} 但 anchor 重叠"
+                    )
+
     forbidden = plan.get("forbidden") or []
     if len(forbidden) < 2:
         errs.append("反模式清单至少 2 条")
 
-    # Elementary problems must not pick "abstract" patterns
-    if grade and grade.startswith("elementary"):
-        if primary in {"isomorphism_metaphor", "covariation_pair", "dimension_lift"}:
-            errs.append(
-                f"小学题不应使用 {primary}（过于抽象）；改 bar_model / "
-                "discrete_grouping / number_line / partition_whole"
-            )
+    # No grade-specific hard restrictions — the universal principle ("用数形
+    # 结合 + 第一性原理揭示本质") applies to all grades. Keep abstract
+    # patterns available for elementary too — sometimes a young learner
+    # benefits from a clever covariation pair if framed concretely. The
+    # validator only blocks structurally-broken plans.
 
     # Replan must change primary_pattern — patching the same pattern is what
     # we're trying to escape from.
