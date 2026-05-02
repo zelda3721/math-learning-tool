@@ -261,11 +261,26 @@ def _validate_plan(
     if len(forbidden) < 2:
         errs.append("反模式清单至少 2 条")
 
-    # No grade-specific hard restrictions — the universal principle ("用数形
-    # 结合 + 第一性原理揭示本质") applies to all grades. Keep abstract
-    # patterns available for elementary too — sometimes a young learner
-    # benefits from a clever covariation pair if framed concretely. The
-    # validator only blocks structurally-broken plans.
+    # Elementary problems: discourage overly abstract archetypes. For elementary
+    # math, non-algebraic methods (假设法 / 线段图 / 比例 / 列表) ARE the principle-
+    # revealing solutions — they're Chinese-elementary-math classics for a reason.
+    # Pushing a kid through dimensional lifts, covariation pairs, or isomorphism
+    # metaphors hides the visual intuition. Recommended primary patterns for
+    # elementary: bar_model / transformation_invariant / discrete_grouping /
+    # partition_whole / area_model / number_line / real_world_anchor.
+    _ELEMENTARY_TOO_ABSTRACT = {
+        "isomorphism_metaphor",
+        "covariation_pair",
+        "dimension_lift",
+        "extremes_sweep",
+    }
+    if grade and grade.startswith("elementary"):
+        if primary in _ELEMENTARY_TOO_ABSTRACT:
+            errs.append(
+                f"小学题不该用 {primary}（过于抽象）——改 bar_model / "
+                f"transformation_invariant / discrete_grouping / partition_whole / "
+                f"area_model / number_line / real_world_anchor 中之一"
+            )
 
     # Replan must change primary_pattern — patching the same pattern is what
     # we're trying to escape from.

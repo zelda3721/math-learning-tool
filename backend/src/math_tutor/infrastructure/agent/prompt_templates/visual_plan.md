@@ -7,6 +7,10 @@
 ## 任务
 基于已有的 analyze_problem 和 solve_problem 结果，输出一份结构化视觉计划。
 
+**重要**：你**有权覆盖** solve_problem 选的策略。如果 solve_problem 列了方程
+但你看到这道题用假设法 / 线段图 / 比例法 / 列表法 更能揭示第一性原理（对小学题尤其常见），
+直接换。规则是"哪种最能让学生看到为什么"，不是"用 solve_problem 给的"。
+
 ## 14 种可视化模式（从中选）
 - `transformation_invariant` 变换揭示守恒（鸡兔同笼抬脚法、分数等值变形）
 - `area_model` 面积模型（(a+b)²、两位数乘法、分配律）
