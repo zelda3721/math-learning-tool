@@ -191,6 +191,11 @@ class SolveProblemTool(ITool):
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.3,
                 max_tokens=6144,
+                # Structured markdown output (## 解题 + 步骤)。Solve does
+                # benefit a bit from thinking, but the markdown template is
+                # already itself a "structured chain of thought", so we give
+                # the budget to the actual answer instead.
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception as exc:
             logger.exception("solve_problem LLM call failed")

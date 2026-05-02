@@ -264,6 +264,8 @@ class MatchSkillTool(ITool):
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
                 max_tokens=512,
+                # Tiny structured pick — thinking is overkill.
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception:
             logger.exception("match_skill LLM fallback failed")
