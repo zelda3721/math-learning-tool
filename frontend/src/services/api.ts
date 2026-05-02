@@ -102,6 +102,15 @@ class ApiService {
         return this.fetchJson<SessionDetail>(`/sessions/${sessionId}`)
     }
 
+    async deleteSession(sessionId: string): Promise<{
+        deleted: boolean
+        archive_dir_removed?: boolean
+        videos_removed_count?: number
+        artifacts_count?: number
+    }> {
+        return this.fetchJson(`/sessions/${sessionId}`, { method: 'DELETE' })
+    }
+
     async submitFeedback(sessionId: string, body: FeedbackRequest): Promise<{ id: number }> {
         return this.fetchJson<{ id: number }>(`/sessions/${sessionId}/feedback`, {
             method: 'POST',

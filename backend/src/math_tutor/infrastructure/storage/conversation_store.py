@@ -139,6 +139,63 @@ class ConversationStore:
     async def delete_session(self, session_id: str) -> None:
         await self._db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
+    async def delete_session_with_files(
+        self, session_id: str, *, drop_videos: bool = True
+    ) -> dict[str, Any]:
+        """Hard-delete a session: SQLite row (CASCADE → messages/tool_calls/
+        artifacts/feedback) + the per-session text archive directory + (opt)
+        the rendered video files referenced by artifacts.
+
+        Returns a summary dict for the API response.
+        """
+        # 1. Pull artifacts before we wipe the row, so we know which video
+        #    files to remove. Artifacts are CASCADE-deleted with the session.
+        artifacts = await self.list_artifacts(session_id)
+        session = await self.get_session(session_id)
+        if session is None:
+            return {"deleted": False, "reason": "session_not_found"}
+
+        videos_removed: list[str] = []
+        if drop_videos:
+            import shutil as _sh
+            from pathlib import Path as _Path
+
+            # Candidate paths: artifacts table (kind='video'), and the
+            # session row's final_video_path.
+            video_paths = {
+                a.path for a in artifacts if a.kind == "video" and a.path
+            }
+            if session.final_video_path:
+                video_paths.add(session.final_video_path)
+
+            for vp in video_paths:
+                p = _Path(vp)
+                if not p.is_absolute():
+                    # final_video_path is typically Manim-relative
+                    # (e.g. "media/videos/SolutionScene/480p15/SolutionScene.mp4")
+                    # or just a filename. Best-effort resolve from CWD.
+                    p = _Path.cwd() / vp
+                if p.exists() and p.is_file():
+                    try:
+                        p.unlink()
+                        videos_removed.append(str(p))
+                    except OSError:
+                        logger.warning("could not delete video %s", p)
+
+        # 2. SQLite row (FK CASCADE handles related tables)
+        await self.delete_session(session_id)
+
+        # 3. Per-session text archive directory
+        archive_removed = await self._archive.delete_session_dir(session_id)
+
+        return {
+            "deleted": True,
+            "session_id": session_id,
+            "archive_dir_removed": archive_removed,
+            "videos_removed_count": len(videos_removed),
+            "artifacts_count": len(artifacts),
+        }
+
     # --- messages ---------------------------------------------------------
 
     async def append_message(

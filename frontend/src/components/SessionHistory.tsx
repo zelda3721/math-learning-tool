@@ -5,7 +5,7 @@
  * read-only view (caller decides what to do on selection).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { History, X, Filter, RefreshCw, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { History, X, Filter, RefreshCw, ThumbsUp, ThumbsDown, Trash2 } from 'lucide-react'
 
 import { api } from '../services/api'
 import type { PersistedSession } from '../types/agent'
@@ -30,6 +30,26 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
     const [sessions, setSessions] = useState<PersistedSession[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [deleting, setDeleting] = useState<string | null>(null)
+
+    async function handleDelete(s: PersistedSession, e: React.MouseEvent) {
+        e.stopPropagation()
+        if (deleting) return
+        const confirmed = window.confirm(
+            `确认删除会话？\n\n"${s.problem.slice(0, 60)}${s.problem.length > 60 ? '...' : ''}"\n\n` +
+            `这会一起删除：\n· 对话记录与工具调用日志\n· 生成的代码和视频文件\n\n此操作不可恢复。`,
+        )
+        if (!confirmed) return
+        setDeleting(s.id)
+        try {
+            await api.deleteSession(s.id)
+            setSessions((cur) => cur.filter((x) => x.id !== s.id))
+        } catch (err) {
+            window.alert(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+            setDeleting(null)
+        }
+    }
 
     useEffect(() => {
         if (!open) return
@@ -129,10 +149,10 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
                             </h3>
                             <ul className="space-y-1.5">
                                 {items.map((s) => (
-                                    <li key={s.id}>
+                                    <li key={s.id} className="group/row relative">
                                         <button
                                             onClick={() => onSelect(s)}
-                                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition group"
+                                            className="w-full text-left pl-3 pr-10 py-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
                                         >
                                             <div className="flex items-start gap-2">
                                                 <SessionStatusBadge status={s.status} />
@@ -147,6 +167,19 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
                                                     </div>
                                                 </div>
                                             </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleDelete(s, e)}
+                                            disabled={deleting === s.id}
+                                            className="absolute top-2 right-2 p-1.5 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover/row:opacity-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                            aria-label="删除会话"
+                                            title="删除会话"
+                                        >
+                                            {deleting === s.id ? (
+                                                <RefreshCw size={14} className="animate-spin" />
+                                            ) : (
+                                                <Trash2 size={14} />
+                                            )}
                                         </button>
                                     </li>
                                 ))}

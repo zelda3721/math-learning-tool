@@ -114,6 +114,22 @@ async def list_sessions(
     return [_session_to_dict(s) for s in sessions]
 
 
+@router.delete("/{session_id}")
+async def delete_session(
+    session_id: str,
+    drop_videos: bool = True,
+    store: ConversationStore = Depends(get_conversation_store),
+) -> dict[str, Any]:
+    """Hard-delete a session (SQLite row + archive dir + optionally rendered
+    video files). Cascades to messages/tool_calls/artifacts/feedback via FK."""
+    result = await store.delete_session_with_files(session_id, drop_videos=drop_videos)
+    if not result.get("deleted"):
+        raise HTTPException(
+            status_code=404, detail=result.get("reason") or "session not found"
+        )
+    return result
+
+
 @router.get("/{session_id}")
 async def get_session_detail(
     session_id: str,

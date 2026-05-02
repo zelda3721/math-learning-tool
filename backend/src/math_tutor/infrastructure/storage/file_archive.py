@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -58,3 +59,16 @@ class FileArchive:
             return path.read_text(encoding="utf-8")
 
         return await asyncio.to_thread(_read)
+
+    async def delete_session_dir(self, session_id: str) -> bool:
+        """Remove the per-session directory and all its contents. Idempotent
+        — returns True if anything was deleted, False if it didn't exist."""
+
+        def _rm() -> bool:
+            path = self.session_dir(session_id)
+            if not path.exists():
+                return False
+            shutil.rmtree(path, ignore_errors=True)
+            return True
+
+        return await asyncio.to_thread(_rm)
