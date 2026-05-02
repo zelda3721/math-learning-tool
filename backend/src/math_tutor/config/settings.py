@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # agent rambles between tool calls. 1500-3000 is typical.
     llm_agent_loop_max_tokens: int = 2048
     llm_request_timeout: float = 180.0
+    # Per-tool execution wall-clock cap. Generate_manim_code on a quantized
+    # 35B model can legitimately take 2-3 min; bump above llm_request_timeout
+    # if you switch to a slower model.
+    llm_tool_timeout_s: float = 300.0
     # JSON string. Forwarded as `extra_body` to the OpenAI client. Useful for
     # provider-specific knobs like {"chat_template_kwargs": {"enable_thinking": true}}.
     llm_extra_body: str = ""

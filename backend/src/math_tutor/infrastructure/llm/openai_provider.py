@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
@@ -364,6 +365,23 @@ class OpenAILLMProvider(ILLMProvider):
             tool_events.append(evt)
             yield evt
 
+        # Hermes / Qwen3 fallback: when the model emits tool calls as XML-like
+        # text instead of using OpenAI native tool_calls (a known behavior on
+        # LMStudio + Qwen3.x, especially under retry / error conditions),
+        # parse them out of the visible text and emit as proper tool_call
+        # events so the agent loop can route them like any other.
+        if not tool_events:
+            full_text = "".join(text_acc) + "".join(reasoning_acc)
+            hermes_calls = _parse_hermes_tool_calls(full_text)
+            if hermes_calls:
+                logger.info(
+                    "Recovered %d Hermes-format tool call(s) from text",
+                    len(hermes_calls),
+                )
+                for evt in hermes_calls:
+                    tool_events.append(evt)
+                    yield evt
+
         yield StreamDone(
             finish_reason=finish_reason,
             text="".join(text_acc),
@@ -384,6 +402,75 @@ class OpenAILLMProvider(ILLMProvider):
         if last is None:
             return StreamDone(finish_reason="error")
         return last
+
+
+_HERMES_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*"
+    r"<function=([^>\s]+)\s*>"          # <function=name>
+    r"\s*([\s\S]*?)\s*"                  # JSON args (or empty)
+    r"</function>\s*"
+    r"</tool_call>",
+    re.IGNORECASE,
+)
+# Some Qwen3 fine-tunes use a slightly different shape:
+#   <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+_HERMES_JSON_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*(\{[\s\S]*?\})\s*</tool_call>",
+    re.IGNORECASE,
+)
+
+
+def _parse_hermes_tool_calls(text: str) -> list[ToolCallEvent]:
+    """Recover tool calls emitted as Hermes/Qwen3-style XML blocks in text.
+
+    Two shapes supported:
+      1. <tool_call><function=NAME>{json args}</function></tool_call>
+      2. <tool_call>{"name": "NAME", "arguments": {...}}</tool_call>
+    """
+    if "<tool_call>" not in text:
+        return []
+    out: list[ToolCallEvent] = []
+    seen: set[tuple[str, str]] = set()  # de-dupe identical calls
+
+    # Shape 1: <function=NAME> wrapper
+    for i, m in enumerate(_HERMES_TOOL_CALL_RE.finditer(text)):
+        name = m.group(1).strip()
+        raw_args = m.group(2).strip()
+        if not name:
+            continue
+        try:
+            args = json.loads(raw_args) if raw_args else {}
+            if not isinstance(args, dict):
+                args = {"_value": args}
+        except Exception:
+            args = {"_raw": raw_args, "_parse_error": True} if raw_args else {}
+        key = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ToolCallEvent(id=f"hermes_{i}", name=name, arguments=args))
+
+    # Shape 2: bare JSON object inside <tool_call>...</tool_call>
+    for i, m in enumerate(_HERMES_JSON_TOOL_CALL_RE.finditer(text)):
+        try:
+            payload = json.loads(m.group(1))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        name = payload.get("name") or payload.get("function") or ""
+        if not name or not isinstance(name, str):
+            continue
+        args = payload.get("arguments") or payload.get("args") or {}
+        if not isinstance(args, dict):
+            args = {}
+        key = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ToolCallEvent(id=f"hermes_json_{i}", name=name, arguments=args))
+
+    return out
 
 
 def _is_local_url(url: str) -> bool:
