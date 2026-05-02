@@ -483,7 +483,7 @@ class GenerateManimCodeTool(ITool):
             scene_lines = []
             for i, s in enumerate(visual_plan.get("scenes") or [], start=1):
                 scene_lines.append(
-                    f"  场景 {i} ({s.get('role', '?')}) — "
+                    f"  场景 {i} ({s.get('role', '?')}, zone {s.get('anchor_zone', '?')}) — "
                     f"key_objects: {s.get('key_objects', '')[:80]}; "
                     f"action: {s.get('action', '')[:80]}; "
                     f"invariant: {s.get('invariant', '')[:60]}"
@@ -492,15 +492,29 @@ class GenerateManimCodeTool(ITool):
                 f"  - {x}" for x in (visual_plan.get("forbidden") or [])[:6]
             )
             secondary = visual_plan.get("secondary_pattern") or ""
+            essence = (visual_plan.get("essence_rationale") or "").strip()
+
+            # essence_rationale comes FIRST in the section: it's the
+            # north-star. Every animation choice must serve this.
             visual_plan_section = (
                 "## 视觉计划（来自 visual_plan，**严格遵照**）\n"
-                f"primary_pattern: **{visual_plan.get('primary_pattern', '?')}**"
+                + (
+                    "### ⭐ 本质（essence_rationale，所有动画必须服务于这条）\n"
+                    f"> {essence}\n\n"
+                    "**写代码时反复回看这条**：每一个 self.play(...) / Transform / "
+                    "动画的目的都应该是让观众看到上述的不变量/对应/守恒/变换。"
+                    "如果某段动画与这条 rationale 无关，就删掉。\n\n"
+                    if essence
+                    else ""
+                )
+                + f"primary_pattern: **{visual_plan.get('primary_pattern', '?')}**"
                 + (f" + {secondary}" if secondary else "")
                 + "\n\n场景脚本：\n"
                 + "\n".join(scene_lines)
                 + "\n\n禁用反模式：\n"
                 + forbidden_lines
                 + "\n\n**这份计划是硬约束**：必须有 role=transform 场景；"
+                "anchor_zone 必须遵守（每个场景的元素只能落在该 zone 内）；"
                 "不允许把 action 退化成纯 Text 切换；key_objects 必须真的出现在画面里。"
             )
 
