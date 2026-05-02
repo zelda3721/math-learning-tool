@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # 35B model can legitimately take 2-3 min; bump above llm_request_timeout
     # if you switch to a slower model.
     llm_tool_timeout_s: float = 300.0
+    # Max conversation turns inside the AgentLoop. Each turn = one LLM
+    # response + 0..N tool executions. Typical happy path needs ~7-9 turns
+    # (analyze/match/search 并行 → solve → visual_plan → generate → validate
+    # → run → inspect → final summary). With ScopeRefine retries (line/block/
+    # global) and visual_plan replan, a hard scenario can hit ~15-18 turns.
+    # 20 leaves headroom; bump higher if you see "max_turns_exhausted".
+    llm_agent_max_turns: int = 20
     # JSON string. Forwarded as `extra_body` to the OpenAI client. Useful for
     # provider-specific knobs like {"chat_template_kwargs": {"enable_thinking": true}}.
     llm_extra_body: str = ""
