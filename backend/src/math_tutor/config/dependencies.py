@@ -316,6 +316,7 @@ def get_agent_loop(
         store=ConversationStore(_get_database(settings), _get_file_archive(settings)),
         use_latex=settings.manim_use_latex,
         learned_memory=_get_learned_memory(settings),
+        max_turns=settings.llm_agent_max_turns,
         per_turn_max_tokens=settings.llm_agent_loop_max_tokens,
         tool_timeout_s=settings.llm_tool_timeout_s,
     )
