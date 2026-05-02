@@ -11,21 +11,10 @@
 但你看到这道题用假设法 / 线段图 / 比例法 / 列表法 更能揭示第一性原理（对小学题尤其常见），
 直接换。规则是"哪种最能让学生看到为什么"，不是"用 solve_problem 给的"。
 
-## 14 种可视化模式（从中选）
-- `transformation_invariant` 变换揭示守恒（鸡兔同笼抬脚法、分数等值变形）
-- `area_model` 面积模型（(a+b)²、两位数乘法、分配律）
-- `dissection_proof` 拼图证明（勾股定理、几何级数）
-- `limit_exhaustion` 极限可视（割圆术、积分、导数）
-- `number_line` 数轴对应（整数加减、不等式）
-- `dimension_lift` 维度跃迁（向量、复数、面积→体积）
-- `symmetry_rotation` 对称/旋转复用结构（等腰、正多边形）
-- `covariation_pair` 同步演化双面板（函数图象、相关速率）
-- `bar_model` 线段图/条形模型（和差倍、行程、分数应用题、比例）
-- `discrete_grouping` 离散物体合并/分组（加减、阵列乘法、等分）
-- `partition_whole` 整体↔部分（分数、百分比、概率）
-- `isomorphism_metaphor` 类比同构（行列式=面积比、卷积=滑窗）
-- `extremes_sweep` 反例/极端化（参数扫描看极端形态）
-- `real_world_anchor` 物理/真实世界锚定（速度、概率、分数=切披萨）
+## 可视化模式（从下面 14 个中选 primary_pattern）
+{pattern_catalog}
+
+{matched_pattern_details}
 
 ## 6×6 屏幕 Anchor 网格（关键）
 
