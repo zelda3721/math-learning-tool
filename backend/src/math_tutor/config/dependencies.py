@@ -317,4 +317,5 @@ def get_agent_loop(
         use_latex=settings.manim_use_latex,
         learned_memory=_get_learned_memory(settings),
         per_turn_max_tokens=settings.llm_agent_loop_max_tokens,
+        tool_timeout_s=settings.llm_tool_timeout_s,
     )
