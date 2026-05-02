@@ -37,17 +37,16 @@ _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 阶段 D — 执行与视觉评审：
 8. run_manim        渲染 mp4
 9. 渲染失败 → generate_manim_code（fix 模式：previous_code + error_hint），最多 3 次
-10. inspect_video   **可选**——只在以下情况调用：
-    a) validate_manim_code 报了重叠 / 布局 / 动画密度 警告（structure_issues 或 overlap_risk_issues 非空）
-    b) 这是修复模式后的渲染（previous_code + error_hint 跑过的情况）
-    c) 用户在 extra_directives 里要求评审
-    没警告时**直接跳过 inspect_video，立即收手**——节省 ~15 秒
-    若调用：返回 overall_quality='bad' 时回到 generate_manim_code 修一次（最多 1 次迭代）
+10. inspect_video   **必须调用**！静态校验看不到真实视觉重叠，唯一手段是抽帧让多模态模型看
+    - 返回 overall_quality='bad' 或 issues 非空 → **必须**回到 generate_manim_code，
+      把 issues 字段拼成 error_hint 再修一次（最多 1 次视觉迭代后即使还有问题也收手）
+    - 返回 overall_quality='good' 且 issues 为空 → 收手
+    - 工具自身报错（ffmpeg / vision 不可用）→ 跳过，直接收手
 
 阶段 E — 收尾：
 11. 一句话总结题目+答案+视频已生成，不再调任何工具，不要把代码塞进回复
 
-每一轮结束都要回看上一步结果决定下一步。**不要跳过 solve、不要跳过 validate；inspect_video 按上面条件决定**。
+每一轮结束都要回看上一步结果决定下一步。**不要跳过 solve、不要跳过 validate、不要跳过 inspect_video**。
 """
 
 _HARD_RULES = """# 硬约束（关于速度和简洁）
