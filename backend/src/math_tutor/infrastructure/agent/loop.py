@@ -360,9 +360,22 @@ class AgentLoop:
             problem=problem,
             state=state,
         )
+        # Defense: arguments must be a dict for tool .get(...) calls. If a
+        # provider parser slipped through with a non-dict (string/list/etc),
+        # coerce to {} and let the tool surface its own "missing args" error
+        # instead of crashing with AttributeError.
+        safe_args: dict[str, Any]
+        if isinstance(tc.arguments, dict):
+            safe_args = tc.arguments
+        else:
+            logger.warning(
+                "tool %s received non-dict arguments (%s): %r — coercing to {}",
+                tc.name, type(tc.arguments).__name__, tc.arguments,
+            )
+            safe_args = {}
         try:
             result = await asyncio.wait_for(
-                tool.execute(tc.arguments, ctx),
+                tool.execute(safe_args, ctx),
                 timeout=self._tool_timeout,
             )
         except asyncio.TimeoutError:

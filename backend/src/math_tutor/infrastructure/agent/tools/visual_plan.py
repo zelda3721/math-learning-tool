@@ -130,6 +130,9 @@ def _validate_essence_rationale(text: str, primary: str) -> list[str]:
     return errs
 
 
+_SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
+
+
 def _parse_plan(done: Any) -> dict[str, Any] | None:
     for source in (
         getattr(done, "text", "") or "",
@@ -137,9 +140,11 @@ def _parse_plan(done: Any) -> dict[str, Any] | None:
     ):
         if not source:
             continue
-        section = md.find_section(source, "视觉计划", level=2) or md.find_section(
-            source, "视觉计划"
-        )
+        section: str | None = None
+        for alias in _SECTION_ALIASES:
+            section = md.find_section(source, alias, level=2) or md.find_section(source, alias)
+            if section is not None:
+                break
         if section is not None:
             payload = _md_to_plan(section)
             if payload.get("primary_pattern") and payload.get("scenes"):
@@ -376,7 +381,11 @@ class VisualPlanTool(ITool):
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.4,
-                max_tokens=2048,
+                # 3072: Qwen3 thinking mode tends to consume 1.5-2K reasoning
+                # tokens; we still need ~600-800 tokens for the final markdown
+                # plan output. 2048 was empirically too tight after we added
+                # 14 patterns + 6×6 grid + essence_rationale to the template.
+                max_tokens=3072,
             )
         except Exception as exc:
             logger.exception("visual_plan LLM call failed")
@@ -384,15 +393,33 @@ class VisualPlanTool(ITool):
 
         plan = _parse_plan(done)
         if plan is None:
+            text = getattr(done, "text", "") or ""
+            reasoning = getattr(done, "reasoning", "") or ""
+            finish = getattr(done, "finish_reason", "?")
             logger.warning(
-                "visual_plan: parse failed | finish=%s text_head=%r",
-                getattr(done, "finish_reason", "?"),
-                (getattr(done, "text", "") or "")[:200],
+                "visual_plan: parse failed | finish=%s text_len=%d "
+                "reasoning_len=%d text_head=%r reasoning_head=%r",
+                finish, len(text), len(reasoning),
+                text[:200], reasoning[:200],
             )
+            # finish_reason='length' = max_tokens hit before model could emit
+            # the final structured answer. Surface a clearer summary so the
+            # agent loop can either retry with a tighter prompt or give up
+            # gracefully (and so the user can see in the timeline what went
+            # wrong).
+            if str(finish).lower() == "length":
+                summary = "视觉规划被 max_tokens 截断，重试或简化输入"
+            else:
+                summary = "无法从模型输出解析「## 视觉计划」section"
             return ToolResult(
                 success=False,
-                summary="无法从模型输出解析「## 视觉计划」section",
+                summary=summary,
                 error="parse_failed",
+                data={
+                    "finish_reason": finish,
+                    "text_head": text[:600],
+                    "reasoning_head": reasoning[:600],
+                },
             )
 
         prev_plan = ctx.state.get("visual_plan") or {}
