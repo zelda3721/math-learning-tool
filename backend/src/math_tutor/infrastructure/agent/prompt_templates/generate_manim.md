@@ -32,6 +32,37 @@ Phase 2（核心）  FadeOut(title)，主图形可以铺满 |y| ≤ 3 的范围
 Phase 3（3 秒）  FadeOut(主图形)，答案独占
 ```
 
+## ⚠️ 关于步骤标注文字（你之前最常犯的错）
+
+如果你在 Phase 2 里要展示步骤说明（"第一步：假设全是鸡"、"还差 24 只脚"等等）：
+
+**错误做法（绝对禁止）**：连续 `Write(step1)`、`Write(step2)`、`Write(step3)` ——3 条文字会全部堆在 ORIGIN 重叠！
+
+**正确做法 A**：每条步骤文字写完后，**先 FadeOut 它，再写下一条**。
+```python
+step1 = Text("假设全是鸡").to_edge(UP, buff=1.0)  # 注意 buff=1.0 避开标题位置
+self.play(Write(step1)); self.wait(1.5)
+self.play(FadeOut(step1))      # 关键：先清掉再写下一条
+step2 = Text("...").to_edge(UP, buff=1.0)
+self.play(Write(step2)); self.wait(1.5)
+self.play(FadeOut(step2))
+```
+
+**正确做法 B**：把所有步骤排列成 VGroup，逐个出现但保持位置错开。
+```python
+steps_group = VGroup(
+    Text("步骤 1：..."),
+    Text("步骤 2：..."),
+    Text("步骤 3：..."),
+).arrange(DOWN, buff=0.3, aligned_edge=LEFT)
+steps_group.to_edge(LEFT, buff=0.5).scale(0.5)   # 缩到屏幕一侧不挡图形
+self.play(LaggedStart(*[Write(s) for s in steps_group], lag_ratio=0.5, run_time=4))
+```
+
+**正确做法 C**：步骤说明在 Phase 1 里和标题一起讲完，Phase 2 全部用图形动画（不再有文字解说）。这是最干净的做法。
+
+无论哪种做法，**绝对不能让两条 Text 同时出现在同一个 Y 坐标**。
+
 ### Phase 2 主图形的尺寸建议（务必让学生看清）
 
 | 元素类型 | 推荐尺寸 |

@@ -267,8 +267,13 @@ class GenerateManimCodeTool(ITool):
         previous_code = (
             args.get("previous_code") or ctx.state.get("latest_manim_code") or ""
         )
+        # Pull error hints from multiple state sources in priority order:
+        # explicit args → run_manim error → inspect_video visual issues
         error_hint = (
-            args.get("error_hint") or ctx.state.get("last_run_error") or ""
+            args.get("error_hint")
+            or ctx.state.get("last_run_error")
+            or ctx.state.get("last_visual_issues")
+            or ""
         )
         is_fix_mode = bool(previous_code and error_hint)
 

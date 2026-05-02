@@ -70,6 +70,8 @@ _PLAY_RE = re.compile(r"\bself\.play\s*\(")
 _WAIT_RE = re.compile(r"\bself\.wait\s*\(")
 _TEXT_CTOR_RE = re.compile(r"\bText\s*\(")
 _TO_EDGE_RE = re.compile(r"\.to_edge\s*\(")
+_WRITE_RE = re.compile(r"\b(?:Write|FadeIn|AddTextLetterByLetter)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+_FADEOUT_RE = re.compile(r"\bFadeOut\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*[\),]")
 
 
 def _check_overlap_risk(code: str) -> list[str]:
@@ -123,6 +125,18 @@ def _check_overlap_risk(code: str) -> list[str]:
     # 4) wait(0) or extremely short waits
     if re.search(r"self\.wait\s*\(\s*0(?:\.0)?\s*\)", code):
         issues.append("等待时间为 0：题目/答案展示时间不足")
+
+    # 5) Multiple Write/FadeIn of different vars without FadeOut in between
+    #    — classic stacked-text-overlap signature (the user has hit this)
+    written = _WRITE_RE.findall(code)
+    faded = set(_FADEOUT_RE.findall(code))
+    if len(written) >= 3:
+        unfaded = [v for v in written if v not in faded]
+        if len(unfaded) >= 3:
+            issues.append(
+                f"文字堆叠风险：{len(unfaded)} 个对象 Write/FadeIn 后从未 FadeOut "
+                f"（{', '.join(unfaded[:3])}...），它们会在屏幕上一直累积"
+            )
 
     return issues
 
