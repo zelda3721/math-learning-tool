@@ -58,12 +58,76 @@ _VALID_PATTERNS = {
 
 _VALID_ROLES = {"setup", "transform", "reveal", "verify"}
 
+# "Why-style" signal words. essence_rationale must contain at least one to
+# pass — this is a forcing function: if the LLM can't articulate WHY in any
+# of these terms, it's writing fluff and will produce fluff code.
+_WHY_SIGNAL_WORDS = (
+    "为什么",
+    "因为",
+    "揭示",
+    "本质",
+    "看到",
+    "看见",
+    "对应",
+    "守恒",
+    "等量",
+    "不变",
+    "原理",
+    "让学生",
+    "让人",
+    "意味着",
+    "保持",
+    "对称",
+    "变换",
+    "变化",
+    "等价",
+    "同步",
+    "互相",
+)
+
 
 def _zones_overlap(a: Zone, b: Zone) -> bool:
     """Return True if anchor rectangles overlap (any shared cell)."""
     a_anchors = {x.label for x in a.anchors()}
     b_anchors = {x.label for x in b.anchors()}
     return bool(a_anchors & b_anchors)
+
+
+def _validate_essence_rationale(text: str, primary: str) -> list[str]:
+    """essence_rationale must (a) be non-trivial, (b) say something more
+    than just the pattern name, (c) actually explain a "why"."""
+    errs: list[str] = []
+    t = (text or "").strip()
+    if not t:
+        errs.append(
+            "缺少 essence_rationale 字段：必须 30-200 字说明'为什么这种讲法揭示本质'"
+        )
+        return errs
+
+    # Strip trivial padding
+    if len(t) < 20:
+        errs.append(
+            f"essence_rationale 太短（{len(t)} 字）：至少 30 字，需要解释'为什么'"
+        )
+    if len(t) > 400:
+        errs.append(
+            f"essence_rationale 过长（{len(t)} 字）：控制在 200 字内，重点突出"
+        )
+
+    # Trivial rephrasing of the pattern name
+    if primary and t.lower().count(primary.lower()) >= 1 and len(t) < 60:
+        errs.append(
+            "essence_rationale 只是在重复 primary_pattern 名，没有解释'为什么揭示本质'"
+        )
+
+    # Must contain a why-style signal word
+    if not any(w in t for w in _WHY_SIGNAL_WORDS):
+        errs.append(
+            "essence_rationale 没有'为什么类'信号词（揭示/本质/对应/守恒/等量/不变/为什么/让...看到 等）；"
+            "光说'用图形展示'不算，要说清楚学生通过这个画面看到了什么不变量/等量/对应"
+        )
+
+    return errs
 
 
 def _parse_plan(done: Any) -> dict[str, Any] | None:
@@ -90,6 +154,9 @@ def _md_to_plan(section: str) -> dict[str, Any]:
     primary = md.get_field(section, "primary_pattern", "primary pattern", "主模式")
     secondary_raw = md.get_field(section, "secondary_pattern", "secondary pattern", "副模式")
     secondary = "" if secondary_raw.strip() in ("无", "none", "None", "—", "") else secondary_raw
+    essence_rationale = md.get_field(
+        section, "essence_rationale", "本质", "rationale", "为什么", "原理"
+    )
 
     scenes: list[dict[str, Any]] = []
     for heading, body in md.find_subsections(section, level=3):
@@ -117,6 +184,7 @@ def _md_to_plan(section: str) -> dict[str, Any]:
     return {
         "primary_pattern": primary.strip(),
         "secondary_pattern": secondary.strip(),
+        "essence_rationale": essence_rationale.strip(),
         "scenes": scenes,
         "forbidden": forbidden,
     }
@@ -136,6 +204,10 @@ def _validate_plan(
         errs.append(
             f"primary_pattern '{primary}' 不在 14 个允许枚举内"
         )
+
+    # essence_rationale: the single most important quality check
+    errs.extend(_validate_essence_rationale(plan.get("essence_rationale") or "", primary))
+
     scenes = plan.get("scenes") or []
     if len(scenes) < 3:
         errs.append(f"场景数 {len(scenes)} < 3")
@@ -343,17 +415,20 @@ class VisualPlanTool(ITool):
         # Persist for downstream tools.
         ctx.state["visual_plan"] = plan
         ctx.state["visual_pattern"] = plan["primary_pattern"]
+        ctx.state["essence_rationale"] = plan.get("essence_rationale") or ""
         ctx.state["last_visual_failed"] = False  # reset so generate sees a clean slate
 
         scenes_summary = ", ".join(
             f"{s['role']}({(s.get('key_objects') or '')[:12]})" for s in plan["scenes"]
         )
+        rationale_preview = (plan.get("essence_rationale") or "")[:50]
         return ToolResult(
             success=True,
             summary=(
                 f"视觉计划：{plan['primary_pattern']}"
                 + (f" + {plan['secondary_pattern']}" if plan["secondary_pattern"] else "")
-                + f"，{len(plan['scenes'])} 场景：{scenes_summary[:80]}"
+                + f"，{len(plan['scenes'])} 场景"
+                + (f"；本质：{rationale_preview}…" if rationale_preview else "")
             ),
             data=plan,
         )

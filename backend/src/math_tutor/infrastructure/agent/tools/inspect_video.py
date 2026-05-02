@@ -244,7 +244,21 @@ class InspectVideoTool(ITool):
                     error="frame_extraction_failed",
                 )
 
-            prompt_text = self._prompts.render("inspect_video", n=len(frame_paths))
+            essence = (
+                ctx.state.get("essence_rationale")
+                or (ctx.state.get("visual_plan") or {}).get("essence_rationale")
+                or ""
+            ).strip()
+            essence_section = (
+                f"> {essence}"
+                if essence
+                else "（视觉计划未声明 essence_rationale，按通用标准评审本质兑现度）"
+            )
+            prompt_text = self._prompts.render(
+                "inspect_video",
+                n=len(frame_paths),
+                essence_section=essence_section,
+            )
             content_parts: list[dict[str, Any]] = [
                 {"type": "text", "text": prompt_text}
             ]
@@ -294,12 +308,19 @@ class InspectVideoTool(ITool):
 
         forced_bad = False
         forced_reason = ""
+        b_scores = payload.get("b_scores") or {}
+        b6 = b_scores.get("b6")
         if blacklist:
             forced_bad = True
             forced_reason = f"命中黑名单：{', '.join(blacklist[:3])}"
-        elif b_total is not None and b_total < 6:
+        elif b6 == 0:
+            # B6 = 0 means the video didn't deliver on the essence_rationale —
+            # this is the master quality gate. Other items don't compensate.
             forced_bad = True
-            forced_reason = f"B 段总分 {b_total}/10 < 6"
+            forced_reason = "B6 = 0：视频未兑现 essence_rationale 声明的'本质'"
+        elif b_total is not None and b_total < 7:
+            forced_bad = True
+            forced_reason = f"B 段总分 {b_total}/12 < 7"
         if forced_bad and overall != "bad":
             payload["overall_quality"] = "bad"
             overall = "bad"
