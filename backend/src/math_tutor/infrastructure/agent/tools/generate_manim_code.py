@@ -62,11 +62,26 @@ _GRADE_HINT: dict[str, str] = {
 }
 
 
-def _format_steps(steps: list[dict[str, Any]] | None) -> str:
+def _format_steps(steps: list[dict[str, Any]] | Any) -> str:
     if not steps:
         return "（未提供）"
+    # Defensive: solve_problem normally writes list[dict], but bad parsing or
+    # a malformed JSON fallback could leave us with list[str] / str / dict.
+    # Coerce gracefully so we never crash here.
+    if isinstance(steps, str):
+        return steps[:1000]  # take it as a single pre-formatted block
+    if isinstance(steps, dict):
+        steps = [steps]
+    if not isinstance(steps, list):
+        return "（步骤格式异常，无法解析）"
     lines = []
     for i, s in enumerate(steps):
+        if isinstance(s, str):
+            lines.append(f"{i + 1}. {s}")
+            continue
+        if not isinstance(s, dict):
+            lines.append(f"{i + 1}. {s!r}")
+            continue
         n = s.get("step_number", i + 1)
         desc = s.get("description") or ""
         op = s.get("operation") or ""
@@ -116,9 +131,13 @@ def _extract_manim_code_with_fallback(done: Any) -> tuple[str, str]:
     return "", "none"
 
 
-def _format_bad_notes(items: list[dict[str, object]]) -> str:
+def _format_bad_notes(items: Any) -> str:
+    if not isinstance(items, list):
+        return ""
     lines: list[str] = []
     for it in items:
+        if not isinstance(it, dict):
+            continue
         problem = (it.get("problem") or "")
         problem = problem.strip() if isinstance(problem, str) else ""
         notes = (it.get("notes") or "")
@@ -287,12 +306,14 @@ class GenerateManimCodeTool(ITool):
 
         if good is None:
             recent_good = ctx.state.get("recent_good_examples") or []
-            if recent_good:
-                good = recent_good[0].get("manim_code")
+            if isinstance(recent_good, list) and recent_good:
+                first = recent_good[0]
+                if isinstance(first, dict):
+                    good = first.get("manim_code")
 
         if bad is None:
             recent_bad = ctx.state.get("recent_bad_examples") or []
-            if recent_bad:
+            if isinstance(recent_bad, list) and recent_bad:
                 bad = _format_bad_notes(recent_bad)
 
         if (good is None or bad is None) and self._examples_store is not None:
@@ -381,6 +402,13 @@ class GenerateManimCodeTool(ITool):
             or ctx.state.get("last_visual_issues")
             or ""
         )
+        # Defensive: state values can occasionally be non-strings (e.g. dict
+        # serialized from an earlier crash payload). Coerce to str so the
+        # later .strip()/[:N] calls don't AttributeError.
+        if not isinstance(previous_code, str):
+            previous_code = str(previous_code) if previous_code else ""
+        if not isinstance(error_hint, str):
+            error_hint = str(error_hint) if error_hint else ""
         is_fix_mode = bool(previous_code and error_hint)
 
         # ---- ScopeRefine: decide if we should attempt a small-scope fix ----
@@ -477,22 +505,31 @@ class GenerateManimCodeTool(ITool):
                 )
 
         # Visual plan dominates: it's the explicit director's intent. Codes
-        # ignoring it = degeneration. We always emit it when present.
+        # ignoring it = degeneration. We always emit it when present. We also
+        # type-guard each scene because a JSON-fallback parse can leave us
+        # with list[str] instead of list[dict].
         visual_plan_section = ""
-        if visual_plan:
+        if isinstance(visual_plan, dict):
+            scenes_raw = visual_plan.get("scenes") or []
             scene_lines = []
-            for i, s in enumerate(visual_plan.get("scenes") or [], start=1):
+            for i, s in enumerate(scenes_raw, start=1):
+                if not isinstance(s, dict):
+                    scene_lines.append(f"  场景 {i}: {s!r}")
+                    continue
                 scene_lines.append(
                     f"  场景 {i} ({s.get('role', '?')}, zone {s.get('anchor_zone', '?')}) — "
-                    f"key_objects: {s.get('key_objects', '')[:80]}; "
-                    f"action: {s.get('action', '')[:80]}; "
-                    f"invariant: {s.get('invariant', '')[:60]}"
+                    f"key_objects: {(s.get('key_objects') or '')[:80]}; "
+                    f"action: {(s.get('action') or '')[:80]}; "
+                    f"invariant: {(s.get('invariant') or '')[:60]}"
                 )
+            forbidden = visual_plan.get("forbidden") or []
+            forbidden = forbidden if isinstance(forbidden, list) else []
             forbidden_lines = "\n".join(
-                f"  - {x}" for x in (visual_plan.get("forbidden") or [])[:6]
+                f"  - {x}" for x in forbidden[:6]
             )
             secondary = visual_plan.get("secondary_pattern") or ""
-            essence = (visual_plan.get("essence_rationale") or "").strip()
+            essence = (visual_plan.get("essence_rationale") or "")
+            essence = essence.strip() if isinstance(essence, str) else ""
 
             # essence_rationale comes FIRST in the section: it's the
             # north-star. Every animation choice must serve this.
@@ -531,12 +568,15 @@ class GenerateManimCodeTool(ITool):
             )
 
         pattern_section = ""
-        if pattern_codes:
+        if isinstance(pattern_codes, list) and pattern_codes:
             chunks = ["## 可复用的可视化模式（已匹配，可直接调用其中的辅助函数）"]
             for p in pattern_codes:
+                if not isinstance(p, dict):
+                    continue
                 pname = p.get("name") or ""
                 pdesc = p.get("description") or ""
-                pcode = (p.get("core_code") or "").strip()
+                pcode = p.get("core_code") or ""
+                pcode = pcode.strip() if isinstance(pcode, str) else ""
                 if not pcode:
                     continue
                 chunks.append(

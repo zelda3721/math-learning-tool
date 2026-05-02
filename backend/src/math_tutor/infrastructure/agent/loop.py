@@ -390,14 +390,27 @@ class AgentLoop:
                 duration_ms=duration_ms,
             )
         except Exception as exc:  # noqa: BLE001
+            import traceback
             logger.exception("tool %s crashed", tc.name)
             duration_ms = int((time.monotonic() - start) * 1000)
+            # Attach the deepest 2 frames to the visible summary so the user
+            # can see where the crash happened without digging through logs.
+            tb = traceback.extract_tb(exc.__traceback__)
+            origin = ""
+            if tb:
+                # Last frame is most informative; second-to-last gives caller
+                tail = tb[-2:]
+                origin_parts = [
+                    f"{frame.filename.rsplit('/', 1)[-1]}:{frame.lineno}({frame.name})"
+                    for frame in tail
+                ]
+                origin = " @ " + " ← ".join(reversed(origin_parts))
             return _ToolOutcome(
                 tc=tc,
                 result=ToolResult(
                     success=False,
-                    summary=f"工具 {tc.name} 异常: {exc}",
-                    error=str(exc),
+                    summary=f"工具 {tc.name} 异常: {exc}{origin}",
+                    error=f"{exc}{origin}",
                 ),
                 duration_ms=duration_ms,
             )
