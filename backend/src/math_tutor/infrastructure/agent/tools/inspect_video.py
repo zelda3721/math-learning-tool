@@ -275,7 +275,10 @@ class InspectVideoTool(ITool):
                     messages=[ChatMessage(role="user", content=content_parts)],
                     model=self._vision_model,
                     temperature=0.2,
-                    max_tokens=2048,
+                    max_tokens=3072,
+                    # Vision evaluation: structured markdown rubric output.
+                    # Thinking adds latency without improving accuracy here.
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
             except Exception as exc:
                 logger.exception("inspect_video vision call failed")

@@ -115,6 +115,8 @@ class AnalyzeProblemTool(ITool):
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.2,
                 max_tokens=4096,
+                # Structured markdown output — thinking is wasted budget.
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception as exc:
             logger.exception("analyze_problem LLM call failed")

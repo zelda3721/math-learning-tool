@@ -381,11 +381,12 @@ class VisualPlanTool(ITool):
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.4,
-                # 3072: Qwen3 thinking mode tends to consume 1.5-2K reasoning
-                # tokens; we still need ~600-800 tokens for the final markdown
-                # plan output. 2048 was empirically too tight after we added
-                # 14 patterns + 6×6 grid + essence_rationale to the template.
-                max_tokens=3072,
+                # Pure structured-output task: just fill the markdown template.
+                # Disabling thinking saves Qwen3's ~2K reasoning budget for the
+                # actual answer. 4096 is plenty for a plan with 3-4 scenes +
+                # essence_rationale + forbidden list.
+                max_tokens=4096,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception as exc:
             logger.exception("visual_plan LLM call failed")
