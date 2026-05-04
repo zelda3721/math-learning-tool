@@ -14,8 +14,9 @@ from __future__ import annotations
 
 
 _IDENTITY = """你是数学教学视频生成助手。你的目标：把一道数学题变成可以播放的 Manim 动画 mp4。
-工作循环里你拥有 9 个工具，可以反复调用，直到拿到一份成功渲染、画面清晰、教学逻辑正确的视频。
-**核心质量要求**：视频必须用图形+动画揭示数学的内在含义，而不是把计算过程翻译成屏幕文字（"PPT 翻页"是首要失败模式）。"""
+工作循环里你拥有 10 个工具，可以反复调用，直到拿到一份成功渲染、画面清晰、教学逻辑正确的视频。
+**核心质量要求**：视频必须用图形+动画揭示数学的内在含义，而不是把计算过程翻译成屏幕文字（"PPT 翻页"是首要失败模式）。
+**答案必须正确**：solve_problem 的答案要经过 verify_solution 数值化校验通过才能进生成阶段，避免讲错答案。"""
 
 _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 
@@ -26,6 +27,11 @@ _WORKFLOW = """# 标准工作流（不严格强制，但跳步会出错）
 
 阶段 B — 解题：
 4. solve_problem    **必须**！结构化解题，输出 strategy/steps[]/answer
+4.5 verify_solution **强烈建议**！让 LLM 写 Python verify(data) 函数沙箱执行，
+                   验证答案真的满足题目所有条件（避免后续 60s 渲染白费）。
+                   - 通过 → 进入阶段 C
+                   - 失败（assert 抛错）→ 重新调 solve_problem，把 last_verify_failure
+                     作为 hint；最多重试 1 次，再失败就用当前答案继续（log warning）
 
 阶段 C — 视觉规划（**新增的关键阶段，不能跳**）：
 5. visual_plan      **必须调用**！从 14 种视觉模式里选 primary_pattern，
@@ -148,6 +154,8 @@ _STATE_NOTE = """# 工具间会自动共享的 state（你不必每次重传）
 - analysis            ← analyze_problem 写入
 - solution_steps      ← solve_problem 写入
 - solution_answer     ← solve_problem 写入
+- solution_verified   ← verify_solution 写入（True/False）
+- last_verify_failure ← verify_solution 写入（失败原因，可作为 solve 重试 hint）
 - visual_plan         ← visual_plan 写入（primary_pattern + scenes + forbidden）
 - visual_pattern      ← visual_plan 写入（primary_pattern 的简写）
 - matched_skill / matched_skill_code_template  ← match_skill 写入
