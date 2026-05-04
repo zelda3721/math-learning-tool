@@ -21,6 +21,41 @@ logger = logging.getLogger(__name__)
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
+# Defensive cleanup for thinking-mode residue.
+#
+# Even though the LLM provider's _ReasoningSplitter routes <think>...</think>
+# blocks to a separate reasoning channel, three things can leave residual
+# tags in the text we parse here:
+#   1. A non-conforming server that doesn't strip tags before sending
+#   2. An unclosed <think> at end of stream (max_tokens hit mid-thought)
+#   3. The caller deliberately passing the *reasoning* channel to us as a
+#      fallback (then the raw <think>/</think> tags are still inside)
+#
+# Strip them so all section/field/bullet extractors see only the structured
+# answer content, regardless of upstream behavior. Idempotent — calling on
+# already-clean text is a no-op.
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<think>[\s\S]*$", re.IGNORECASE)
+_THINK_CLOSE_RE = re.compile(r"^[\s\S]*?</think>", re.IGNORECASE)
+
+
+def strip_thinking(text: str) -> str:
+    """Remove any <think>...</think> blocks (closed, unclosed, or orphan
+    closing tags) from `text`. Defensive — works on partial/malformed input."""
+    if not text:
+        return text
+    # 1. Closed blocks: <think>...</think>
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    # 2. Unclosed opening: <think> at end without close → drop tail
+    cleaned = _THINK_OPEN_RE.sub("", cleaned)
+    # 3. Orphan closing: text starts with content + </think> without earlier open
+    # Only triggers if </think> appears in the first ~300 chars (otherwise it's
+    # legitimately part of the body). Drops everything up to and including the close.
+    head = cleaned[:300].lower()
+    if "</think>" in head and "<think>" not in head:
+        cleaned = _THINK_CLOSE_RE.sub("", cleaned, count=1)
+    return cleaned.strip()
+
 
 def _normalize(s: str) -> str:
     return s.strip().lower().replace("　", " ")
@@ -34,9 +69,13 @@ def find_section(text: str, heading: str, *, level: int | None = None) -> str | 
     the **same or shallower** level (or end of document).
 
     `level` (1-6) restricts which heading depth to look for; None matches any.
+
+    Thinking blocks are stripped first so that `## 解题` inside a `<think>`
+    block doesn't shadow the real answer's heading after it.
     """
     if not text:
         return None
+    text = strip_thinking(text)
     target = _normalize(heading)
     for m in _HEADING_RE.finditer(text):
         hashes, title = m.group(1), m.group(2)
@@ -61,6 +100,7 @@ def find_subsections(text: str, level: int) -> list[tuple[str, str]]:
     the given level inside `text`."""
     if not text:
         return []
+    text = strip_thinking(text)
     out: list[tuple[str, str]] = []
     matches = list(_HEADING_RE.finditer(text))
     for i, m in enumerate(matches):
@@ -135,6 +175,7 @@ def parse_json_anywhere(text: str) -> dict[str, Any] | None:
     ignore markdown formatting)."""
     if not text:
         return None
+    text = strip_thinking(text)
     match = re.search(r"\{[\s\S]*\}", text)
     if match is None:
         return None
