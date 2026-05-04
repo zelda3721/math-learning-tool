@@ -106,6 +106,16 @@ class Settings(BaseSettings):
     data_dir: str = "./data"
     db_path: str = ""  # if empty, derived as {data_dir}/math_tutor.sqlite
 
+    # Learned Wiki (Karpathy-style auto-evolving KB).
+    # When enabled, each completed session triggers a background "ingester"
+    # that asks the fast LLM whether anything non-trivial was learned and,
+    # if so, writes a lesson page under {data_dir}/learned_wiki/lessons/.
+    # Future RITL-DOC retrievals merge static manim_api_kb.md + learned wiki.
+    # Disabled by default — opt-in for safety (LLM-written lessons can be
+    # noisy until you've watched a few rounds).
+    learned_wiki_enabled: bool = False
+    learned_wiki_dir: str = ""  # if empty, derived as {data_dir}/learned_wiki
+
     # Performance Settings
     enable_understanding: bool = True
     enable_review: bool = False
@@ -205,6 +215,13 @@ class Settings(BaseSettings):
     def resolved_data_dir(self) -> Path:
         """Absolute path to the data directory."""
         return Path(self.data_dir).expanduser().resolve()
+
+    @property
+    def resolved_learned_wiki_dir(self) -> Path:
+        """Absolute path to the learned wiki directory."""
+        if self.learned_wiki_dir:
+            return Path(self.learned_wiki_dir).expanduser().resolve()
+        return self.resolved_data_dir / "learned_wiki"
 
     model_config = {
         "env_file": str(_ENV_FILE),

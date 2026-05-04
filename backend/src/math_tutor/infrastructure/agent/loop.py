@@ -79,6 +79,7 @@ class AgentLoop:
         max_turns: int = 12,
         tool_timeout_s: float = 120.0,
         per_turn_max_tokens: int = 2048,
+        wiki_ingester: Any = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
@@ -93,6 +94,11 @@ class AgentLoop:
         # of "now I will call X" thinking costs wall-clock time on a local
         # 35B model. Tool internals have their own (much larger) budgets.
         self._per_turn_max_tokens = max(256, per_turn_max_tokens)
+        # Optional wiki ingester (LEARNED_WIKI_ENABLED=true). When set, fires
+        # a fire-and-forget background task on session done to extract any
+        # non-trivial lesson from this session. Failure of ingester never
+        # blocks the response — see WikiIngester.schedule.
+        self._wiki_ingester = wiki_ingester
 
     async def run(
         self,
@@ -162,6 +168,7 @@ class AgentLoop:
                 logger.exception("LLM stream failed for session %s", session_id)
                 yield ErrorEvent(message=f"LLM 调用失败: {exc}", fatal=True)
                 await self._store.update_session(session_id, status="failed", error=str(exc))
+                self._maybe_schedule_wiki_ingest(session_id, success=False)
                 return
 
             full_text = "".join(text_acc)
@@ -212,6 +219,7 @@ class AgentLoop:
                     status="done",
                     final_video_path=final_video_path,
                 )
+                self._maybe_schedule_wiki_ingest(session_id, success=True)
                 return
 
             # 1) Emit ToolCallStart eagerly for every call + record pending row
@@ -327,6 +335,16 @@ class AgentLoop:
             error="max_turns_exhausted",
             final_video_path=final_video_path,
         )
+        self._maybe_schedule_wiki_ingest(session_id, success=False)
+
+    def _maybe_schedule_wiki_ingest(self, session_id: str, *, success: bool) -> None:
+        """Fire-and-forget wiki ingest when configured. Never raises."""
+        if self._wiki_ingester is None:
+            return
+        try:
+            self._wiki_ingester.schedule(session_id, success=success)
+        except Exception:
+            logger.exception("wiki ingest scheduling failed (non-fatal)")
 
     async def _execute_one_tool(
         self,
