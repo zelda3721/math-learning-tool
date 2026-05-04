@@ -1,4 +1,4 @@
-# 🎓 AI Math Tutor — Harness Agent Edition
+# 🎓 AI Math Tutor
 
 > 把一道数学题变成可播放的 Manim 教学动画。
 > 架构借鉴 Claude Code / DispatchMind 的 harness agent 思想，使用本地 LLM（默认 LMStudio + Qwen3.6），全链路对话与代码本地持久化，支持人类反馈闭环。

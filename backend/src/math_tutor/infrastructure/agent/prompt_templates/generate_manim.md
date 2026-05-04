@@ -167,6 +167,8 @@ Sector / AnnularSector / Annulus / ThreeDScene / Surface
 
 {fix_mode_section}
 
+{manim_api_kb_section}
+
 ## 输出格式
 **直接输出完整的 Python 代码，包在 ```python``` 代码块里**。不要在代码块前后写任何解释文字。类名必须是 `SolutionScene`。
 
