@@ -24,6 +24,7 @@ from ...storage import ExamplesStore
 from ..learned_memory import LearnedMemory
 from ..prompt_library import PromptLibrary
 from .. import scope_refine as sref
+from ..manim_api_kb import get_kb as get_manim_kb
 from .visual_plan import archetype_to_code_pattern_names
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,19 @@ class GenerateManimCodeTool(ITool):
                 return None
             line_no = max(1, len(previous_code.split("\n")) // 2)
 
+        # RITL-DOC: pull relevant Manim API docs for *both* line and block
+        # paths. Smaller, focused fixes benefit even more from "here's the
+        # exact API signature" than full rewrites do.
+        kb_snippet = ""
+        try:
+            hits = get_manim_kb().lookup(error_hint, top_k=2)
+            if hits:
+                kb_snippet = "\n\n" + get_manim_kb().render_section(
+                    hits, max_chars=1200 if fix_scope == "line" else 1800
+                )
+        except Exception:
+            logger.exception("RITL-DOC retrieval failed in scoped fix (non-fatal)")
+
         if fix_scope == "line":
             snippet, lo, hi = sref.extract_line_context(
                 previous_code, line_no=line_no, radius=1
@@ -249,7 +263,8 @@ class GenerateManimCodeTool(ITool):
                 "你是 Manim 代码修复器。下面是出错代码的 `±1 行片段`，"
                 "**只修复其中的语法/调用错误**，不要重写其它内容。\n\n"
                 f"### 错误信息\n{error_hint.strip()[:1000]}\n\n"
-                f"### 出错片段（行 {lo}-{hi}）\n```python\n{snippet}\n```\n\n"
+                f"### 出错片段（行 {lo}-{hi}）\n```python\n{snippet}\n```"
+                f"{kb_snippet}\n\n"
                 "**直接输出修复后的同一段 Python 代码块**（行数尽量保持不变；"
                 "如果必须增减一行，可以接受），用 ```python``` 包起来。"
                 "不要解释、不要输出整文件。"
@@ -264,7 +279,8 @@ class GenerateManimCodeTool(ITool):
                 "**只在这个块内修改**，让它满足下面的错误提示。块外代码已经"
                 "正常，请不要重写。\n\n"
                 f"### 错误信息\n{error_hint.strip()[:1500]}\n\n"
-                f"### 出错块（行 {lo}-{hi}）\n```python\n{block_text}\n```\n\n"
+                f"### 出错块（行 {lo}-{hi}）\n```python\n{block_text}\n```"
+                f"{kb_snippet}\n\n"
                 "**直接输出修复后的整段块代码**（保持开头/结尾的 Phase 注释或"
                 "缩进风格不变），用 ```python``` 包起来。不要输出整文件。"
             )
@@ -637,6 +653,26 @@ class GenerateManimCodeTool(ITool):
                 "若错误是 LaTeX，将所有 MathTex/Tex 替换为 Text。"
             )
 
+        # RITL-DOC: when fix-mode, retrieve relevant Manim API docs based on
+        # the error_hint. Token budget bounded (~2400 chars) so this never
+        # blows up the prompt — better-than-nothing context for what the
+        # right API actually looks like, instead of letting the model guess
+        # again from training memory.
+        manim_api_kb_section = ""
+        if is_fix_mode and error_hint:
+            try:
+                kb = get_manim_kb()
+                hits = kb.lookup(error_hint, top_k=3)
+                if hits:
+                    manim_api_kb_section = kb.render_section(hits, max_chars=2400)
+                    logger.info(
+                        "RITL-DOC: injected %d KB entries for session %s: %s",
+                        len(hits), ctx.session_id,
+                        [h.name for h in hits],
+                    )
+            except Exception:
+                logger.exception("RITL-DOC retrieval failed (non-fatal)")
+
         user_message = self._build_user_message(
             problem=problem,
             grade=grade,
@@ -658,6 +694,7 @@ class GenerateManimCodeTool(ITool):
             good_example_section=good_example_section,
             bad_example_section=bad_example_section,
             fix_mode_section=fix_mode_section,
+            manim_api_kb_section=manim_api_kb_section,
             user_message=user_message,
         )
 

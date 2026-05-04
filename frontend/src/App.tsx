@@ -177,7 +177,7 @@ function App() {
             />
 
             <footer className="py-6 text-center text-slate-400 text-sm">
-                <p>© 2026 AI Math Tutor • Harness Agent Edition</p>
+                <p>© 2026 AI Math Tutor</p>
             </footer>
         </div>
     )
