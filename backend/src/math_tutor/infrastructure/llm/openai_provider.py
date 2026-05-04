@@ -142,6 +142,12 @@ class OpenAILLMProvider(ILLMProvider):
             client_kwargs["http_client"] = httpx.AsyncClient(
                 trust_env=False,
                 timeout=timeout,
+                # Some local servers (e.g. Jan.ai) WARN-log when the Origin
+                # header is empty. CORS doesn't actually block server-to-
+                # server calls, but adding a benign Origin keeps logs clean
+                # AND lets Jan's "trusted origins" allowlist match. LMStudio
+                # ignores Origin entirely so this is a no-op there.
+                headers={"Origin": "http://localhost"},
                 mounts={
                     "http://": httpx.AsyncHTTPTransport(),
                     "https://": httpx.AsyncHTTPTransport(),
