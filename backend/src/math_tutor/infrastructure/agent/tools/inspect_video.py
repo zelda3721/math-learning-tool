@@ -335,9 +335,14 @@ class InspectVideoTool(ITool):
         if overall == "bad":
             ctx.state["last_visual_failed"] = True
             ctx.state["visual_fail_count"] = int(ctx.state.get("visual_fail_count", 0)) + 1
+            # Also surface the rubric payload so the next generate_manim_code
+            # call can route via classify_visual_failure (block vs global).
+            ctx.state["last_inspect_payload"] = payload
+            ctx.state["last_error_source"] = "inspect"
         else:
             ctx.state["last_visual_failed"] = False
             ctx.state["visual_fail_count"] = 0
+            ctx.state.pop("last_inspect_payload", None)
 
         ctx.state["last_visual_review"] = payload
         if isinstance(issues, list) and issues:

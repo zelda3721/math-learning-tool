@@ -448,8 +448,13 @@ class GenerateManimCodeTool(ITool):
                 fix_scope = requested  # type: ignore[assignment]
             else:
                 err_source = ctx.state.get("last_error_source") or "run"
+                inspect_payload = (
+                    ctx.state.get("last_inspect_payload") if err_source == "inspect" else None
+                )
                 inferred = sref.classify_error_scope(
-                    error_hint, source=err_source if err_source in ("validate", "run", "inspect") else "run"
+                    error_hint,
+                    source=err_source if err_source in ("validate", "run", "inspect") else "run",
+                    inspect_payload=inspect_payload,
                 )
                 # Escalate if we've already used up budget at the inferred tier
                 escalated = sref.next_scope(inferred, attempts_so_far=attempts)
