@@ -263,8 +263,12 @@ class MatchSkillTool(ITool):
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
-                max_tokens=512,
-                # Tiny structured pick — thinking is overkill.
+                # 2048: 512 is too tight if the LMStudio chat-template kwargs
+                # gets ignored and thinking sneaks in (Qwen3.5+ template bug,
+                # see lmstudio-bug-tracker#1559). 2048 = ~1500 thinking + 500
+                # for the actual short markdown pick. We accept some waste
+                # for robustness.
+                max_tokens=2048,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception:

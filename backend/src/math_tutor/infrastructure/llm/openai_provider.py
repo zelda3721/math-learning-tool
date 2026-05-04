@@ -397,10 +397,32 @@ class OpenAILLMProvider(ILLMProvider):
                     tool_events.append(evt)
                     yield evt
 
+        full_text = "".join(text_acc)
+        full_reasoning = "".join(reasoning_acc)
+
+        # Robustness: when finish_reason='length' AND visible text is empty
+        # but reasoning has content, the model probably had its <think>
+        # block truncated by max_tokens (Qwen3.5+ thinking-mode pitfall, see
+        # lmstudio-bug-tracker#1559). Promote the reasoning's tail into text
+        # so downstream parsers have *something* to extract from. The text
+        # still won't include the model's intended final answer, but often
+        # the structured output exists inside the truncated reasoning.
+        if (
+            finish_reason == "length"
+            and not full_text.strip()
+            and full_reasoning.strip()
+        ):
+            logger.info(
+                "Promoting truncated reasoning (%d chars) to text channel: "
+                "model ran out of tokens before closing <think>",
+                len(full_reasoning),
+            )
+            full_text = full_reasoning
+
         yield StreamDone(
             finish_reason=finish_reason,
-            text="".join(text_acc),
-            reasoning="".join(reasoning_acc),
+            text=full_text,
+            reasoning=full_reasoning,
             tool_calls=tool_events,
         )
 
