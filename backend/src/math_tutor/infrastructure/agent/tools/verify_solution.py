@@ -113,6 +113,79 @@ def _parse_json_field(text: str | None) -> dict | None:
     return None
 
 
+def _find_balanced_json(text: str, start_pos: int = 0) -> dict | None:
+    """Find first balanced {...} from start_pos that parses as a dict.
+
+    Walks character by character to track brace depth — handles nested
+    JSON, JSON inside ```json``` fences, JSON spanning multiple lines.
+    Way more tolerant than regex-based field extraction.
+    """
+    if not text:
+        return None
+    i = text.find("{", start_pos)
+    while i >= 0 and i < len(text):
+        depth = 0
+        in_str = False
+        escape = False
+        end = -1
+        for j in range(i, len(text)):
+            ch = text[j]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1
+                    break
+        if end < 0:
+            return None  # unbalanced; bail
+        candidate = text[i:end]
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+        # not parseable — skip past this opening brace and try the next one
+        i = text.find("{", i + 1)
+    return None
+
+
+def _extract_json_after_label(section: str, *labels: str) -> dict | None:
+    """Find the first balanced JSON dict that follows any of the given labels.
+
+    Tolerant of:
+      - JSON on the same line as the label (`**题目数值**: {...}`)
+      - JSON on the next line(s)
+      - JSON wrapped in ```json ... ``` fences
+      - Whitespace / multi-line / nested objects
+      - Mixed Chinese/English label aliases
+    """
+    if not section:
+        return None
+    for label in labels:
+        # Case-insensitive label search; allow extra non-alpha chars
+        # between label words (e.g. "题目 数值")
+        m = re.search(re.escape(label), section, re.IGNORECASE)
+        if not m:
+            continue
+        obj = _find_balanced_json(section, m.end())
+        if obj is not None:
+            return obj
+    return None
+
+
 def _safe_exec_verify(
     code: str, data: dict[str, Any]
 ) -> tuple[bool, str]:
@@ -267,14 +340,49 @@ class VerifySolutionTool(ITool):
                 data={"raw": text[:500]},
             )
 
-        problem_data = _parse_json_field(md.get_field(section, "题目数值", "problem_data"))
-        answer_data = _parse_json_field(md.get_field(section, "答案数值", "answer_data"))
+        # Tolerant extraction: search for balanced JSON after each label.
+        # Handles same-line / next-line / fenced / multi-line cases the
+        # earlier `md.get_field` (which only takes value-to-end-of-line)
+        # missed. See user-reported bad_data_fields case.
+        problem_data = _extract_json_after_label(
+            section, "题目数值", "problem_data", "题目 数值", "题目"
+        )
+        answer_data = _extract_json_after_label(
+            section, "答案数值", "answer_data", "答案 数值", "答案"
+        )
+        # Last-resort: scan whole section for two distinct JSON blocks
+        if problem_data is None or answer_data is None:
+            blocks: list[dict] = []
+            scan_pos = 0
+            while True:
+                obj = _find_balanced_json(section, scan_pos)
+                if obj is None:
+                    break
+                blocks.append(obj)
+                # Move past this block: find where it was and skip
+                idx = section.find("{", scan_pos)
+                if idx < 0:
+                    break
+                # Crude advance: jump past a chunk of text
+                scan_pos = idx + len(json.dumps(obj, ensure_ascii=False))
+                if scan_pos >= len(section):
+                    break
+            # Heuristic: first block = problem_data, second = answer_data
+            if problem_data is None and len(blocks) >= 1:
+                problem_data = blocks[0]
+            if answer_data is None and len(blocks) >= 2:
+                answer_data = blocks[1]
+
         if problem_data is None or answer_data is None:
             return ToolResult(
                 success=False,
                 summary="题目数值 / 答案数值 字段无法解析为 JSON",
                 error="bad_data_fields",
-                data={"problem_data": problem_data, "answer_data": answer_data},
+                data={
+                    "problem_data": problem_data,
+                    "answer_data": answer_data,
+                    "section_head": section[:600],
+                },
             )
 
         code = _extract_python_block(section)
