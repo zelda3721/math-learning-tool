@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { History } from 'lucide-react'
 
 import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
@@ -75,15 +74,7 @@ function App() {
 
     return (
         <div className="min-h-screen flex flex-col relative overflow-hidden">
-            <Header />
-
-            <button
-                onClick={() => setHistoryOpen(true)}
-                className="fixed top-4 right-4 md:top-6 md:right-6 z-30 bg-white/80 backdrop-blur border border-slate-200 shadow-sm hover:shadow-md hover:border-sky-300 transition rounded-full px-4 py-2 text-sm text-slate-600 hover:text-sky-600 inline-flex items-center gap-2"
-            >
-                <History size={16} />
-                历史
-            </button>
+            <Header onOpenHistory={() => setHistoryOpen(true)} />
 
             <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 md:py-12 flex flex-col gap-8 relative z-10">
                 {!isViewingHistory && (
