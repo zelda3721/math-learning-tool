@@ -80,14 +80,29 @@ def _parse_entries(text: str) -> list[KBEntry]:
 
 
 class ManimApiKnowledgeBase:
-    """Singleton-ish loader + retriever for the Manim API KB."""
+    """Singleton-ish loader + retriever for the Manim API KB.
+
+    Optionally merges learned wiki lessons (Karpathy-style auto-evolving
+    KB) on each lookup. The static KB is loaded once at construction; the
+    learned wiki is read-on-demand so freshly written lessons are visible
+    immediately without restart.
+    """
 
     DEFAULT_KB_PATH = Path(__file__).parent / "manim_api_kb.md"
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        learned_wiki_dir: Path | None = None,
+    ) -> None:
         self._path = Path(path) if path else self.DEFAULT_KB_PATH
+        self._learned_wiki_dir = Path(learned_wiki_dir) if learned_wiki_dir else None
         self._entries: list[KBEntry] = []
         self._load()
+
+    def set_learned_wiki_dir(self, learned_wiki_dir: Path | str | None) -> None:
+        """Configure the learned wiki path (called from dependencies.py)."""
+        self._learned_wiki_dir = Path(learned_wiki_dir) if learned_wiki_dir else None
 
     def _load(self) -> None:
         if not self._path.exists():
@@ -118,25 +133,70 @@ class ManimApiKnowledgeBase:
 
         Scoring is keyword-overlap based (case-insensitive substring): each
         matched keyword contributes +1; multi-word keywords matching as a
-        block get a small bonus. Ties broken by entry order in the source MD.
+        block get a small bonus. Learned-wiki lessons get a +0.5 bonus over
+        static KB entries with same score (more specific to this project).
+        Ties broken by entry order.
         """
-        if not error_text or not self._entries:
+        if not error_text:
             return []
         haystack = error_text.lower()
+        all_entries = list(self._entries) + self._learned_entries()
+        if not all_entries:
+            return []
+
         scored: list[tuple[float, int, KBEntry]] = []
-        for idx, e in enumerate(self._entries):
+        for idx, e in enumerate(all_entries):
             score = 0.0
             for kw in e.keywords:
                 if not kw:
                     continue
                 if kw in haystack:
-                    # multi-token keywords (>= 2 chars containing space/_/-) score
-                    # slightly more — they're more specific.
                     score += 1.5 if (" " in kw or len(kw) >= 8) else 1.0
             if score > 0:
+                # Section "learned/*" gets a small priority bump
+                if e.section.startswith("learned/"):
+                    score += 0.5
                 scored.append((score, idx, e))
         scored.sort(key=lambda t: (-t[0], t[1]))
         return [e for _, _, e in scored[:top_k]]
+
+    def _learned_entries(self) -> list[KBEntry]:
+        """Read learned wiki lessons fresh each lookup. Empty if not
+        configured or if the directory doesn't exist yet."""
+        if self._learned_wiki_dir is None:
+            return []
+        lessons_dir = self._learned_wiki_dir / "lessons"
+        if not lessons_dir.exists():
+            return []
+        out: list[KBEntry] = []
+        # Reuse parser by treating lesson body as KB body. Section label
+        # encodes category for retrieval bias.
+        try:
+            # Local import to avoid circular dep at module load time
+            from .learned_wiki import VALID_CATEGORIES, _parse_lesson
+        except ImportError:
+            return []
+        for cat in VALID_CATEGORIES:
+            cat_dir = lessons_dir / cat
+            if not cat_dir.exists():
+                continue
+            for md_file in cat_dir.glob("*.md"):
+                try:
+                    text = md_file.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                lesson = _parse_lesson(text, path=md_file)
+                if lesson is None:
+                    continue
+                out.append(
+                    KBEntry(
+                        name=lesson.title,
+                        body=lesson.body,
+                        keywords=list(lesson.keywords),
+                        section=f"learned/{lesson.category}",
+                    )
+                )
+        return out
 
     def render_section(self, entries: list[KBEntry], *, max_chars: int = 2400) -> str:
         """Format a list of entries as a markdown block ready for prompt injection.

@@ -31,7 +31,9 @@ from ..infrastructure.agent import (
     PromptLibrary,
     ToolRegistry,
 )
+from ..infrastructure.agent.learned_wiki import LearnedWiki
 from ..infrastructure.agent.tools import build_default_registry
+from ..infrastructure.agent.wiki_ingester import WikiIngester
 from ..infrastructure.storage import (
     ConversationStore,
     Database,
@@ -309,6 +311,25 @@ def get_agent_loop(
     settings: Settings = Depends(get_settings),
 ) -> AgentLoop:
     """Construct an AgentLoop bound to the singleton dependencies."""
+    # Optional learned-wiki ingester (LEARNED_WIKI_ENABLED=true)
+    wiki_ingester = None
+    if settings.learned_wiki_enabled:
+        wiki = LearnedWiki(settings.resolved_learned_wiki_dir)
+        # Tell the RITL-DOC retriever to merge in learned lessons too
+        from ..infrastructure.agent.manim_api_kb import get_kb as _get_manim_kb
+        _get_manim_kb().set_learned_wiki_dir(settings.resolved_learned_wiki_dir)
+        # _get_fast_llm_provider falls back to main LLM internally if no
+        # FAST endpoint configured — always returns a valid provider.
+        ingest_llm = _get_fast_llm_provider(settings)
+        wiki_ingester = WikiIngester(
+            wiki=wiki,
+            llm=ingest_llm,
+            prompts=_get_prompt_library(),
+            store=ConversationStore(
+                _get_database(settings), _get_file_archive(settings)
+            ),
+        )
+
     return AgentLoop(
         llm=_get_llm_provider(settings),
         registry=_get_tool_registry(settings),
@@ -319,4 +340,5 @@ def get_agent_loop(
         max_turns=settings.llm_agent_max_turns,
         per_turn_max_tokens=settings.llm_agent_loop_max_tokens,
         tool_timeout_s=settings.llm_tool_timeout_s,
+        wiki_ingester=wiki_ingester,
     )
