@@ -1,6 +1,10 @@
-import { Settings, Bell } from 'lucide-react'
+import { Settings, Bell, History } from 'lucide-react'
 
-export function Header() {
+interface HeaderProps {
+    onOpenHistory?: () => void
+}
+
+export function Header({ onOpenHistory }: HeaderProps = {}) {
     return (
         <header className="sticky top-4 z-50 px-4 mb-4">
             <div className="soft-glass mx-auto max-w-5xl px-6 py-3 flex items-center justify-between">
@@ -16,14 +20,39 @@ export function Header() {
 
                 {/* Nav Links (Hidden on small screens) */}
                 <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
-                    <a href="#" className="text-sky-600">首页</a>
-                    <a href="#" className="hover:text-slate-800 transition-colors">历史记录</a>
-                    <a href="#" className="hover:text-slate-800 transition-colors">错题本</a>
-                    <a href="#" className="hover:text-slate-800 transition-colors">我的成就</a>
+                    <button
+                        type="button"
+                        className="text-sky-600 cursor-default"
+                    >
+                        首页
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onOpenHistory}
+                        className="hover:text-slate-800 transition-colors inline-flex items-center gap-1"
+                    >
+                        <History size={14} />
+                        历史记录
+                    </button>
+                    <button type="button" className="hover:text-slate-800 transition-colors opacity-50 cursor-not-allowed" disabled>
+                        错题本
+                    </button>
+                    <button type="button" className="hover:text-slate-800 transition-colors opacity-50 cursor-not-allowed" disabled>
+                        我的成就
+                    </button>
                 </nav>
 
                 {/* Actions */}
                 <div className="flex items-center gap-3">
+                    {/* Mobile-only history shortcut (the desktop one is in the nav above) */}
+                    <button
+                        type="button"
+                        onClick={onOpenHistory}
+                        className="md:hidden p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all"
+                        aria-label="历史记录"
+                    >
+                        <History size={20} />
+                    </button>
                     <button className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all">
                         <Bell size={20} />
                     </button>
