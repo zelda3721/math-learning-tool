@@ -82,18 +82,20 @@ def classify_error_scope(
     error_text: str,
     *,
     source: Literal["validate", "run", "inspect"] = "run",
+    inspect_payload: dict | None = None,
 ) -> Scope:
     """Classify an error string into the smallest reasonable fix scope.
 
     Decision tree:
-      1. inspect_video failures are visual ⇒ always "global" (need fresh code)
+      1. inspect_video failures: smart-route via `classify_visual_failure`
+         using the rubric scores (B6 / blacklist / issue keywords)
       2. structural / module-level errors ⇒ "global"
       3. block-level hints (banned obj, density, overlap) ⇒ "block"
       4. anything with a clear `line N` and a syntax/name signature ⇒ "line"
       5. otherwise ⇒ "block" (safe middle ground)
     """
     if source == "inspect":
-        return "global"
+        return classify_visual_failure(inspect_payload, error_text)
 
     text = (error_text or "").lower()
     if not text.strip():
@@ -287,3 +289,94 @@ def next_scope(
     if global_used < b["global"]:
         return "global"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Visual failure routing (inspect_video)
+# ---------------------------------------------------------------------------
+
+# Strategy-level failures: the visual approach is fundamentally wrong, so
+# block-scope patches just shuffle deck chairs. Need a fresh take (global)
+# and likely a visual_plan replan.
+_STRATEGY_BLACKLIST = (
+    "ppt 翻页",
+    "公式墙",
+    "文字搬运",
+    "抽象越级",
+    "静态幻灯片",  # entire video is essentially static — deep approach issue
+)
+
+# Layout/style failures: the approach is OK but specific placement / colors /
+# spacing need adjusting. block-scope can fix these surgically.
+_LAYOUT_KEYWORDS = (
+    "重叠", "overlap", "裁切", "出界", "off-screen", "遮挡", "相交",
+    "anchor", "位置", "区域",
+    "对比", "颜色", "color",
+    "节奏", "时长", "wait",
+    "可读", "字号", "太小", "太大",
+)
+
+
+def classify_visual_failure(
+    payload: dict | None, error_text: str = ""
+) -> Scope:
+    """Route an inspect_video failure to the right fix scope.
+
+    Decision tree:
+      1. B6 = 0 (essence not delivered) ⇒ "global"
+         The video totally missed the point of the rationale; need rewrite.
+      2. Strategy blacklist hit (PPT 翻页 / 公式墙 / 文字搬运 / 抽象越级
+         / 静态幻灯片) ⇒ "global"
+         Fundamental visual approach is wrong.
+      3. Layout/style keywords in issues (重叠 / 颜色 / 位置 / 节奏)
+         ⇒ "block"
+         Specific placement issues — can be patched in one Phase.
+      4. B 段 total < 5 (very low across many dimensions) ⇒ "global"
+         Multiple things wrong simultaneously, full rewrite is cleaner.
+      5. Otherwise ⇒ "block"
+         Conservative middle: try a block fix first; ScopeRefine escalates
+         if that doesn't work.
+    """
+    payload = payload or {}
+    err = (error_text or "").lower()
+
+    # 1) B6 = 0 forces global — essence not delivered, this is a planning
+    # failure not a code bug.
+    b_scores = payload.get("b_scores") or {}
+    if b_scores.get("b6") == 0:
+        return "global"
+
+    # 2) Strategy-level blacklist hits
+    blacklist = payload.get("blacklist_hits") or []
+    if isinstance(blacklist, list):
+        bl_lower = " ".join(str(x).lower() for x in blacklist)
+        if any(s in bl_lower for s in _STRATEGY_BLACKLIST):
+            return "global"
+    elif isinstance(blacklist, str):
+        if any(s in blacklist.lower() for s in _STRATEGY_BLACKLIST):
+            return "global"
+
+    # 3) Layout/style: look in issues + the error_text for layout keywords
+    issues = payload.get("issues") or []
+    issues_text = " ".join(str(x) for x in issues if x).lower() + " " + err
+    layout_hits = sum(1 for kw in _LAYOUT_KEYWORDS if kw in issues_text)
+    strategy_hits = sum(1 for s in _STRATEGY_BLACKLIST if s in issues_text)
+
+    if layout_hits >= 1 and strategy_hits == 0:
+        return "block"
+
+    # 4) Very low total → multi-dimensional failure → global
+    try:
+        b_total_raw = payload.get("b_total")
+        b_total = (
+            int(str(b_total_raw).split("/")[0])
+            if b_total_raw not in (None, "")
+            else None
+        )
+    except (ValueError, TypeError):
+        b_total = None
+    if b_total is not None and b_total < 5:
+        return "global"
+
+    # 5) Default to block (conservative: try local first, escalate if fail)
+    return "block"
