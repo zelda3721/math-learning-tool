@@ -34,8 +34,14 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 8192
     # Cap for the AgentLoop's main streaming calls (between-tools reasoning).
     # Tools have their own much larger budgets; this only limits how long the
-    # agent rambles between tool calls. 1500-3000 is typical.
-    llm_agent_loop_max_tokens: int = 2048
+    # agent rambles between tool calls.
+    # 4096 is the safe default for thinking-on backends: Gemma 4 / Qwen3.5+
+    # routinely consume 2000-3500 reasoning tokens before emitting tool_calls;
+    # at 2048 they often hit `finish_reason='length'` BEFORE outputting any
+    # tool_call, manifesting as "only thinking, no progress" (see
+    # lmstudio-bug-tracker#1559 / llama.cpp#21338). Bump higher (6144-8192)
+    # if you see frequent only_thinking_no_tool_calls errors.
+    llm_agent_loop_max_tokens: int = 4096
     llm_request_timeout: float = 180.0
     # Per-tool execution wall-clock cap. Generate_manim_code on a quantized
     # 35B model can legitimately take 2-3 min; bump above llm_request_timeout

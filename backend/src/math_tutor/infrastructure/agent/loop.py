@@ -143,6 +143,7 @@ class AgentLoop:
             reasoning_acc: list[str] = []
             tool_calls_emitted: list[ToolCallEvent] = []
             stream_finished = False
+            finish_reason = "stop"
 
             try:
                 async for evt in self._llm.chat_stream(
@@ -160,6 +161,7 @@ class AgentLoop:
                         tool_calls_emitted.append(evt)
                     elif isinstance(evt, StreamDone):
                         stream_finished = True
+                        finish_reason = evt.finish_reason or finish_reason
                         # If StreamDone reports more tool_calls than we saw mid-stream,
                         # use its set (it's authoritative for the final state).
                         if len(evt.tool_calls) > len(tool_calls_emitted):
@@ -207,7 +209,49 @@ class AgentLoop:
                 logger.warning("LLM stream ended without StreamDone for %s", session_id)
 
             if not tool_calls_emitted:
-                # Model wants to stop. Treat current text as final answer.
+                # Model wants to stop OR ran out of tokens before emitting
+                # tool_calls. Distinguish:
+                #   - Truly stop (finish_reason='stop' AND we already produced
+                #     useful work like a final video URL): treat as success
+                #   - Out of tokens but only thinking, no answer: surface a
+                #     clear error so the user knows to disable thinking or
+                #     bump LLM_AGENT_LOOP_MAX_TOKENS. This is the canonical
+                #     Gemma 4 + LMStudio failure mode (thinking eats all
+                #     budget; tool_calls never get a chance).
+                truncated_no_progress = (
+                    finish_reason == "length"
+                    and turn_index == 1
+                    and not full_text.strip()
+                    and not final_video_path
+                )
+                only_thinking = (
+                    bool(full_reasoning.strip())
+                    and not full_text.strip()
+                    and not final_video_path
+                )
+                if truncated_no_progress or only_thinking:
+                    hint = (
+                        "模型只输出了思考（没有 tool_calls 也没有最终回复）。"
+                        "常见原因：思考占满 max_tokens 预算（Gemma 4 / Qwen3 + "
+                        "LMStudio 的已知 issue）。建议：(1) 在 LMStudio 模型 "
+                        "Prompt Template 顶部加 `{%- set enable_thinking = false %}` "
+                        "硬覆盖；(2) .env 调大 LLM_AGENT_LOOP_MAX_TOKENS（4096-6144）。"
+                    )
+                    logger.warning(
+                        "session %s: only thinking, no tool_calls (finish=%s, "
+                        "reasoning_chars=%d). Treating as failed.",
+                        session_id, finish_reason, len(full_reasoning),
+                    )
+                    yield ErrorEvent(message=hint, fatal=True)
+                    await self._store.update_session(
+                        session_id,
+                        status="failed",
+                        error="only_thinking_no_tool_calls",
+                    )
+                    self._maybe_schedule_wiki_ingest(session_id, success=False)
+                    return
+
+                # Normal stop path
                 yield DoneEvent(
                     status="ok",
                     text=full_text,
