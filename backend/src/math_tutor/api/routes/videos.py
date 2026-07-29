@@ -33,7 +33,11 @@ async def stream_video(path: str, request: Request):
     for video seeking and proper playback in browsers.
     """
     media_path = get_media_path()
-    video_path = media_path / "videos" / path
+    video_root = (media_path / "videos").resolve()
+    video_path = (video_root / path).resolve()
+
+    if not video_path.is_relative_to(video_root):
+        raise HTTPException(status_code=400, detail="Invalid video path")
     
     if not video_path.exists():
         logger.error(f"Video not found: {video_path}")

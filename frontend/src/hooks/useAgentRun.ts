@@ -30,6 +30,7 @@ const INITIAL_STATE: AgentRunState = {
     status: 'idle',
     items: [],
     finalVideoUrl: null,
+    subtitleUrl: null,
     finalText: '',
     error: null,
 }
@@ -117,11 +118,21 @@ function applyToolCall(state: AgentRunState, evt: ToolCallEvent): AgentRunState 
 }
 
 function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunState {
+    const reviewRejected =
+        evt.name === 'inspect_video' && evt.data?.['overall_quality'] === 'bad'
+    const expectedGateRevision =
+        !evt.success &&
+        ['verify_solution', 'visual_plan', 'validate_manim_code'].includes(evt.name)
     const items = state.items.map((it) => {
         if (it.kind !== 'tool' || it.callId !== evt.id) return it
         const updated: TimelineItem = {
             ...it,
-            status: evt.success ? 'success' : 'failed',
+            status:
+                reviewRejected || expectedGateRevision
+                    ? 'revision'
+                    : evt.success
+                      ? 'success'
+                      : 'failed',
             summary: evt.summary,
             data: evt.data ?? undefined,
             error: evt.error ?? undefined,
@@ -142,7 +153,12 @@ function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunSt
                 : pathToUrl(candidate)
         }
     }
-    return { ...state, items, finalVideoUrl }
+    let subtitleUrl = state.subtitleUrl
+    const subtitle = evt.artifacts?.find((artifact) => artifact.kind === 'subtitle')
+    if (subtitle && state.sessionId) {
+        subtitleUrl = `/api/v1/sessions/${state.sessionId}/artifacts/${subtitle.id}`
+    }
+    return { ...state, items, finalVideoUrl, subtitleUrl }
 }
 
 function applyDone(state: AgentRunState, evt: DoneEvent): AgentRunState {

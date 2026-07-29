@@ -3,7 +3,9 @@
 Triggered as a fire-and-forget background task after each session completes.
 Loads the session's messages + tool calls from `ConversationStore`, builds a
 compact summary, asks `fast_llm` whether anything non-trivial happened, and
-writes a new lesson via `LearnedWiki.write_or_merge` if so.
+writes a non-retrievable candidate. Repeated evidence from independent
+sessions is required before `LearnedWiki.promote_candidate` exposes it to
+production retrieval.
 
 Failure modes (any one → skip silently, never raise):
   - LLM returned junk → can't parse → skip
@@ -16,6 +18,7 @@ Feature gate: `LEARNED_WIKI_ENABLED=false` → ingester not constructed.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from typing import Any
@@ -42,7 +45,9 @@ def _build_session_summary(
     grade: str,
     messages: list[Any],
     tool_calls: list[Any],
+    feedback: list[Any],
     success: bool,
+    quality_evidence: str = "",
 ) -> str:
     """Render the session's salient events as compact markdown for ingest."""
     lines: list[str] = [
@@ -66,6 +71,16 @@ def _build_session_summary(
             line += f"  | 错误: {err}"
         lines.append(line)
 
+    if feedback:
+        lines.extend(["", "## 用户使用反馈"])
+        for item in feedback[-5:]:
+            label = str(getattr(item, "label", "") or "")
+            notes = str(getattr(item, "notes", "") or "")[:500]
+            lines.append(f"- label={label}; notes={notes or '（无文字说明）'}")
+
+    if quality_evidence.strip():
+        lines.extend(["", "## 成片质量证据", quality_evidence[:1800]])
+
     text = "\n".join(lines)
     if len(text) > _MAX_SUMMARY_CHARS:
         text = text[: _MAX_SUMMARY_CHARS] + "\n...（截断）"
@@ -73,6 +88,22 @@ def _build_session_summary(
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*[a-z0-9]$")
+
+
+def _copies_problem_content(lesson: Lesson, problem: str) -> bool:
+    """Reject long verbatim fragments from one problem before quarantine."""
+    lesson_text = re.sub(r"\s+", "", f"{lesson.title}\n{lesson.body}").lower()
+    normalized_problem = re.sub(r"\s+", "", problem or "").lower()
+    if len(normalized_problem) < 8:
+        return False
+    # Sliding fragments catch both CJK text and formula-rich statements
+    # without requiring a language-specific tokenizer.
+    fragment_size = 12
+    for start in range(0, len(normalized_problem) - fragment_size + 1, 4):
+        fragment = normalized_problem[start : start + fragment_size]
+        if fragment in lesson_text:
+            return True
+    return False
 
 
 def _parse_lesson_decision(text: str) -> Lesson | None:
@@ -85,6 +116,12 @@ def _parse_lesson_decision(text: str) -> Lesson | None:
     verdict = (md.get_field(section, "verdict") or "").strip().lower()
     if verdict != "write":
         return None  # skip / unknown verdict
+
+    # The ingester must explicitly attest that the rule is independent of a
+    # problem statement/type.  Ambiguous output is discarded, never guessed.
+    scope = (md.get_field(section, "scope") or "").strip().lower()
+    if scope != "universal":
+        return None
 
     category = (md.get_field(section, "category") or "").strip().lower()
     if category not in VALID_CATEGORIES:
@@ -159,6 +196,26 @@ class WikiIngester:
             return
         messages = await self._store.list_messages(session_id)
         tool_calls = await self._store.list_tool_calls(session_id)
+        feedback = await self._store.list_feedback(session_id)
+        artifacts = await self._store.list_artifacts(session_id)
+        quality_evidence = ""
+        reports = [item for item in artifacts if item.kind == "quality_report"]
+        if reports:
+            raw_report = await self._store.archive.read_relative(reports[-1].path)
+            try:
+                report = json.loads(raw_report or "{}")
+                evidence = {
+                    "overall_quality": report.get("overall_quality"),
+                    "b_total": report.get("b_total"),
+                    "b_scores": report.get("b_scores"),
+                    "technical_critical_issues": report.get("technical_critical_issues"),
+                    "technical_warnings": report.get("technical_warnings"),
+                    "issues": (report.get("issues") or [])[:5],
+                    "fix_suggestion": (report.get("fix_suggestion") or [])[:3],
+                }
+                quality_evidence = json.dumps(evidence, ensure_ascii=False, indent=2)
+            except (json.JSONDecodeError, TypeError):
+                quality_evidence = ""
 
         # Heuristic prefilter: if the session had < 2 tool calls or success
         # on the first tool, very unlikely to have a non-trivial lesson.
@@ -177,7 +234,9 @@ class WikiIngester:
             grade=session.grade,
             messages=messages,
             tool_calls=tool_calls,
+            feedback=feedback,
             success=success,
+            quality_evidence=quality_evidence,
         )
 
         # 3. Ask LLM
@@ -203,21 +262,29 @@ class WikiIngester:
                 session_id,
             )
             return
+        if _copies_problem_content(lesson_draft, session.problem):
+            logger.info(
+                "wiki_ingester: session %s — candidate copied problem-specific content, skip",
+                session_id,
+            )
+            return
 
-        # 4. Attach session origin + write
+        # 4. Attach session origin + write to quarantine.  The same stable
+        # slug must recur across independent sessions before promotion.
         lesson_draft.session_origins = [session_id]
         try:
-            written, created = self._wiki.write_or_merge(lesson_draft)
-            self._wiki.rebuild_index()
+            written, created = self._wiki.write_candidate(lesson_draft)
             self._wiki.append_log(
-                "ingest_create" if created else "ingest_merge",
+                "candidate_create" if created else "candidate_merge",
                 slug=written.slug,
                 note=f"category={written.category} session={session_id[:8]}",
             )
+            promoted = self._wiki.promote_candidate(written.slug, written.category)
             logger.info(
-                "wiki_ingester: %s lesson %s/%s for session %s",
+                "wiki_ingester: %s candidate %s/%s for session %s promoted=%s",
                 "created" if created else "merged",
                 written.category, written.slug, session_id[:8],
+                promoted is not None,
             )
         except Exception:
             logger.exception("wiki_ingester write failed (non-fatal)")

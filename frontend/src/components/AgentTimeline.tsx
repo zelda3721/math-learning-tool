@@ -9,6 +9,7 @@ import {
     ChevronRight,
     Loader2,
     CheckCircle2,
+    CircleAlert,
     XCircle,
     Wrench,
     FileCode2,
@@ -149,6 +150,15 @@ function ToolCard({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 return (
                     <span className="inline-flex items-center gap-1 text-xs text-red-700">
                         <XCircle size={12} /> 失败
+                        {item.durationMs != null && (
+                            <span className="text-slate-400">· {item.durationMs} ms</span>
+                        )}
+                    </span>
+                )
+            case 'revision':
+                return (
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-700">
+                        <CircleAlert size={12} /> 需修正
                         {item.durationMs != null && (
                             <span className="text-slate-400">· {item.durationMs} ms</span>
                         )}

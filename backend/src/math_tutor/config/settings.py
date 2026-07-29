@@ -1,6 +1,7 @@
 """
 Application settings using Pydantic
 """
+
 import json
 import logging
 from functools import lru_cache
@@ -32,7 +33,10 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3.6-35b-a3b"
     llm_temperature: float = 0.6
     llm_max_tokens: int = 8192
-    # Cap for the AgentLoop's main streaming calls (between-tools reasoning).
+    # Deterministic bounded orchestration skips the extra controller-model
+    # call between tools. Disable only for experiments with a free-form agent.
+    agent_deterministic_workflow: bool = True
+    # Cap for legacy free-form AgentLoop streaming calls.
     # Tools have their own much larger budgets; this only limits how long the
     # agent rambles between tool calls.
     # 4096 is the safe default for thinking-on backends: Gemma 4 / Qwen3.5+
@@ -47,13 +51,11 @@ class Settings(BaseSettings):
     # 35B model can legitimately take 2-3 min; bump above llm_request_timeout
     # if you switch to a slower model.
     llm_tool_timeout_s: float = 300.0
-    # Max conversation turns inside the AgentLoop. Each turn = one LLM
-    # response + 0..N tool executions. Typical happy path needs ~7-9 turns
-    # (analyze/match/search 并行 → solve → visual_plan → generate → validate
-    # → run → inspect → final summary). With ScopeRefine retries (line/block/
-    # global) and visual_plan replan, a hard scenario can hit ~15-18 turns.
-    # 20 leaves headroom; bump higher if you see "max_turns_exhausted".
-    llm_agent_max_turns: int = 20
+    # Typical happy path needs exactly 8 transitions. A complete visual
+    # fallback (replan → regenerate → validate → render → inspect)
+    # needs 13 total. Per-stage limits in AgentLoop allow only one fallback;
+    # this global ceiling is a final circuit breaker, not a retry strategy.
+    llm_agent_max_turns: int = 14
     # JSON string. Forwarded as `extra_body` to the OpenAI client. Useful for
     # provider-specific knobs like {"chat_template_kwargs": {"enable_thinking": true}}.
     llm_extra_body: str = ""
@@ -63,8 +65,8 @@ class Settings(BaseSettings):
     # False if you actually want thinking + tools and your provider handles it.
     llm_disable_thinking_with_tools: bool = True
 
-    # Fast LLM endpoint — routes light-duty calls (analyze_problem,
-    # solve_problem, match_skill LLM-fallback) to a smaller / faster model
+    # Fast LLM endpoint — routes analyze/solve/verify/visual-plan calls to a
+    # smaller / faster model
     # (e.g. Qwen3-4B) while keeping the main 35B+ model for generate_manim_code
     # where code quality matters. Empty model = use main LLM (no routing).
     llm_fast_api_base: str = ""
@@ -78,17 +80,15 @@ class Settings(BaseSettings):
     llm_vision_api_key: str = ""
     llm_vision_model: str = ""
 
-    # Embedding endpoint — used by semantic skill matching and example
-    # retrieval. Leave llm_embedding_model empty to disable semantic search
-    # (system falls back to substring/keyword scoring).
+    # Embedding endpoint retained for offline skill/example exploration. It
+    # is not part of the production video workflow.
     llm_embedding_api_base: str = ""
     llm_embedding_api_key: str = ""
     llm_embedding_model: str = ""
     llm_embedding_dimension: int = 0  # 0 = auto / let the model decide
 
-    # Reranker endpoint — refines embedding top-N into a more accurate top-K.
-    # Used by example retrieval (and optionally skill match) as a second
-    # stage after embedding shortlist. Two API shapes supported:
+    # Reranker endpoint retained for offline retrieval experiments. Two API
+    # shapes are supported:
     #   - "cohere" (default): POST /rerank with {model, query, documents}
     #     → {results: [{index, relevance_score}]}  — used by Cohere, Jina,
     #     Infinity, voyage AI
@@ -104,9 +104,26 @@ class Settings(BaseSettings):
     llm_rerank_pool_size: int = 10  # rerank this many embedding-shortlisted candidates
 
     # Manim Settings
-    manim_quality: Literal["low", "medium", "high"] = "low"
+    # Medium is Manim's 720p/30fps profile: suitable for first-view student
+    # videos. Low remains available explicitly for draft/debug rendering.
+    manim_quality: Literal["low", "medium", "high"] = "medium"
     manim_output_dir: str = "./media"
     manim_use_latex: bool = False
+    # Medium-quality educational scenes should normally finish well below
+    # this; a longer zero-progress render is usually a broken updater/loop.
+    manim_render_timeout_s: float = 180.0
+
+    # Every visual beat is exported as a WebVTT caption track. Optional TTS
+    # uses an OpenAI-compatible /audio/speech endpoint and gracefully falls
+    # back to captions when the endpoint is unavailable.
+    narration_subtitles_enabled: bool = True
+    narration_tts_enabled: bool = False
+    narration_tts_api_base: str = ""
+    narration_tts_api_key: str = ""
+    narration_tts_model: str = "tts-1"
+    narration_tts_voice: str = "alloy"
+    narration_tts_speed: float = 1.05
+    narration_tts_timeout_s: float = 60.0
 
     # Storage (sessions / artifacts / examples)
     data_dir: str = "./data"
@@ -115,7 +132,8 @@ class Settings(BaseSettings):
     # Learned Wiki (Karpathy-style auto-evolving KB).
     # When enabled, each completed session triggers a background "ingester"
     # that asks the fast LLM whether anything non-trivial was learned and,
-    # if so, writes a lesson page under {data_dir}/learned_wiki/lessons/.
+    # if so, writes a quarantined candidate; only repeated cross-session
+    # evidence is promoted under {data_dir}/learned_wiki/lessons/.
     # Future RITL-DOC retrievals merge static manim_api_kb.md + learned wiki.
     # Disabled by default — opt-in for safety (LLM-written lessons can be
     # noisy until you've watched a few rounds).

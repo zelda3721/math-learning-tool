@@ -5,12 +5,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from math_tutor.api.main import app
+from math_tutor.config.dependencies import get_agent_loop
+from math_tutor.infrastructure.agent.events import DoneEvent, SessionCreated
+
+
+class _DeterministicFakeLoop:
+    async def run(self, **kwargs):
+        yield SessionCreated(session_id="integration-session")
+        yield DoneEvent(status="ok", text="verified", final_video_path=None)
 
 
 @pytest.fixture
 def client():
     """FastAPI test client"""
-    return TestClient(app)
+    app.dependency_overrides[get_agent_loop] = lambda: _DeterministicFakeLoop()
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
 
 
 class TestHealthEndpoint:

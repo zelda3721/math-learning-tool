@@ -28,7 +28,17 @@ export function LiveResult({ state, onReset }: LiveResultProps) {
                             src={video}
                             controls
                             className="w-full h-full object-contain rounded-xl z-10 relative"
-                        />
+                        >
+                            {state.subtitleUrl && (
+                                <track
+                                    kind="captions"
+                                    src={state.subtitleUrl}
+                                    srcLang="zh"
+                                    label="中文讲解"
+                                    default
+                                />
+                            )}
+                        </video>
                         <div className="absolute inset-0 bg-blue-500/20 blur-3xl group-hover:bg-blue-500/30 transition-all duration-500" />
                     </>
                 ) : (

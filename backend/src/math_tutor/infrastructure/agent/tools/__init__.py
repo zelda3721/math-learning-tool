@@ -1,14 +1,12 @@
 """Builtin tools and a factory that wires them with their dependencies."""
+
 from __future__ import annotations
 
 from ....application.interfaces import (
     ILLMProvider,
-    IRerankProvider,
-    ISkillRepository,
     IVideoGenerator,
 )
-from ...storage import ExamplesStore, SemanticIndex
-from ..learned_memory import LearnedMemory
+from ...media import NarrationPostProcessor
 from ..prompt_library import PromptLibrary
 from ..tool_registry import ToolRegistry
 from .analyze_problem import AnalyzeProblemTool
@@ -40,18 +38,14 @@ __all__ = [
 def build_default_registry(
     *,
     llm: ILLMProvider,
-    skill_repo: ISkillRepository,
-    examples_store: ExamplesStore,
     video_generator: IVideoGenerator,
     use_latex: bool,
     prompts: PromptLibrary,
     fast_llm: ILLMProvider | None = None,
-    learned_memory: LearnedMemory | None = None,
     vision_llm: ILLMProvider | None = None,
     vision_model: str | None = None,
-    semantic_index: SemanticIndex | None = None,
-    rerank_provider: IRerankProvider | None = None,
-    rerank_pool_size: int = 10,
+    narration: NarrationPostProcessor | None = None,
+    subtitles_enabled: bool = True,
 ) -> ToolRegistry:
     # `fast_llm` (Qwen3-4B / similar small model) handles light-duty calls;
     # the main `llm` (35B+) is reserved for code generation where quality
@@ -62,36 +56,25 @@ def build_default_registry(
     registry.register(SolveProblemTool(light_llm, prompts))
     registry.register(VerifySolutionTool(light_llm, prompts))
     registry.register(VisualPlanTool(light_llm, prompts))
-    registry.register(
-        MatchSkillTool(
-            skill_repo,
-            llm=light_llm,
-            prompts=prompts,
-            semantic_index=semantic_index,
-        )
-    )
-    registry.register(
-        SearchExamplesTool(
-            examples_store,
-            semantic_index=semantic_index,
-            rerank_provider=rerank_provider,
-            rerank_pool_size=rerank_pool_size,
-        )
-    )
+    # The legacy match/search tools remain importable for offline analysis,
+    # but are deliberately absent from the production registry.  Exposing
+    # them to the controller encouraged type routing and injected single-task
+    # examples into unseen problems.
     registry.register(
         GenerateManimCodeTool(
             llm=llm,
-            skill_repo=skill_repo,
             prompts=prompts,
             use_latex=use_latex,
-            examples_store=examples_store,
-            learned_memory=learned_memory,
         )
     )
-    registry.register(ValidateManimCodeTool())
-    registry.register(RunManimTool(video_generator))
-    if vision_llm is not None:
-        registry.register(
-            InspectVideoTool(vision_llm, prompts, vision_model=vision_model)
+    registry.register(ValidateManimCodeTool(light_llm, prompts))
+    registry.register(
+        RunManimTool(
+            video_generator,
+            narration=narration,
+            subtitles_enabled=subtitles_enabled,
         )
+    )
+    if vision_llm is not None:
+        registry.register(InspectVideoTool(vision_llm, prompts, vision_model=vision_model))
     return registry

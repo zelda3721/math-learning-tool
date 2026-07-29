@@ -1,12 +1,13 @@
 """learned_wiki — Karpathy-style auto-evolving knowledge base for the agent.
 
-Triggered after each session completes, an LLM-based ingester decides
-whether anything non-trivial was learned and writes a lesson page. Future
-RITL-DOC retrievals merge static `manim_api_kb.md` + these learned lessons.
+Triggered after each session completes, an LLM-based ingester may write a
+*candidate*.  A candidate is not retrievable by production until independent
+sessions reproduce the same general rule and it is promoted.
 
 3 layers (cf. https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f):
   - Sources: `data/sessions/<id>/` (already exists, immutable)
-  - Wiki: `data/learned_wiki/lessons/{api,errors,strategies}/<slug>.md`
+  - Candidates: `data/learned_wiki/candidates/{api,errors,production}/<slug>.md`
+  - Wiki: `data/learned_wiki/lessons/{api,errors,production}/<slug>.md`
     + `index.md` (auto-rebuilt) + `log.md` (append-only)
   - Schema: `data/learned_wiki/wiki_schema.md` (you maintain)
 
@@ -24,7 +25,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-VALID_CATEGORIES = ("api", "errors", "strategies")
+VALID_CATEGORIES = ("api", "errors", "production")
+MIN_PROMOTION_ORIGINS = 3
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
 _SLUG_OK_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*[a-z0-9]$")
@@ -139,12 +141,14 @@ class LearnedWiki:
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
         self._lessons_dir = self._root / "lessons"
+        self._candidates_dir = self._root / "candidates"
         self._index_path = self._root / "index.md"
         self._log_path = self._root / "log.md"
         # Ensure structure exists, but don't crash if read-only fs
         try:
             for cat in VALID_CATEGORIES:
                 (self._lessons_dir / cat).mkdir(parents=True, exist_ok=True)
+                (self._candidates_dir / cat).mkdir(parents=True, exist_ok=True)
         except OSError:
             logger.warning("Could not create wiki dirs at %s", self._root)
 
@@ -185,20 +189,80 @@ class LearnedWiki:
                     return None
         return None
 
-    def write_or_merge(self, lesson: Lesson) -> tuple[Lesson, bool]:
-        """Write a new lesson or merge into existing same-slug one.
+    def list_candidates(self) -> list[Lesson]:
+        """Candidates are evidence under evaluation, never production KB."""
+        return self._list_from(self._candidates_dir)
 
-        Returns (final_lesson, created):
-          - created=True: new file written
-          - created=False: existing lesson updated (session_origins
-            unioned, updated bumped, body kept from new lesson)
+    def get_candidate(self, slug: str, category: str | None = None) -> Lesson | None:
+        return self._get_from(self._candidates_dir, slug, category)
+
+    def _list_from(self, base: Path) -> list[Lesson]:
+        out: list[Lesson] = []
+        for cat in VALID_CATEGORIES:
+            cat_dir = base / cat
+            if not cat_dir.exists():
+                continue
+            for path in sorted(cat_dir.glob("*.md")):
+                try:
+                    lesson = _parse_lesson(path.read_text(encoding="utf-8"), path=path)
+                except OSError:
+                    continue
+                if lesson is not None:
+                    out.append(lesson)
+        return out
+
+    def _get_from(self, base: Path, slug: str, category: str | None = None) -> Lesson | None:
+        cats = [category] if category else VALID_CATEGORIES
+        for cat in cats:
+            if cat not in VALID_CATEGORIES:
+                continue
+            path = base / cat / f"{slug}.md"
+            if not path.exists():
+                continue
+            try:
+                return _parse_lesson(path.read_text(encoding="utf-8"), path=path)
+            except OSError:
+                return None
+        return None
+
+    def write_candidate(self, lesson: Lesson) -> tuple[Lesson, bool]:
+        """Merge evidence into a non-retrievable candidate page."""
+        return self._write_or_merge_at(self._candidates_dir, lesson)
+
+    def promote_candidate(
+        self,
+        slug: str,
+        category: str,
+        *,
+        min_origins: int = MIN_PROMOTION_ORIGINS,
+    ) -> Lesson | None:
+        """Promote only after independent sessions reproduce the rule.
+
+        The candidate is retained as an audit trail.  Production retrieval
+        scans only ``lessons/`` and therefore cannot see premature evidence.
         """
+        candidate = self.get_candidate(slug, category)
+        if candidate is None:
+            return None
+        origins = list(dict.fromkeys(candidate.session_origins))
+        if len(origins) < min_origins:
+            return None
+        candidate.session_origins = origins
+        promoted, _ = self._write_or_merge_at(self._lessons_dir, candidate)
+        self.append_log(
+            "promote", slug=slug,
+            note=f"category={category} independent_origins={len(origins)}",
+        )
+        self.rebuild_index()
+        return promoted
+
+    def _write_or_merge_at(self, base: Path, lesson: Lesson) -> tuple[Lesson, bool]:
         if lesson.category not in VALID_CATEGORIES:
             raise ValueError(f"invalid category: {lesson.category}")
         if not _SLUG_OK_RE.match(lesson.slug):
             raise ValueError(f"invalid slug: {lesson.slug}")
 
-        existing = self.get_lesson(lesson.slug, category=lesson.category)
+        existing = self._get_from(base, lesson.slug, category=lesson.category)
         now = _now_iso()
         if existing is not None:
             # Merge: keep created, bump updated, union origins, increment
@@ -218,7 +282,7 @@ class LearnedWiki:
                 retrievals=existing.retrievals,
                 tags=list(dict.fromkeys(existing.tags + lesson.tags)),
             )
-            self._write(merged)
+            self._write(merged, base=base)
             return merged, False
 
         new = Lesson(
@@ -233,11 +297,11 @@ class LearnedWiki:
             retrievals=0,
             tags=lesson.tags,
         )
-        self._write(new)
+        self._write(new, base=base)
         return new, True
 
-    def _write(self, lesson: Lesson) -> None:
-        path = self._lessons_dir / lesson.category / f"{lesson.slug}.md"
+    def _write(self, lesson: Lesson, *, base: Path | None = None) -> None:
+        path = (base or self._lessons_dir) / lesson.category / f"{lesson.slug}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(lesson.to_markdown(), encoding="utf-8")
 
@@ -267,7 +331,7 @@ class LearnedWiki:
                 cat_lessons = [l for l in lessons if l.category == cat]
                 if not cat_lessons:
                     continue
-                cat_label = {"api": "API 用法", "errors": "错误模式", "strategies": "视觉策略"}[cat]
+                cat_label = {"api": "API 用法", "errors": "错误模式", "production": "通用生产规则"}[cat]
                 lines.append(f"## {cat_label}")
                 lines.append("")
                 for l in sorted(cat_lessons, key=lambda x: x.slug):

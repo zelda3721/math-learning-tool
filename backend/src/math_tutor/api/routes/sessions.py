@@ -7,9 +7,20 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ...config.dependencies import get_conversation_store, get_examples_store
+from ...config.dependencies import (
+    get_conversation_store,
+    get_examples_store,
+    get_wiki_ingester,
+)
+from ...infrastructure.agent.quality_metrics import (
+    aggregate_quality_summaries,
+    build_session_quality_summary,
+    compare_quality_windows,
+)
+from ...infrastructure.agent.wiki_ingester import WikiIngester
 from ...infrastructure.storage import (
     Artifact,
     ConversationStore,
@@ -114,6 +125,57 @@ async def list_sessions(
     return [_session_to_dict(s) for s in sessions]
 
 
+@router.get("/metrics/quality")
+async def get_quality_metrics(
+    limit: int = 50,
+    trend_window: int = 10,
+    store: ConversationStore = Depends(get_conversation_store),
+) -> dict[str, Any]:
+    """Aggregate content-agnostic first-pass quality and latency metrics."""
+    sessions = await store.list_sessions(limit=max(1, min(limit, 200)))
+    summaries = []
+    for session in sessions:
+        tool_calls = await store.list_tool_calls(session.id)
+        artifacts = await store.list_artifacts(session.id)
+        feedback = await store.list_feedback(session.id)
+        summaries.append(
+            build_session_quality_summary(session, tool_calls, artifacts, feedback)
+        )
+    return {
+        "aggregate": aggregate_quality_summaries(summaries),
+        "trend": compare_quality_windows(summaries, window_size=trend_window),
+        "sessions": summaries,
+    }
+
+
+@router.get("/{session_id}/artifacts/{artifact_id}")
+async def get_session_artifact(
+    session_id: str,
+    artifact_id: int,
+    store: ConversationStore = Depends(get_conversation_store),
+) -> FileResponse:
+    """Serve browser-consumable archived artifacts such as WebVTT captions."""
+    artifact = next(
+        (
+            item
+            for item in await store.list_artifacts(session_id)
+            if item.id == artifact_id and item.kind == "subtitle"
+        ),
+        None,
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    archive_root = store.archive.root.resolve()
+    artifact_path = (archive_root / artifact.path).resolve()
+    if not artifact_path.is_relative_to(archive_root) or not artifact_path.is_file():
+        raise HTTPException(status_code=404, detail="artifact file not found")
+    return FileResponse(
+        artifact_path,
+        media_type="text/vtt; charset=utf-8",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @router.delete("/{session_id}")
 async def delete_session(
     session_id: str,
@@ -144,6 +206,9 @@ async def get_session_detail(
     feedback = await store.list_feedback(session_id)
     return {
         "session": _session_to_dict(session),
+        "quality": build_session_quality_summary(
+            session, tool_calls, artifacts, feedback
+        ),
         "messages": [_message_to_dict(m) for m in messages],
         "tool_calls": [_tool_call_to_dict(t) for t in tool_calls],
         "artifacts": [_artifact_to_dict(a) for a in artifacts],
@@ -156,6 +221,7 @@ async def add_feedback(
     session_id: str,
     body: FeedbackRequest,
     store: ConversationStore = Depends(get_conversation_store),
+    wiki_ingester: WikiIngester | None = Depends(get_wiki_ingester),
 ) -> dict[str, Any]:
     session = await store.get_session(session_id)
     if session is None:
@@ -169,6 +235,8 @@ async def add_feedback(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if wiki_ingester is not None:
+        wiki_ingester.schedule(session_id, success=session.status == "done")
     return {"id": fb_id}
 
 

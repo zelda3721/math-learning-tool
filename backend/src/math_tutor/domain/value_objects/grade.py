@@ -13,6 +13,9 @@ class EducationLevel(str, Enum):
     MIDDLE_SCHOOL = "middle"               # 初中 7-9
     HIGH_SCHOOL = "high"                   # 高中 10-12
     ADVANCED = "advanced"                  # 高等数学
+    # Backward-compatible alias retained for persisted callers and the
+    # original public API. It is the same audience level, not a problem type.
+    UNIVERSITY = "advanced"
     
     @property
     def display_name(self) -> str:

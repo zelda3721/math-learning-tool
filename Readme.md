@@ -8,12 +8,12 @@
 ## ✨ 它能做什么
 
 - 输入数学题 + 选年级 → 生成 Manim 解题动画
-- 实时显示 agent 的思考链：每个工具调用、参数、结果都流式推到前端
+- 实时显示生成流水线：每个工具调用、参数、结果都通过 SSE 推到前端
 - 每次对话、生成的代码、最终视频都本地落库（SQLite + 文件系统）
-- 你可以对每次结果打 👍/👎，把好/坏样本加入示例库
-- 下次类似题目时，示例库自动作为 few-shot + embedding 语义检索注入到 prompt
-- 渲染后用多模态模型自动评审视觉质量；有问题自动回到代码生成修复
-- 工具调用并行（阶段 A 三个工具一轮里同时跑）
+- 你可以对每次结果打 👍/👎；反馈会进入候选—复现—晋升学习流程
+- 不枚举题型、不向生产提示词注入相似题代码；视觉方案由当前数学语义生成
+- 渲染后结合确定性技术检测和多模态模型评审；有问题自动局部修复或重做视觉 beat
+- 历史页展示首轮通过率、数学一致性、技术规格、阶段耗时与重试次数
 
 ---
 
@@ -27,40 +27,37 @@
 └────────────┬─────────────────────────────────────────────────┘
              │ POST /api/v1/chat (text/event-stream, fetch)
 ┌────────────▼─────────────────────────────────────────────────┐
-│              Backend (FastAPI + 自研 AgentLoop)               │
+│          Backend (FastAPI + bounded workflow)                 │
 ├──────────────────────────────────────────────────────────────┤
-│  AgentLoop (async generator) — 每 turn 流式 LLM + 并行工具    │
+│  有界状态机：只暴露合法下一步；正常路径无需控制器 LLM 调用     │
 ├──────────────────────────────────────────────────────────────┤
-│  4 个独立 endpoint，留空 fallback 主 LLM：                     │
+│  3 个生产 endpoint，留空 fallback 主 LLM：                     │
 │   • LLM provider       (OpenAI 兼容协议) ← LMStudio / vLLM    │
 │   • Vision provider    (多模态)         ← Qwen-VL / 复用主 LLM │
-│   • Embedding provider (语义检索)       ← bge-m3 / 关键词回退  │
-│   • Rerank provider    (二阶段精排)     ← bge-reranker-v2-m3   │
+│   • Fast provider      (分析/求解/规划)  ← 小模型 / 复用主 LLM  │
 ├──────────────────────────────────────────────────────────────┤
-│  ToolRegistry — 8 个内置工具（阶段 A 可并行）：                │
-│    阶段 A — 并行收集（同一轮 emit）                            │
-│      • analyze_problem       题目结构化分析                    │
-│      • match_skill           匹配技能（关键词→embedding→LLM）  │
-│      • search_examples       历史 good/bad 案例（embed+rerank）│
-│    阶段 B — 串行解题                                           │
-│      • solve_problem         结构化解题（步骤+答案+可视化提示）│
-│    阶段 C — 串行生成与校验                                     │
+│  ToolRegistry — 8 个生产工具（严格按证据状态推进）：           │
+│    阶段 A — 语义与数学正确性                                   │
+│      • analyze_problem       对象/关系/约束开放式分解          │
+│      • solve_problem         结构化解答                        │
+│      • verify_solution       可执行校验或逻辑/反例审计         │
+│    阶段 B — 开放式视觉论证                                     │
+│      • visual_plan           thesis/符号账本/时间 beat         │
+│    阶段 C — 生成与校验                                         │
 │      • generate_manim_code   生成/修复 Manim 代码              │
 │      • validate_manim_code   静态语法+质量+重叠检测            │
 │    阶段 D — 串行执行与视觉评审                                 │
-│      • run_manim             渲染视频                          │
-│      • inspect_video         多模态评审 → 触发再生成           │
+│      • run_manim             720p30 + WebVTT/可选 TTS + 缓存  │
+│      • inspect_video         5 帧+技术指标+数学契约评审        │
 ├──────────────────────────────────────────────────────────────┤
-│  PromptLibrary — 5 个外置 markdown 模板（可手编、热加载）      │
-│  PromptComposer — 主 system prompt（身份/工作流/规则/年级）    │
-│  LearnedMemory — data/learned_rules.md（用户手编沉淀规则）     │
+│  LearnedWiki：candidate 隔离 → 3 个独立 session 复现 → 晋升    │
+│  QualityReport：首轮成功/数学一致性/技术门禁/耗时/重试          │
 │  ConversationStore + FileArchive (SQLite + 文件系统)           │
-│  ExamplesStore + SemanticIndex (embedding 缓存 + 余弦相似度)   │
-│  SkillEngine (24+ 题型 markdown + 10 个通用可视化模式)         │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-整条链路是一个 agent 在循环里看着工具结果自己决策——没有跨节点失忆，没有规则冲突，错误能针对性修复。
+生产链路不按题型路由。状态机只负责依赖和失败回退，LLM 分别负责当前问题的语义、解答、
+视觉论证与代码；大段代码保存在 state/artifact 中，不回灌控制器上下文。
 
 ---
 
@@ -74,7 +71,7 @@ math-learning-tool/
 │   │   └── routes/
 │   │       ├── chat.py          # POST /api/v1/chat (SSE 推荐)
 │   │       ├── problems.py      # POST /api/v1/problems/process (同步包装)
-│   │       ├── sessions.py      # 历史 / 反馈 / 推送 example
+│   │       ├── sessions.py      # 历史 / 反馈 / 质量趋势 / 字幕
 │   │       ├── grades.py / skills.py / health.py / videos.py
 │   ├── application/interfaces/  # ILLMProvider/IEmbeddingProvider/
 │   │                            # IRerankProvider/ISkillRepository/
@@ -82,21 +79,20 @@ math-learning-tool/
 │   ├── domain/                  # 实体与值对象
 │   ├── infrastructure/
 │   │   ├── agent/
-│   │   │   ├── loop.py          # AgentLoop (并行 tool_calls)
-│   │   │   ├── prompt_composer.py # 主 agent 系统提示
+│   │   │   ├── loop.py          # 有界状态机 + SSE 事件
+│   │   │   ├── prompt_composer.py # 兼容自由控制器的系统提示
 │   │   │   ├── prompt_library.py  # 外置模板加载器
-│   │   │   ├── prompt_templates/  # 5 个 markdown 模板
+│   │   │   ├── prompt_templates/  # 各阶段紧凑契约
 │   │   │   ├── markdown_extract.py # markdown→结构化数据
-│   │   │   ├── learned_memory.py
+│   │   │   ├── learned_wiki.py    # 候选/跨会话晋升
+│   │   │   ├── quality_metrics.py # 内容无关质量指标
 │   │   │   ├── tool_registry.py
 │   │   │   └── tools/             # 8 个工具
 │   │   ├── llm/                   # 3 个 OpenAI 兼容 provider
 │   │   ├── manim/                 # Manim 执行器
-│   │   ├── skills/                # SkillRepository
-│   │   │   └── definitions/
-│   │   │       ├── visualization/ # 24+ 题型 skill
-│   │   │       └── patterns/      # 10 个通用可视化模式
-│   │   └── storage/               # SQLite + 文件 + Semantic 检索
+│   │   ├── media/                 # 字幕时间轴与可选 TTS 混流
+│   │   ├── skills/                # 旧离线素材；不进入生产路由
+│   │   └── storage/               # SQLite + 文件归档
 │   └── config/                    # settings + dependencies (DI)
 ├── frontend/src/
 │   ├── App.tsx                  # 主入口（SSE 流式 + 历史抽屉）
@@ -164,9 +160,8 @@ cd backend && python -m math_tutor.api.main
 启动日志应能看到：
 
 ```
-PromptLibrary loaded 5 templates: ['analyze', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve']
+PromptLibrary loaded 8 templates: ['analyze', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'wiki_ingest']
 OpenAILLMProvider ready (base_url=..., model=qwen/qwen3.6-35b-a3b, bypass_proxy=True)
-Loaded 24 skills, 10 patterns, and 5 agent prompts
 ```
 
 ### 4) 启动前端
@@ -230,22 +225,15 @@ curl -X POST localhost:8000/api/v1/sessions/<id>/promote_example \
 ## 🧠 数据如何变成下次的提示
 
 ```
-检索 examples 流程（按可用度自动选）：
-  ├─ rerank 二阶段精排（embedding top-N → rerank top-K）  ← 最准
-  ├─ embedding 单阶段语义                                   ← 较准
-  └─ 关键词 substring                                       ← 兜底
-
-匹配 skills 流程（同一原则）：
-  ├─ 关键词 substring（很快）
-  ├─ embedding（鸡兔题 → 命中 chicken_rabbit 即使没 substring 命中）
-  └─ LLM 全列表挑（最慢但最聪明）
-
-匹配 patterns（10 个通用可视化模式）：
-  ├─ embedding 排序（有 embedding endpoint 时）
-  └─ 关键词兜底
+session 工具证据 + inspect_video 质量报告 + 用户反馈
+  → ingester 只提炼与题目/题型无关的通用机制
+  → candidates/ 隔离（生产不可检索）
+  → 同一机制由至少 3 个独立 session 复现
+  → 晋升到 lessons/
+  → 仅在匹配具体运行错误时作为短 KB 片段检索
 ```
 
-加上 `data/learned_rules.md` 用户手编规则，每次新对话都重新读，无需重启。
+单次会话、单题代码、相似题样例和 `data/learned_rules.md` 不进入冷启动生产提示词。
 
 ---
 
@@ -256,40 +244,29 @@ curl -X POST localhost:8000/api/v1/sessions/<id>/promote_example \
 | `LLM_API_BASE/KEY/MODEL` | 主 LLM endpoint | LMStudio + qwen3.6-35b-a3b |
 | `LLM_EXTRA_BODY` | 透传给 OpenAI 客户端的 extra_body（JSON） | 空 |
 | `LLM_DISABLE_THINKING_WITH_TOOLS` | 工具调用时强制 enable_thinking=false | true |
+| `AGENT_DETERMINISTIC_WORKFLOW` | 有界状态机直接调度，跳过控制器 LLM | true |
 | `LLM_VISION_*` | 视觉模型 endpoint（inspect_video 用） | 空 = 复用主 LLM |
 | `LLM_EMBEDDING_*` | embedding endpoint | 空 = 禁用语义检索 |
 | `LLM_RERANK_*` | reranker endpoint | 空 = 禁用精排 |
 | `LLM_RERANK_API_TYPE` | `cohere` 或 `tei` | cohere |
 | `LLM_RERANK_ENABLED` | 显式开关（即使配 model 也能临时关） | true |
-| `MANIM_QUALITY` | low / medium / high | low |
+| `MANIM_QUALITY` | low / medium / high | medium |
 | `MANIM_USE_LATEX` | 是否启用 LaTeX | false |
+| `MANIM_RENDER_TIMEOUT_S` | 单次渲染超时 | 300 |
+| `NARRATION_SUBTITLES_ENABLED` | 从 visual beat 导出 WebVTT 字幕 | true |
+| `NARRATION_TTS_ENABLED` | 调用兼容 `/audio/speech` 的 TTS 并混入音轨 | false |
+| `NARRATION_TTS_*` | 独立 TTS endpoint / model / voice / speed | 空 |
+| `LEARNED_WIKI_ENABLED` | 启用候选—跨会话晋升学习 | false |
 | `DATA_DIR` | 数据目录（SQLite + 归档） | ./data |
 
 ---
 
-## 📚 内置技能 + 可视化模式
+## 📊 质量指标
 
-**24+ 题型 skill**（`skills/definitions/visualization/*.md`）：
-- 小学：addition / subtraction / multiplication / division / chicken_rabbit
-- 初中：equation_basics / geometry
-- 高中：quadratic_function
-- 大学：limit_sinx_x
-- 通用：comparison / continuous_operation / area_transform / travel_chasing / ...
-
-**10 个通用可视化模式**（`skills/definitions/patterns/*.md`）——agent 自动匹配并把 helper 代码注入到 generate prompt 里：
-
-| pattern | 用途 |
-|---|---|
-| counting | 数量计数（加减法、分组）|
-| comparison | 数量比较（多/少多少、倍数）|
-| process | 多步过程（先后顺序）|
-| transformation | 一对一变换（鸡换兔）|
-| assumption | **假设法专用**（鸡兔同笼）|
-| table_method | 列表枚举法 |
-| partition | 分割（分数、面积分解）|
-| coordinate | 坐标系绘图（函数、点轨迹）|
-| journey | 路径运动（相遇、追及）|
-| derivation_with_geometry | 解方程逐步展开 + 几何同步（天平/面积/数轴）|
+- 单会话：`GET /api/v1/sessions/{id}` 的 `quality` 字段
+- 聚合与前后窗口趋势：`GET /api/v1/sessions/metrics/quality?trend_window=10`
+- 指标不按题型分桶：首轮通过、B 段教学分、数学一致性、本质兑现、分辨率/帧率、
+  实际/计划时长、字幕/旁白可访问性、工具耗时、重试次数和质量回归。
 
 ---
 
@@ -307,13 +284,14 @@ python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
 
 ## 🛣️ 设计原则
 
-1. **无固定流水线**：8 个工具，agent 自行决策调用顺序，阶段 A 并行
+1. **有界而开放**：工作流依赖固定，数学内容和视觉方案开放；不枚举题型
 2. **跨工具记忆**：`ToolContext.state` 在工具间共享，agent 不必每次重复传上下文
 3. **可追溯可复现**：每次对话、参数、结果、artifact 全落 SQLite + 文件系统
-4. **反馈即数据**：good/bad 标记直接进 examples 库，下次自动 few-shot
-5. **端点分层可配**：LLM / Vision / Embedding / Rerank 四个 endpoint 独立配置；任一缺失自动 fallback
-6. **静态 prompt 外置**：5 个 markdown 模板可手编；动态上下文 render 时注入
-7. **多模态视觉评审**：渲染后必经 inspect_video 兜底；发现重叠/对齐问题自动回去再生成
+4. **反馈是证据**：good/bad 反馈先隔离，跨会话复现后才晋升为生产知识
+5. **端点分层可配**：主 LLM / Fast LLM / Vision endpoint 独立配置
+6. **紧凑阶段契约**：每个工具只接收当前阶段所需信息，大产物不回灌上下文
+7. **双重成片门禁**：确定性技术检测 + 多模态数学/教学评审，失败自动修复
+8. **同源讲解轨道**：画面字幕、WebVTT 和可选旁白共享 visual plan 时间轴
 
 ---
 

@@ -15,6 +15,7 @@
 c = Circle(radius=0.3, color=BLUE, fill_opacity=0.7)
 ```
 **坑**: `radius` 是浮点单位，画布范围 ±7×±4，不是像素。`fill_opacity=0` 时只有描边。
+ManimCE 不接受 `fill=True`；要填充必须使用 `fill_opacity=...`，可配合 `fill_color=...`。
 **关键词**: circle, 圆, 圆圈, 圆点
 
 ### Rectangle
@@ -118,6 +119,8 @@ items.arrange(RIGHT, buff=0.15)  # 横排，间距 0.15
 items.arrange(DOWN, buff=0.3, aligned_edge=LEFT)  # 纵排，左对齐
 ```
 **坑**: 调用后整组**自动居中到 ORIGIN**，要单独 `move_to(...)` 或 `to_edge(...)` 重定位。`aligned_edge=LEFT/RIGHT/UP/DOWN/ORIGIN` 控制对齐基准。
+ManimCE 0.19 的 `VGroup` **没有 `arrange_in_circle`**；圆弧布局应显式计算各对象坐标，
+不承载数学语义时优先使用 `arrange` 或 `arrange_in_grid`。
 **关键词**: arrange, 排列, 横排, 纵排, 一字排开
 
 ### arrange_in_grid
@@ -129,6 +132,12 @@ group.arrange_in_grid(rows=4, buff=0.2).scale(0.7)
 ```
 **坑**: 只指定 `rows` 或 `cols` 之一即可，另一个自动算。**整组先排再 scale 比单个 scale 后再排好**——比例容易控。
 **关键词**: arrange_in_grid, 网格, 排成方阵, grid, 重叠, anchor, 布局
+
+### DashedLine
+**签名**: `DashedLine(start, end, dash_length=0.05, dashed_ratio=0.5, **kwargs)`
+**坑**: `Line(..., stroke_dash_array=[...])` 在 ManimCE 0.19 无效；需要虚线时直接使用
+`DashedLine`，否则使用普通 `Line`。
+**关键词**: dashedline, stroke_dash_array, 虚线, unexpected keyword
 
 ---
 

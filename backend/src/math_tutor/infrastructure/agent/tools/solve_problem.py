@@ -21,40 +21,33 @@ from ..prompt_library import PromptLibrary
 
 logger = logging.getLogger(__name__)
 
+_DRAFT_CORRECTION_MARKERS = (
+    "重新检查",
+    "重新核算",
+    "再核算",
+    "让我重新",
+    "等等",
+    "此处需",
+    "可能算错",
+    "可能错误",
+)
 
-# 通用原则适用所有年级：选解法时优先考虑"哪种最能揭示这道题的本质/为什么"。
-# 对小学题，非代数解法（假设法/线段图/比例法/列表法）通常比方程更能揭示
-# 第一性原理——这是中国小学数学的经典传统，不是"小学不能用方程"，是
-# "对这一类题，非代数解法本身就是最揭示原理的解法"。
+
 _GRADE_GUIDANCE: dict[str, str] = {
     "elementary_lower": (
-        "小学低年级（1-3）：**默认非代数解法**——画图法、实物演示、凑十法、"
-        "逐步数数。这个年级几乎不用方程；遇到等量关系也用天平/线段图演示，"
-        "不引入未知数。"
+        "使用该年龄已经掌握的语言和运算；每一步只引入一个新关系，解释所有符号。"
     ),
     "elementary_upper": (
-        "小学高年级（4-6）：**默认非代数解法**——线段图 / 列表法 / 画图分析 / "
-        "假设法 / 面积模型 / 比例法 / 逆推法。这些是中国小学数学的经典传统，"
-        "**对这类题就是最揭示第一性原理的解法**。\n"
-        "  · 鸡兔同笼 → 假设法\n"
-        "  · 行程相遇/追及 → 线段图 + 速度比 = 距离比\n"
-        "  · 分数应用 → 整体切分 + 比例\n"
-        "  · 工程问题 → 假设工作量 = 1 的总量法\n"
-        "**只有当非代数路径明显更绕、或题面明确给出方程时**才列方程，"
-        "且解题步骤里要保持'图形先行 + 比例/假设法 + 逆推'的结构，"
-        "不要直接 '设 x = ...'。"
+        "选择该年龄能解释且步骤最少的有效推理；先说明关系，再执行运算，避免无解释的符号跳步。"
     ),
     "middle": (
-        "初中：代数方程、函数思想、几何证明都可放心用；"
-        "首选数形结合（坐标图 / 函数图象 / 几何变换）让代数与图形同步演化。"
+        "允许标准代数和几何语言；明确变量定义、等价变形的依据和适用条件。"
     ),
     "high": (
-        "高中：函数与方程、坐标几何、向量；可用参数扫描、覆盖、极限逼近"
-        "等手法揭示函数性态；推荐双面板（左几何 + 右图象）。"
+        "给出关键推理依据、定义域与边界；区分等价推导、充分条件和必要条件。"
     ),
     "advanced": (
-        "大学及以上：微积分极限可视、矩阵=空间扭曲、3D 投影、高维降维。"
-        "这一段最容易掉进纯符号陷阱——必须强制几何同步。"
+        "明确使用的定义、定理、假设和边界情况；优先可验证且逻辑闭合的推导。"
     ),
 }
 
@@ -132,6 +125,29 @@ def _pick(d: dict[str, str], *keys: str) -> str:
     return ""
 
 
+def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
+    """Reject draft-like self-correction before it reaches verification.
+
+    This is content-agnostic: it does not infer a problem type or expected
+    answer. It only enforces that the submitted contract is a single settled
+    solution rather than a visible scratchpad with mutually competing claims.
+    """
+    texts = [str(payload.get("answer") or "")]
+    for step in payload.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        texts.extend(
+            str(step.get(field) or "")
+            for field in ("description", "operation", "explanation", "result")
+        )
+    joined = "\n".join(texts)
+    return [
+        f"解答仍包含草稿式自我纠错标记“{marker}”"
+        for marker in _DRAFT_CORRECTION_MARKERS
+        if marker in joined
+    ][:3]
+
+
 class SolveProblemTool(ITool):
     def __init__(self, llm: ILLMProvider, prompts: PromptLibrary) -> None:
         self._llm = llm
@@ -183,6 +199,13 @@ class SolveProblemTool(ITool):
         analysis_section = (
             f"\n## 已有分析（参考）\n{analysis_hint}\n" if analysis_hint else ""
         )
+        verify_failure = str(ctx.state.get("last_verify_failure") or "").strip()
+        if verify_failure:
+            analysis_section += (
+                "\n## 上一版解答的验证失败证据\n"
+                f"{verify_failure[:600]}\n"
+                "必须修正导致该证据的推理或答案，不要原样重复上一版。\n"
+            )
         guidance = _GRADE_GUIDANCE.get(grade, _GRADE_GUIDANCE["elementary_upper"])
 
         prompt = self._prompts.render(
@@ -239,9 +262,27 @@ class SolveProblemTool(ITool):
                 data=payload,
             )
 
+        contract_issues = _solution_contract_issues(payload)
+        if contract_issues:
+            ctx.state["last_solve_contract_issues"] = contract_issues
+            return ToolResult(
+                success=False,
+                summary="解答不是可交付的一致版本：" + "；".join(contract_issues),
+                error="solution_contract_violation",
+                data={"issues": contract_issues},
+            )
+
         ctx.state["solution"] = payload
         ctx.state["solution_steps"] = steps
         ctx.state["solution_answer"] = payload.get("answer", "")
+        ctx.state["solution_verified"] = False
+        ctx.state.pop("last_solve_contract_issues", None)
+        ctx.state.pop("last_verify_failure", None)
+        for key in (
+            "visual_plan", "visual_thesis", "latest_manim_code",
+            "latest_video_path", "latest_video_url", "last_visual_review",
+        ):
+            ctx.state.pop(key, None)
 
         n = len(steps)
         ans = payload.get("answer") or "(无答案)"

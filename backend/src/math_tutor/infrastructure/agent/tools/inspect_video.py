@@ -4,11 +4,14 @@ send them to a multimodal LLM for visual feedback.
 Output is markdown with `## 视觉评审`, `**整体质量**: ...`, and `### 问题/亮点/帧描述`
 sub-sections. JSON fallback is provided.
 """
+
 from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
+import math
 import re
 import shutil
 import tempfile
@@ -16,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ....application.interfaces import (
+    ArtifactSpec,
     ChatMessage,
     ILLMProvider,
     ITool,
@@ -34,27 +38,163 @@ def _png_to_data_url(path: Path) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-async def _ffprobe_duration(video_path: Path) -> float | None:
-    if shutil.which("ffprobe") is None:
+def _parse_rate(value: str | None) -> float | None:
+    if not value:
         return None
+    try:
+        if "/" in value:
+            numerator, denominator = value.split("/", 1)
+            denominator_value = float(denominator)
+            return float(numerator) / denominator_value if denominator_value else None
+        return float(value)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+async def _ffprobe_metadata(video_path: Path) -> dict[str, Any]:
+    if shutil.which("ffprobe") is None:
+        return {}
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe",
             "-v",
             "error",
             "-show_entries",
-            "format=duration",
+            "format=duration,size:stream=codec_type,width,height,avg_frame_rate",
             "-of",
-            "default=noprint_wrappers=1:nokey=1",
+            "json",
             str(video_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        text = out.decode().strip()
-        return float(text) if text else None
+        payload = json.loads(out.decode() or "{}")
+        streams = payload.get("streams") or []
+        video_stream = next(
+            (stream for stream in streams if stream.get("codec_type") == "video"), {}
+        )
+        format_data = payload.get("format") or {}
+        return {
+            "duration_s": float(format_data.get("duration") or 0),
+            "file_size_bytes": int(format_data.get("size") or 0),
+            "width": int(video_stream.get("width") or 0),
+            "height": int(video_stream.get("height") or 0),
+            "fps": _parse_rate(video_stream.get("avg_frame_rate")) or 0.0,
+            "has_audio": any(stream.get("codec_type") == "audio" for stream in streams),
+        }
     except Exception:
-        return None
+        return {}
+
+
+def _frame_sequence_metrics(frame_paths: list[Path]) -> dict[str, Any]:
+    """Cheap deterministic checks for blank or effectively static videos."""
+    try:
+        from PIL import Image, ImageChops, ImageStat
+    except ImportError:
+        return {}
+
+    frames = []
+    visible_fractions: list[float] = []
+    entropies: list[float] = []
+    top_border_occupancy: list[float] = []
+    side_border_occupancy: list[float] = []
+    caption_zone_occupancy: list[float] = []
+    for path in frame_paths:
+        with Image.open(path) as image:
+            gray = image.convert("L").resize((96, 54))
+            frames.append(gray.copy())
+            histogram = gray.histogram()
+            total = float(sum(histogram)) or 1.0
+            visible_fractions.append(sum(histogram[12:]) / total)
+            entropies.append(
+                -sum((count / total) * math.log2(count / total) for count in histogram if count)
+            )
+            # Estimate the canvas background as the dominant downsampled
+            # colour, then measure non-background content at safety borders.
+            rgb = image.convert("RGB").resize((160, 90))
+            colors = rgb.getcolors(maxcolors=160 * 90) or []
+            background = max(colors, default=(0, (0, 0, 0)))[1]
+            pixels = list(rgb.getdata())
+
+            def occupied(pixel: tuple[int, int, int]) -> bool:
+                return sum(abs(pixel[i] - background[i]) for i in range(3)) > 45
+
+            mask = [occupied(pixel) for pixel in pixels]
+
+            def region_fraction(indices: list[int]) -> float:
+                return sum(mask[index] for index in indices) / max(1, len(indices))
+
+            top_indices = [y * 160 + x for y in range(3) for x in range(160)]
+            side_indices = [y * 160 + x for y in range(90) for x in (*range(3), *range(157, 160))]
+            caption_indices = [y * 160 + x for y in range(77, 90) for x in range(160)]
+            top_border_occupancy.append(region_fraction(top_indices))
+            side_border_occupancy.append(region_fraction(side_indices))
+            caption_zone_occupancy.append(region_fraction(caption_indices))
+
+    differences: list[float] = []
+    for previous, current in zip(frames, frames[1:]):
+        differences.append(ImageStat.Stat(ImageChops.difference(previous, current)).mean[0] / 255.0)
+    return {
+        "visible_fraction_by_frame": [round(value, 4) for value in visible_fractions],
+        "entropy_by_frame": [round(value, 3) for value in entropies],
+        "adjacent_frame_difference": [round(value, 4) for value in differences],
+        "blank_frame_count": sum(value < 0.002 for value in visible_fractions),
+        "near_static_transition_count": sum(value < 0.006 for value in differences),
+        "top_border_occupancy": [round(value, 4) for value in top_border_occupancy],
+        "side_border_occupancy": [round(value, 4) for value in side_border_occupancy],
+        "caption_zone_occupancy": [round(value, 4) for value in caption_zone_occupancy],
+    }
+
+
+def _derive_technical_issues(metrics: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Return (critical issues, warnings) without using problem categories."""
+    critical: list[str] = []
+    warnings: list[str] = []
+    width = int(metrics.get("width") or 0)
+    height = int(metrics.get("height") or 0)
+    fps = float(metrics.get("fps") or 0)
+    duration = float(metrics.get("duration_s") or 0)
+    planned_duration = float(metrics.get("planned_duration_s") or 0)
+    if not width or not height:
+        critical.append("无法读取视频分辨率，技术质量不可验证")
+    elif width < 960 or height < 540:
+        critical.append(f"输出分辨率过低：{width}×{height}")
+    if fps <= 0:
+        critical.append("无法读取视频帧率，技术质量不可验证")
+    elif fps < 24:
+        critical.append(f"输出帧率过低：{fps:.1f}fps")
+    if duration <= 0:
+        critical.append("无法读取视频时长，技术质量不可验证")
+    elif duration < 6:
+        critical.append(f"视频过短：{duration:.1f}s，无法形成完整解释与验证")
+    if duration and planned_duration:
+        ratio = duration / planned_duration
+        if ratio < 0.65:
+            critical.append(f"实际时长仅为计划的 {ratio:.0%}，关键观察或验证可能被截短")
+        elif ratio > 1.8:
+            warnings.append(f"实际时长为计划的 {ratio:.0%}，可能存在冗长停顿或重复动画")
+    blank_count = int(metrics.get("blank_frame_count") or 0)
+    sampled = len(metrics.get("visible_fraction_by_frame") or [])
+    if sampled and blank_count == sampled:
+        critical.append("所有采样帧均近似空白")
+    visible = metrics.get("visible_fraction_by_frame") or []
+    if visible and float(visible[0]) < 0.008:
+        critical.append("首个采样帧近似空白，开场未及时建立问题或视觉语言")
+    top_border = metrics.get("top_border_occupancy") or []
+    side_border = metrics.get("side_border_occupancy") or []
+    caption_zone = metrics.get("caption_zone_occupancy") or []
+    if top_border and max(top_border) > 0.35:
+        critical.append("主视觉大面积触碰顶部安全边界，疑似越界或裁切")
+    if side_border and max(side_border) > 0.35:
+        critical.append("主视觉大面积触碰左右安全边界，疑似越界或裁切")
+    if caption_zone and max(caption_zone) > 0.25:
+        critical.append("底部字幕安全带过密，存在字幕裁切、叠字或图形侵入")
+    differences = metrics.get("adjacent_frame_difference") or []
+    if differences and max(differences) < 0.006:
+        critical.append("采样帧几乎无变化，疑似静态幻灯片")
+    if metrics.get("has_audio") is False:
+        warnings.append("视频无音轨；当前仍依赖画面和屏幕文字完成教学")
+    return critical, warnings
 
 
 async def _extract_frame(video_path: Path, time_s: float, out_path: Path) -> bool:
@@ -179,14 +319,14 @@ class InspectVideoTool(ITool):
         prompts: PromptLibrary,
         *,
         vision_model: str | None = None,
-        frame_count: int = 2,
+        frame_count: int = 12,
     ) -> None:
         self._llm = vision_llm
         self._prompts = prompts
         self._vision_model = vision_model
-        # 2 frames (mid + late) is the sweet spot: catches both setup-quality
-        # and final-quality without the cost of 3 VLM image tokens.
-        self._frame_count = max(1, min(5, frame_count))
+        # Twelve samples catch multi-second mid/late-scene layout defects that
+        # sparse reviews miss, while still fitting common local VLM contexts.
+        self._frame_count = max(1, min(12, frame_count))
 
     @property
     def name(self) -> str:
@@ -195,8 +335,8 @@ class InspectVideoTool(ITool):
     @property
     def description(self) -> str:
         return (
-            "对刚渲染好的 Manim 视频抽 3 帧，送给多模态模型检查布局、重叠、"
-            "可读性、节奏等视觉问题。run_manim 成功后调用一次即可；如果"
+            "对刚渲染好的 Manim 视频抽 12 帧，送给多模态模型检查布局、重叠、"
+            "数学连续性、可读性和节奏。run_manim 成功后调用一次即可；如果"
             "返回 overall_quality='bad'，把 issues 作为 error_hint 传给"
             "下一次 generate_manim_code 修复。"
         )
@@ -223,26 +363,51 @@ class InspectVideoTool(ITool):
                 success=False, summary="ffmpeg 未安装，无法抽帧", error="ffmpeg_missing"
             )
 
-        duration = await _ffprobe_duration(video_path) or 6.0
+        technical_metrics = await _ffprobe_metadata(video_path)
+        duration = float(technical_metrics.get("duration_s") or 6.0)
         n = self._frame_count
         if n == 1:
             offsets = [duration / 2]
+        elif n == 5:
+            offsets = [duration * fraction for fraction in (0.05, 0.275, 0.5, 0.725, 0.95)]
+        elif n == 7:
+            offsets = [
+                duration * fraction for fraction in (0.05, 0.22, 0.39, 0.56, 0.73, 0.90, 0.97)
+            ]
         else:
-            offsets = [duration * (i + 1) / (n + 1) for i in range(n)]
+            # Keep the first sample inside the mandatory 2.5–4s question-card
+            # beat even for longer videos; spread the rest across the full
+            # timeline to preserve dense middle/late layout coverage.
+            first = min(2.0, max(1.5, duration * 0.08))
+            offsets = [first] + [duration * i / (n + 1) for i in range(2, n + 1)]
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_dir = Path(tmp)
             frame_paths: list[Path] = []
+            frame_offsets: list[float] = []
             for i, offset in enumerate(offsets):
                 out = tmp_dir / f"frame_{i:02d}.png"
                 if await _extract_frame(video_path, offset, out):
                     frame_paths.append(out)
+                    frame_offsets.append(offset)
             if not frame_paths:
                 return ToolResult(
                     success=False,
                     summary="抽帧失败（ffmpeg 返回非 0）",
                     error="frame_extraction_failed",
                 )
+
+            technical_metrics.update(_frame_sequence_metrics(frame_paths))
+            plan = ctx.state.get("visual_plan") or {}
+            planned_duration = sum(
+                float(scene.get("duration_s") or 0)
+                for scene in (plan.get("scenes") or [])
+                if isinstance(scene, dict)
+            )
+            if planned_duration:
+                technical_metrics["planned_duration_s"] = planned_duration
+                technical_metrics["duration_ratio"] = round(duration / planned_duration, 3)
+            technical_critical, technical_warnings = _derive_technical_issues(technical_metrics)
 
             essence = (
                 ctx.state.get("essence_rationale")
@@ -254,15 +419,65 @@ class InspectVideoTool(ITool):
                 if essence
                 else "（视觉计划未声明 essence_rationale，按通用标准评审本质兑现度）"
             )
+            thesis = str(plan.get("visual_thesis") or "").strip()
+            ledger = plan.get("symbol_ledger") or []
+            scenes = plan.get("scenes") or []
+            beat_lines = []
+            for index, scene in enumerate(scenes[:8], start=1):
+                if not isinstance(scene, dict):
+                    continue
+                beat_lines.append(
+                    f"- beat {index} [{scene.get('role', '?')}]: "
+                    f"action={str(scene.get('action') or '')[:100]}; "
+                    f"invariant={str(scene.get('invariant') or '')[:80]}; "
+                    f"attention={str(scene.get('attention_target') or '')[:60]}; "
+                    f"teaching_line={str(scene.get('teaching_line') or '')[:80]}; "
+                    f"duration_s={scene.get('duration_s') or '?'}"
+                )
+            visual_contract_section = (
+                f"visual_thesis: {thesis or '未声明'}\n"
+                + "symbol_ledger: "
+                + ("; ".join(str(item) for item in ledger[:12]) or "未声明")
+                + "\n"
+                + "\n".join(beat_lines)
+            )
+            solution_steps = ctx.state.get("solution_steps") or []
+            step_lines = []
+            for index, step in enumerate(solution_steps[:12], start=1):
+                if isinstance(step, dict):
+                    step_lines.append(
+                        f"{index}. {str(step.get('description') or '')[:90]} | "
+                        f"{str(step.get('operation') or '')[:90]} | "
+                        f"result={str(step.get('result') or '')[:60]}"
+                    )
+            math_contract_section = (
+                f"original_problem: {ctx.problem or '未声明'}\n"
+                f"verified_answer: {ctx.state.get('solution_answer') or '未声明'}\n"
+                + "verified_steps:\n"
+                + "\n".join(step_lines)
+            )
+            technical_section = json.dumps(
+                {
+                    **technical_metrics,
+                    "critical_issues": technical_critical,
+                    "warnings": technical_warnings,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
             prompt_text = self._prompts.render(
                 "inspect_video",
                 n=len(frame_paths),
                 essence_section=essence_section,
+                visual_contract_section=visual_contract_section,
+                math_contract_section=math_contract_section,
+                technical_section=technical_section,
             )
-            content_parts: list[dict[str, Any]] = [
-                {"type": "text", "text": prompt_text}
-            ]
-            for fp in frame_paths:
+            content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
+            for index, (fp, offset) in enumerate(zip(frame_paths, frame_offsets), start=1):
+                content_parts.append(
+                    {"type": "text", "text": f"采样帧 {index}，时间 {offset:.2f}s"}
+                )
                 content_parts.append(
                     {
                         "type": "image_url",
@@ -282,9 +497,7 @@ class InspectVideoTool(ITool):
                 )
             except Exception as exc:
                 logger.exception("inspect_video vision call failed")
-                return ToolResult(
-                    success=False, summary="视觉模型调用失败", error=str(exc)
-                )
+                return ToolResult(success=False, summary="视觉模型调用失败", error=str(exc))
 
         payload = _parse_review(done)
         if payload is None:
@@ -297,6 +510,10 @@ class InspectVideoTool(ITool):
                     "raw_reasoning": (done.reasoning or "")[:600],
                 },
             )
+
+        payload["technical_metrics"] = technical_metrics
+        payload["technical_critical_issues"] = technical_critical
+        payload["technical_warnings"] = technical_warnings
 
         # Derive a final verdict from rubric scores rather than trusting the
         # model's own "整体质量" label, which has been observed to be lenient.
@@ -312,18 +529,84 @@ class InspectVideoTool(ITool):
         forced_bad = False
         forced_reason = ""
         b_scores = payload.get("b_scores") or {}
+        b5 = b_scores.get("b5")
         b6 = b_scores.get("b6")
-        if blacklist:
+        fatal_layout_terms = (
+            "遮挡",
+            "不可读",
+            "裁切",
+            "越界",
+            "重叠",
+            "拥挤",
+            "过密",
+            "压在",
+            "挤在",
+            "超出画面",
+            "笔误",
+            "乱码",
+            "不符",
+            "错误",
+            "矛盾",
+            "off-screen",
+            "clipped",
+            "overlap",
+            "unreadable",
+            "incorrect",
+        )
+        fatal_layout_issues = [
+            str(issue)
+            for issue in issues
+            if any(term in str(issue).lower() for term in fatal_layout_terms)
+        ]
+
+        # Keep an elite candidate across local fixes and full replans.  A
+        # candidate is eligible only when its rendered math and declared
+        # visual proof are both complete and there is no objective technical
+        # or layout failure.  This prevents a later stochastic rewrite from
+        # discarding a substantially better, usable video.
+        candidate_eligible = (
+            b_total is not None
+            and int(b5 or 0) == 2
+            and int(b6 or 0) == 2
+            and not technical_critical
+            and not fatal_layout_issues
+        )
+        previous_best = ctx.state.get("best_visual_candidate") or {}
+        previous_best_score = int(previous_best.get("score") or -1)
+        if candidate_eligible and b_total is not None and b_total > previous_best_score:
+            ctx.state["best_visual_candidate"] = {
+                "score": b_total,
+                "code": ctx.state.get("latest_manim_code") or "",
+                "video_path": ctx.state.get("latest_video_path") or video_path,
+                "video_url": ctx.state.get("latest_video_url") or "",
+                "review": json.loads(json.dumps(payload, ensure_ascii=False)),
+            }
+        if technical_critical:
+            forced_bad = True
+            forced_reason = "；".join(technical_critical[:3])
+        elif fatal_layout_issues:
+            forced_bad = True
+            forced_reason = "A 段布局失败：" + "；".join(fatal_layout_issues[:2])
+        elif b_total is None or b5 is None or b6 is None:
+            forced_bad = True
+            forced_reason = "视觉评审缺少完整 B 段、数学一致性或本质兑现评分"
+        elif blacklist:
             forced_bad = True
             forced_reason = f"命中黑名单：{', '.join(blacklist[:3])}"
-        elif b6 == 0:
-            # B6 = 0 means the video didn't deliver on the essence_rationale —
-            # this is the master quality gate. Other items don't compensate.
+        elif b5 is not None and b5 < 2:
             forced_bad = True
-            forced_reason = "B6 = 0：视频未兑现 essence_rationale 声明的'本质'"
+            forced_reason = "B5 < 2：成片没有提供可核对的完整数学一致性证据"
+        elif b6 is not None and b6 < 2:
+            # Production-quality cold starts must fully deliver the declared
+            # essence; partial delivery is useful feedback, not a pass.
+            forced_bad = True
+            forced_reason = "B6 < 2：视频仅部分兑现 essence_rationale 声明的本质"
         elif b_total is not None and b_total < 7:
             forced_bad = True
             forced_reason = f"B 段总分 {b_total}/12 < 7"
+        elif overall != "good":
+            forced_bad = True
+            forced_reason = f"整体质量仅为 {overall or 'unknown'}；生产门禁要求 good"
         if forced_bad and overall != "bad":
             payload["overall_quality"] = "bad"
             overall = "bad"
@@ -339,10 +622,22 @@ class InspectVideoTool(ITool):
             # call can route via classify_visual_failure (block vs global).
             ctx.state["last_inspect_payload"] = payload
             ctx.state["last_error_source"] = "inspect"
+            b_scores = payload.get("b_scores") or {}
+            proof_failure = int(b_scores.get("b5") or 0) < 2 or int(b_scores.get("b6") or 0) < 2
+            # Preserve a runnable source for one focused visual repair when
+            # the proof is sound and the failure is layout/pace/transition.
+            # Replan immediately for broken evidence, or after that one local
+            # repair fails to reach production quality.
+            if proof_failure or ctx.state.get("visual_local_fix_attempted"):
+                ctx.state["force_visual_replan"] = True
+            else:
+                ctx.state.pop("force_visual_replan", None)
         else:
             ctx.state["last_visual_failed"] = False
             ctx.state["visual_fail_count"] = 0
             ctx.state.pop("last_inspect_payload", None)
+            ctx.state.pop("visual_local_fix_attempted", None)
+            ctx.state.pop("force_visual_replan", None)
 
         ctx.state["last_visual_review"] = payload
         if isinstance(issues, list) and issues:
@@ -351,12 +646,16 @@ class InspectVideoTool(ITool):
             fix = payload.get("fix_suggestion") or []
             extra_lines = [f"建议：{x}" for x in fix[:1]] if fix else []
             ctx.state["last_visual_issues"] = "；".join(
-                [str(x) for x in issues[:5]] + extra_lines
+                [str(x) for x in technical_critical[:3]]
+                + [str(x) for x in issues[:5]]
+                + extra_lines
             )
+        elif technical_critical:
+            ctx.state["last_visual_issues"] = "；".join(technical_critical[:5])
         elif forced_reason:
             ctx.state["last_visual_issues"] = forced_reason
 
-        b_summary = f" B={b_total}/10" if b_total is not None else ""
+        b_summary = f" B={b_total}/12" if b_total is not None else ""
         bl_summary = f" 黑名单 {len(blacklist)} 条" if blacklist else ""
 
         return ToolResult(
@@ -366,4 +665,23 @@ class InspectVideoTool(ITool):
                 + (f"，问题 {len(issues)} 条" if issues else "")
             ),
             data=payload,
+            artifacts=[
+                ArtifactSpec(
+                    kind="quality_report",
+                    filename=f"quality-turn{ctx.turn_index:02d}.json",
+                    content=json.dumps(payload, ensure_ascii=False, indent=2),
+                    meta={
+                        "overall_quality": overall,
+                        "b_total": b_total,
+                        "math_consistency": b5,
+                        "essence_delivery": b6,
+                        "technical_pass": not technical_critical,
+                        "width": technical_metrics.get("width"),
+                        "height": technical_metrics.get("height"),
+                        "fps": technical_metrics.get("fps"),
+                        "duration_s": technical_metrics.get("duration_s"),
+                        "has_audio": technical_metrics.get("has_audio"),
+                    },
+                )
+            ],
         )

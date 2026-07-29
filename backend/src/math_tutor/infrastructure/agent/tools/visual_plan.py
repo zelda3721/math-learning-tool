@@ -1,24 +1,11 @@
-"""visual_plan — choose how to *visually* tell the story before writing code.
+"""Open-world visual direction for a verified mathematical solution.
 
-This is the explicit "Visual Director" step that fixes the most common
-failure mode in code-driven math video pipelines: when LLMs lack an
-explicit visual mode, they default to throwing chain-of-thought text on
-the screen ("PPT 翻页"). By forcing a structured plan up front (with
-`role: transform` mandatory), we make "must have a real animation" a
-hard contract instead of a soft hint.
-
-Output is markdown:
-  ## 视觉计划
-  **primary_pattern**: <one of 14 enum values>
-  **secondary_pattern**: <optional>
-  ### 场景 N
-  - role: setup|transform|reveal|verify
-  - key_objects: ...
-  - action: ...
-  - invariant: ...
-  ### 反模式禁用清单
-  - ...
+The contract deliberately describes *semantics* (what changes, what stays
+invariant, and where attention should move) instead of choosing a problem
+type or a named animation template.  New and transformed problems therefore
+use the same planner without extending an enum.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,92 +13,18 @@ import logging
 import re
 from typing import Any
 
-from ....application.interfaces import (
-    ChatMessage,
-    ILLMProvider,
-    ITool,
-    ToolContext,
-    ToolResult,
-)
+from ....application.interfaces import ChatMessage, ILLMProvider, ITool, ToolContext, ToolResult
 from .. import markdown_extract as md
-from ..occupancy_table import Zone, parse_zone
+from ..occupancy_table import parse_zone
 from ..prompt_library import PromptLibrary
 
 logger = logging.getLogger(__name__)
 
-
-_VALID_PATTERNS = {
-    "transformation_invariant",
-    "area_model",
-    "dissection_proof",
-    "limit_exhaustion",
-    "number_line",
-    "dimension_lift",
-    "symmetry_rotation",
-    "covariation_pair",
-    "bar_model",
-    "discrete_grouping",
-    "partition_whole",
-    "isomorphism_metaphor",
-    "extremes_sweep",
-    "real_world_anchor",
-}
-
-# Compact one-liner catalog — always present in the prompt so the LLM knows
-# which 14 enums are valid. Detailed examples for matched-relevant patterns
-# are injected separately via the `matched_pattern_details` slot.
-_PATTERN_CATALOG_TEXT = "\n".join(
-    [
-        "- `transformation_invariant` 变换揭示守恒（鸡兔同笼抬脚法、分数等值变形）",
-        "- `area_model` 面积模型（(a+b)²、两位数乘法、分配律）",
-        "- `dissection_proof` 拼图证明（勾股定理、几何级数）",
-        "- `limit_exhaustion` 极限可视（割圆术、积分、导数）",
-        "- `number_line` 数轴对应（整数加减、不等式）",
-        "- `dimension_lift` 维度跃迁（向量、复数、面积→体积）",
-        "- `symmetry_rotation` 对称/旋转复用结构（等腰、正多边形）",
-        "- `covariation_pair` 同步演化双面板（函数图象、相关速率）",
-        "- `bar_model` 线段图/条形模型（和差倍、行程、分数应用题、比例）",
-        "- `discrete_grouping` 离散物体合并/分组（加减、阵列乘法、等分）",
-        "- `partition_whole` 整体↔部分（分数、百分比、概率）",
-        "- `isomorphism_metaphor` 类比同构（行列式=面积比、卷积=滑窗）",
-        "- `extremes_sweep` 反例/极端化（参数扫描看极端形态）",
-        "- `real_world_anchor` 物理/真实世界锚定（速度、概率、分数=切披萨）",
-    ]
-)
-
-# Map from visual_plan archetypes (14) to the closest skills/patterns/*.md
-# code-pattern files (17). One archetype can map to multiple code patterns;
-# generate_manim_code uses this to inject *only* the relevant code (instead
-# of dumping all matched patterns from match_skill).
-_ARCHETYPE_TO_CODE_PATTERNS = {
-    "transformation_invariant": ["transformation", "assumption"],
-    "area_model": ["area_model"],
-    "dissection_proof": ["dissection_proof"],
-    "limit_exhaustion": ["limit_exhaustion"],
-    "number_line": ["counting", "comparison"],
-    "dimension_lift": ["dimension_lift", "coordinate"],
-    "symmetry_rotation": [],
-    "covariation_pair": ["covariation_pair", "coordinate"],
-    "bar_model": ["bar_model", "journey", "comparison"],
-    "discrete_grouping": ["counting", "partition"],
-    "partition_whole": ["partition"],
-    "isomorphism_metaphor": [],
-    "extremes_sweep": ["extremes_sweep"],
-    "real_world_anchor": ["journey"],
-}
-
-
-def archetype_to_code_pattern_names(archetype: str) -> list[str]:
-    """Public helper used by generate_manim_code for dynamic loading.
-    Returns the list of pattern md filenames most relevant to a given
-    visual_plan primary_pattern archetype."""
-    return list(_ARCHETYPE_TO_CODE_PATTERNS.get(archetype or "", []))
-
 _VALID_ROLES = {"setup", "transform", "reveal", "verify"}
-
-# "Why-style" signal words. essence_rationale must contain at least one to
-# pass — this is a forcing function: if the LLM can't articulate WHY in any
-# of these terms, it's writing fluff and will produce fluff code.
+_SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
+_BACKTICKS = "`'\"‘’“”"
+_ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
+_SINGLE_ANCHOR_RE = re.compile(r"\b([A-Fa-f][1-6])\b")
 _WHY_SIGNAL_WORDS = (
     "为什么",
     "因为",
@@ -125,234 +38,185 @@ _WHY_SIGNAL_WORDS = (
     "不变",
     "原理",
     "让学生",
-    "让人",
     "意味着",
     "保持",
-    "对称",
-    "变换",
     "变化",
     "等价",
-    "同步",
-    "互相",
 )
 
 
-def _zones_overlap(a: Zone, b: Zone) -> bool:
-    """Return True if anchor rectangles overlap (any shared cell)."""
-    a_anchors = {x.label for x in a.anchors()}
-    b_anchors = {x.label for x in b.anchors()}
-    return bool(a_anchors & b_anchors)
+def archetype_to_code_pattern_names(archetype: str) -> list[str]:
+    """Compatibility shim for old callers; production no longer maps types."""
+    return []
 
 
-def _validate_essence_rationale(text: str, primary: str) -> list[str]:
-    """essence_rationale must (a) be non-trivial, (b) say something more
-    than just the pattern name, (c) actually explain a "why"."""
-    errs: list[str] = []
-    t = (text or "").strip()
-    if not t:
-        errs.append(
-            "缺少 essence_rationale 字段：必须 30-200 字说明'为什么这种讲法揭示本质'"
-        )
-        return errs
-
-    # Strip trivial padding
-    if len(t) < 20:
-        errs.append(
-            f"essence_rationale 太短（{len(t)} 字）：至少 30 字，需要解释'为什么'"
-        )
-    if len(t) > 400:
-        errs.append(
-            f"essence_rationale 过长（{len(t)} 字）：控制在 200 字内，重点突出"
-        )
-
-    # Trivial rephrasing of the pattern name
-    if primary and t.lower().count(primary.lower()) >= 1 and len(t) < 60:
-        errs.append(
-            "essence_rationale 只是在重复 primary_pattern 名，没有解释'为什么揭示本质'"
-        )
-
-    # Must contain a why-style signal word
-    if not any(w in t for w in _WHY_SIGNAL_WORDS):
-        errs.append(
-            "essence_rationale 没有'为什么类'信号词（揭示/本质/对应/守恒/等量/不变/为什么/让...看到 等）；"
-            "光说'用图形展示'不算，要说清楚学生通过这个画面看到了什么不变量/等量/对应"
-        )
-
-    return errs
+def _parse_plan_audit(
+    text: str,
+) -> tuple[bool, list[str], list[str], dict[str, Any] | None] | None:
+    payload = md.parse_json_anywhere(text)
+    if not isinstance(payload, dict) or not isinstance(payload.get("consistent"), bool):
+        return None
+    issues = payload.get("issues") or []
+    checked = payload.get("checked_claims") or []
+    if not isinstance(issues, list) or not isinstance(checked, list):
+        return None
+    return (
+        payload["consistent"],
+        [str(item) for item in issues if str(item).strip()],
+        [str(item) for item in checked if str(item).strip()],
+        payload.get("corrected_plan")
+        if isinstance(payload.get("corrected_plan"), dict)
+        else None,
+    )
 
 
-_SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
-
-
-# ----- Lenient post-parse cleanup --------------------------------------------
-# LLMs frequently emit 80%-correct output with formatting noise (markdown
-# backticks around values, multiple zones in one field, smart quotes, etc.).
-# Rather than rejecting these and looping forever, we clean them up here so
-# the validator only sees structurally meaningful violations.
-
-_BACKTICKS = "`'\"‘’“”"
-
-
-def _strip_decorations(s: str) -> str:
-    """Remove markdown / quote / smart-quote decorations a value-string."""
-    if not s:
-        return ""
-    t = s.strip()
-    # Strip outer pairs of backticks/quotes (markdown code-formatting)
-    while len(t) >= 2 and t[0] in _BACKTICKS and t[-1] in _BACKTICKS:
-        t = t[1:-1].strip()
-    return t
-
-
-def _fuzzy_match_pattern(value: str) -> str:
-    """Map a noisy primary_pattern to one of the 14 valid enums.
-
-    Tries:
-      1. exact (case-insensitive) match
-      2. substring match against any enum
-      3. enum-contains-value
-    Returns "" if no plausible match.
-    """
-    if not value:
-        return ""
-    cleaned = _strip_decorations(value).lower().strip("` '\"")
-    for p in _VALID_PATTERNS:
-        if p == cleaned:
-            return p
-    for p in _VALID_PATTERNS:
-        if p.lower() == cleaned:
-            return p
-    # Substring either way
-    for p in _VALID_PATTERNS:
-        if p.lower() in cleaned or cleaned in p.lower():
-            return p
-    return ""
-
-
-_ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
-_SINGLE_ANCHOR_RE = re.compile(r"\b([A-Fa-f][1-6])\b")
+def _strip_decorations(value: str) -> str:
+    text = str(value or "").strip()
+    while len(text) >= 2 and text[0] in _BACKTICKS and text[-1] in _BACKTICKS:
+        text = text[1:-1].strip()
+    return text
 
 
 def _clean_zone(value: str) -> str:
-    """Pick the first valid zone-like substring out of a noisy field.
-
-    LLMs sometimes emit 'A1-F1, B2-E5' or '`B2-E5`' or 'B2 to E5 (top)'.
-    """
-    if not value:
-        return ""
-    t = _strip_decorations(value)
-    m = _ZONE_LIKE_RE.search(t)
-    if m:
-        return m.group(0).replace(" ", "")
-    # Fall back to single anchor if present
-    m2 = _SINGLE_ANCHOR_RE.search(t)
-    if m2:
-        return m2.group(1).upper()
-    return t.strip()
+    text = _strip_decorations(value)
+    match = _ZONE_LIKE_RE.search(text)
+    if match:
+        return match.group(0).replace(" ", "")
+    match = _SINGLE_ANCHOR_RE.search(text)
+    return match.group(1).upper() if match else text
 
 
 def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Apply lenient cleanup across the whole plan dict in place."""
     if not isinstance(plan, dict):
         return plan
 
-    # Primary / secondary pattern names — fuzzy-match to valid enum
-    raw_primary = plan.get("primary_pattern") or ""
-    matched = _fuzzy_match_pattern(raw_primary)
-    if matched:
-        plan["primary_pattern"] = matched
-    else:
-        plan["primary_pattern"] = _strip_decorations(raw_primary).lower()
-
-    raw_secondary = plan.get("secondary_pattern") or ""
-    if raw_secondary:
-        matched_s = _fuzzy_match_pattern(raw_secondary)
-        plan["secondary_pattern"] = matched_s if matched_s else _strip_decorations(raw_secondary)
-
-    # essence_rationale — strip wrapping decorations only, leave content alone
+    # Backward-compatible read of stored plans.  The legacy value is treated
+    # as free prose; it is never matched against or converted to an enum.
+    thesis = plan.get("visual_thesis") or plan.get("primary_pattern") or ""
+    plan["visual_thesis"] = _strip_decorations(thesis)
+    plan.pop("primary_pattern", None)
+    plan.pop("secondary_pattern", None)
     plan["essence_rationale"] = _strip_decorations(plan.get("essence_rationale") or "")
 
-    # Scene-level cleanup
+    ledger = plan.get("symbol_ledger") or []
+    if isinstance(ledger, str):
+        ledger = [x.strip() for x in re.split(r"[\n;；]+", ledger) if x.strip()]
+    plan["symbol_ledger"] = ledger if isinstance(ledger, list) else []
+
     scenes = plan.get("scenes") or []
     if isinstance(scenes, list):
-        for s in scenes:
-            if not isinstance(s, dict):
+        for scene in scenes:
+            if not isinstance(scene, dict):
                 continue
-            s["role"] = _strip_decorations(s.get("role") or "").lower()
-            s["anchor_zone"] = _clean_zone(s.get("anchor_zone") or "")
-            s["key_objects"] = _strip_decorations(s.get("key_objects") or "")
-            s["action"] = _strip_decorations(s.get("action") or "")
-            s["invariant"] = _strip_decorations(s.get("invariant") or "")
+            for field in (
+                "role",
+                "key_objects",
+                "action",
+                "invariant",
+                "attention_target",
+                "exit_condition",
+                "teaching_line",
+            ):
+                scene[field] = _strip_decorations(scene.get(field) or "")
+            scene["role"] = scene["role"].lower()
+            scene["anchor_zone"] = _clean_zone(scene.get("anchor_zone") or "")
+            # Preserve semantic safety without spending another LLM call on
+            # omitted boilerplate fields. Core objects/action/attention and
+            # teaching_line remain mandatory and are never synthesized.
+            if not scene["invariant"]:
+                scene["invariant"] = "已验证解答中的数学关系、对象含义和符号账本映射保持不变"
+            if not scene["exit_condition"] and scene["attention_target"]:
+                scene["exit_condition"] = (
+                    "当前动作完成，且学生能够清楚观察：" + scene["attention_target"]
+                )
+            try:
+                scene["duration_s"] = float(scene.get("duration_s") or 0)
+            except (TypeError, ValueError):
+                scene["duration_s"] = 0.0
 
-    # forbidden — strip per-bullet decorations
     forbidden = plan.get("forbidden") or []
-    if isinstance(forbidden, list):
-        plan["forbidden"] = [_strip_decorations(x) for x in forbidden if x]
-
+    if isinstance(forbidden, str):
+        forbidden = [x.strip() for x in forbidden.splitlines() if x.strip()]
+    plan["forbidden"] = [
+        _strip_decorations(x) for x in forbidden if isinstance(x, str) and x.strip()
+    ]
     return plan
 
 
-def _parse_plan(done: Any) -> dict[str, Any] | None:
-    for source in (
-        getattr(done, "text", "") or "",
-        getattr(done, "reasoning", "") or "",
-    ):
-        if not source:
-            continue
-        section: str | None = None
-        for alias in _SECTION_ALIASES:
-            section = md.find_section(source, alias, level=2) or md.find_section(source, alias)
-            if section is not None:
-                break
-        if section is not None:
-            payload = _md_to_plan(section)
-            payload = _normalize_plan(payload)
-            if payload.get("primary_pattern") and payload.get("scenes"):
-                return payload
-        json_payload = md.parse_json_anywhere(source)
-        if json_payload and json_payload.get("primary_pattern"):
-            return _normalize_plan(json_payload)
-    return None
-
-
 def _md_to_plan(section: str) -> dict[str, Any]:
-    primary = md.get_field(section, "primary_pattern", "primary pattern", "主模式")
-    secondary_raw = md.get_field(section, "secondary_pattern", "secondary pattern", "副模式")
-    secondary = "" if secondary_raw.strip() in ("无", "none", "None", "—", "") else secondary_raw
-    essence_rationale = md.get_field(
-        section, "essence_rationale", "本质", "rationale", "为什么", "原理"
+    thesis = md.get_field(
+        section,
+        "visual_thesis",
+        "visual thesis",
+        "视觉论点",
+        "视觉主线",
+        "primary_pattern",
+        "primary pattern",
+        "主模式",
     )
+    rationale = md.get_field(section, "essence_rationale", "本质", "rationale", "为什么", "原理")
+    ledger_raw = md.get_field(section, "symbol_ledger", "symbol ledger", "符号账本")
 
-    scenes: list[dict[str, Any]] = []
+    scenes: list[dict[str, str]] = []
     for heading, body in md.find_subsections(section, level=3):
-        h_lower = heading.lower()
-        if "场景" not in heading and not h_lower.startswith("scene"):
+        if "场景" not in heading and not heading.lower().startswith("scene"):
             continue
-        kv = md.get_kv_dict(body)
-        # Lower-case keys for case-insensitive lookup.
-        lowered = {k.lower(): v for k, v in kv.items()}
+        values = {k.lower(): v for k, v in md.get_kv_dict(body).items()}
         scenes.append(
             {
-                "role": (lowered.get("role") or "").strip().lower(),
-                "anchor_zone": (lowered.get("anchor_zone") or lowered.get("zone") or "").strip(),
-                "key_objects": lowered.get("key_objects") or lowered.get("objects") or "",
-                "action": lowered.get("action") or "",
-                "invariant": lowered.get("invariant") or "",
+                "role": (values.get("role") or "").strip().lower(),
+                "anchor_zone": (values.get("anchor_zone") or values.get("zone") or "").strip(),
+                "key_objects": values.get("key_objects") or values.get("objects") or "",
+                "action": values.get("action") or "",
+                "invariant": values.get("invariant") or "",
+                "attention_target": values.get("attention_target") or "",
+                "exit_condition": values.get("exit_condition") or "",
+                "teaching_line": values.get("teaching_line") or "",
+                "duration_s": values.get("duration_s") or "",
             }
         )
 
     forbidden_section = md.find_section(section, "反模式禁用清单") or md.find_section(
         section, "forbidden"
     )
-    forbidden = md.get_bullets(forbidden_section)
-
     return {
-        "primary_pattern": primary.strip(),
-        "secondary_pattern": secondary.strip(),
-        "essence_rationale": essence_rationale.strip(),
+        "visual_thesis": thesis.strip(),
+        "essence_rationale": rationale.strip(),
+        "symbol_ledger": ledger_raw,
         "scenes": scenes,
-        "forbidden": forbidden,
+        "forbidden": md.get_bullets(forbidden_section),
     }
+
+
+def _parse_plan(done: Any) -> dict[str, Any] | None:
+    for source in (getattr(done, "text", "") or "", getattr(done, "reasoning", "") or ""):
+        if not source:
+            continue
+        payload = md.parse_json_anywhere(source)
+        if isinstance(payload, dict):
+            normalized = _normalize_plan(payload)
+            if normalized.get("visual_thesis") and normalized.get("scenes"):
+                return normalized
+        for alias in _SECTION_ALIASES:
+            section = md.find_section(source, alias, level=2) or md.find_section(source, alias)
+            if section is None:
+                continue
+            normalized = _normalize_plan(_md_to_plan(section))
+            if normalized.get("visual_thesis") and normalized.get("scenes"):
+                return normalized
+    return None
+
+
+def _validate_essence_rationale(text: str) -> list[str]:
+    value = (text or "").strip()
+    errors: list[str] = []
+    if len(value) < 20:
+        errors.append("essence_rationale 至少 20 字，需解释画面为何能证明或解释结论")
+    if len(value) > 400:
+        errors.append("essence_rationale 超过 400 字，请聚焦一个核心数学关系")
+    if value and not any(word in value for word in _WHY_SIGNAL_WORDS):
+        errors.append("essence_rationale 必须说明学生通过画面看见了什么对应、变化或不变量")
+    return errors
 
 
 def _validate_plan(
@@ -362,101 +226,60 @@ def _validate_plan(
     previous_pattern: str = "",
     is_replan: bool = False,
 ) -> list[str]:
-    """Return a list of contract violations. Empty = plan is valid."""
-    errs: list[str] = []
-    primary = (plan.get("primary_pattern") or "").strip()
-    if primary not in _VALID_PATTERNS:
-        errs.append(
-            f"primary_pattern '{primary}' 不在 14 个允许枚举内"
-        )
+    """Validate a universal scene contract, never a problem-type taxonomy."""
+    del grade, previous_pattern, is_replan
+    errors: list[str] = []
+    thesis = (plan.get("visual_thesis") or "").strip()
+    if len(thesis) < 12:
+        errors.append("visual_thesis 太短：请用一句完整的话描述观众最终要看懂的视觉论证")
+    errors.extend(_validate_essence_rationale(plan.get("essence_rationale") or ""))
 
-    # essence_rationale: the single most important quality check
-    errs.extend(_validate_essence_rationale(plan.get("essence_rationale") or "", primary))
+    ledger = plan.get("symbol_ledger") or []
+    if len(ledger) < 1:
+        errors.append("symbol_ledger 至少 1 项，固定关键对象/颜色/符号的全片含义")
 
     scenes = plan.get("scenes") or []
     if len(scenes) < 3:
-        errs.append(f"场景数 {len(scenes)} < 3")
-    roles = [s.get("role", "") for s in scenes]
-    if "transform" not in roles:
-        errs.append("缺少 role=transform 场景（核心动画必须存在）")
-    parsed_zones: list[tuple[int, Zone]] = []
-    for i, s in enumerate(scenes, start=1):
-        r = s.get("role", "")
-        if r and r not in _VALID_ROLES:
-            errs.append(f"场景 {i} role='{r}' 不在允许集合 {sorted(_VALID_ROLES)}")
-        if not (s.get("key_objects") or "").strip():
-            errs.append(f"场景 {i} key_objects 为空（屏幕上必须有图形）")
-        zone_label = (s.get("anchor_zone") or "").strip()
-        if not zone_label:
-            errs.append(f"场景 {i} anchor_zone 为空（必须用 6×6 网格声明位置，如 'A1-F1'）")
-        else:
-            zone = parse_zone(zone_label)
-            if zone is None:
-                errs.append(f"场景 {i} anchor_zone='{zone_label}' 不符合 6×6 网格格式（如 'B3-E5'）")
-            else:
-                parsed_zones.append((i, zone))
-
-    # Same-time scenes must not collide on the same anchor cell.
-    # Heuristic: setup/transform/reveal that do NOT explicitly say "after
-    # FadeOut" (we can't tell from the plan) are assumed to share screen.
-    # Conservative rule: two scenes with the same role can't overlap zones.
-    by_role: dict[str, list[tuple[int, Zone]]] = {}
-    for i, z in parsed_zones:
-        role = scenes[i - 1].get("role", "")
-        by_role.setdefault(role, []).append((i, z))
-    for role, zlist in by_role.items():
-        if len(zlist) <= 1:
+        errors.append(f"场景数 {len(scenes)} < 3")
+    if "transform" not in [s.get("role", "") for s in scenes if isinstance(s, dict)]:
+        errors.append("缺少 role=transform 场景（必须让数学状态真实发生变化）")
+    for index, scene in enumerate(scenes, start=1):
+        if not isinstance(scene, dict):
+            errors.append(f"场景 {index} 不是对象")
             continue
-        for a_i, a_z in zlist:
-            for b_i, b_z in zlist:
-                if a_i >= b_i:
-                    continue
-                if _zones_overlap(a_z, b_z):
-                    errs.append(
-                        f"场景 {a_i} ({a_z.label}) 与场景 {b_i} ({b_z.label}) "
-                        f"同为 role={role} 但 anchor 重叠"
-                    )
+        role = scene.get("role", "")
+        if role not in _VALID_ROLES:
+            errors.append(f"场景 {index} role='{role}' 不在允许集合 {sorted(_VALID_ROLES)}")
+        for field in (
+            "key_objects",
+            "action",
+            "invariant",
+            "attention_target",
+            "exit_condition",
+            "teaching_line",
+        ):
+            if not (scene.get(field) or "").strip():
+                errors.append(f"场景 {index} {field} 为空")
+        duration = float(scene.get("duration_s") or 0)
+        if duration < 2 or duration > 20:
+            errors.append(f"场景 {index} duration_s={duration:g}，应在 2-20 秒之间")
+        zone = (scene.get("anchor_zone") or "").strip()
+        if not zone or parse_zone(zone) is None:
+            errors.append(f"场景 {index} anchor_zone='{zone}' 不符合 6×6 网格格式")
 
-    forbidden = plan.get("forbidden") or []
-    if len(forbidden) < 2:
-        errs.append("反模式清单至少 2 条")
-
-    # Elementary problems: discourage overly abstract archetypes. For elementary
-    # math, non-algebraic methods (假设法 / 线段图 / 比例 / 列表) ARE the principle-
-    # revealing solutions — they're Chinese-elementary-math classics for a reason.
-    # Pushing a kid through dimensional lifts, covariation pairs, or isomorphism
-    # metaphors hides the visual intuition. Recommended primary patterns for
-    # elementary: bar_model / transformation_invariant / discrete_grouping /
-    # partition_whole / area_model / number_line / real_world_anchor.
-    _ELEMENTARY_TOO_ABSTRACT = {
-        "isomorphism_metaphor",
-        "covariation_pair",
-        "dimension_lift",
-        "extremes_sweep",
-    }
-    if grade and grade.startswith("elementary"):
-        if primary in _ELEMENTARY_TOO_ABSTRACT:
-            errs.append(
-                f"小学题不该用 {primary}（过于抽象）——改 bar_model / "
-                f"transformation_invariant / discrete_grouping / partition_whole / "
-                f"area_model / number_line / real_world_anchor 中之一"
-            )
-
-    # Replan must change primary_pattern — patching the same pattern is what
-    # we're trying to escape from.
-    if is_replan and previous_pattern and primary == previous_pattern:
-        errs.append(
-            f"重新规划必须换 primary_pattern，不能继续用 '{primary}'"
-        )
-
-    return errs
+    # Scenes are temporal beats, so reusing a zone later is valid.  Collision
+    # checks belong to per-frame code/video validation, not cross-beat plans.
+    if len(plan.get("forbidden") or []) < 2:
+        errors.append("反模式清单至少 2 条")
+    total_duration = sum(
+        float(scene.get("duration_s") or 0) for scene in scenes if isinstance(scene, dict)
+    )
+    if scenes and not 12 <= total_duration <= 120:
+        errors.append(f"计划总时长 {total_duration:g}s，应在 12-120 秒之间")
+    return errors
 
 
 class VisualPlanTool(ITool):
-    """Step between solve_problem and generate_manim_code: pick a visual
-    pattern and outline scenes with hard contracts (must have a transform
-    scene, must use a known pattern). Defends against PPT-flip degradation."""
-
     def __init__(self, llm: ILLMProvider, prompts: PromptLibrary) -> None:
         self._llm = llm
         self._prompts = prompts
@@ -468,10 +291,8 @@ class VisualPlanTool(ITool):
     @property
     def description(self) -> str:
         return (
-            "在 generate_manim_code 之前调用一次。基于 solve_problem 的步骤，"
-            "决定用 14 种视觉模式中的哪一种讲这道题，并产出 3+ 场景脚本（必须"
-            "包含 role=transform）。这是防止视频退化为'PPT 翻页'的关键步骤——"
-            "如果跳过，generate_manim_code 会默认把推理链打成 Text。"
+            "在代码生成前调用。直接从已验证解答提炼开放式视觉论点和逐场景语义，"
+            "不匹配题型、不选择预设模板；计划必须包含真实数学变换和视觉验证。"
         )
 
     @property
@@ -490,124 +311,77 @@ class VisualPlanTool(ITool):
         grade = args.get("grade") or ctx.grade
         if not problem:
             return ToolResult(success=False, summary="缺少题目", error="empty_problem")
+        if ctx.state.get("solution_verified") is not True:
+            return ToolResult(
+                success=False,
+                summary="解答尚未通过 verify_solution，不能开始视觉规划",
+                error="solution_not_verified",
+            )
 
         analysis = ctx.state.get("analysis")
         analysis_section = ""
         if analysis:
-            try:
-                analysis_section = (
-                    "## 题目分析（来自 analyze_problem）\n"
-                    f"```json\n{json.dumps(analysis, ensure_ascii=False, indent=2)}\n```"
-                )
-            except Exception:
-                pass
-
+            analysis_section = (
+                "## 题目语义（来自 analyze_problem）\n"
+                f"```json\n{json.dumps(analysis, ensure_ascii=False, indent=2)}\n```"
+            )
+        solution = ctx.state.get("solution") or {}
         steps = ctx.state.get("solution_steps") or []
-        ans = ctx.state.get("solution_answer") or ""
+        answer = ctx.state.get("solution_answer") or ""
+        solution_lines = []
+        for i, step in enumerate(steps[:10], start=1):
+            if not isinstance(step, dict):
+                continue
+            solution_lines.append(
+                f"{i}. {str(step.get('description') or '')[:140]}\n"
+                f"   运算：{str(step.get('operation') or '')[:240]}\n"
+                f"   结果：{str(step.get('result') or '')[:160]}"
+            )
+        key_points = solution.get("key_points") or []
         solution_section = ""
-        if steps:
-            step_lines = []
-            for i, s in enumerate(steps, start=1):
-                desc = s.get("description") or ""
-                op = s.get("operation") or ""
-                step_lines.append(f"{i}. {desc}（运算：{op}）")
+        if solution_lines:
             solution_section = (
-                "## 解题步骤（来自 solve_problem）\n"
-                + "\n".join(step_lines)
-                + (f"\n\n最终答案：{ans}" if ans else "")
+                "## 已验证解答\n"
+                + "\n".join(solution_lines)
+                + (f"\n\n最终答案：{answer}" if answer else "")
             )
-
-        patterns = ctx.state.get("matched_patterns") or []
-        patterns_section = ""
-        if isinstance(patterns, list) and patterns:
-            names = [
-                f"- {p.get('name')}：{(p.get('description') or '')[:60]}"
-                for p in patterns[:3] if isinstance(p, dict)
-            ]
-            if names:
-                patterns_section = (
-                    "## 已匹配模式（来自 match_skill）\n"
-                    + "\n".join(names)
-                    + "\n\n*这些是初步候选，最终 primary_pattern 可以不一样。*"
+            if key_points:
+                solution_section += "\n\n独立检查证据：\n" + "\n".join(
+                    f"- {str(item)[:240]}" for item in key_points[:10]
                 )
 
-        # Dynamic loading: only inject *detailed* descriptions for the
-        # patterns that match_skill flagged as relevant — keeps prompt
-        # short while giving the model focused inspiration.
-        matched_pattern_details = ""
-        if isinstance(patterns, list) and patterns:
-            chunks: list[str] = []
-            for p in patterns[:2]:
-                if not isinstance(p, dict):
-                    continue
-                pname = p.get("name") or ""
-                pdesc = p.get("description") or ""
-                if not pname:
-                    continue
-                # Only the first 250 chars of description as inspiration —
-                # the model just needs to know the gist. core_code is for
-                # generate_manim_code, not visual_plan.
-                chunks.append(f"### {pname}\n{pdesc[:250]}")
-            if chunks:
-                matched_pattern_details = (
-                    "### 重点参考（基于题目分析自动选出，可作为首选 primary_pattern）\n"
-                    + "\n\n".join(chunks)
-                )
-
-        # If a previous visual plan was rejected by inspect_video, push the
-        # reason to the prompt as a forced replan signal.
-        replan_hint = ""
-        if ctx.state.get("last_visual_failed") and ctx.state.get("visual_fail_count", 0) >= 1:
-            prev_plan = ctx.state.get("visual_plan") or {}
-            prev_pattern = prev_plan.get("primary_pattern", "?")
-            issues = ctx.state.get("last_visual_issues") or ""
-            replan_hint = (
-                f"\n\n## ⚠️ 重新规划（上一份视觉计划失败）\n"
-                f"上次 primary_pattern={prev_pattern} 被评审判 bad，问题：{issues[:200]}\n"
-                f"**这次必须换一个 primary_pattern**，不能重复上次。"
+        feedback = ""
+        if ctx.state.get("last_visual_failed"):
+            issues = str(ctx.state.get("last_visual_issues") or "")[:500]
+            feedback += (
+                "\n\n## 上次成片反馈\n"
+                f"{issues}\n请定位失败的具体画面机制并重写相应 beat；不要机械更换一个模式名称。"
             )
-
-        # If validator rejected the *previous* visual_plan call (within this
-        # same agent loop, so structured retry), include the violation list +
-        # last attempt so the LLM can fix the specific issues instead of
-        # blindly re-emitting from scratch.
-        validator_retry_hint = ""
-        last_violations = ctx.state.get("visual_plan_last_violations") or []
-        last_attempt_text = ctx.state.get("visual_plan_last_attempt") or ""
-        if last_violations:
-            violations_md = "\n".join(f"  - {v}" for v in last_violations[:8])
-            attempt_excerpt = (last_attempt_text or "")[:1200]
-            validator_retry_hint = (
-                "\n\n## ⚠️ 上一次输出被校验拒绝（请精确修复，别重写整份计划）\n"
-                f"### 违规清单\n{violations_md}\n\n"
-                "### 上次输出片段（请基于这个 80% 的版本只修复违规）\n"
-                f"```\n{attempt_excerpt}\n```\n\n"
-                "**修复要点**：保留有效字段；只针对违规清单逐条改；"
-                "primary_pattern 必须是 14 个枚举里的纯名称（不要反引号、不要引号）；"
-                "anchor_zone 一个场景写一个值（如 'B3-E5'，不要写多个）；"
-                "两个 transform 场景要分时显示 → 用不同 anchor_zone。"
+        violations = ctx.state.get("visual_plan_last_violations") or []
+        if violations:
+            feedback += "\n\n## 上次计划的结构问题\n" + "\n".join(
+                f"- {item}" for item in violations[:10]
             )
+        extra_directives = str(ctx.state.get("extra_directives") or "").strip()
+        if extra_directives:
+            feedback += "\n\n## 用户对本次成片的额外要求\n" + extra_directives[:1000]
 
         prompt = self._prompts.render(
             "visual_plan",
             grade=grade,
             problem=problem,
-            pattern_catalog=_PATTERN_CATALOG_TEXT,
-            matched_pattern_details=matched_pattern_details,
             analysis_section=analysis_section,
             solution_section=solution_section,
-            patterns_section=patterns_section + replan_hint + validator_retry_hint,
+            feedback_section=feedback,
         )
-
         try:
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
-                temperature=0.4,
-                # 6144: even with thinking off, retry attempts include
-                # the previous attempt + violation list, which extends the
-                # input. Output also pads up when the model writes the
-                # essence_rationale paragraph carefully. 6K leaves comfort.
-                max_tokens=6144,
+                # Planning is a contract-writing stage. Low variance makes
+                # the first plan internally consistent; diversity belongs in
+                # explicit experiments, not in production retries.
+                temperature=0.25,
+                max_tokens=4096,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         except Exception as exc:
@@ -616,105 +390,116 @@ class VisualPlanTool(ITool):
 
         plan = _parse_plan(done)
         if plan is None:
-            text = getattr(done, "text", "") or ""
-            reasoning = getattr(done, "reasoning", "") or ""
-            finish = getattr(done, "finish_reason", "?")
-            logger.warning(
-                "visual_plan: parse failed | finish=%s text_len=%d "
-                "reasoning_len=%d text_head=%r reasoning_head=%r",
-                finish, len(text), len(reasoning),
-                text[:200], reasoning[:200],
+            return ToolResult(success=False, summary="无法解析视觉计划", error="parse_failed")
+        errors = _validate_plan(plan, grade)
+        if errors:
+            ctx.state["visual_plan_last_violations"] = errors
+            ctx.state["visual_plan_retry_count"] = (
+                int(ctx.state.get("visual_plan_retry_count", 0)) + 1
             )
-            # finish_reason='length' = max_tokens hit before model could emit
-            # the final structured answer. Surface a clearer summary so the
-            # agent loop can either retry with a tighter prompt or give up
-            # gracefully (and so the user can see in the timeline what went
-            # wrong).
-            if str(finish).lower() == "length":
-                summary = "视觉规划被 max_tokens 截断，重试或简化输入"
-            else:
-                summary = "无法从模型输出解析「## 视觉计划」section"
             return ToolResult(
                 success=False,
-                summary=summary,
-                error="parse_failed",
-                data={
-                    "finish_reason": finish,
-                    "text_head": text[:600],
-                    "reasoning_head": reasoning[:600],
-                },
-            )
-
-        prev_plan = ctx.state.get("visual_plan") or {}
-        prev_pattern = prev_plan.get("primary_pattern", "")
-        is_replan = bool(ctx.state.get("last_visual_failed")) and bool(prev_pattern)
-
-        violations = _validate_plan(
-            plan, grade, previous_pattern=prev_pattern, is_replan=is_replan
-        )
-        if violations:
-            # Persist what failed + raw text so the *next* visual_plan call
-            # can include them in the prompt (rather than re-prompting from
-            # scratch, which leads to the same failure mode again and again).
-            ctx.state["visual_plan_last_violations"] = violations
-            ctx.state["visual_plan_last_attempt"] = (
-                getattr(done, "text", "") or getattr(done, "reasoning", "") or ""
-            )[:2000]
-            retry_count = int(ctx.state.get("visual_plan_retry_count", 0)) + 1
-            ctx.state["visual_plan_retry_count"] = retry_count
-
-            # Budget control: after N attempts, give up and let the agent
-            # proceed without a visual_plan (degraded mode handled by the
-            # caller / prompt_composer workflow).
-            BUDGET = 3
-            if retry_count >= BUDGET:
-                logger.warning(
-                    "visual_plan: %d failed attempts, giving up. last violations: %s",
-                    retry_count, violations,
-                )
-                return ToolResult(
-                    success=False,
-                    summary=(
-                        f"视觉计划连续 {retry_count} 次违反硬约束，已放弃。"
-                        f"agent 应直接调 generate_manim_code（无 visual_plan）继续。"
-                        f"最后违规：{'；'.join(violations[:2])}"
-                    ),
-                    data={"plan": plan, "violations": violations, "exhausted": True},
-                    error="visual_plan_budget_exhausted",
-                )
-
-            return ToolResult(
-                success=False,
-                summary=(
-                    f"视觉计划违反硬约束（第 {retry_count}/{BUDGET} 次）："
-                    + "；".join(violations[:3])
-                ),
-                data={"plan": plan, "violations": violations, "retry_count": retry_count},
+                summary="视觉计划结构不完整：" + "；".join(errors[:3]),
+                data={"plan": plan, "violations": errors},
                 error="contract_violation",
             )
 
-        # Reset retry counter on success
-        ctx.state["visual_plan_retry_count"] = 0
+        # A structurally valid plan can still contain contradictory numbers
+        # or an action whose end state does not prove its caption. Audit this
+        # artifact before code generation so the code model never receives a
+        # mathematically unstable directing contract.
+        audit_warning: str | None = None
+        try:
+            audit_done = await self._llm.chat_complete(
+                messages=[
+                    ChatMessage(
+                        role="user",
+                        content=self._prompts.render(
+                            "audit_visual_plan",
+                            problem=problem,
+                            answer=answer,
+                            steps_text="\n".join(solution_lines),
+                            visual_plan_text=json.dumps(plan, ensure_ascii=False, indent=2),
+                        ),
+                    )
+                ],
+                temperature=0.0,
+                max_tokens=4096,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            audit_text = (getattr(audit_done, "text", "") or "") or (
+                getattr(audit_done, "reasoning", "") or ""
+            )
+            audit = _parse_plan_audit(audit_text)
+        except Exception as exc:
+            logger.exception("visual plan audit failed")
+            audit = None
+            audit_warning = f"视觉计划独立审计调用失败: {exc}"
+        if audit is None:
+            audit_warning = audit_warning or "视觉计划独立审计格式无效"
+        else:
+            consistent, audit_issues, checked_claims, corrected_plan = audit
+            blocking = [
+                issue
+                for issue in audit_issues
+                if issue.startswith("BLOCKING:")
+                and "observed=" in issue
+                and "expected=" in issue
+            ]
+            if not consistent and blocking:
+                corrected_errors: list[str] = []
+                if corrected_plan is not None:
+                    corrected_plan = _normalize_plan(corrected_plan)
+                    corrected_errors = _validate_plan(corrected_plan, grade)
+                if corrected_plan is not None and not corrected_errors:
+                    plan = corrected_plan
+                    plan["audit_auto_corrected"] = True
+                    plan["audit_resolved_issues"] = blocking[:3]
+                else:
+                    violations = blocking + corrected_errors
+                    ctx.state["visual_plan_last_violations"] = violations
+                    ctx.state["visual_plan_retry_count"] = (
+                        int(ctx.state.get("visual_plan_retry_count", 0)) + 1
+                    )
+                    return ToolResult(
+                        success=False,
+                        summary="视觉计划数学契约不一致：" + "；".join(violations[:2]),
+                        data={"plan": plan, "violations": violations},
+                        error="plan_math_inconsistent",
+                    )
+            plan["audit_checked_claims"] = checked_claims
+        if audit_warning:
+            plan["audit_warning"] = audit_warning
+
+        # Keep the session-level attempt history. Resetting it here used to
+        # make a later visual replan look like another cold start.
         ctx.state["visual_plan_last_violations"] = []
-        ctx.state["visual_plan_last_attempt"] = ""
-
-        # Persist for downstream tools.
         ctx.state["visual_plan"] = plan
-        ctx.state["visual_pattern"] = plan["primary_pattern"]
+        ctx.state["visual_thesis"] = plan["visual_thesis"]
+        ctx.state["visual_pattern"] = plan["visual_thesis"]  # legacy state reader
         ctx.state["essence_rationale"] = plan.get("essence_rationale") or ""
-        ctx.state["last_visual_failed"] = False  # reset so generate sees a clean slate
-
-        scenes_summary = ", ".join(
-            f"{s['role']}({(s.get('key_objects') or '')[:12]})" for s in plan["scenes"]
-        )
-        rationale_preview = (plan.get("essence_rationale") or "")[:50]
+        ctx.state["last_visual_failed"] = False
+        ctx.state.pop("force_visual_replan", None)
+        ctx.state.pop("visual_local_fix_attempted", None)
+        for key in (
+            "latest_manim_code",
+            "latest_video_path",
+            "latest_video_url",
+            "last_visual_review",
+            "last_validation_issues",
+            "last_validation_passed",
+            "last_run_error",
+            "last_visual_issues",
+            "last_inspect_payload",
+            "last_error_source",
+            "fix_attempt_count",
+            "last_fix_scope",
+        ):
+            ctx.state.pop(key, None)
         return ToolResult(
             success=True,
             summary=(
-                f"视觉计划：{plan['primary_pattern']}"
-                + (f" + {plan['secondary_pattern']}" if plan["secondary_pattern"] else "")
-                + f"，{len(plan['scenes'])} 场景"
-                + (f"；本质：{rationale_preview}…" if rationale_preview else "")
+                f"开放式视觉计划完成：{len(plan['scenes'])} 个 beat；{plan['visual_thesis'][:60]}"
             ),
             data=plan,
         )
