@@ -29,13 +29,14 @@ class ProcessProblemRequest(BaseModel):
     problem: str
     grade: EducationLevel = EducationLevel.ELEMENTARY_UPPER
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
-                "problem": "鸡兔同笼，头35脚94，各多少？",
+                "problem": "输入任意数学问题",
                 "grade": "elementary_upper",
             }
         }
+    }
 
 
 class ProcessProblemResponse(BaseModel):

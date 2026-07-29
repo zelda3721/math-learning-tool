@@ -2,10 +2,13 @@
 """
 Diagnose LMStudio (or any OpenAI-compatible) chat/completions failures.
 
-Builds the exact payload the harness AgentLoop sends — full system prompt,
-all 6 tool definitions, the user's grade — then POSTs via raw httpx so the
+Builds a legacy free-form controller payload — system prompt and the current
+production tool definitions — then POSTs via raw httpx so the
 upstream error body is visible. The openai SDK turns server errors into
 `Error code: 502` and discards the body; this script does not.
+
+The default bounded workflow no longer makes this controller request; this
+script remains useful when diagnosing `AGENT_DETERMINISTIC_WORKFLOW=false`.
 
 Usage:
     python scripts/diagnose_lmstudio.py
@@ -31,8 +34,6 @@ from math_tutor.infrastructure.agent import LearnedMemory, PromptComposer
 from math_tutor.infrastructure.agent.tools import build_default_registry
 from math_tutor.infrastructure.llm import OpenAILLMProvider
 from math_tutor.infrastructure.manim import ManimExecutor
-from math_tutor.infrastructure.skills import FileSkillRepository
-from math_tutor.infrastructure.storage import Database, ExamplesStore
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,15 +66,11 @@ async def main() -> int:
     args = parse_args()
     settings = get_settings()
 
-    skills_dir = ROOT / "backend" / "src" / "math_tutor" / "infrastructure" / "skills" / "definitions"
     llm = OpenAILLMProvider(
         base_url=settings.llm_api_base,
         api_key=settings.llm_api_key,
         default_model=settings.llm_model,
     )
-    skill_repo = FileSkillRepository(skills_dir)
-    db = Database(settings.resolved_db_path)
-    examples = ExamplesStore(db)
     learned = LearnedMemory(settings.resolved_data_dir)
     video_gen = ManimExecutor(
         output_dir=settings.manim_output_dir, quality=settings.manim_quality
@@ -81,11 +78,8 @@ async def main() -> int:
 
     registry = build_default_registry(
         llm=llm,
-        skill_repo=skill_repo,
-        examples_store=examples,
         video_generator=video_gen,
         use_latex=settings.manim_use_latex,
-        learned_memory=learned,
     )
     all_tools = [t.to_openai_format() for t in registry.list_definitions()]
     if args.tool:

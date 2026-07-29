@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+import ipaddress
 from urllib.parse import urlparse
 
 import httpx
@@ -27,7 +28,13 @@ def _is_local_url(url: str) -> bool:
         return False
     if not host:
         return False
-    return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or host.endswith(".local")
+    if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or host.endswith(".local"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+        return address.is_private or address.is_loopback or address.is_link_local
+    except ValueError:
+        return False
 
 
 class OpenAIEmbeddingProvider(IEmbeddingProvider):

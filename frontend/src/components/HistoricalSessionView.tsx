@@ -13,14 +13,26 @@ interface Props {
 }
 
 export function HistoricalSessionView({ detail, onBack }: Props) {
-    const { session, messages, tool_calls, artifacts, feedback } = detail
+    const { session, quality, messages, tool_calls, artifacts, feedback } = detail
 
-    const videoArtifact = useMemo(() => artifacts.find((a) => a.kind === 'video'), [artifacts])
+    // Retries append artifacts in chronological order. Always show the final
+    // render that passed the quality gate, not the first failed attempt.
+    const videoArtifact = useMemo(
+        () => [...artifacts].reverse().find((a) => a.kind === 'video'),
+        [artifacts],
+    )
     const manimArtifact = useMemo(
-        () => artifacts.find((a) => a.kind === 'manim_code'),
+        () => [...artifacts].reverse().find((a) => a.kind === 'manim_code'),
+        [artifacts],
+    )
+    const subtitleArtifact = useMemo(
+        () => [...artifacts].reverse().find((a) => a.kind === 'subtitle'),
         [artifacts],
     )
     const videoUrl = pickVideoUrl(videoArtifact?.path, videoArtifact?.meta)
+    const subtitleUrl = subtitleArtifact
+        ? `/api/v1/sessions/${session.id}/artifacts/${subtitleArtifact.id}`
+        : null
 
     return (
         <div className="space-y-4 animate-fade-in-up">
@@ -33,6 +45,45 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                 </button>
                 <span className="text-xs text-slate-400">会话 {session.id.slice(0, 8)}</span>
             </div>
+
+            {quality && (
+                <div className="bento-card bg-white/70">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                        <h3 className="font-bold text-sm text-slate-700">成片质量报告</h3>
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${quality.quality_gate_passed
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                            }`}>
+                            {quality.overall_quality} · B {quality.b_total ?? '—'}/12
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <Metric label="首轮通过" value={quality.first_pass_success ? '是' : '否'} />
+                        <Metric label="数学一致性" value={`${quality.math_consistency ?? '—'}/2`} />
+                        <Metric label="本质兑现" value={`${quality.essence_delivery ?? '—'}/2`} />
+                        <Metric label="工具总耗时" value={`${(quality.total_tool_latency_ms / 1000).toFixed(1)}s`} />
+                        <Metric
+                            label="视频规格"
+                            value={quality.video.width
+                                ? `${quality.video.width}×${quality.video.height} · ${Number(quality.video.fps ?? 0).toFixed(0)}fps`
+                                : '—'}
+                        />
+                        <Metric
+                            label="时长"
+                            value={quality.video.duration_s != null ? `${Number(quality.video.duration_s).toFixed(1)}s` : '—'}
+                        />
+                        <Metric
+                            label="重试次数"
+                            value={String(Object.values(quality.retry_counts).reduce((sum, value) => sum + value, 0))}
+                        />
+                        <Metric label="技术门禁" value={quality.technical_pass ? '通过' : '未通过'} />
+                        <Metric
+                            label="讲解轨道"
+                            value={quality.has_audio ? '旁白 + 字幕' : quality.has_subtitles ? '字幕' : '缺失'}
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="bento-card bg-white/70">
                 <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
@@ -53,7 +104,17 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                     className={`bento-card ${manimArtifact ? 'md:col-span-8' : 'md:col-span-12'} bg-slate-900 min-h-[260px] border-none relative`}
                 >
                     {videoUrl ? (
-                        <video src={videoUrl} controls className="w-full h-full object-contain rounded-xl" />
+                        <video src={videoUrl} controls className="w-full h-full object-contain rounded-xl">
+                            {subtitleUrl && (
+                                <track
+                                    kind="captions"
+                                    src={subtitleUrl}
+                                    srcLang="zh"
+                                    label="中文讲解"
+                                    default
+                                />
+                            )}
+                        </video>
                     ) : (
                         <div className="text-center text-slate-500 py-12">未保存视频</div>
                     )}
@@ -164,6 +225,15 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                     </ul>
                 </div>
             )}
+        </div>
+    )
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+            <p className="text-slate-400 mb-0.5">{label}</p>
+            <p className="font-semibold text-slate-700">{value}</p>
         </div>
     )
 }

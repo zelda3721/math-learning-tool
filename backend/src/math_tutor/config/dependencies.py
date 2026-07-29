@@ -19,6 +19,7 @@ from ..application.interfaces import (
 )
 from ..infrastructure.skills import FileSkillRepository
 from ..infrastructure.manim import ManimExecutor
+from ..infrastructure.media import NarrationPostProcessor
 from ..infrastructure.llm import (
     OpenAIEmbeddingProvider,
     OpenAILLMProvider,
@@ -54,6 +55,7 @@ _semantic_index_instance: SemanticIndex | None = None
 _rerank_provider_instance: IRerankProvider | None = None
 _learned_memory_instance: LearnedMemory | None = None
 _prompt_library_instance: PromptLibrary | None = None
+_wiki_ingester_instance: WikiIngester | None = None
 
 
 def get_skill_repository() -> ISkillRepository:
@@ -72,6 +74,7 @@ def get_video_generator(
     return ManimExecutor(
         output_dir=settings.manim_output_dir,
         quality=settings.manim_quality,
+        render_timeout_s=settings.manim_render_timeout_s,
     )
 
 
@@ -283,20 +286,25 @@ def _get_tool_registry(settings: Settings) -> ToolRegistry:
         _tool_registry_instance = build_default_registry(
             llm=_get_llm_provider(settings),
             fast_llm=_get_fast_llm_provider(settings),
-            skill_repo=get_skill_repository(),
-            examples_store=ExamplesStore(_get_database(settings)),
             video_generator=ManimExecutor(
                 output_dir=settings.manim_output_dir,
                 quality=settings.manim_quality,
+                render_timeout_s=settings.manim_render_timeout_s,
             ),
             use_latex=settings.manim_use_latex,
             prompts=_get_prompt_library(),
-            learned_memory=_get_learned_memory(settings),
             vision_llm=_get_vision_provider(settings),
             vision_model=settings.resolved_vision_model,
-            semantic_index=_get_semantic_index(settings),
-            rerank_provider=_get_rerank_provider(settings),
-            rerank_pool_size=settings.llm_rerank_pool_size,
+            narration=NarrationPostProcessor(
+                enabled=settings.narration_tts_enabled,
+                api_base=settings.narration_tts_api_base,
+                api_key=settings.narration_tts_api_key,
+                model=settings.narration_tts_model,
+                voice=settings.narration_tts_voice,
+                speed=settings.narration_tts_speed,
+                timeout_s=settings.narration_tts_timeout_s,
+            ),
+            subtitles_enabled=settings.narration_subtitles_enabled,
         )
     return _tool_registry_instance
 
@@ -307,13 +315,11 @@ def get_tool_registry(
     return _get_tool_registry(settings)
 
 
-def get_agent_loop(
-    settings: Settings = Depends(get_settings),
-) -> AgentLoop:
-    """Construct an AgentLoop bound to the singleton dependencies."""
-    # Optional learned-wiki ingester (LEARNED_WIKI_ENABLED=true)
-    wiki_ingester = None
-    if settings.learned_wiki_enabled:
+def _get_wiki_ingester(settings: Settings) -> WikiIngester | None:
+    if not settings.learned_wiki_enabled:
+        return None
+    global _wiki_ingester_instance
+    if _wiki_ingester_instance is None:
         wiki = LearnedWiki(settings.resolved_learned_wiki_dir)
         # Tell the RITL-DOC retriever to merge in learned lessons too
         from ..infrastructure.agent.manim_api_kb import get_kb as _get_manim_kb
@@ -321,7 +327,7 @@ def get_agent_loop(
         # _get_fast_llm_provider falls back to main LLM internally if no
         # FAST endpoint configured — always returns a valid provider.
         ingest_llm = _get_fast_llm_provider(settings)
-        wiki_ingester = WikiIngester(
+        _wiki_ingester_instance = WikiIngester(
             wiki=wiki,
             llm=ingest_llm,
             prompts=_get_prompt_library(),
@@ -329,6 +335,19 @@ def get_agent_loop(
                 _get_database(settings), _get_file_archive(settings)
             ),
         )
+    return _wiki_ingester_instance
+
+
+def get_wiki_ingester(
+    settings: Settings = Depends(get_settings),
+) -> WikiIngester | None:
+    return _get_wiki_ingester(settings)
+
+
+def get_agent_loop(
+    settings: Settings = Depends(get_settings),
+) -> AgentLoop:
+    """Construct an AgentLoop bound to the singleton dependencies."""
 
     return AgentLoop(
         llm=_get_llm_provider(settings),
@@ -340,5 +359,6 @@ def get_agent_loop(
         max_turns=settings.llm_agent_max_turns,
         per_turn_max_tokens=settings.llm_agent_loop_max_tokens,
         tool_timeout_s=settings.llm_tool_timeout_s,
-        wiki_ingester=wiki_ingester,
+        wiki_ingester=_get_wiki_ingester(settings),
+        deterministic_workflow=settings.agent_deterministic_workflow,
     )

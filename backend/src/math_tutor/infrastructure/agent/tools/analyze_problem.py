@@ -1,4 +1,4 @@
-"""analyze_problem — combined classification + deep understanding.
+"""analyze_problem — open-world semantic decomposition.
 
 Output is markdown structured as `## 分析` + `**字段**: 值` + `### Section` + `- item` lists.
 Parsed leniently with `markdown_extract`. JSON output is also accepted as a fallback.
@@ -46,12 +46,12 @@ def _parse_analysis(done: Any) -> dict[str, Any] | None:
         )
         if section is not None:
             payload = _md_to_dict(section)
-            if payload.get("problem_type") or payload.get("strategy"):
+            if payload.get("question") or payload.get("known_conditions"):
                 return payload
         # JSON fallback
         json_payload = md.parse_json_anywhere(source)
         if json_payload and (
-            json_payload.get("problem_type") or json_payload.get("strategy")
+            json_payload.get("question") or json_payload.get("known_conditions")
         ):
             return json_payload
     return None
@@ -59,12 +59,13 @@ def _parse_analysis(done: Any) -> dict[str, Any] | None:
 
 def _md_to_dict(section: str) -> dict[str, Any]:
     return {
-        "problem_type": md.get_field(section, "问题类型", "problem_type", "类型"),
         "difficulty": md.get_field(section, "难度", "difficulty"),
         "question": md.get_field(section, "求解目标", "question", "目标"),
-        "strategy": md.get_field(section, "推荐策略", "strategy", "策略"),
-        "concepts": md.get_bullets(md.find_section(section, "涉及概念")),
+        "objects": md.get_bullets(md.find_section(section, "数学对象")),
+        "relations": md.get_bullets(md.find_section(section, "关系")),
         "known_conditions": md.get_bullets(md.find_section(section, "已知条件")),
+        "constraints": md.get_bullets(md.find_section(section, "约束与假设")),
+        "prerequisites": md.get_bullets(md.find_section(section, "受众前置知识")),
         "key_values": {
             k: _coerce_number(v)
             for k, v in md.get_kv_dict(md.find_section(section, "关键数值")).items()
@@ -84,8 +85,8 @@ class AnalyzeProblemTool(ITool):
     @property
     def description(self) -> str:
         return (
-            "对数学题做结构化分析。返回题目类型、难度、涉及概念、已知条件、"
-            "求解目标、关键数值、推荐解题策略。强烈建议在生成代码前先调用一次。"
+            "对当前数学问题做开放式语义分解。返回数学对象、关系、约束、已知条件、"
+            "求解目标、关键数值和受众前置知识；不判断题型、不匹配模板。"
         )
 
     @property
@@ -148,9 +149,9 @@ class AnalyzeProblemTool(ITool):
         return ToolResult(
             success=True,
             summary=(
-                f"题型 {payload.get('problem_type') or '?'} / "
-                f"难度 {payload.get('difficulty') or '?'} / "
-                f"策略 {payload.get('strategy') or '未指定'}"
+                f"语义分析完成：目标 {payload.get('question') or '?'} / "
+                f"{len(payload.get('relations') or [])} 个关系 / "
+                f"难度 {payload.get('difficulty') or '?'}"
             ),
             data=payload,
         )

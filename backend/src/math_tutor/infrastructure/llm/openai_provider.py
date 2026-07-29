@@ -9,6 +9,7 @@ Qwen3-style `<think>...</think>` reasoning blocks and the
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
@@ -511,7 +512,7 @@ def _parse_hermes_tool_calls(text: str) -> list[ToolCallEvent]:
 
 
 def _is_local_url(url: str) -> bool:
-    """Return True when the URL points at the local machine."""
+    """Return True for loopback, LAN, and mDNS model endpoints."""
     try:
         host = (urlparse(url).hostname or "").lower()
     except Exception:
@@ -520,7 +521,13 @@ def _is_local_url(url: str) -> bool:
         return False
     if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
         return True
-    return host.endswith(".local")
+    if host.endswith(".local"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+        return address.is_private or address.is_loopback or address.is_link_local
+    except ValueError:
+        return False
 
 
 def _short_error(exc: Exception) -> str:

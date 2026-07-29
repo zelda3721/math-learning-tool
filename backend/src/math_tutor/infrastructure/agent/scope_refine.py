@@ -14,9 +14,9 @@ Three scopes:
   global — regenerate the whole file (current default behavior)
 
 Escalation policy (default budgets — caller can override):
-  K_line   = 2   line attempts before bumping to block
-  K_block  = 2   block attempts before bumping to global
-  K_global = 1   global attempt before triggering visual_plan replan
+  K_line   = 1   one focused fallback
+  K_block  = 1   one focused fallback
+  K_global = 1   one full-context fallback
 
 Usage:
   >>> scope = classify_error_scope(err_text, source="run")
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 Scope = Literal["line", "block", "global"]
 
-DEFAULT_BUDGETS: dict[Scope, int] = {"line": 2, "block": 2, "global": 1}
+DEFAULT_BUDGETS: dict[Scope, int] = {"line": 1, "block": 1, "global": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +44,7 @@ DEFAULT_BUDGETS: dict[Scope, int] = {"line": 2, "block": 2, "global": 1}
 # ---------------------------------------------------------------------------
 
 _LINE_RE = re.compile(r"\bline\s+(\d+)", re.IGNORECASE)
+_TRACEBACK_LOCATION_RE = re.compile(r"\.py:(\d+)\s+in\s+[^\s]+", re.IGNORECASE)
 _SYNTAX_HINTS = (
     "syntaxerror",
     "indentationerror",
@@ -125,15 +126,23 @@ def extract_error_line(error_text: str) -> int | None:
     if not error_text:
         return None
     matches = _LINE_RE.findall(error_text)
+    traceback_matches: list[str] = []
+    if not matches:
+        # Rich/Python tracebacks commonly render locations as
+        # `/tmp/generated.py:132 in construct` instead of `line 132`.
+        traceback_matches = _TRACEBACK_LOCATION_RE.findall(error_text)
+        matches = traceback_matches
     if len(matches) == 1:
         try:
             return int(matches[0])
         except ValueError:
             return None
     if matches:
-        # Multiple line numbers — take the first one as primary.
+        # A traceback is ordered caller → deepest failing frame, so its last
+        # location is the generated-code line we need. Syntax diagnostics in
+        # `line N` form keep their first/primary location.
         try:
-            return int(matches[0])
+            return int(matches[-1] if traceback_matches else matches[0])
         except ValueError:
             return None
     return None

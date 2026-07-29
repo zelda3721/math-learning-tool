@@ -2,71 +2,59 @@
 generate_manim_code — produce / fix Manim code with full visualization rules.
 
 Static rules live in `prompt_templates/generate_manim.md`. Per-call we
-assemble the conditional sections (skill / pattern / examples / fix mode)
-in Python and inject them into the template's `{slot}` placeholders.
+inject only the current verified solution, its open-world visual plan, and
+error-local documentation in fix mode.  Similar-problem templates are kept
+out of the production prompt so an unseen problem cannot be forced into a
+closed taxonomy.
 """
+
 from __future__ import annotations
 
+import ast
+import json
 import logging
 import re
+import textwrap
 from typing import Any
 
 from ....application.interfaces import (
     ArtifactSpec,
     ChatMessage,
     ILLMProvider,
-    ISkillRepository,
     ITool,
     ToolContext,
     ToolResult,
 )
-from ...storage import ExamplesStore
-from ..learned_memory import LearnedMemory
-from ..prompt_library import PromptLibrary
 from .. import scope_refine as sref
 from ..manim_api_kb import get_kb as get_manim_kb
-from .visual_plan import archetype_to_code_pattern_names
+from ..prompt_library import PromptLibrary
 
 logger = logging.getLogger(__name__)
 
 
-_LATEX_OFF = (
-    "系统未安装 LaTeX，**严禁使用 MathTex / Tex / Matrix**，"
-    "所有公式用 Text 表示。"
-)
+_LATEX_OFF = "系统未安装 LaTeX，**严禁使用 MathTex / Tex / Matrix**，所有公式用 Text 表示。"
 _LATEX_ON = "已安装 LaTeX。可使用 MathTex 显示英文公式；中文仍推荐 Text。"
 
 
-# 通用原则（适用所有年级）：用数形结合揭示第一性原理。对小学题，非代数
-# 解法（假设法/线段图/比例法）就是最揭示原理的解法——视频里**不应出现 x /
-# 设未知数 / 解方程组**等代数符号链条，应让画面用图形+比例直接展示原理。
 _GRADE_HINT: dict[str, str] = {
     "elementary_lower": (
-        "小学低年级：用具象单位（苹果/动物/糖果），颜色明亮可爱；"
-        "图形数量 ≥ 文字数量；演示要慢、可数。"
-        "**视频里不应出现 x / 设未知数 / 代数式**"
+        "小学低年级：从可直接观察和操作的对象开始；一次只引入一个关系，"
+        "语言短、节奏慢，符号必须在视觉含义建立后才出现。"
     ),
     "elementary_upper": (
-        "小学高年级：用**线段图、列表、面积模型、阵列、假设法、比例法**——"
-        "对这类题就是最揭示第一性的视觉。\n"
-        "  · 鸡兔同笼 → 抬腿动画（假设法）\n"
-        "  · 行程相遇 → 线段图标出 A/B/C/M1/M2，用 Brace 标距离，比例条同步\n"
-        "  · 分数应用 → 把整体画成长条/圆，按分数切片\n"
-        "**视频里不应出现 x / 设未知数 / 解方程组**——"
-        "即使解题步骤里偶尔提到方程，画面也用图形+比例直接展示原理，"
-        "不要把方程行打到屏幕"
+        "小学高年级：先呈现数量之间的可见关系，再逐步压缩为符号表达；"
+        "关键操作应可暂停、可复述，避免长串抽象推导。"
     ),
     "middle": (
-        "初中：双面板（几何+代数同步）、坐标图象、几何变换；"
-        "解方程时配天平/面积模型；不要让屏幕只有公式行"
+        "初中：符号变化要和一个稳定视觉表征同步；明确变量、约束和变化方向，不要让屏幕只剩公式行。"
     ),
     "high": (
-        "高中：函数图象、参数扫描、覆盖逼近、向量箭头、坐标变换；"
-        "三角函数用单位圆 + 旋转角度同步图象；导数用切线斜率随点移动"
+        "高中：允许多表征同步，但每个时刻只有一个注意焦点；用连续变化、"
+        "局部强调和最终回代建立因果链。"
     ),
     "advanced": (
-        "大学及以上：矩阵=空间扭曲、积分=矩形条求和的极限、复数=旋转；"
-        "**最容易掉进纯符号陷阱**——每一步代数都要配几何同步"
+        "大学及以上：可使用二维、三维或动态参数表示；抽象符号必须有稳定的"
+        "空间或行为语义，并明确假设、边界与验证。"
     ),
 }
 
@@ -101,16 +89,430 @@ def _format_steps(steps: list[dict[str, Any]] | Any) -> str:
 
 
 def _extract_code(content: str) -> str:
-    match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    match = re.search(r"```\n(.*?)```", content, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return content.strip()
+    """Extract Python even when a local model forgets the closing fence.
+
+    Token-limited models quite commonly emit `````python`` and then hit the
+    output limit before writing the final fence.  Requiring a balanced pair
+    made the fence itself become line 1 of the saved source, which then sent
+    the workflow into an expensive regenerate loop.
+    """
+    value = (content or "").replace("\r\n", "\n").strip()
+    opener = re.search(r"```(?:python|py)?[ \t]*\n", value, re.IGNORECASE)
+    if opener:
+        body = value[opener.end() :]
+        closer = re.search(r"\n```(?:[ \t]*$|[ \t]*\n)", body)
+        if closer:
+            body = body[: closer.start()]
+        return body.strip()
+
+    # Some OpenAI-compatible backends prepend one sentence despite a
+    # pure-source instruction.  The import is a reliable language boundary.
+    start = value.find("from manim import")
+    if start > 0:
+        value = value[start:]
+    return re.sub(r"\n```[ \t]*$", "", value).strip()
 
 
 def _sanitize_code(code: str) -> str:
+    # Mechanical compatibility migrations are safer and much faster than
+    # asking the model to rewrite an otherwise valid scene.  These aliases
+    # preserve animation semantics across ManimCE versions.
+    code = re.sub(r"\bShowCreation\b", "Create", code)
+    # ManimCE shapes do not accept the matplotlib-style ``fill=True``
+    # keyword.  Generated scenes often already provide fill_opacity; dropping
+    # the boolean preserves that intended fill and avoids a render-only
+    # TypeError.  When no opacity is present, an outline is safer than
+    # guessing a visual value.
+    code = re.sub(
+        r"(?P<prefix>[,(]\s*)fill\s*=\s*True\s*,?\s*",
+        r"\g<prefix>",
+        code,
+    )
+    # Line/VMobject in ManimCE 0.19 does not accept this matplotlib-style
+    # dash keyword.  A solid line preserves topology; use DashedLine when
+    # dashing itself carries meaning.
+    code = re.sub(
+        r"(?P<prefix>[,(]\s*)stroke_dash_array\s*=\s*\[[^\]]*\]\s*,?\s*",
+        r"\g<prefix>",
+        code,
+    )
+    # `NONE` is not a Manim color constant. Models commonly use the SVG/CSS
+    # idiom `stroke_color=NONE` when they mean a transparent outline.
+    code = re.sub(r"\bstroke_color\s*=\s*NONE\b", "stroke_opacity=0", code)
+    # Only the first `.animate` creates Manim's animation builder. A second
+    # `.animate` in the same chain resolves as a method wrapper and crashes.
+    code = re.sub(
+        r"(?m)(\.animate\.[^,\n]*?)\.animate\.",
+        r"\1.",
+        code,
+    )
+    # Never make a mobject become a group that contains itself: Manim's copy
+    # graph then recurses forever. Rebinding the local variable preserves the
+    # intended grouped panel and subsequent positioning/return statements.
+    code = re.sub(
+        r"(?m)^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\.become\(VGroup\("
+        r"(?P=var),\s*(?P<rest>[^\n]+)$",
+        lambda match: (
+            f"{match.group('indent')}{match.group('var')} = VGroup("
+            f"{match.group('var')}, {match.group('rest')[:-1]}"
+        ),
+        code,
+    )
+    # NumberLine's default numeric labels are TeX-backed. Use Pango Text in
+    # no-LaTeX deployments even when the generated source contains no Tex.
+    def _number_line_without_latex(match: re.Match[str]) -> str:
+        body = match.group("body")
+        if "label_constructor" not in body:
+            body = re.sub(
+                r"include_numbers\s*=\s*True",
+                "include_numbers=True, label_constructor=Text",
+                body,
+            )
+        return f"NumberLine({body})"
+
+    code = re.sub(
+        r"NumberLine\((?P<body>[^)]*include_numbers\s*=\s*True[^)]*)\)",
+        _number_line_without_latex,
+        code,
+    )
+    # Once a NumberLine is the visible coordinate reference, positions must
+    # use its own mapping. A separate `value * SCALE` disagrees whenever the
+    # line has a non-zero range start or was moved/resized.
+    axis_match = re.search(
+        r"(?m)^[ \t]*(?P<axis>axis|number_line|[A-Za-z_]\w*(?:_axis|_number_line))"
+        r"\s*=\s*(?:NumberLine|[A-Za-z_]\w*)\(",
+        code,
+        re.IGNORECASE,
+    )
+    if axis_match and "NumberLine(" in code:
+        axis_name = axis_match.group("axis")
+        code = re.sub(
+            r"\[\s*(?P<x>[^,\[\]]+?)\s*\*\s*SCALE\s*,\s*"
+            r"(?P<y>-?\d+(?:\.\d+)?)\s*,\s*0\s*\]",
+            lambda match: (
+                f"{axis_name}.n2p({match.group('x').strip()})"
+                f" + UP * ({match.group('y')})"
+            ),
+            code,
+        )
+    # ``camera.frame`` exists on MovingCameraScene, not the base Scene.
+    # Promote the generated scene instead of deleting camera behavior.
+    if re.search(r"\bself\.camera\.frame\b", code):
+        code = re.sub(
+            r"class\s+SolutionScene\s*\(\s*Scene\s*\)",
+            "class SolutionScene(MovingCameraScene)",
+            code,
+        )
+
+    # Repeated temporary caption factory calls leave every caption on screen.
+    # Normalize the common shape to one persistent object updated in place.
+    if not re.search(r"(?m)^\s*caption\s*=", code):
+        caption_call = re.compile(
+            r"^(?P<indent>[ \t]*)self\.play\(\s*(?:Write|FadeIn)\(\s*"
+            r"(?P<factory>[A-Za-z_]\w*caption\w*)\((?P<arg>TEACHING_LINES\[\s*\d+\s*\])\)"
+            r"\s*\)\s*\)\s*$",
+            re.MULTILINE | re.IGNORECASE,
+        )
+        matches = list(caption_call.finditer(code))
+        if len(matches) >= 2:
+            replacement_index = 0
+
+            def _replace_caption_call(match: re.Match[str]) -> str:
+                nonlocal replacement_index
+                replacement_index += 1
+                indent = match.group("indent")
+                factory = match.group("factory")
+                arg = match.group("arg")
+                if replacement_index == 1:
+                    return (
+                        f"{indent}caption = {factory}({arg})\n"
+                        f"{indent}self.play(Write(caption))"
+                    )
+                next_name = f"next_caption_{replacement_index}"
+                return (
+                    f"{indent}{next_name} = {factory}({arg})\n"
+                    f"{indent}self.play(Transform(caption, {next_name}))"
+                )
+
+            code = caption_call.sub(_replace_caption_call, code)
+
+    # VGroup has arrange()/arrange_in_grid(), but no arrange_in_circle() in
+    # ManimCE 0.19.  Preserve the requested spacing in a stable row layout;
+    # visual planning may choose explicit polar coordinates when a true arc
+    # carries mathematical meaning.
+    def _replace_arrange_in_circle(match: re.Match[str]) -> str:
+        args = match.group("args")
+        buff_match = re.search(r"\bbuff\s*=\s*([^,)]+)", args)
+        buff = buff_match.group(1).strip() if buff_match else "0.5"
+        return f".arrange(RIGHT, buff={buff}).move_to(ORIGIN)"
+
+    code = re.sub(
+        r"\.arrange_in_circle\((?P<args>[^)]*)\)",
+        _replace_arrange_in_circle,
+        code,
+    )
+    # Assigning to imported Manim color constants inside construct() makes
+    # every right-hand reference local and can raise UnboundLocalError (for
+    # example ``GREEN = GREEN``).  Keep the canonical constants instead.
+    code = re.sub(
+        r"(?m)^[ \t]+(?:RED|BLUE|GREEN|ORANGE|YELLOW|WHITE|BLACK|GRAY|GREY)\s*=\s*[^\n]+\n",
+        "",
+        code,
+    )
+    # Generated code often stores metadata tuples such as (i, j, line), then
+    # later expands the tuple list directly into VGroup.  VGroup only accepts
+    # Mobjects; in this established shape the final tuple item is the visual
+    # object.  Normalize the starred expansion before render time.
+    tuple_lists = set(re.findall(r"\b([A-Za-z_]\w*)\.append\s*\(\s*\([^()\n]+\)\s*\)", code))
+    for list_name in tuple_lists:
+        code = re.sub(
+            rf"\*{re.escape(list_name)}\b",
+            f"*[item[-1] for item in {list_name}]",
+            code,
+        )
+    # ``Text.set_fill(BLACK)`` colors the glyphs; it does not add a readable
+    # background.  Caption/subtitle variables commonly use it by mistake.
+    code = re.sub(
+        r"\b((?:[A-Za-z_]\w*caption\w*|caption|[A-Za-z_]\w*subtitle\w*|subtitle))\.set_fill\(\s*BLACK\s*,\s*opacity\s*=\s*([^)]+)\)",
+        r"\1.add_background_rectangle(color=BLACK, opacity=\2)",
+        code,
+        flags=re.IGNORECASE,
+    )
+    code = re.sub(
+        r"Star\(\s*scale_factor\s*=\s*([^,)]+)\s*,\s*([^)]*)\)",
+        r"Star(\2).scale(\1)",
+        code,
+    )
+    code = re.sub(
+        r"Star\(\s*scale_factor\s*=\s*([^,)]+)\s*\)",
+        r"Star().scale(\1)",
+        code,
+    )
+    if "TEACHING_LINES" in code:
+        code = re.sub(
+            r"Text\(\s*(['\"])Loading(?:\.\.\.)?\1\s*,",
+            r"Text(TEACHING_LINES[0],",
+            code,
+            flags=re.IGNORECASE,
+        )
+        # Empty Text has no points; positioning it with set_x/set_y can fail
+        # before the first caption update.
+        code = re.sub(
+            r"\b((?:[A-Za-z_]\w*caption\w*|caption|[A-Za-z_]\w*subtitle\w*|subtitle))\s*=\s*Text\(\s*(['\"])\2\s*,",
+            r"\1 = Text(TEACHING_LINES[0],",
+            code,
+            flags=re.IGNORECASE,
+        )
+    # Keep one stable caption reference; ReplacementTransform removes the
+    # original object and leaves the Python variable stale.
+    code = re.sub(
+        r"ReplacementTransform\(\s*((?:[A-Za-z_]\w*caption\w*|caption|[A-Za-z_]\w*subtitle\w*|subtitle))\s*,",
+        r"Transform(\1,",
+        code,
+        flags=re.IGNORECASE,
+    )
+    # MoveToTarget requires obj.generate_target() and obj.target mutation.
+    # Normalize the common invalid shorthand to a direct movement animation.
+    code = re.sub(
+        r"MoveToTarget\(\s*([A-Za-z_]\w*)\s*,\s*target_position\s*=\s*([A-Za-z_]\w*)\s*\)",
+        r"\1.animate.move_to(\2)",
+        code,
+    )
+    # A Python list has no Manim layout methods.  Wrapping the existing
+    # mobject references in a temporary VGroup moves the original objects and
+    # keeps later list indexing valid.
+    list_vars = set(
+        re.findall(
+            r"(?m)^[ \t]*([A-Za-z_]\w*)\s*=\s*(?:\[[^\n]*\]|\[[^\n]+\bfor\b[^\n]+\])\s*$",
+            code,
+        )
+    )
+    for list_name in list_vars:
+        code = re.sub(
+            rf"\b{re.escape(list_name)}\.(arrange(?:_in_grid)?)\(",
+            rf"VGroup(*{list_name}).\1(",
+            code,
+        )
+    # FadeIn/FadeOut accept displacement as the keyword ``shift``.  A second
+    # positional vector is interpreted as another mobject and fails inside
+    # Group construction.
+    code = re.sub(
+        r"\b(FadeIn|FadeOut)\((Text\([^\n]+\)),\s*(UP|DOWN|LEFT|RIGHT)\s*\)",
+        r"\1(\2, shift=\3)",
+        code,
+    )
+    code = re.sub(
+        r"\b(FadeIn|FadeOut)\(([A-Za-z_]\w*),\s*(UP|DOWN|LEFT|RIGHT)\s*\)",
+        r"\1(\2, shift=\3)",
+        code,
+    )
+
+    # Manim points are 3D. Local models often provide (x, y) tuples through
+    # variables named coord/pos/point, producing a broadcast error at runtime.
+    def _expand_2d_position(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if not re.search(r"(?:coord|pos|point)", name, flags=re.IGNORECASE):
+            return match.group(0)
+        return f".move_to(np.append({name}, 0) if len({name}) == 2 else {name})"
+
+    code = re.sub(
+        r"\.move_to\(\s*([A-Za-z_]\w*)\s*\)",
+        _expand_2d_position,
+        code,
+    )
+    # `move_to(x, y)` treats y as Manim's aligned_edge argument and crashes
+    # because a scalar is not a direction vector.  Two positional scalar
+    # expressions unambiguously mean a 2D coordinate; install the required z.
+    code = re.sub(
+        r"\.move_to\(\s*([^,()\n]+?)\s*,\s*([^,()\n]+?)\s*\)",
+        lambda match: f".move_to([{match.group(1).strip()}, {match.group(2).strip()}, 0])",
+        code,
+    )
+    # The same 3D-point contract applies to geometry constructor keywords.
+    # Convert literal two-component expressions while leaving named vectors
+    # and already-three-component coordinates untouched.
+    code = re.sub(
+        r"\b(start|end|point)\s*=\s*\(\s*([^,()\n]+?)\s*,\s*([^,()\n]+?)\s*\)",
+        lambda match: f"{match.group(1)}=({match.group(2).strip()}, {match.group(3).strip()}, 0)",
+        code,
+    )
+    # Do not append a fourth component when a repair uses a position that is
+    # already `[x, y, z]`; retain the safe conditional form for both cases.
+    code = re.sub(
+        r"np\.append\(\s*([A-Za-z_]\w*)\s*,\s*0(?:\.0)?\s*\)"
+        r"(?:\s+if\s+len\(\s*\1\s*\)\s*==\s*2\s+else\s+\1)?",
+        lambda match: (
+            f"np.append({match.group(1)}, 0) if len({match.group(1)}) == 2 else {match.group(1)}"
+        ),
+        code,
+    )
+
+    # Normalize two-component list literals used as positional Line endpoints.
+    # Only inspect positional arguments before the first keyword, avoiding
+    # unrelated lists in style options.
+    def _expand_line_endpoint_lists(match: re.Match[str]) -> str:
+        args = match.group(1)
+        keyword = re.search(r"\b[A-Za-z_]\w*\s*=", args)
+        split = keyword.start() if keyword else len(args)
+        positional, options = args[:split], args[split:]
+        positional = re.sub(
+            r"\[\s*([^,\[\]\n]+?)\s*,\s*([^,\[\]\n]+?)\s*\]",
+            lambda point: f"[{point.group(1).strip()}, {point.group(2).strip()}, 0]",
+            positional,
+        )
+        return f"Line({positional}{options})"
+
+    code = re.sub(r"\bLine\(([^\n]*)\)", _expand_line_endpoint_lists, code)
+    # VGroup has no Python-style get_index(item) API; Manim's dynamic
+    # attribute fallback turns this into a confusing runtime TypeError.
+    # Iterating a VGroup yields its submobjects, so list(...).index(...) is
+    # the direct, semantics-preserving equivalent.
+    code = re.sub(
+        r"\b([A-Za-z_]\w*)\.get_index\(\s*([A-Za-z_]\w*)\s*\)",
+        r"list(\1).index(\2)",
+        code,
+    )
+    # In Manim 0.20 arrange_in_grid forwards buff into vector arithmetic;
+    # a plain 2-tuple can produce a 2D-vs-3D broadcast failure. Collapse the
+    # common horizontal/vertical tuple to one safe scalar spacing.
+    code = re.sub(
+        r"(arrange_in_grid\([^\n]*?\bbuff\s*=\s*)\(\s*([^,()]+)\s*,\s*([^,()]+)\s*\)",
+        r"\1max(\2, \3)",
+        code,
+    )
+    # Text does not accept a background_rect constructor keyword in current
+    # Manim. A background can be added explicitly after construction; remove
+    # the unsupported flag so preflight does not fail before the scene starts.
+    code = re.sub(r",?\s*background_rect\s*=\s*(?:True|False)", "", code)
+    # A temporary Text chain cannot be guarded in place: scale_to_fit_width
+    # enlarges short labels as well as shrinking long ones. Split the common
+    # assignment shape into a stable variable plus a maximum-width guard.
+    # This migration is deterministic and avoids spending another LLM turn
+    # on a mechanical Manim API correction.
+    chained_text_lines: list[str] = []
+    chained_text = re.compile(
+        r"^([ \t]*)([A-Za-z_]\w*)\s*=\s*(Text\(.*)\.scale_to_fit_width\(([^()\n]+)\)\s*$"
+    )
+    for line in code.splitlines():
+        match = chained_text.match(line)
+        if not match:
+            chained_text_lines.append(line)
+            continue
+        indent, variable, expression, width = match.groups()
+        chained_text_lines.extend(
+            [
+                f"{indent}{variable} = {expression}",
+                f"{indent}if {variable}.width > {width}:",
+                f"{indent}    {variable}.scale_to_fit_width({width})",
+            ]
+        )
+    code = "\n".join(chained_text_lines)
+    # self.play expects animations as separate positional arguments, not one
+    # Python list produced by a comprehension.
+    code = re.sub(
+        r"self\.play\(\s*\[(?P<body>[^\n]+\bfor\b[^\n]+)\]\s*,",
+        r"self.play(*[\g<body>],",
+        code,
+    )
+    # A same-object Transform is a no-op and often survives repeated local
+    # fixes. Remove only the complete play statement with this exact shape.
+    code = re.sub(
+        r"(?m)^[ \t]*self\.play\(\s*Transform\(\s*([A-Za-z_]\w*)\s*,\s*\1\s*\)\s*\)[ \t]*\n?",
+        "",
+        code,
+    )
+    # A direct become() mutates an on-screen object immediately. If the same
+    # variable is then passed to Transform a few lines later, the animation
+    # starts from its destination and becomes visually empty. Remove only
+    # this close-proximity setup mutation so Transform can show the change.
+    become_lines: list[str] = []
+    source_lines = code.splitlines()
+    direct_become = re.compile(r"^[ \t]*([A-Za-z_]\w*)\.become\(")
+    for index, line in enumerate(source_lines):
+        match = direct_become.match(line)
+        if match:
+            nearby = "\n".join(source_lines[index + 1 : index + 16])
+            if re.search(rf"\bTransform\(\s*{re.escape(match.group(1))}\s*,", nearby):
+                continue
+        become_lines.append(line)
+    code = "\n".join(become_lines)
+    # Manim's scale_to_fit_width also enlarges small objects. Generated code
+    # nearly always intends a maximum-width guard for captions.
+    guarded_lines: list[str] = []
+    scale_line = re.compile(r"^([ \t]*)([A-Za-z_]\w*)\.scale_to_fit_width\(([^)\n]+)\)[ \t]*$")
+    for line in code.splitlines():
+        match = scale_line.match(line)
+        previous = next((item.strip() for item in reversed(guarded_lines) if item.strip()), "")
+        if match and previous != f"if {match.group(2)}.width > {match.group(3)}:":
+            indent, variable, width = match.groups()
+            guarded_lines.extend(
+                [
+                    f"{indent}if {variable}.width > {width}:",
+                    f"{indent}    {variable}.scale_to_fit_width({width})",
+                ]
+            )
+        else:
+            guarded_lines.append(line)
+    code = "\n".join(guarded_lines)
+    # set_height preserves aspect ratio and can turn a narrow bar into a
+    # screen-wide slab. Bar-like indicators need independent Y stretching.
+    code = re.sub(
+        r"\b([A-Za-z_]\w*bar\w*)\.set_height\(",
+        r"\1.stretch_to_fit_height(",
+        code,
+        flags=re.IGNORECASE,
+    )
+    code = re.sub(
+        r"\b([A-Za-z_]\w*bar\w*\.copy\(\))\.set_height\(",
+        r"\1.stretch_to_fit_height(",
+        code,
+        flags=re.IGNORECASE,
+    )
+    # A common model slip is to define a helper inside construct(), then call
+    # it as a Scene method. Correct only names proven to be nested functions.
+    nested_helpers = set(re.findall(r"(?m)^(?: {8}|\t{2})def\s+([A-Za-z_]\w*)\s*\(", code))
+    for helper in nested_helpers:
+        code = re.sub(rf"\bself\.{re.escape(helper)}\s*\(", f"{helper}(", code)
     code = re.sub(r",?\s*rate_func\s*=\s*(ease_\w+|easeIn\w*|easeOut\w*)", "", code)
     for color in (
         "ORANGE_E",
@@ -120,8 +522,175 @@ def _sanitize_code(code: str) -> str:
         "GREEN_E",
         "GREEN_D",
         "YELLOW_E",
+        "LIGHT_BLUE",
     ):
         code = re.sub(rf"\b{color}\b", "BLUE", code)
+    return code
+
+
+def _wrap_problem_for_card(problem: str) -> str:
+    value = " ".join((problem or "").strip().split())
+    if not value:
+        return value
+    width = 30 if re.search(r"[\u3400-\u9fff]", value) else 60
+    return "\n".join(
+        textwrap.wrap(
+            value,
+            width=width,
+            break_long_words=True,
+            break_on_hyphens=False,
+        )
+    )
+
+
+def _ensure_problem_text(code: str, problem: str) -> str:
+    """Install the exact current problem and deterministic readable wrapping."""
+    wrapped = _wrap_problem_for_card(problem)
+    literal = json.dumps(wrapped, ensure_ascii=False)
+    triple = re.compile(
+        r"(?P<prefix>\bPROBLEM_TEXT\s*=\s*)(?P<quote>\"\"\"|''')"
+        r"(?P<body>.*?)(?P=quote)",
+        re.DOTALL,
+    )
+    if triple.search(code):
+        code = triple.sub(lambda match: match.group("prefix") + literal, code)
+    else:
+        simple = re.compile(
+            r"(?P<prefix>\bPROBLEM_TEXT\s*=\s*)(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
+        )
+        if simple.search(code):
+            code = simple.sub(lambda match: match.group("prefix") + literal, code)
+        else:
+            import_match = re.search(r"(?m)^from manim import \*\s*$", code)
+            if import_match:
+                code = (
+                    code[: import_match.end()]
+                    + f"\n\nPROBLEM_TEXT = {literal}"
+                    + code[import_match.end() :]
+                )
+            else:
+                code = f"PROBLEM_TEXT = {literal}\n" + code
+
+    # Normalize inline temporary question cards to one stable object. Creating
+    # a second Text(PROBLEM_TEXT) inside FadeOut leaves the displayed instance
+    # behind and prevents lifecycle validation.
+    inline_card = re.compile(
+        r"^(?P<indent>[ \t]*)self\.play\(\s*(?:Write|FadeIn|AddTextLetterByLetter)\(\s*"
+        r"(?P<expr>(?:Text|Paragraph)\(\s*PROBLEM_TEXT\b.*)\)\s*\)\s*$"
+    )
+    normalized_lines: list[str] = []
+    inline_indent: str | None = None
+    for line in code.splitlines():
+        match = inline_card.match(line)
+        if match and inline_indent is None:
+            inline_indent = match.group("indent")
+            normalized_lines.extend(
+                [
+                    f"{inline_indent}problem_card = {match.group('expr')}",
+                    f"{inline_indent}self.play(Write(problem_card))",
+                ]
+            )
+            continue
+        if (
+            inline_indent is not None
+            and line.startswith(inline_indent + "self.play(")
+            and "FadeOut" in line
+            and re.search(r"(?:Text|Paragraph)\(\s*PROBLEM_TEXT\b", line)
+        ):
+            normalized_lines.append(f"{inline_indent}self.play(FadeOut(problem_card))")
+            continue
+        normalized_lines.append(line)
+    code = "\n".join(normalized_lines)
+
+    # If the model defined PROBLEM_TEXT but never created a visible card,
+    # inject a standard safe opening deterministically. This is presentation
+    # infrastructure, not problem-specific teaching logic.
+    if not re.search(r"(?:Text|Paragraph)\(\s*(?:self\.)?PROBLEM_TEXT\b", code):
+        lines = code.splitlines()
+        insertion_index = -1
+        insertion_indent = ""
+        local_assignment = re.compile(r"^([ \t]+)PROBLEM_TEXT\s*=")
+        for index, line in enumerate(lines):
+            match = local_assignment.match(line)
+            if match:
+                insertion_index = index + 1
+                insertion_indent = match.group(1)
+                break
+        if insertion_index < 0:
+            construct_def = re.compile(r"^([ \t]*)def\s+construct\s*\(self\)\s*:")
+            for index, line in enumerate(lines):
+                match = construct_def.match(line)
+                if match:
+                    insertion_index = index + 1
+                    insertion_indent = match.group(1) + "    "
+                    break
+        if insertion_index >= 0:
+            opening = [
+                f"{insertion_indent}problem_card = Text(PROBLEM_TEXT, font_size=34, color=WHITE)",
+                f"{insertion_indent}if problem_card.width > 11.0:",
+                f"{insertion_indent}    problem_card.scale_to_fit_width(11.0)",
+                f"{insertion_indent}if problem_card.height > 5.2:",
+                f"{insertion_indent}    problem_card.scale_to_fit_height(5.2)",
+                f"{insertion_indent}problem_card.move_to(ORIGIN)",
+                f"{insertion_indent}self.play(Write(problem_card))",
+                f"{insertion_indent}self.wait(3)",
+                f"{insertion_indent}self.play(FadeOut(problem_card))",
+                "",
+            ]
+            lines[insertion_index:insertion_index] = opening
+            code = "\n".join(lines)
+
+    # Enforce the cold-start ordering for the common single-line play shape.
+    # Local models often initialize a caption correctly but animate it before
+    # the question card. Delay those construct-level plays until the question
+    # fades, preserving the objects and the rest of the scene unchanged.
+    lines = code.splitlines()
+    card_index = -1
+    card_name = ""
+    card_indent = ""
+    assignment = re.compile(r"^([ \t]*)([A-Za-z_]\w*)\s*=\s*(?:Text|Paragraph)\(\s*PROBLEM_TEXT\b")
+    for index, line in enumerate(lines):
+        match = assignment.match(line)
+        if match:
+            card_index = index
+            card_indent, card_name = match.groups()
+            break
+    if card_index >= 0:
+        show_index = next(
+            (
+                index
+                for index in range(card_index + 1, len(lines))
+                if lines[index].startswith(card_indent + "self.play(")
+                and re.search(rf"\b{re.escape(card_name)}\b", lines[index])
+            ),
+            -1,
+        )
+        fade_index = next(
+            (
+                index
+                for index in range(show_index + 1, len(lines))
+                if show_index >= 0
+                and lines[index].startswith(card_indent + "self.play(")
+                and "FadeOut" in lines[index]
+                and re.search(rf"\b{re.escape(card_name)}\b", lines[index])
+            ),
+            -1,
+        )
+        if show_index >= 0 and fade_index > show_index:
+            early = [
+                index
+                for index in range(card_index)
+                if lines[index].startswith(card_indent + "self.play(")
+                and lines[index].rstrip().endswith(")")
+            ]
+            delayed = [lines[index] for index in early]
+            for index in reversed(early):
+                del lines[index]
+                show_index -= 1
+                fade_index -= 1
+            if delayed:
+                lines[fade_index + 1 : fade_index + 1] = delayed
+                code = "\n".join(lines)
     return code
 
 
@@ -140,45 +709,17 @@ def _extract_manim_code_with_fallback(done: Any) -> tuple[str, str]:
     return "", "none"
 
 
-def _format_bad_notes(items: Any) -> str:
-    if not isinstance(items, list):
-        return ""
-    lines: list[str] = []
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        problem = (it.get("problem") or "")
-        problem = problem.strip() if isinstance(problem, str) else ""
-        notes = (it.get("notes") or "")
-        notes = notes.strip() if isinstance(notes, str) else ""
-        tags = it.get("tags") or []
-        tag_str = ",".join(tags) if isinstance(tags, list) else ""
-        line = f"- 题目「{problem[:40]}」"
-        if tag_str:
-            line += f"（标签：{tag_str}）"
-        if notes:
-            line += f"：{notes[:200]}"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 class GenerateManimCodeTool(ITool):
     def __init__(
         self,
         *,
         llm: ILLMProvider,
-        skill_repo: ISkillRepository,
         prompts: PromptLibrary,
         use_latex: bool,
-        examples_store: ExamplesStore | None = None,
-        learned_memory: LearnedMemory | None = None,
     ) -> None:
         self._llm = llm
-        self._skill_repo = skill_repo
         self._prompts = prompts
         self._use_latex = use_latex
-        self._examples_store = examples_store
-        self._learned_memory = learned_memory
 
     @property
     def name(self) -> str:
@@ -189,8 +730,7 @@ class GenerateManimCodeTool(ITool):
         return (
             "生成或修复 Manim 可视化代码。如果传入 previous_code + error_hint，"
             "则按修复模式工作（最小改动消除错误并保持教学逻辑）。否则按生成模式。"
-            "调用前请确保已得到 solution_steps 和 answer（或先调用 solve_problem）。"
-            "可以传入 skill_template 或 good_example_code 作为参考。"
+            "调用前必须已有已验证的 solution_steps、answer 和开放式 visual_plan。"
         )
 
     @property
@@ -206,10 +746,6 @@ class GenerateManimCodeTool(ITool):
                     "items": {"type": "object"},
                 },
                 "answer": {"type": "string", "description": "最终答案"},
-                "skill_template": {"type": "string"},
-                "skill_code_template": {"type": "string"},
-                "good_example_code": {"type": "string"},
-                "bad_example_note": {"type": "string"},
                 "previous_code": {"type": "string"},
                 "error_hint": {"type": "string"},
                 "extra_instructions": {"type": "string"},
@@ -217,10 +753,10 @@ class GenerateManimCodeTool(ITool):
                     "type": "string",
                     "enum": ["line", "block", "global"],
                     "description": "（可选）显式覆盖修复 scope；缺省自动从 error_hint 分类。"
-                                   "line=只改 ±1 行，block=改一个 Phase/method 段，global=整文件重写",
+                    "line=只改 ±1 行，block=改一个 Phase/method 段，global=整文件重写",
                 },
             },
-            "required": ["problem", "grade", "solution_steps", "answer"],
+            "required": [],
         }
 
     async def _do_scoped_fix(
@@ -236,11 +772,10 @@ class GenerateManimCodeTool(ITool):
         produce something usable (caller should fall back to global)."""
         line_no = sref.extract_error_line(error_hint)
         if line_no is None:
-            # Without a clear line number, line-scope fix is impossible;
-            # block-scope falls back to the file center as a worst case.
-            if fix_scope == "line":
-                return None
-            line_no = max(1, len(previous_code.split("\n")) // 2)
+            # Without a concrete traceback location there is no sound block
+            # boundary. Picking the file center can splice out construct() or
+            # another unrelated phase; fall through to the full-context fix.
+            return None
 
         # RITL-DOC: pull relevant Manim API docs for *both* line and block
         # paths. Smaller, focused fixes benefit even more from "here's the
@@ -256,9 +791,7 @@ class GenerateManimCodeTool(ITool):
             logger.exception("RITL-DOC retrieval failed in scoped fix (non-fatal)")
 
         if fix_scope == "line":
-            snippet, lo, hi = sref.extract_line_context(
-                previous_code, line_no=line_no, radius=1
-            )
+            snippet, lo, hi = sref.extract_line_context(previous_code, line_no=line_no, radius=1)
             instr = (
                 "你是 Manim 代码修复器。下面是出错代码的 `±1 行片段`，"
                 "**只修复其中的语法/调用错误**，不要重写其它内容。\n\n"
@@ -271,9 +804,7 @@ class GenerateManimCodeTool(ITool):
             )
             max_tokens = 512
         else:  # block
-            block_text, lo, hi = sref.extract_enclosing_block(
-                previous_code, line_no=line_no
-            )
+            block_text, lo, hi = sref.extract_enclosing_block(previous_code, line_no=line_no)
             instr = (
                 "你是 Manim 代码修复器。下面是出错代码的 `一个 Phase/method 块`，"
                 "**只在这个块内修改**，让它满足下面的错误提示。块外代码已经"
@@ -317,56 +848,29 @@ class GenerateManimCodeTool(ITool):
             )
             return None
 
+        # A syntactically valid splice can still erase the scene entry point.
+        # Preserve this invariant before accepting a cheap scoped repair.
+        try:
+            patched_tree = ast.parse(patched)
+        except SyntaxError:
+            return None
+        solution_classes = [
+            node
+            for node in patched_tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "SolutionScene"
+        ]
+        if len(solution_classes) != 1:
+            return None
+        constructs = [
+            node
+            for node in solution_classes[0].body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "construct"
+        ]
+        if len(constructs) != 1:
+            return None
+
         return patched
-
-    async def _resolve_examples(
-        self,
-        ctx: ToolContext,
-        explicit_good: str | None,
-        explicit_bad: str | None,
-    ) -> tuple[str | None, str | None]:
-        good = explicit_good
-        bad = explicit_bad
-
-        if good is None:
-            recent_good = ctx.state.get("recent_good_examples") or []
-            if isinstance(recent_good, list) and recent_good:
-                first = recent_good[0]
-                if isinstance(first, dict):
-                    good = first.get("manim_code")
-
-        if bad is None:
-            recent_bad = ctx.state.get("recent_bad_examples") or []
-            if isinstance(recent_bad, list) and recent_bad:
-                bad = _format_bad_notes(recent_bad)
-
-        if (good is None or bad is None) and self._examples_store is not None:
-            try:
-                if good is None:
-                    hits = await self._examples_store.search_by_keywords(
-                        ctx.problem, label="good", grade=ctx.grade, top_k=1
-                    )
-                    if hits:
-                        good = hits[0].manim_code
-                if bad is None:
-                    hits = await self._examples_store.search_by_keywords(
-                        ctx.problem, label="bad", grade=ctx.grade, top_k=2
-                    )
-                    if hits:
-                        bad_state = [
-                            {
-                                "id": h.id,
-                                "problem": h.problem,
-                                "manim_code": h.manim_code,
-                                "tags": h.tags,
-                                "notes": h.notes,
-                            }
-                            for h in hits
-                        ]
-                        bad = _format_bad_notes(bad_state)
-            except Exception:
-                logger.exception("auto-fetch examples failed (session=%s)", ctx.session_id)
-        return good, bad
 
     def _build_user_message(
         self,
@@ -401,28 +905,35 @@ class GenerateManimCodeTool(ITool):
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         problem = (args.get("problem") or ctx.problem or "").strip()
         grade = args.get("grade") or ctx.grade
-        solution_steps = (
-            args.get("solution_steps")
-            or ctx.state.get("solution_steps")
-            or []
-        )
+        solution_steps = args.get("solution_steps") or ctx.state.get("solution_steps") or []
         answer = args.get("answer") or ctx.state.get("solution_answer") or ""
 
+        if ctx.state.get("solution_verified") is not True:
+            return ToolResult(
+                success=False,
+                summary="解答尚未通过 verify_solution，拒绝生成可能讲错的成片",
+                error="solution_not_verified",
+            )
         if not solution_steps:
             return ToolResult(
                 success=False,
                 summary="缺少解题步骤——请先调用 solve_problem 工具",
                 error="missing_solution_steps",
             )
+        if not isinstance(ctx.state.get("visual_plan"), dict):
+            return ToolResult(
+                success=False,
+                summary="缺少开放式 visual_plan，不能降级为无视觉论证生成",
+                error="missing_visual_plan",
+            )
 
-        previous_code = (
-            args.get("previous_code") or ctx.state.get("latest_manim_code") or ""
-        )
+        previous_code = args.get("previous_code") or ctx.state.get("latest_manim_code") or ""
         # Pull error hints from multiple state sources in priority order:
         # explicit args → run_manim error → inspect_video visual issues
         error_hint = (
             args.get("error_hint")
             or ctx.state.get("last_run_error")
+            or ctx.state.get("last_validation_issues")
             or ctx.state.get("last_visual_issues")
             or ""
         )
@@ -434,6 +945,8 @@ class GenerateManimCodeTool(ITool):
         if not isinstance(error_hint, str):
             error_hint = str(error_hint) if error_hint else ""
         is_fix_mode = bool(previous_code and error_hint)
+        if is_fix_mode and ctx.state.get("last_error_source") == "inspect":
+            ctx.state["visual_local_fix_attempted"] = True
 
         # ---- ScopeRefine: decide if we should attempt a small-scope fix ----
         # Three tiers: line / block / global. Smaller is faster & cheaper but
@@ -460,6 +973,7 @@ class GenerateManimCodeTool(ITool):
                 escalated = sref.next_scope(inferred, attempts_so_far=attempts)
                 if escalated is None:
                     # Budget exhausted → tell caller to replan visually
+                    ctx.state["force_visual_replan"] = True
                     return ToolResult(
                         success=False,
                         summary="所有修复 scope 预算耗尽，需要重走 visual_plan",
@@ -482,10 +996,24 @@ class GenerateManimCodeTool(ITool):
                 ctx=ctx,
             )
             if patched is not None:
+                patched = _ensure_problem_text(patched, problem)
                 ctx.state["latest_manim_code"] = patched
+                ctx.state["last_validation_passed"] = False
+                ctx.state.pop("last_validation_issues", None)
+                for key in (
+                    "latest_video_path",
+                    "latest_video_url",
+                    "last_visual_review",
+                    "last_visual_failed",
+                    "last_run_error",
+                    "retry_semantic_audit",
+                    "semantic_audit_retry_count",
+                ):
+                    ctx.state.pop(key, None)
                 logger.info(
                     "scope_refine: %s-fix succeeded for session %s",
-                    fix_scope, ctx.session_id,
+                    fix_scope,
+                    ctx.session_id,
                 )
                 return ToolResult(
                     success=True,
@@ -506,37 +1034,23 @@ class GenerateManimCodeTool(ITool):
             )
             ctx.state["last_fix_scope"] = "global"
 
-        skill_template = (
-            args.get("skill_template") or ctx.state.get("matched_skill_prompt")
-        )
-        skill_code_template = (
-            args.get("skill_code_template") or ctx.state.get("matched_skill_code_template")
-        )
-        good_example_code, bad_example_note = await self._resolve_examples(
-            ctx,
-            explicit_good=args.get("good_example_code"),
-            explicit_bad=args.get("bad_example_note"),
-        )
-        pattern_codes = ctx.state.get("matched_patterns") or None
         visual_plan = ctx.state.get("visual_plan") or None
-        extra = args.get("extra_instructions")
+        extra = args.get("extra_instructions") or ctx.state.get("extra_directives") or None
+        generation_retry_hint = ctx.state.get("last_generation_error") or ""
+        if generation_retry_hint:
+            retry_text = (
+                "上一次源码因输出截断而不完整。请显著压缩实现：删除解释性注释、"
+                "重复代码和装饰，只保留完整可运行的教学动画。"
+            )
+            extra = f"{extra}\n{retry_text}" if extra else retry_text
 
         # ---- assemble template slot strings ---------------------------------
         latex_section = _LATEX_ON if self._use_latex else _LATEX_OFF
         grade_section = _GRADE_HINT.get(grade, _GRADE_HINT["elementary_upper"])
 
-        learned_rules_section = ""
-        if self._learned_memory is not None:
-            rules = self._learned_memory.read().strip()
-            if rules:
-                learned_rules_section = (
-                    "## 沉淀规则（基于历史反馈，必须遵守）\n" + rules
-                )
-
-        # Visual plan dominates: it's the explicit director's intent. Codes
-        # ignoring it = degeneration. We always emit it when present. We also
-        # type-guard each scene because a JSON-fallback parse can leave us
-        # with list[str] instead of list[dict].
+        # Only the plan derived from this problem is included.  Stored skills,
+        # nearest-neighbour examples, and unverified single-session rules are
+        # intentionally excluded from cold-start generation.
         visual_plan_section = ""
         if isinstance(visual_plan, dict):
             scenes_raw = visual_plan.get("scenes") or []
@@ -549,16 +1063,20 @@ class GenerateManimCodeTool(ITool):
                     f"  场景 {i} ({s.get('role', '?')}, zone {s.get('anchor_zone', '?')}) — "
                     f"key_objects: {(s.get('key_objects') or '')[:80]}; "
                     f"action: {(s.get('action') or '')[:80]}; "
-                    f"invariant: {(s.get('invariant') or '')[:60]}"
+                    f"invariant: {(s.get('invariant') or '')[:60]}; "
+                    f"attention: {(s.get('attention_target') or '')[:60]}; "
+                    f"exit: {(s.get('exit_condition') or '')[:60]}; "
+                    f"teaching_line: {s.get('teaching_line') or ''}; "
+                    f"duration_s: {s.get('duration_s') or '?'}"
                 )
             forbidden = visual_plan.get("forbidden") or []
             forbidden = forbidden if isinstance(forbidden, list) else []
-            forbidden_lines = "\n".join(
-                f"  - {x}" for x in forbidden[:6]
-            )
-            secondary = visual_plan.get("secondary_pattern") or ""
-            essence = (visual_plan.get("essence_rationale") or "")
+            forbidden_lines = "\n".join(f"  - {x}" for x in forbidden[:6])
+            essence = visual_plan.get("essence_rationale") or ""
             essence = essence.strip() if isinstance(essence, str) else ""
+            thesis = visual_plan.get("visual_thesis") or visual_plan.get("primary_pattern") or ""
+            ledger = visual_plan.get("symbol_ledger") or []
+            ledger_lines = "\n".join(f"  - {item}" for item in ledger[:12])
 
             # essence_rationale comes FIRST in the section: it's the
             # north-star. Every animation choice must serve this.
@@ -573,80 +1091,16 @@ class GenerateManimCodeTool(ITool):
                     if essence
                     else ""
                 )
-                + f"primary_pattern: **{visual_plan.get('primary_pattern', '?')}**"
-                + (f" + {secondary}" if secondary else "")
+                + f"visual_thesis: **{thesis}**\n"
+                + "\n符号账本：\n"
+                + ledger_lines
                 + "\n\n场景脚本：\n"
                 + "\n".join(scene_lines)
                 + "\n\n禁用反模式：\n"
                 + forbidden_lines
                 + "\n\n**这份计划是硬约束**：必须有 role=transform 场景；"
-                "anchor_zone 必须遵守（每个场景的元素只能落在该 zone 内）；"
+                "anchor_zone 描述当前 beat 的主活动区，后续 beat 可以复用；"
                 "不允许把 action 退化成纯 Text 切换；key_objects 必须真的出现在画面里。"
-            )
-
-        skill_section = ""
-        if skill_code_template:
-            skill_section = (
-                "## 已匹配的技能代码模板（首选骨架，复制其结构、只改数值与文字）\n"
-                f"```python\n{skill_code_template.strip()}\n```"
-            )
-        elif skill_template:
-            skill_section = (
-                "## 已匹配的技能 prompt 模板（请按此可视化逻辑实现）\n"
-                + skill_template.strip()
-            )
-
-        # Dynamic-load patterns: prefer the ones mapped to visual_plan's
-        # primary_pattern over the full matched_patterns dump. This keeps
-        # pattern_section bounded (1-2 patterns × ~2200 chars instead of
-        # potentially 3-4 × 2200) regardless of how many match_skill found.
-        primary_archetype = ""
-        if isinstance(visual_plan, dict):
-            primary_archetype = (visual_plan.get("primary_pattern") or "").strip()
-
-        selected_patterns: list[dict[str, Any]] = []
-        if primary_archetype and isinstance(pattern_codes, list):
-            preferred_names = set(archetype_to_code_pattern_names(primary_archetype))
-            for p in pattern_codes:
-                if not isinstance(p, dict):
-                    continue
-                if p.get("name") in preferred_names:
-                    selected_patterns.append(p)
-        # Fallback: if visual_plan didn't set archetype (degraded mode) or
-        # nothing matched, take up to 2 from match_skill's selection.
-        if not selected_patterns and isinstance(pattern_codes, list):
-            selected_patterns = [
-                p for p in pattern_codes[:2] if isinstance(p, dict)
-            ]
-
-        pattern_section = ""
-        if selected_patterns:
-            chunks = ["## 可复用的可视化模式（已匹配 primary_pattern 自动选取）"]
-            for p in selected_patterns[:2]:  # cap at 2 to bound prompt size
-                pname = p.get("name") or ""
-                pdesc = p.get("description") or ""
-                pcode = p.get("core_code") or ""
-                pcode = pcode.strip() if isinstance(pcode, str) else ""
-                if not pcode:
-                    continue
-                chunks.append(
-                    f"\n### {pname}：{pdesc}\n```python\n{pcode[:2200]}\n```"
-                )
-            if len(chunks) > 1:
-                pattern_section = "\n".join(chunks)
-
-        good_example_section = ""
-        if good_example_code:
-            good_example_section = (
-                "## 历史 good 样本代码（仅作参考，不要照抄场景细节）\n"
-                f"```python\n{good_example_code.strip()[:1800]}\n```"
-            )
-
-        bad_example_section = ""
-        if bad_example_note:
-            bad_example_section = (
-                "## 警示：避免下列失败模式（来自标记为 bad 的样本）\n"
-                + bad_example_note.strip()
             )
 
         fix_mode_section = ""
@@ -654,7 +1108,6 @@ class GenerateManimCodeTool(ITool):
             fix_mode_section = (
                 "## 当前是修复模式\n"
                 "保留原有教学逻辑，只针对错误信息做最小修改。"
-                "若错误是禁用对象（Sector 等），用 Arc + Line 重写。"
                 "若错误是 LaTeX，将所有 MathTex/Tex 替换为 Text。"
             )
 
@@ -672,7 +1125,8 @@ class GenerateManimCodeTool(ITool):
                     manim_api_kb_section = kb.render_section(hits, max_chars=2400)
                     logger.info(
                         "RITL-DOC: injected %d KB entries for session %s: %s",
-                        len(hits), ctx.session_id,
+                        len(hits),
+                        ctx.session_id,
                         [h.name for h in hits],
                     )
             except Exception:
@@ -692,12 +1146,7 @@ class GenerateManimCodeTool(ITool):
             "generate_manim",
             latex_section=latex_section,
             grade_section=grade_section,
-            learned_rules_section=learned_rules_section,
             visual_plan_section=visual_plan_section,
-            skill_section=skill_section,
-            pattern_section=pattern_section,
-            good_example_section=good_example_section,
-            bad_example_section=bad_example_section,
             fix_mode_section=fix_mode_section,
             manim_api_kb_section=manim_api_kb_section,
             user_message=user_message,
@@ -706,10 +1155,14 @@ class GenerateManimCodeTool(ITool):
         try:
             done = await self._llm.chat_complete(
                 messages=[ChatMessage(role="user", content=prompt)],
-                temperature=0.4,
-                # 3K 已足够：教学动画 200-600 行代码就够，更大只会让模型凑长度。
-                # 真的需要更大可以在 fix 模式时单独放宽（见下）。
-                max_tokens=4096 if is_fix_mode else 3072,
+                # Production generation optimizes first-pass compliance.
+                # Retry diversity is deliberately not used as a quality
+                # mechanism; a single evidence-directed fallback is enough.
+                temperature=0.2,
+                # The prompt enforces a compact implementation, while this
+                # ceiling still leaves enough room for CJK strings and a
+                # syntactically complete final class on local models.
+                max_tokens=5120 if is_fix_mode else 4608,
             )
         except Exception as exc:
             logger.exception("generate_manim_code LLM call failed")
@@ -736,11 +1189,36 @@ class GenerateManimCodeTool(ITool):
                     "finish_reason": getattr(done, "finish_reason", None),
                 },
             )
+        code = _ensure_problem_text(code, problem)
+        if getattr(done, "finish_reason", None) == "length":
+            try:
+                compile(code, "<generated_manim>", "exec")
+            except SyntaxError as exc:
+                ctx.state["last_generation_error"] = "truncated_output"
+                return ToolResult(
+                    success=False,
+                    summary="模型输出达到长度上限且源码不完整，将用紧凑实现重试",
+                    error="truncated_code",
+                    data={"syntax_error": f"Line {exc.lineno}: {exc.msg}"},
+                )
         if code_source == "reasoning":
             logger.warning("generate_manim_code fell back to reasoning channel")
 
+        ctx.state.pop("last_generation_error", None)
+
         ctx.state["latest_manim_code"] = code
         ctx.state["last_validation_passed"] = False  # validate must be re-run
+        ctx.state.pop("last_validation_issues", None)
+        for key in (
+            "latest_video_path",
+            "latest_video_url",
+            "last_visual_review",
+            "last_visual_failed",
+            "last_run_error",
+            "retry_semantic_audit",
+            "semantic_audit_retry_count",
+        ):
+            ctx.state.pop(key, None)
 
         filename = f"code-turn{ctx.turn_index:02d}.py"
         artifacts = [

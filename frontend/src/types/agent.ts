@@ -128,8 +128,28 @@ export interface PersistedFeedback {
     created_at: string
 }
 
+export interface SessionQualitySummary {
+    session_status: string
+    quality_contract: string
+    quality_gate_passed: boolean
+    first_pass_success: boolean
+    overall_quality: string
+    b_total: number | null
+    math_consistency: number | null
+    essence_delivery: number | null
+    technical_pass: boolean
+    accessibility_pass: boolean
+    has_audio: boolean
+    has_subtitles: boolean
+    video: { width?: number; height?: number; fps?: number; duration_s?: number; has_audio?: boolean }
+    total_tool_latency_ms: number
+    retry_counts: Record<string, number>
+    user_feedback: string | null
+}
+
 export interface SessionDetail {
     session: PersistedSession
+    quality?: SessionQualitySummary
     messages: PersistedMessage[]
     tool_calls: PersistedToolCall[]
     artifacts: PersistedArtifact[]
@@ -147,7 +167,7 @@ export type TimelineItem =
         callId: string
         name: string
         arguments: Record<string, unknown>
-        status: 'running' | 'success' | 'failed'
+        status: 'running' | 'success' | 'revision' | 'failed'
         summary?: string
         data?: Record<string, unknown> | null
         error?: string | null
@@ -160,6 +180,7 @@ export interface AgentRunState {
     status: 'idle' | 'running' | 'done' | 'exhausted' | 'failed'
     items: TimelineItem[]
     finalVideoUrl: string | null
+    subtitleUrl: string | null
     finalText: string
     error: string | null
 }

@@ -27,8 +27,9 @@ ENV/
 # 环境变量
 .env
 
-# Manim生成的媒体文件
-media/
+# Manim生成的媒体文件（仅运行输出；不要吞掉 infrastructure/media 源码）
+/media/
+/backend/media/
 
 # 持久化数据（SQLite + 会话归档）
 data/
