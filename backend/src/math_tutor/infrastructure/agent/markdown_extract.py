@@ -11,6 +11,7 @@ raising. JSON parsing is provided as a final fallback.
 """
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -170,17 +171,60 @@ def get_field(text: str | None, *names: str) -> str:
     return ""
 
 
+def _balanced_object_candidates(text: str) -> list[str]:
+    """Return complete top-level ``{...}`` spans without crossing strings.
+
+    A greedy regular expression cannot distinguish two adjacent objects and
+    treats braces inside quoted teaching text as structure.  The scanner is
+    deliberately conservative: truncated objects are not auto-completed,
+    because inventing missing Visual IR would turn a protocol error into an
+    apparently valid mathematical plan.
+    """
+    candidates: list[str] = []
+    start: int | None = None
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(text):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidates.append(text[start : index + 1])
+                start = None
+    return candidates
+
+
 def parse_json_anywhere(text: str) -> dict[str, Any] | None:
-    """Best-effort JSON object extraction (final fallback when models
-    ignore markdown formatting)."""
+    """Extract the first complete mapping from mixed model output.
+
+    Strict JSON is preferred.  ``ast.literal_eval`` is a safe compatibility
+    path for local models that emit Python-style quotes, booleans or trailing
+    commas; it evaluates literals only and never executes model text.
+    """
     if not text:
         return None
     text = strip_thinking(text)
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match is None:
-        return None
-    try:
-        result = json.loads(match.group())
-    except Exception:
-        return None
-    return result if isinstance(result, dict) else None
+    for candidate in _balanced_object_candidates(text):
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                result = loader(candidate)
+            except (ValueError, SyntaxError, json.JSONDecodeError):
+                continue
+            if isinstance(result, dict):
+                return result
+    return None

@@ -7,11 +7,39 @@ timeline failures.
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from ....application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
+from ....application.interfaces import ITool, ToolContext, ToolResult
 from .visual_plan import VisualPlanTool, build_safe_visual_plan, store_visual_plan
+
+
+def _semantic_plan_ready_for_codegen(candidate: Any) -> bool:
+    """Whether a plan is meaningful even if generic IR lowering is incomplete.
+
+    This checks universal directing evidence, not a problem category: graphical
+    objects, a visible change, an attention target and a final verification.
+    A code model can implement continuous or custom geometry from that contract
+    without forcing it through the finite deterministic primitive renderer.
+    """
+    if not isinstance(candidate, dict):
+        return False
+    if not str(candidate.get("visual_thesis") or "").strip():
+        return False
+    if len(str(candidate.get("essence_rationale") or "").strip()) < 20:
+        return False
+    objects = [item for item in candidate.get("visual_objects") or [] if isinstance(item, dict)]
+    if len(objects) < 2 or any(not item.get("primitive") for item in objects):
+        return False
+    scenes = [item for item in candidate.get("scenes") or [] if isinstance(item, dict)]
+    roles = {str(scene.get("role") or "") for scene in scenes}
+    if len(scenes) < 3 or not {"transform", "verify"}.issubset(roles):
+        return False
+    return all(
+        str(scene.get("action") or "").strip()
+        and str(scene.get("attention_target") or "").strip()
+        and str(scene.get("teaching_line") or "").strip()
+        for scene in scenes
+    )
 
 
 class DirectVideoTool(ITool):
@@ -48,6 +76,27 @@ class DirectVideoTool(ITool):
             if result.error != "plan_math_inconsistent"
             else None
         )
+        violations = list((result.data or {}).get("violations") or [])
+        lowering_only = bool(violations) and all(
+            "未知图形对象" in str(item) for item in violations
+        )
+        if (
+            result.error == "contract_violation"
+            and lowering_only
+            and _semantic_plan_ready_for_codegen(candidate)
+        ):
+            candidate["compile_strategy"] = "model_codegen"
+            candidate["lowering_violations"] = violations[:10]
+            store_visual_plan(ctx, candidate)
+            return ToolResult(
+                success=True,
+                summary=(
+                    "视觉语义计划完整；通用 IR 无法无损降级，"
+                    "将由 Manim 写码阶段实现连续图形变化"
+                ),
+                data=candidate,
+                artifacts=result.artifacts,
+            )
         safe_plan = build_safe_visual_plan(candidate, ctx)
         if safe_plan is not None:
             safe_plan["discarded_plan_error"] = result.error
@@ -61,55 +110,15 @@ class DirectVideoTool(ITool):
                 data=safe_plan,
                 artifacts=result.artifacts,
             )
-        repaired = await self._planner.execute(args, ctx)
-        if repaired.success:
-            report = {
-                "stage": self.name,
-                "internal_repair_count": 1,
-                "first_failure": first_summary,
-            }
-            return ToolResult(
-                success=True,
-                summary="视觉导演完成（内部契约修正 1 次）：" + repaired.summary,
-                data={**(repaired.data or {}), "internal_repair_count": 1},
-                artifacts=[
-                    *result.artifacts,
-                    *repaired.artifacts,
-                    ArtifactSpec(
-                        kind="pipeline_report",
-                        filename=f"direct-turn{ctx.turn_index:02d}.json",
-                        content=json.dumps(report, ensure_ascii=False, indent=2),
-                        meta=report,
-                    ),
-                ],
-            )
-        repaired_candidate = (
-            (repaired.data or {}).get("plan")
-            if repaired.error != "plan_math_inconsistent"
-            else None
-        )
-        repaired_safe_plan = build_safe_visual_plan(repaired_candidate, ctx)
-        if repaired_safe_plan is not None:
-            repaired_safe_plan["discarded_plan_error"] = repaired.error
-            repaired_safe_plan["discarded_plan_summary"] = repaired.summary[:500]
-            store_visual_plan(ctx, repaired_safe_plan)
-            return ToolResult(
-                success=True,
-                summary=(
-                    "视觉导演无法解析首稿，修正版文案未通过契约；"
-                    "已保留可验证图形对象并切换为安全视觉基线"
-                ),
-                data={**repaired_safe_plan, "internal_repair_count": 1},
-                artifacts=[*result.artifacts, *repaired.artifacts],
-            )
+        # A parse failure contains no addressable field or beat to repair.
+        # Repeating the same whole-plan generation merely hides a protocol
+        # problem behind stochastic retries.  Parsed contract violations are
+        # already repaired locally by ``build_safe_visual_plan`` above; all
+        # remaining failures stop once and preserve the planner's raw artifact.
         return ToolResult(
             success=False,
-            summary="视觉导演首稿及一次证据定向修正均未通过内部契约：" + repaired.summary,
-            data={
-                **(repaired.data or {}),
-                "internal_repair_count": 1,
-                "first_failure": first_summary,
-            },
-            artifacts=[*result.artifacts, *repaired.artifacts],
-            error=repaired.error,
+            summary="视觉导演未通过内部契约，已停止整稿重生成：" + first_summary,
+            data={**(result.data or {}), "internal_repair_count": 0},
+            artifacts=result.artifacts,
+            error=result.error,
         )

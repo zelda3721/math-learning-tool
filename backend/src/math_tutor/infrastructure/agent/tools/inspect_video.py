@@ -313,6 +313,20 @@ def _md_to_review(section: str) -> dict[str, Any]:
     return payload
 
 
+def _core_visual_gate_issue(b_scores: dict[str, Any]) -> str | None:
+    """Reject symbolic cards masquerading as graphical mathematical change."""
+    try:
+        text_independence = int(b_scores.get("b3"))
+        visible_change = int(b_scores.get("b4"))
+    except (TypeError, ValueError):
+        return "视觉评审缺少 B3/B4 核心图形评分"
+    if text_independence < 2:
+        return "B3 < 2：关闭文字后无法看懂核心数学变化"
+    if visible_change < 2:
+        return "B4 < 2：核心关系或变化没有被图形显式揭示"
+    return None
+
+
 class InspectVideoTool(ITool):
     def __init__(
         self,
@@ -545,8 +559,11 @@ class InspectVideoTool(ITool):
                 payload["reported_b_total"] = payload.get("b_total")
                 payload["b_total"] = f"{computed_total}/12"
                 b_total = computed_total
+        b3 = b_scores.get("b3")
+        b4 = b_scores.get("b4")
         b5 = b_scores.get("b5")
         b6 = b_scores.get("b6")
+        core_visual_issue = _core_visual_gate_issue(b_scores)
         fatal_layout_terms = (
             "遮挡",
             "不可读",
@@ -582,6 +599,8 @@ class InspectVideoTool(ITool):
         # discarding a substantially better, usable video.
         candidate_eligible = (
             b_total is not None
+            and int(b3 or 0) == 2
+            and int(b4 or 0) == 2
             and int(b5 or 0) == 2
             and int(b6 or 0) == 2
             and not technical_critical
@@ -603,12 +622,18 @@ class InspectVideoTool(ITool):
         elif fatal_layout_issues:
             forced_bad = True
             forced_reason = "A 段布局失败：" + "；".join(fatal_layout_issues[:2])
-        elif b_total is None or b5 is None or b6 is None:
+        elif b_total is None or b3 is None or b4 is None or b5 is None or b6 is None:
             forced_bad = True
-            forced_reason = "视觉评审缺少完整 B 段、数学一致性或本质兑现评分"
+            forced_reason = "视觉评审缺少完整 B 段评分"
         elif blacklist:
             forced_bad = True
             forced_reason = f"命中黑名单：{', '.join(blacklist[:3])}"
+        elif core_visual_issue:
+            # A bordered formula or labeled value is still text dependence.
+            # Manim is useful only when the non-text geometry carries enough
+            # structure for a student to follow the central change.
+            forced_bad = True
+            forced_reason = core_visual_issue
         elif b5 is not None and b5 < 2:
             forced_bad = True
             forced_reason = "B5 < 2：成片没有提供可核对的完整数学一致性证据"

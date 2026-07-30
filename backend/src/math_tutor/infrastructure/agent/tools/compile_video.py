@@ -1587,7 +1587,11 @@ class CompileVideoTool(ITool):
                 },
                 "model_codegen": {
                     "type": "boolean",
-                    "description": "仅供实验：让模型自由写 Manim；生产默认编译 Visual IR",
+                    "description": "兼容参数；生产默认由模型把视觉计划写成 Manim",
+                },
+                "deterministic_ir": {
+                    "type": "boolean",
+                    "description": "仅在计划完全落入通用 IR 能力范围时使用确定性编译器",
                 }
             },
             "required": [],
@@ -1598,8 +1602,6 @@ class CompileVideoTool(ITool):
         artifacts: list[ArtifactSpec] = []
         steps: list[dict[str, Any]] = []
         repair_count = 0
-        if ctx.state.get("visual_plan") and not args.get("model_codegen"):
-            return await self._compile_visual_ir(ctx, artifacts, steps)
         if args.get("visual_fallback_only"):
             rejected = ToolResult(
                 success=False,
@@ -1615,6 +1617,8 @@ class CompileVideoTool(ITool):
                 ctx,
                 review_repair=False,
             )
+        if ctx.state.get("visual_plan") and args.get("deterministic_ir"):
+            return await self._compile_visual_ir(ctx, artifacts, steps)
 
         generated = await self._writer.execute({}, ctx)
         artifacts.extend(generated.artifacts)

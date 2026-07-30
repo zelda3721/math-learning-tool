@@ -619,6 +619,15 @@ def _sanitize_code(code: str) -> str:
             ]
         )
     code = "\n".join(chained_text_lines)
+    # The same anti-pattern also appears inline as a Transform target. There
+    # is no stable variable to guard, so remove only the eager fit operation;
+    # the requested font size is preserved and later layout checks still catch
+    # genuinely oversized text. This is a local API repair, not scene rewrite.
+    code = re.sub(
+        r"(Text\([^\n]*?\))\.scale_to_fit_width\([^()\n]+\)",
+        r"\1",
+        code,
+    )
     # self.play expects animations as separate positional arguments, not one
     # Python list produced by a comprehension.
     code = re.sub(
