@@ -1542,6 +1542,45 @@ def test_compile_video_guarantees_a_rendered_verified_fallback() -> None:
     assert "STEP_TEXTS" not in fallback_code
 
 
+def test_review_repair_uses_visual_fallback_instead_of_restoring_text_only_video() -> None:
+    class Writer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=False, summary="repair source failed", error="bad patch")
+
+    class Validator:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            raise AssertionError("validator is not reached when repair writing fails")
+
+    class Renderer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            assert ctx.state.get("delivery_fallback") is True
+            assert "quantity_bar" in str(args.get("code") or "")
+            ctx.state["latest_video_path"] = "visual-fallback.mp4"
+            ctx.state["latest_video_url"] = "/visual-fallback.mp4"
+            return ToolResult(success=True, summary="visual fallback rendered")
+
+    tool = CompileVideoTool(Writer(), Validator(), Renderer())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="任意新问题",
+        state={
+            "solution_verified": True,
+            "solution_steps": [
+                {"description": "建立数量关系", "operation": "9 - 4 = 5", "result": "5"}
+            ],
+            "solution_answer": "5",
+            "visual_plan": _open_world_plan(),
+            "latest_video_path": "text-only.mp4",
+        },
+    )
+    result = asyncio.run(tool.execute({"review_repair": True}, ctx))
+    assert result.success is True
+    assert result.data is not None and result.data["delivery_fallback"] is True
+    assert result.data["video_path"] == "visual-fallback.mp4"
+
+
 def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     class Inspector:
         calls = 0
