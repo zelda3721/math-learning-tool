@@ -127,10 +127,194 @@ def _check_syntax(code: str) -> tuple[bool, str | None]:
         return False, f"Line {exc.lineno}: {exc.msg}"
 
 
+_ATOMIC_MOBJECT_CONSTRUCTORS = {
+    "Arc",
+    "Circle",
+    "Cube",
+    "Dot",
+    "Line",
+    "Polygon",
+    "Rectangle",
+    "Square",
+    "Text",
+    "Triangle",
+}
+
+
+def _eval_static_number(node: ast.AST, constants: dict[str, float]) -> float | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return float(node.value)
+    if isinstance(node, ast.Name):
+        return constants.get(node.id)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        value = _eval_static_number(node.operand, constants)
+        if value is None:
+            return None
+        return -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.BinOp):
+        left = _eval_static_number(node.left, constants)
+        right = _eval_static_number(node.right, constants)
+        if left is None or right is None:
+            return None
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div) and right != 0:
+            return left / right
+    return None
+
+
+def _check_scene_magnitude_contract(tree: ast.AST) -> list[str]:
+    """Keep mathematical quantities separate from Manim scene units."""
+    constants: dict[str, float] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        value = _eval_static_number(node.value, constants)
+        if value is None:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value
+
+    limits = {"side_length": 5.2, "radius": 3.0, "width": 11.5, "height": 5.2}
+    issues: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        ctor = (
+            node.func.id
+            if isinstance(node.func, ast.Name)
+            else node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else ""
+        )
+        if ctor not in _ATOMIC_MOBJECT_CONSTRUCTORS:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg not in limits:
+                continue
+            value = _eval_static_number(keyword.value, constants)
+            limit = limits[keyword.arg]
+            if value is not None and abs(value) > limit:
+                issues.append(
+                    f"{ctor} 的 {keyword.arg}={value:g} 超过安全画幅预算 {limit:g}；"
+                    "检测到数学量直接充当 Manim 单位，请先统一归一化"
+                )
+                return issues
+    return issues
+
+
+def _literal_range_size(call: ast.Call, constants: dict[str, int]) -> int | None:
+    if not isinstance(call.func, ast.Name) or call.func.id != "range":
+        return None
+    values: list[int] = []
+    for arg in call.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+            values.append(arg.value)
+        elif isinstance(arg, ast.Name) and arg.id in constants:
+            values.append(constants[arg.id])
+        else:
+            return None
+    if len(values) == 1:
+        start, stop, step = 0, values[0], 1
+    elif len(values) == 2:
+        start, stop, step = values[0], values[1], 1
+    elif len(values) == 3 and values[2] != 0:
+        start, stop, step = values
+    else:
+        return None
+    return len(range(start, stop, step))
+
+
+def _check_render_complexity(tree: ast.AST, *, limit: int = 96) -> list[str]:
+    """Reject literal loop nests that instantiate unreadable object clouds.
+
+    This is a renderer/readability budget, not a math-content rule.  Large
+    totals remain representable through rows, columns, layers, sampling, or
+    aggregate groups without constructing hundreds of pixel-sized objects.
+    """
+    worst = 0
+    constructor = ""
+    constants = {
+        target.id: node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, int)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    def visit_block(body: list[ast.stmt], multiplier: int) -> None:
+        nonlocal worst, constructor
+        for statement in body:
+            if isinstance(statement, ast.For):
+                count = (
+                    _literal_range_size(statement.iter, constants)
+                    if isinstance(statement.iter, ast.Call)
+                    else None
+                )
+                nested_multiplier = multiplier * count if count is not None else multiplier
+                direct_calls = [
+                    node
+                    for child in statement.body
+                    if not isinstance(child, ast.For)
+                    for node in ast.walk(child)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in _ATOMIC_MOBJECT_CONSTRUCTORS
+                ]
+                if direct_calls and count is not None and nested_multiplier > worst:
+                    worst = nested_multiplier
+                    constructor = direct_calls[0].func.id  # type: ignore[union-attr]
+                visit_block(statement.body, nested_multiplier)
+                visit_block(statement.orelse, multiplier)
+            elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                visit_block(statement.body, 1)
+            else:
+                for child in ast.iter_child_nodes(statement):
+                    child_body = getattr(child, "body", None)
+                    if isinstance(child_body, list):
+                        visit_block(child_body, multiplier)
+
+    visit_block(getattr(tree, "body", []), 1)
+    if worst <= limit:
+        return []
+    return [
+        f"循环将实例化至少 {worst} 个独立 {constructor} 对象，超过可读/渲染预算 {limit}；"
+        "请改为代表行列、分层轮廓或聚合分组，并让乘法结构可见"
+    ]
+
+
 def _check_structure(code: str, *, use_latex: bool) -> list[str]:
     issues: list[str] = []
     if len(code) > 24000:
         issues.append(f"代码异常冗长 ({len(code)} 字符 > 24000)")
+    line_count = len(code.splitlines())
+    if line_count > 260:
+        issues.append(f"代码包含 {line_count} 行，超过生产可审查预算 260 行；请删除重复方案和草稿")
+    draft_markers = [
+        marker
+        for marker in (
+            "需修正",
+            "重新生成",
+            "可能不对",
+            "重新构建",
+            "更简单的方案",
+            "最终方案",
+            "为了简化，我们直接",
+        )
+        if marker in code
+    ]
+    if len(draft_markers) >= 2:
+        issues.append(
+            "源码仍包含多版自我修正草稿：" + "、".join(draft_markers[:4])
+            + "；只保留一个完整实现"
+        )
     if not re.search(
         r"class\s+SolutionScene\s*\(\s*(?:Scene|MovingCameraScene|ThreeDScene)\s*\)",
         code,
@@ -183,8 +367,31 @@ def _check_structure(code: str, *, use_latex: bool) -> list[str]:
                 break
         issues.extend(_check_scene_reference_shadowing(tree))
         issues.extend(_check_animation_api_misuse(tree))
+        issues.extend(_check_hierarchical_label_band_conflicts(tree))
         issues.extend(_check_class_helper_scope_leaks(tree))
         issues.extend(_check_stale_loop_indices(tree))
+        issues.extend(_check_render_complexity(tree))
+        issues.extend(_check_scene_magnitude_contract(tree))
+    # A reusable caption VGroup owns its child text. Removing the group and
+    # later transforming that child produces a visually missing caption even
+    # though Manim may render without raising.
+    for group_match in re.finditer(
+        r"(?m)^\s*(?P<group>[A-Za-z_]\w*)\s*=\s*VGroup\((?P<children>[^\n]+)\)",
+        code,
+    ):
+        group = group_match.group("group")
+        children = re.findall(r"\b[A-Za-z_]\w*\b", group_match.group("children"))
+        fade = re.search(rf"FadeOut\(\s*{re.escape(group)}\b", code[group_match.end() :])
+        if fade is None:
+            continue
+        fade_pos = group_match.end() + fade.end()
+        for child in children:
+            if re.search(rf"Transform\(\s*{re.escape(child)}\b", code[fade_pos:]):
+                issues.append(
+                    f"字幕生命周期错误：{group} 已 FadeOut，但其子对象 {child} 后续仍被 Transform；"
+                    "请保留唯一字幕组直到最后一个 beat"
+                )
+                break
     # Display labels often contain unique IDs (R1, R2, ...). Comparing their
     # complete text answers "same individual?", not "same semantic class?".
     # Generated code must keep category metadata separately instead of using
@@ -198,6 +405,139 @@ def _check_structure(code: str, *, use_latex: bool) -> list[str]:
 
 def _target_names(target: ast.AST) -> set[str]:
     return {node.id for node in ast.walk(target) if isinstance(node, ast.Name)}
+
+
+def _check_hierarchical_label_band_conflicts(tree: ast.AST) -> list[str]:
+    """Reject parent summaries that occupy the same band as child labels.
+
+    A frequent generated-layout defect is to label every member below a
+    group, then place the group's aggregate below that same group without
+    removing the member labels. The rule follows slice aliases and simple
+    get_center offsets; it is independent of mathematical content.
+    """
+    directions = {"UP", "DOWN", "LEFT", "RIGHT"}
+    aliases: dict[str, str] = {}
+    loop_sources: dict[str, str] = {}
+    center_sources: dict[str, str] = {}
+    memberships: dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(
+            node.targets[0], ast.Name
+        ):
+            target = node.targets[0].id
+            value = node.value
+            if isinstance(value, ast.Subscript) and isinstance(value.value, ast.Name):
+                aliases[target] = value.value.id
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and value.func.attr == "get_center"
+            ):
+                owner = value.func.value
+                if isinstance(owner, ast.Subscript) and isinstance(owner.value, ast.Name):
+                    center_sources[target] = owner.value.id
+                elif isinstance(owner, ast.Name):
+                    center_sources[target] = owner.id
+        if isinstance(node, ast.For):
+            source = node.iter
+            if (
+                isinstance(source, ast.Call)
+                and _call_name(source.func) == "enumerate"
+                and source.args
+            ):
+                source = source.args[0]
+            if isinstance(source, ast.Name):
+                for target in _target_names(node.target):
+                    loop_sources[target] = source.id
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add"
+            and isinstance(node.func.value, ast.Name)
+        ):
+            for arg in node.args:
+                if isinstance(arg, ast.Name):
+                    memberships[arg.id] = node.func.value.id
+
+    def root(name: str) -> str:
+        seen: set[str] = set()
+        while name in aliases and name not in seen:
+            seen.add(name)
+            name = aliases[name]
+        return name
+
+    def direction_in(node: ast.AST) -> str:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id in directions:
+                return child.id
+        return ""
+
+    aggregate: list[tuple[str, str, str, int]] = []
+    children: list[tuple[str, str, str, int]] = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        ):
+            continue
+        label = node.func.value.id
+        if node.func.attr == "next_to" and len(node.args) >= 2:
+            anchor = node.args[0]
+            direction = direction_in(node.args[1])
+            if not direction:
+                continue
+            if isinstance(anchor, ast.Name):
+                source = loop_sources.get(anchor.id)
+                if source:
+                    children.append((label, root(source), direction, node.lineno))
+                else:
+                    aggregate.append((label, root(anchor.id), direction, node.lineno))
+            elif isinstance(anchor, ast.Subscript) and isinstance(anchor.value, ast.Name):
+                children.append((label, root(anchor.value.id), direction, node.lineno))
+        elif node.func.attr == "move_to" and node.args:
+            direction = direction_in(node.args[0])
+            referenced = {
+                center_sources[name.id]
+                for name in ast.walk(node.args[0])
+                if isinstance(name, ast.Name) and name.id in center_sources
+            }
+            for source in referenced:
+                if direction:
+                    children.append((label, root(source), direction, node.lineno))
+
+    shows: dict[str, list[int]] = {}
+    fades: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        name = node.func.id
+        if name not in {"FadeIn", "Write", "Create", "FadeOut", "Unwrite", "Uncreate"}:
+            continue
+        destination = fades if name in {"FadeOut", "Unwrite", "Uncreate"} else shows
+        for arg in node.args:
+            if isinstance(arg, ast.Name):
+                destination.setdefault(arg.id, []).append(node.lineno)
+
+    issues: list[str] = []
+    for parent_label, parent_root, direction, parent_line in aggregate:
+        for child_label, child_root, child_direction, child_line in children:
+            if parent_root != child_root or direction != child_direction:
+                continue
+            child_visible = memberships.get(child_label, child_label)
+            parent_show = min(shows.get(parent_label, [parent_line]))
+            child_show = min(shows.get(child_visible, [child_line]))
+            earlier_name = parent_label if parent_show <= child_show else child_visible
+            earlier_show, later_show = sorted((parent_show, child_show))
+            if any(earlier_show < line < later_show for line in fades.get(earlier_name, [])):
+                continue
+            issues.append(
+                f"层级标签带冲突：{parent_label} 与 {child_visible} 都位于 "
+                f"{parent_root} 的 {direction} 侧且会同时可见；请把汇总标签移到另一侧，"
+                "或先移除逐项标签"
+            )
+    return list(dict.fromkeys(issues))
 
 
 def _check_stale_loop_indices(tree: ast.AST) -> list[str]:
@@ -288,43 +628,56 @@ def _check_visual_evidence_contract(
                 "成片会变成实心色块；请保留清晰单元边界或间距"
             )
 
-    # Two independently shown labels with an identical next_to anchor occupy
-    # the same pixels unless the earlier label exits first.
-    placements: dict[tuple[str, str, str], list[tuple[str, int]]] = {}
+    # Two independently shown labels in the same side-band of one anchor are
+    # unsafe even when their numeric buffs differ slightly: text height makes
+    # nearby baselines overlap. The earlier label must exit or the labels must
+    # use visibly separated bands.
+    placements: dict[tuple[str, str], list[tuple[str, int, str]]] = {}
     placement_re = re.compile(
         r"(?m)^[ \t]*(?P<var>[A-Za-z_]\w*)\.next_to\(\s*"
         r"(?P<anchor>[A-Za-z_]\w*)\s*,\s*(?P<direction>UP|DOWN|LEFT|RIGHT)"
-        r"\s*,\s*buff\s*=\s*(?P<buff>[^)]+)\)"
+        r"(?:\s*,\s*buff\s*=\s*(?P<buff>[^)]+))?\)"
     )
     for match in placement_re.finditer(code):
-        signature = (
-            match.group("anchor"),
-            match.group("direction"),
-            match.group("buff").strip(),
+        signature = (match.group("anchor"), match.group("direction"))
+        placements.setdefault(signature, []).append(
+            (match.group("var"), match.start(), (match.group("buff") or "0.25").strip())
         )
-        placements.setdefault(signature, []).append((match.group("var"), match.start()))
     for signature, values in placements.items():
         if len(values) < 2:
             continue
         values.sort(key=lambda item: item[1])
-        for (earlier, _), (later, later_pos) in zip(values, values[1:]):
-            later_show = re.search(
-                rf"(?:FadeIn|Write|Create)\(\s*{re.escape(later)}\b", code[later_pos:]
-            )
-            if later_show is None:
-                continue
-            later_show_pos = later_pos + later_show.start()
-            earlier_exit = re.search(
-                rf"(?:FadeOut|Unwrite|Uncreate|Transform|ReplacementTransform)"
-                rf"\(\s*{re.escape(earlier)}\b",
-                code[:later_show_pos],
-            )
-            if earlier_exit is None:
-                anchor, direction, buff = signature
-                issues.append(
-                    f"确定性标签重叠：{earlier} 与 {later} 同时占用 "
-                    f"{anchor}.{direction}(buff={buff})，且前者未先离场或变换"
+        for earlier_index, (earlier, earlier_pos, earlier_buff) in enumerate(values[:-1]):
+            for later, later_pos, later_buff in values[earlier_index + 1 :]:
+                try:
+                    well_separated = abs(float(earlier_buff) - float(later_buff)) >= 0.65
+                except ValueError:
+                    well_separated = earlier_buff != later_buff
+                if well_separated:
+                    continue
+                earlier_show = re.search(
+                    rf"(?:FadeIn|Write|Create)\(\s*{re.escape(earlier)}\b",
+                    code[earlier_pos:],
                 )
+                later_show = re.search(
+                    rf"(?:FadeIn|Write|Create)\(\s*{re.escape(later)}\b", code[later_pos:]
+                )
+                if earlier_show is None or later_show is None:
+                    continue
+                earlier_show_pos = earlier_pos + earlier_show.start()
+                later_show_pos = later_pos + later_show.start()
+                earlier_exit = re.search(
+                    rf"(?:FadeOut|Unwrite|Uncreate|Transform|ReplacementTransform)"
+                    rf"\(\s*{re.escape(earlier)}\b",
+                    code[earlier_show_pos:later_show_pos],
+                )
+                if earlier_exit is None:
+                    anchor, direction = signature
+                    issues.append(
+                        f"确定性标签重叠：{earlier} 与 {later} 同时占用 "
+                        f"{anchor}.{direction} 的相邻标签带"
+                        f"（buff={earlier_buff}/{later_buff}），且前者未先离场或变换"
+                    )
     return issues
 
 
@@ -403,14 +756,65 @@ def _check_animation_api_misuse(tree: ast.AST) -> list[str]:
         if node.func.attr == "generate_target" and isinstance(node.func.value, ast.Name):
             generated_targets.add(node.func.value.id)
 
+    def animation_target(node: ast.AST) -> str:
+        """Return the directly driven mobject for common play arguments."""
+        if not isinstance(node, ast.Call):
+            return ""
+        name = _call_name(node.func)
+        if name in {
+            "Transform",
+            "ReplacementTransform",
+            "FadeIn",
+            "FadeOut",
+            "Create",
+            "Uncreate",
+            "Write",
+            "Unwrite",
+            "GrowFromCenter",
+            "MoveToTarget",
+        } and node.args and isinstance(node.args[0], ast.Name):
+            return node.args[0].id
+        current: ast.AST = node.func
+        while isinstance(current, ast.Attribute):
+            if current.attr == "animate" and isinstance(current.value, ast.Name):
+                return current.value.id
+            current = current.value
+        return ""
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         name = _call_name(node.func)
         if name == "Transform" and len(node.args) >= 2:
             left, right = node.args[:2]
-            if isinstance(left, ast.Name) and isinstance(right, ast.Name) and left.id == right.id:
-                issues.append(f"禁止 Transform({left.id}, {left.id})：同对象变换没有可见变化")
+            if ast.dump(left, include_attributes=False) == ast.dump(
+                right, include_attributes=False
+            ):
+                label = ast.unparse(left) if hasattr(ast, "unparse") else "同一对象"
+                issues.append(f"禁止 Transform({label}, {label})：同对象变换没有可见变化")
+            if (
+                isinstance(left, ast.Name)
+                and isinstance(right, ast.Call)
+                and isinstance(right.func, ast.Attribute)
+                and isinstance(right.func.value, ast.Name)
+                and right.func.value.id == left.id
+                and right.func.attr in {"add", "become"}
+            ):
+                issues.append(
+                    f"Transform 的目标在动画前直接修改了源对象 {left.id}；"
+                    "请先构造独立 target，或使用对象的 .animate"
+                )
+            if (
+                isinstance(left, ast.Name)
+                and re.search(r"caption|subtitle", left.id, re.IGNORECASE)
+                and isinstance(right, ast.Call)
+                and isinstance(right.func, ast.Name)
+                and right.func.id in {"Text", "Paragraph"}
+            ):
+                issues.append(
+                    f"字幕 {left.id} 的 Transform 目标仍在默认原点；"
+                    "请先 move_to 当前字幕锚点，避免穿入主视觉"
+                )
         if name == "MoveToTarget" and node.args and isinstance(node.args[0], ast.Name):
             target = node.args[0].id
             if target not in generated_targets:
@@ -426,7 +830,24 @@ def _check_animation_api_misuse(tree: ast.AST) -> list[str]:
             ):
                 issues.append("FadeOut(Text(...)) 创建了未在场的新对象，无法清除原字幕")
         if isinstance(node.func, ast.Attribute) and node.func.attr == "play":
+            driven = [animation_target(arg) for arg in node.args]
+            duplicates = sorted({name for name in driven if name and driven.count(name) > 1})
+            if duplicates:
+                issues.append(
+                    "同一个 self.play 中重复驱动对象 "
+                    + ", ".join(duplicates)
+                    + "；请合并为一个目标状态，避免并行动画互相覆盖"
+                )
             for arg in node.args:
+                if (
+                    isinstance(arg, ast.Attribute)
+                    and isinstance(arg.value, ast.Name)
+                    and arg.value.id != "self"
+                ):
+                    issues.append(
+                        f"self.play 仍使用已移除的旧式方法参数 {arg.value.id}.{arg.attr}；"
+                        f"请改为 {arg.value.id}.animate.{arg.attr}(...)"
+                    )
                 if (
                     isinstance(arg, ast.Call)
                     and isinstance(arg.func, ast.Attribute)
@@ -453,6 +874,18 @@ def _check_animation_api_misuse(tree: ast.AST) -> list[str]:
                     parent = source_parent.get(parent)
                 if not inside_play:
                     issues.append(".animate.become(...) 未传给 self.play，不会产生动画")
+    # Changing ``Text.text`` does not rebuild glyph geometry. Combined with a
+    # self-transform it creates a no-op caption update that looks valid in
+    # Python but stays frozen on screen.
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(target, ast.Attribute) and target.attr == "text" for target in targets):
+            issues.append(
+                "禁止直接赋值 Text.text 更新字幕；请创建新的 Text 并 Transform 到新对象"
+            )
+            break
     return list(dict.fromkeys(issues))
 
 
@@ -510,17 +943,73 @@ def _normalize_teaching_text(value: str) -> str:
 
 
 def _extract_display_strings(code: str) -> list[str]:
-    """Collect user-visible/string-table literals without matching comments."""
+    """Collect literals that are actually routed to visible text objects.
+
+    Declaring a TEACHING_LINES table is not evidence that its entries ever
+    reach the screen.  Resolve only referenced table entries plus direct
+    Text/Paragraph literals so a frozen first caption cannot satisfy every
+    planned beat.
+    """
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return []
+    scalar_values: dict[str, str] = {}
+    sequence_values: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        names = [target.id for target in targets if isinstance(target, ast.Name)]
+        if not names:
+            continue
+        value = node.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            for name in names:
+                scalar_values[name] = value.value
+        elif isinstance(value, (ast.List, ast.Tuple)) and all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str)
+            for item in value.elts
+        ):
+            for name in names:
+                sequence_values[name] = [str(item.value) for item in value.elts]
+
+    def table_name(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return ""
+
+    def resolved_text(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return scalar_values.get(node.id)
+        if isinstance(node, ast.Subscript):
+            values = sequence_values.get(table_name(node.value))
+            index_node = node.slice
+            if values is not None and isinstance(index_node, ast.Constant) and isinstance(
+                index_node.value, int
+            ):
+                index = index_node.value
+                if -len(values) <= index < len(values):
+                    return values[index]
+        return None
+
     values: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            value = node.value.strip()
-            if len(_normalize_teaching_text(value)) >= 4:
-                values.append(value)
+        if isinstance(node, ast.Subscript) and table_name(node.value) == "TEACHING_LINES":
+            value = resolved_text(node)
+            if value and len(_normalize_teaching_text(value)) >= 4:
+                values.append(value.strip())
+        if not isinstance(node, ast.Call) or _call_name(node.func) not in {"Text", "Paragraph"}:
+            continue
+        if not node.args:
+            continue
+        value = resolved_text(node.args[0])
+        if value and len(_normalize_teaching_text(value)) >= 4:
+            values.append(value.strip())
     return list(dict.fromkeys(values))
 
 
@@ -688,13 +1177,12 @@ def _check_problem_opening(code: str, problem: str) -> list[str]:
             break
     if not shown:
         issues.append("题目卡未在 SolutionScene.construct 中通过 self.play/self.add 显示")
-    play_calls = [node for node in scene_calls if node.func.attr == "play"]
-    if shown and play_calls:
+    if shown and scene_calls:
         first_referenced = {
-            child.id for child in ast.walk(play_calls[0]) if isinstance(child, ast.Name)
+            child.id for child in ast.walk(scene_calls[0]) if isinstance(child, ast.Name)
         }
         if not first_referenced & visible_vars:
-            issues.append("题目卡不是 construct 的第一个动画 beat，视频仍会从解答或字幕开场")
+            issues.append("题目卡不是 construct 的第一个可见 beat，视频仍会从解答或字幕开场")
 
     if len(expected) >= 45 and problem_text.count("\n") < 2:
         issues.append("长题目卡未分成至少 3 行，缩成单行会导致字号过小")
@@ -781,12 +1269,22 @@ def _check_teaching_contract(
                 )
             break
     displayed_indices = {
-        int(value) for value in re.findall(r"Text\(\s*TEACHING_LINES\[\s*(\d+)\s*\]", code)
+        int(value)
+        for value in re.findall(
+            r"(?:Text|Paragraph)\(\s*(?:self\.)?TEACHING_LINES\[\s*(\d+)\s*\]",
+            code,
+        )
     }
     structurally_displayed = min(declared_line_count, len(displayed_indices))
     if structurally_displayed >= required:
         matched = max(matched, required)
     issues: list[str] = []
+    if declared_line_count and structurally_displayed < required:
+        issues.append(
+            "TEACHING_LINES 仅有 "
+            f"{structurally_displayed}/{declared_line_count} 项实际传给 Text/Paragraph，"
+            f"至少需要 {required} 项；不能只声明字幕常量而让画面停在第一句"
+        )
     if matched < required:
         issues.append(
             f"教学字幕契约未满足：计划 {len(planned)} 条，代码仅语义落实 {matched} 条，"

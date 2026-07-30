@@ -51,11 +51,10 @@ class Settings(BaseSettings):
     # 35B model can legitimately take 2-3 min; bump above llm_request_timeout
     # if you switch to a slower model.
     llm_tool_timeout_s: float = 300.0
-    # Typical happy path needs exactly 8 transitions. A complete visual
-    # fallback (replan → regenerate → validate → render → inspect)
-    # needs 13 total. Per-stage limits in AgentLoop allow only one fallback;
-    # this global ceiling is a final circuit breaker, not a retry strategy.
-    llm_agent_max_turns: int = 14
+    # Happy path is five product stages. Solve/Verify and Direct may each get
+    # one fallback; Compile/Watch own their bounded repair internally, so eight
+    # turns covers the full graph and remains only a circuit breaker.
+    llm_agent_max_turns: int = 8
     # JSON string. Forwarded as `extra_body` to the OpenAI client. Useful for
     # provider-specific knobs like {"chat_template_kwargs": {"enable_thinking": true}}.
     llm_extra_body: str = ""
@@ -65,7 +64,7 @@ class Settings(BaseSettings):
     # False if you actually want thinking + tools and your provider handles it.
     llm_disable_thinking_with_tools: bool = True
 
-    # Fast LLM endpoint — routes analyze/solve/verify/visual-plan calls to a
+    # Fast LLM endpoint — routes solve/verify/direct calls to a
     # smaller / faster model
     # (e.g. Qwen3-4B) while keeping the main 35B+ model for generate_manim_code
     # where code quality matters. Empty model = use main LLM (no routing).
@@ -73,7 +72,7 @@ class Settings(BaseSettings):
     llm_fast_api_key: str = ""
     llm_fast_model: str = ""
 
-    # Vision (multimodal) endpoint — used by inspect_video. If left empty,
+    # Vision (multimodal) endpoint — used by Watch. If left empty,
     # falls back to the main LLM endpoint above (set them all the same when
     # your model supports both text and vision, e.g. Qwen-VL).
     llm_vision_api_base: str = ""

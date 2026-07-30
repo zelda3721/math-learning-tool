@@ -119,10 +119,10 @@ function applyToolCall(state: AgentRunState, evt: ToolCallEvent): AgentRunState 
 
 function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunState {
     const reviewRejected =
-        evt.name === 'inspect_video' && evt.data?.['overall_quality'] === 'bad'
+        evt.name === 'watch_video' && evt.data?.['overall_quality'] === 'bad'
     const expectedGateRevision =
         !evt.success &&
-        ['verify_solution', 'visual_plan', 'validate_manim_code'].includes(evt.name)
+        ['verify_solution', 'direct_video'].includes(evt.name)
     const items = state.items.map((it) => {
         if (it.kind !== 'tool' || it.callId !== evt.id) return it
         const updated: TimelineItem = {
@@ -143,7 +143,7 @@ function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunSt
     })
 
     let finalVideoUrl = state.finalVideoUrl
-    if (evt.name === 'run_manim' && evt.success && evt.data) {
+    if (['run_manim', 'compile_video', 'watch_video'].includes(evt.name) && evt.success && evt.data) {
         const candidate =
             (evt.data['video_url'] as string | undefined) ||
             (evt.data['video_path'] as string | undefined)

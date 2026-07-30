@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from ....application.interfaces import (
+    ArtifactSpec,
     ChatMessage,
     ILLMProvider,
     ITool,
@@ -18,6 +20,7 @@ from ....application.interfaces import (
 )
 from .. import markdown_extract as md
 from ..prompt_library import PromptLibrary
+from .analyze_problem import _parse_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +144,38 @@ def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
             for field in ("description", "operation", "explanation", "result")
         )
     joined = "\n".join(texts)
-    return [
+    issues = [
         f"解答仍包含草稿式自我纠错标记“{marker}”"
         for marker in _DRAFT_CORRECTION_MARKERS
         if marker in joined
-    ][:3]
+    ]
+    steps = [step for step in (payload.get("steps") or []) if isinstance(step, dict)]
+    signatures: set[str] = set()
+    for step in steps:
+        signature = "|".join(
+            re.sub(r"\s+", "", str(step.get(field) or ""))
+            for field in ("description", "operation", "result")
+        )
+        if signature and signature in signatures:
+            issues.append("解答包含内容完全重复的步骤，仍像未清理的草稿")
+            break
+        signatures.add(signature)
+
+    def numeric_tokens(value: Any) -> list[str]:
+        return re.findall(r"(?<![A-Za-z_])-?\d+(?:\.\d+)?", str(value or ""))
+
+    answer_numbers = numeric_tokens(payload.get("answer"))
+    last_result_numbers = numeric_tokens(steps[-1].get("result")) if steps else []
+    if (
+        len(answer_numbers) == 1
+        and last_result_numbers
+        and answer_numbers[0] not in last_result_numbers
+    ):
+        issues.append(
+            "最终答案中的唯一数值未出现在最后一步结果中："
+            f"answer={answer_numbers[0]}, last_result={','.join(last_result_numbers)}"
+        )
+    return issues[:3]
 
 
 class SolveProblemTool(ITool):
@@ -160,10 +190,8 @@ class SolveProblemTool(ITool):
     @property
     def description(self) -> str:
         return (
-            "对数学题做结构化解题，返回 strategy/steps/answer/key_points/"
-            "visualization_hint。**必须**在 generate_manim_code 之前调用，"
-            "否则代码生成的解题逻辑会和题目脱节。可以同时附带 analyze_problem "
-            "的分析结果作为辅助。"
+            "在同一次调用中对当前数学问题做开放式事实分解和结构化解题，返回 analysis、"
+            "strategy、steps、answer、key_points。不得判断题型或套相似题模板。"
         )
 
     @property
@@ -175,7 +203,7 @@ class SolveProblemTool(ITool):
                 "grade": {"type": "string", "description": "学生年级"},
                 "analysis_hint": {
                     "type": "string",
-                    "description": "（可选）来自 analyze_problem 的分析结果，会拼到上下文",
+                    "description": "（兼容旧调用，可选）已有事实提示；正常生产流程无需传入",
                 },
             },
             "required": [],
@@ -263,6 +291,41 @@ class SolveProblemTool(ITool):
             )
 
         contract_issues = _solution_contract_issues(payload)
+        internal_repair_count = 0
+        if contract_issues:
+            # This is a bounded self-repair inside Solve, driven only by
+            # machine-observed contradictions in the submitted artifact. It
+            # avoids spending a visible Verify round on an obviously stale
+            # final answer or duplicated draft step.
+            repair_prompt = (
+                prompt
+                + "\n\n## 提交前契约检查未通过\n"
+                + "\n".join(f"- {issue}" for issue in contract_issues)
+                + "\n重新输出完整的 ## 分析 和 ## 解题定稿。只修正上述矛盾，"
+                "再次逐项核对最终答案与最后一步结果。"
+            )
+            try:
+                repaired_done = await self._llm.chat_complete(
+                    messages=[ChatMessage(role="user", content=repair_prompt)],
+                    temperature=0.1,
+                    max_tokens=6144,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                )
+            except Exception as exc:
+                logger.exception("solve_problem bounded consistency repair failed")
+                repaired_done = None
+            repaired_payload = _parse_solution(repaired_done) if repaired_done else None
+            repaired_issues = (
+                _solution_contract_issues(repaired_payload) if repaired_payload else ["修复输出无法解析"]
+            )
+            if repaired_payload and not repaired_issues:
+                done = repaired_done
+                payload = repaired_payload
+                steps = payload.get("steps") or []
+                contract_issues = []
+                internal_repair_count = 1
+            else:
+                contract_issues = repaired_issues
         if contract_issues:
             ctx.state["last_solve_contract_issues"] = contract_issues
             return ToolResult(
@@ -272,6 +335,27 @@ class SolveProblemTool(ITool):
                 data={"issues": contract_issues},
             )
 
+        # Solve owns semantic decomposition as well as the settled derivation.
+        # Keeping both contracts in one model response removes an entire LLM
+        # boundary and prevents a separately generated analysis from drifting
+        # away from the actual solution.  Older/less compliant models may omit
+        # the brief; the verified solution remains usable and supplies a safe
+        # content-derived fallback rather than triggering another model call.
+        analysis = _parse_analysis(done)
+        if analysis is None:
+            analysis = {
+                "difficulty": "unknown",
+                "question": problem,
+                "objects": [],
+                "relations": [],
+                "known_conditions": [],
+                "constraints": ["仅使用题目明示条件"],
+                "prerequisites": payload.get("key_points") or [],
+                "key_values": {},
+                "source": "solution_fallback",
+            }
+
+        ctx.state["analysis"] = analysis
         ctx.state["solution"] = payload
         ctx.state["solution_steps"] = steps
         ctx.state["solution_answer"] = payload.get("answer", "")
@@ -286,8 +370,31 @@ class SolveProblemTool(ITool):
 
         n = len(steps)
         ans = payload.get("answer") or "(无答案)"
+        artifacts = []
+        if internal_repair_count:
+            report = {
+                "stage": self.name,
+                "internal_repair_count": internal_repair_count,
+                "reason": "solution_contract_violation",
+            }
+            artifacts.append(
+                ArtifactSpec(
+                    kind="pipeline_report",
+                    filename=f"solve-turn{ctx.turn_index:02d}.json",
+                    content=json.dumps(report, ensure_ascii=False, indent=2),
+                    meta=report,
+                )
+            )
         return ToolResult(
             success=True,
-            summary=f"解题完成：{payload.get('strategy') or '未指定策略'}，{n} 步，答案：{ans}",
-            data=payload,
+            summary=(
+                f"问题简报与解题完成：{payload.get('strategy') or '未指定策略'}，"
+                f"{n} 步，答案：{ans}"
+            ),
+            data={
+                **payload,
+                "analysis": analysis,
+                "internal_repair_count": internal_repair_count,
+            },
+            artifacts=artifacts,
         )

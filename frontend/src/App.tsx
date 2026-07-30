@@ -69,7 +69,10 @@ function App() {
     }, [resetAgent])
 
     const liveManimCodePresent = agentState.items.some(
-        (it) => it.kind === 'tool' && it.name === 'generate_manim_code' && it.status === 'success'
+        (it) =>
+            it.kind === 'tool' &&
+            ['generate_manim_code', 'compile_video'].includes(it.name) &&
+            it.status === 'success'
     )
 
     return (
