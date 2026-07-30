@@ -101,6 +101,10 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
     ledger = plan.get("symbol_ledger") or []
     if isinstance(ledger, str):
         ledger = [x.strip() for x in re.split(r"[\n;；]+", ledger) if x.strip()]
+    if isinstance(ledger, list) and len(ledger) == 1:
+        # Presentation infrastructure may supply the universal focus mapping;
+        # the model still has to define at least one content-specific meaning.
+        ledger = [*ledger, "高亮描边 = 当前 beat 的唯一注意焦点"]
     plan["symbol_ledger"] = ledger if isinstance(ledger, list) else []
 
     scenes = plan.get("scenes") or []
@@ -235,8 +239,8 @@ def _validate_plan(
     errors.extend(_validate_essence_rationale(plan.get("essence_rationale") or ""))
 
     ledger = plan.get("symbol_ledger") or []
-    if len(ledger) < 1:
-        errors.append("symbol_ledger 至少 1 项，固定关键对象/颜色/符号的全片含义")
+    if len(ledger) < 2:
+        errors.append("symbol_ledger 至少 2 项，分别固定参照对象与变化/结论对象的全片含义")
 
     scenes = plan.get("scenes") or []
     if len(scenes) < 3:
@@ -322,7 +326,7 @@ class VisualPlanTool(ITool):
         analysis_section = ""
         if analysis:
             analysis_section = (
-                "## 题目语义（来自 analyze_problem）\n"
+                "## 题目语义（来自 Solve 同次输出）\n"
                 f"```json\n{json.dumps(analysis, ensure_ascii=False, indent=2)}\n```"
             )
         solution = ctx.state.get("solution") or {}

@@ -180,7 +180,7 @@ function ToolCard({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                         <code className="text-sm font-mono font-semibold text-slate-700">
-                            {item.name}
+                            {toolLabel(item.name)}
                         </code>
                         {statusBadge}
                     </div>
@@ -238,6 +238,17 @@ function ToolCard({ item }: { item: Extract<TimelineItem, { kind: 'tool' }> }) {
     )
 }
 
+function toolLabel(name: string): string {
+    const labels: Record<string, string> = {
+        solve_problem: 'Solve · 理解与求解',
+        verify_solution: 'Verify · 独立验算',
+        direct_video: 'Direct · 视觉导演',
+        compile_video: 'Compile · 编译成片',
+        watch_video: 'Watch · 成片审查',
+    }
+    return labels[name] || name
+}
+
 function toolPalette(name: string): {
     bg: string
     border: string
@@ -246,7 +257,7 @@ function toolPalette(name: string): {
     icon: React.ReactNode
 } {
     switch (name) {
-        case 'analyze_problem':
+        case 'solve_problem':
             return {
                 bg: 'bg-indigo-50/40',
                 border: 'border-indigo-200',
@@ -270,7 +281,16 @@ function toolPalette(name: string): {
                 iconColor: 'text-amber-600',
                 icon: <FileCode2 size={14} />,
             }
+        case 'direct_video':
+            return {
+                bg: 'bg-sky-50/40',
+                border: 'border-sky-200',
+                iconBg: 'bg-sky-100',
+                iconColor: 'text-sky-600',
+                icon: <Sparkles size={14} />,
+            }
         case 'generate_manim_code':
+        case 'compile_video':
             return {
                 bg: 'bg-violet-50/40',
                 border: 'border-violet-200',
@@ -287,6 +307,7 @@ function toolPalette(name: string): {
                 icon: <CheckCircle2 size={14} />,
             }
         case 'run_manim':
+        case 'watch_video':
             return {
                 bg: 'bg-emerald-50/40',
                 border: 'border-emerald-200',

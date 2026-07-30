@@ -225,7 +225,22 @@ class ManimExecutor(IVideoGenerator):
         # Preserve semantics while migrating common ManimCE/model slips.
         code = re.sub(r"\bShowCreation\b", "Create", code)
         code = re.sub(r"\bstroke_color\s*=\s*NONE\b", "stroke_opacity=0", code)
+        code = re.sub(
+            r"(?P<prefix>[,(]\s*)stroke_dashes\s*=\s*[^,)]+\s*,?\s*",
+            r"\g<prefix>",
+            code,
+        )
+        code = re.sub(
+            r"(?P<prefix>[,(]\s*)stroke_dashed\s*=\s*[^,)]+\s*,?\s*",
+            r"\g<prefix>",
+            code,
+        )
         code = re.sub(r"(?m)(\.animate\.[^,\n]*?)\.animate\.", r"\1.", code)
+        code = re.sub(
+            r"\.move_to\(\[\s*([A-Za-z_]\w*)\s*,\s*ORIGIN\s*,\s*0\s*\]\)",
+            r".move_to(\1)",
+            code,
+        )
         code = re.sub(
             r"(?m)^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\.become\(VGroup\("
             r"(?P=var),\s*(?P<rest>[^\n]+)$",

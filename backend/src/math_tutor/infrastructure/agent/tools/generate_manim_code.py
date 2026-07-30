@@ -136,6 +136,16 @@ def _sanitize_code(code: str) -> str:
         r"\g<prefix>",
         code,
     )
+    code = re.sub(
+        r"(?P<prefix>[,(]\s*)stroke_dashes\s*=\s*[^,)]+\s*,?\s*",
+        r"\g<prefix>",
+        code,
+    )
+    code = re.sub(
+        r"(?P<prefix>[,(]\s*)stroke_dashed\s*=\s*[^,)]+\s*,?\s*",
+        r"\g<prefix>",
+        code,
+    )
     # `NONE` is not a Manim color constant. Models commonly use the SVG/CSS
     # idiom `stroke_color=NONE` when they mean a transparent outline.
     code = re.sub(r"\bstroke_color\s*=\s*NONE\b", "stroke_opacity=0", code)
@@ -144,6 +154,13 @@ def _sanitize_code(code: str) -> str:
     code = re.sub(
         r"(?m)(\.animate\.[^,\n]*?)\.animate\.",
         r"\1.",
+        code,
+    )
+    # A loop variable such as ``corner`` is already a 3D point. Wrapping it
+    # with ORIGIN inside another list creates a ragged array at render time.
+    code = re.sub(
+        r"\.move_to\(\[\s*([A-Za-z_]\w*)\s*,\s*ORIGIN\s*,\s*0\s*\]\)",
+        r".move_to(\1)",
         code,
     )
     # Never make a mobject become a group that contains itself: Manim's copy
@@ -295,6 +312,32 @@ def _sanitize_code(code: str) -> str:
             code,
             flags=re.IGNORECASE,
         )
+        # Every generated teaching line gets the same deterministic maximum
+        # width guard. This only shrinks long text; it never enlarges short
+        # captions, and therefore remains safe across arbitrary content.
+        guarded_caption_lines: list[str] = []
+        caption_assignment = re.compile(
+            r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*"
+            r"Text\(\s*(?:self\.)?TEACHING_LINES\[\s*\d+\s*\]"
+        )
+        source_lines = code.splitlines()
+        for index, line in enumerate(source_lines):
+            guarded_caption_lines.append(line)
+            match = caption_assignment.match(line)
+            if match is None:
+                continue
+            var = match.group("var")
+            lookahead = "\n".join(source_lines[index + 1 : index + 4])
+            if re.search(rf"\bif\s+{re.escape(var)}\.width\s*>", lookahead):
+                continue
+            indent = match.group("indent")
+            guarded_caption_lines.extend(
+                [
+                    f"{indent}if {var}.width > 10.8:",
+                    f"{indent}    {var}.scale_to_fit_width(10.8)",
+                ]
+            )
+        code = "\n".join(guarded_caption_lines)
         # Empty Text has no points; positioning it with set_x/set_y can fail
         # before the first caption update.
         code = re.sub(
@@ -454,6 +497,35 @@ def _sanitize_code(code: str) -> str:
         r"self.play(*[\g<body>],",
         code,
     )
+    # Migrate Manim's removed ``self.play(mobject.method, value, ...)`` API
+    # when the legacy method has one simple positional argument. This is a
+    # mechanical compatibility repair, not a semantic rewrite.
+    legacy_play_method = re.compile(
+        r"self\.play\(\s*(?P<object>[A-Za-z_]\w*)\."
+        r"(?P<method>set_color|set_opacity|shift|move_to|scale)\s*,\s*"
+        r"(?P<value>[^,\n]+?)\s*,"
+    )
+    code = legacy_play_method.sub(
+        lambda match: (
+            f"self.play({match.group('object')}.animate.{match.group('method')}"
+            f"({match.group('value').strip()}),"
+        ),
+        code,
+    )
+    # A direct caption Transform to a fresh Text defaults the target to the
+    # origin, pulling a correctly docked subtitle through the main diagram.
+    # Preserve the source caption's current anchor for this common shape.
+    code = re.sub(
+        r"Transform\(\s*(?P<source>(?:caption|subtitle)(?:[A-Za-z_]\w*)?|"
+        r"[A-Za-z_]\w*(?:caption|subtitle))\s*,\s*"
+        r"(?P<target>Text\([^\n]*?\))(?!\.move_to)\s*\)",
+        lambda match: (
+            f"Transform({match.group('source')}, {match.group('target')}.move_to("
+            f"{match.group('source')}.get_center()))"
+        ),
+        code,
+        flags=re.IGNORECASE,
+    )
     # A same-object Transform is a no-op and often survives repeated local
     # fixes. Remove only the complete play statement with this exact shape.
     code = re.sub(
@@ -525,6 +597,13 @@ def _sanitize_code(code: str) -> str:
         "LIGHT_BLUE",
     ):
         code = re.sub(rf"\b{color}\b", "BLUE", code)
+    # Normalize the cold-start card to a readable baseline. Width/height
+    # guards still shrink unusually long prompts, so this does not overflow.
+    code = re.sub(
+        r"Text\(\s*((?:self\.)?PROBLEM_TEXT)\s*,\s*font_size\s*=\s*\d+(?:\.\d+)?",
+        r"Text(\1, font_size=40",
+        code,
+    )
     return code
 
 
@@ -532,7 +611,10 @@ def _wrap_problem_for_card(problem: str) -> str:
     value = " ".join((problem or "").strip().split())
     if not value:
         return value
-    width = 30 if re.search(r"[\u3400-\u9fff]", value) else 60
+    # Text scales a whole line to the frame width.  Keeping CJK lines near
+    # 22 glyphs avoids shrinking an otherwise ordinary question into a tiny
+    # title; Latin text can safely carry roughly twice as many characters.
+    width = 22 if re.search(r"[\u3400-\u9fff]", value) else 48
     return "\n".join(
         textwrap.wrap(
             value,
@@ -602,6 +684,39 @@ def _ensure_problem_text(code: str, problem: str) -> str:
         normalized_lines.append(line)
     code = "\n".join(normalized_lines)
 
+    # Existing problem cards get the same max-width/max-height protection as
+    # injected cards. Local models often remember to show the question but
+    # forget that a 16:9 frame is much shorter than it is wide.
+    guarded_problem_lines: list[str] = []
+    problem_assignment = re.compile(
+        r"^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*"
+        r"(?:Text|Paragraph)\(\s*(?:self\.)?PROBLEM_TEXT\b"
+    )
+    source_lines = code.splitlines()
+    for index, line in enumerate(source_lines):
+        guarded_problem_lines.append(line)
+        match = problem_assignment.match(line)
+        if match is None:
+            continue
+        var = match.group("var")
+        lookahead = "\n".join(source_lines[index + 1 : index + 8])
+        indent = match.group("indent")
+        if not re.search(rf"\bif\s+{re.escape(var)}\.width\s*>", lookahead):
+            guarded_problem_lines.extend(
+                [
+                    f"{indent}if {var}.width > 11.0:",
+                    f"{indent}    {var}.scale_to_fit_width(11.0)",
+                ]
+            )
+        if not re.search(rf"\bif\s+{re.escape(var)}\.height\s*>", lookahead):
+            guarded_problem_lines.extend(
+                [
+                    f"{indent}if {var}.height > 5.2:",
+                    f"{indent}    {var}.scale_to_fit_height(5.2)",
+                ]
+            )
+    code = "\n".join(guarded_problem_lines)
+
     # If the model defined PROBLEM_TEXT but never created a visible card,
     # inject a standard safe opening deterministically. This is presentation
     # infrastructure, not problem-specific teaching logic.
@@ -626,7 +741,7 @@ def _ensure_problem_text(code: str, problem: str) -> str:
                     break
         if insertion_index >= 0:
             opening = [
-                f"{insertion_indent}problem_card = Text(PROBLEM_TEXT, font_size=34, color=WHITE)",
+                f"{insertion_indent}problem_card = Text(PROBLEM_TEXT, font_size=40, color=WHITE)",
                 f"{insertion_indent}if problem_card.width > 11.0:",
                 f"{insertion_indent}    problem_card.scale_to_fit_width(11.0)",
                 f"{insertion_indent}if problem_card.height > 5.2:",
@@ -648,7 +763,9 @@ def _ensure_problem_text(code: str, problem: str) -> str:
     card_index = -1
     card_name = ""
     card_indent = ""
-    assignment = re.compile(r"^([ \t]*)([A-Za-z_]\w*)\s*=\s*(?:Text|Paragraph)\(\s*PROBLEM_TEXT\b")
+    assignment = re.compile(
+        r"^([ \t]*)([A-Za-z_]\w*)\s*=\s*(?:Text|Paragraph)\(\s*(?:self\.)?PROBLEM_TEXT\b"
+    )
     for index, line in enumerate(lines):
         match = assignment.match(line)
         if match:
@@ -656,11 +773,45 @@ def _ensure_problem_text(code: str, problem: str) -> str:
             card_indent, card_name = match.groups()
             break
     if card_index >= 0:
+        early_ranges: list[tuple[int, int]] = []
+        index = 0
+        while index < card_index:
+            if not lines[index].startswith(
+                (card_indent + "self.play(", card_indent + "self.add(")
+            ):
+                index += 1
+                continue
+            start = index
+            depth = lines[index].count("(") - lines[index].count(")")
+            while depth > 0 and index + 1 < card_index:
+                index += 1
+                depth += lines[index].count("(") - lines[index].count(")")
+            early_ranges.append((start, index + 1))
+            index += 1
+
+        delayed: list[str] = []
+        for start, end in early_ranges:
+            delayed.extend(lines[start:end])
+        for start, end in reversed(early_ranges):
+            del lines[start:end]
+
+        # Re-resolve the card after removing any multiline pre-card plays.
+        card_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if assignment.match(line)
+                and assignment.match(line).group(2) == card_name  # type: ignore[union-attr]
+            ),
+            -1,
+        )
         show_index = next(
             (
                 index
                 for index in range(card_index + 1, len(lines))
-                if lines[index].startswith(card_indent + "self.play(")
+                if lines[index].startswith(
+                    (card_indent + "self.play(", card_indent + "self.add(")
+                )
                 and re.search(rf"\b{re.escape(card_name)}\b", lines[index])
             ),
             -1,
@@ -677,17 +828,40 @@ def _ensure_problem_text(code: str, problem: str) -> str:
             -1,
         )
         if show_index >= 0 and fade_index > show_index:
-            early = [
-                index
-                for index in range(card_index)
-                if lines[index].startswith(card_indent + "self.play(")
-                and lines[index].rstrip().endswith(")")
-            ]
-            delayed = [lines[index] for index in early]
-            for index in reversed(early):
-                del lines[index]
-                show_index -= 1
-                fade_index -= 1
+            # Keep the reading interval atomic. A caption or solution object
+            # inserted between showing and hiding the card competes with the
+            # question and may reveal reasoning before the student has read it.
+            interstitial_ranges: list[tuple[int, int]] = []
+            index = show_index + 1
+            while index < fade_index:
+                if not lines[index].startswith(
+                    (card_indent + "self.play(", card_indent + "self.add(")
+                ):
+                    index += 1
+                    continue
+                start = index
+                depth = lines[index].count("(") - lines[index].count(")")
+                while depth > 0 and index + 1 < fade_index:
+                    index += 1
+                    depth += lines[index].count("(") - lines[index].count(")")
+                block = "\n".join(lines[start : index + 1])
+                if not re.search(rf"\b{re.escape(card_name)}\b", block):
+                    interstitial_ranges.append((start, index + 1))
+                index += 1
+            for start, end in interstitial_ranges:
+                delayed.extend(lines[start:end])
+            for start, end in reversed(interstitial_ranges):
+                del lines[start:end]
+            fade_index = next(
+                (
+                    index
+                    for index in range(show_index + 1, len(lines))
+                    if lines[index].startswith(card_indent + "self.play(")
+                    and "FadeOut" in lines[index]
+                    and re.search(rf"\b{re.escape(card_name)}\b", lines[index])
+                ),
+                -1,
+            )
             if delayed:
                 lines[fade_index + 1 : fade_index + 1] = delayed
                 code = "\n".join(lines)

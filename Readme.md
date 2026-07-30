@@ -36,19 +36,14 @@
 │   • Vision provider    (多模态)         ← Qwen-VL / 复用主 LLM │
 │   • Fast provider      (分析/求解/规划)  ← 小模型 / 复用主 LLM  │
 ├──────────────────────────────────────────────────────────────┤
-│  ToolRegistry — 8 个生产工具（严格按证据状态推进）：           │
-│    阶段 A — 语义与数学正确性                                   │
-│      • analyze_problem       对象/关系/约束开放式分解          │
-│      • solve_problem         结构化解答                        │
-│      • verify_solution       可执行校验或逻辑/反例审计         │
-│    阶段 B — 开放式视觉论证                                     │
-│      • visual_plan           thesis/符号账本/时间 beat         │
-│    阶段 C — 生成与校验                                         │
-│      • generate_manim_code   生成/修复 Manim 代码              │
-│      • validate_manim_code   静态语法+质量+重叠检测            │
-│    阶段 D — 串行执行与视觉评审                                 │
-│      • run_manim             720p30 + WebVTT/可选 TTS + 缓存  │
-│      • inspect_video         5 帧+技术指标+数学契约评审        │
+│  ToolRegistry — 5 个产品阶段（严格按证据状态推进）：           │
+│      • Solve    问题事实简报 + 结构化解答（同一次调用）         │
+│      • Verify   可执行校验或逻辑/反例审计                       │
+│      • Direct   开放式 SceneSpec / 符号账本 / 时间 beat        │
+│      • Compile  写码 + 静态/语义门禁 + 720p30 渲染             │
+│      • Watch    抽帧 + 技术指标 + 数学/教学评审                 │
+│  Compile/Watch 的内部动作不再显示成独立失败；各自最多一次       │
+│  由具体错误或帧证据驱动的修复。                                │
 ├──────────────────────────────────────────────────────────────┤
 │  LearnedWiki：candidate 隔离 → 3 个独立 session 复现 → 晋升    │
 │  QualityReport：首轮成功/数学一致性/技术门禁/耗时/重试          │
@@ -87,7 +82,7 @@ math-learning-tool/
 │   │   │   ├── learned_wiki.py    # 候选/跨会话晋升
 │   │   │   ├── quality_metrics.py # 内容无关质量指标
 │   │   │   ├── tool_registry.py
-│   │   │   └── tools/             # 8 个工具
+│   │   │   └── tools/             # 5 个产品阶段 + 可单测的内部编译组件
 │   │   ├── llm/                   # 3 个 OpenAI 兼容 provider
 │   │   ├── manim/                 # Manim 执行器
 │   │   ├── media/                 # 字幕时间轴与可选 TTS 混流
@@ -225,7 +220,7 @@ curl -X POST localhost:8000/api/v1/sessions/<id>/promote_example \
 ## 🧠 数据如何变成下次的提示
 
 ```
-session 工具证据 + inspect_video 质量报告 + 用户反馈
+session 五阶段证据 + Watch 质量报告 + 用户反馈
   → ingester 只提炼与题目/题型无关的通用机制
   → candidates/ 隔离（生产不可检索）
   → 同一机制由至少 3 个独立 session 复现
@@ -245,7 +240,7 @@ session 工具证据 + inspect_video 质量报告 + 用户反馈
 | `LLM_EXTRA_BODY` | 透传给 OpenAI 客户端的 extra_body（JSON） | 空 |
 | `LLM_DISABLE_THINKING_WITH_TOOLS` | 工具调用时强制 enable_thinking=false | true |
 | `AGENT_DETERMINISTIC_WORKFLOW` | 有界状态机直接调度，跳过控制器 LLM | true |
-| `LLM_VISION_*` | 视觉模型 endpoint（inspect_video 用） | 空 = 复用主 LLM |
+| `LLM_VISION_*` | 视觉模型 endpoint（Watch 成片审查用） | 空 = 复用主 LLM |
 | `LLM_EMBEDDING_*` | embedding endpoint | 空 = 禁用语义检索 |
 | `LLM_RERANK_*` | reranker endpoint | 空 = 禁用精排 |
 | `LLM_RERANK_API_TYPE` | `cohere` 或 `tei` | cohere |
@@ -276,7 +271,7 @@ session 工具证据 + inspect_video 质量报告 + 用户反馈
 # LLM endpoint 通不通？哪个字段出问题？
 python scripts/diagnose_lmstudio.py            # 完整请求
 python scripts/diagnose_lmstudio.py --no-tools # 不带工具
-python scripts/diagnose_lmstudio.py --tool analyze_problem
+python scripts/diagnose_lmstudio.py --tool solve_problem
 python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
 ```
 

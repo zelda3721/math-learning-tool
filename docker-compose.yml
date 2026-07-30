@@ -13,7 +13,7 @@ services:
       - LLM_REQUEST_TIMEOUT=${LLM_REQUEST_TIMEOUT:-180}
       - LLM_EXTRA_BODY=${LLM_EXTRA_BODY:-}
       - LLM_DISABLE_THINKING_WITH_TOOLS=${LLM_DISABLE_THINKING_WITH_TOOLS:-true}
-      - LLM_AGENT_MAX_TURNS=${LLM_AGENT_MAX_TURNS:-14}
+      - LLM_AGENT_MAX_TURNS=${LLM_AGENT_MAX_TURNS:-8}
 
       # Vision endpoint (inspect_video) — empty falls back to main LLM
       - LLM_VISION_API_BASE=${LLM_VISION_API_BASE:-}

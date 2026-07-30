@@ -59,14 +59,12 @@ logger = logging.getLogger(__name__)
 # authoritative retry policy: no stage can consume the remaining turns by
 # repeatedly asking the model to try a different rewrite.
 _STAGE_ATTEMPT_LIMITS: dict[str, int] = {
-    "analyze_problem": 2,
     "solve_problem": 2,
     "verify_solution": 2,
-    "visual_plan": 2,
-    "generate_manim_code": 2,
-    "validate_manim_code": 2,
-    "run_manim": 2,
-    "inspect_video": 2,
+    "direct_video": 1,
+    # These stages already own one evidence-directed internal repair.
+    "compile_video": 1,
+    "watch_video": 1,
 }
 
 
@@ -75,6 +73,11 @@ def _stage_budget_error(tool_name: str, attempts: int) -> str | None:
     limit = _STAGE_ATTEMPT_LIMITS.get(tool_name, 1)
     if attempts < limit:
         return None
+    if limit == 1:
+        return (
+            f"{tool_name} 的首轮及阶段内部定向修复仍未满足质量门禁；"
+            "已停止继续试错，请检查该阶段证据或更换模型后重新生成。"
+        )
     return (
         f"{tool_name} 已完成首轮和一次兜底，仍未满足质量门禁；"
         "已停止继续试错，请检查该阶段证据或更换模型后重新生成。"
@@ -92,6 +95,14 @@ def _compact_tool_data(tool_name: str, data: Any) -> Any:
             "code_stored_in_state": bool(code),
             "code_chars": len(code) if isinstance(code, str) else 0,
             "fix_scope": data.get("fix_scope"),
+        }
+    if tool_name == "compile_video":
+        code = data.get("code") or ""
+        return {
+            "code_stored_in_state": bool(code),
+            "code_chars": len(code) if isinstance(code, str) else 0,
+            "video_url": data.get("video_url"),
+            "internal_repair_count": data.get("internal_repair_count", 0),
         }
     allowed_by_tool = {
         "analyze_problem": ("difficulty", "question", "objects", "relations", "constraints"),
@@ -115,6 +126,16 @@ def _compact_tool_data(tool_name: str, data: Any) -> Any:
             "issues",
             "fix_suggestion",
         ),
+        "direct_video": ("visual_thesis", "essence_rationale"),
+        "watch_video": (
+            "overall_quality",
+            "b_total",
+            "blacklist_hits",
+            "issues",
+            "internal_repair_count",
+            "replanned",
+            "video_url",
+        ),
     }
     keys = allowed_by_tool.get(tool_name)
     if keys is None:
@@ -124,8 +145,6 @@ def _compact_tool_data(tool_name: str, data: Any) -> Any:
 
 def _allowed_tool_names(state: dict[str, Any], *, review_available: bool) -> set[str]:
     """Expose only valid next actions for the current workflow state."""
-    if not state.get("analysis"):
-        return {"analyze_problem"}
     if not state.get("solution_steps"):
         return {"solve_problem"}
     if state.get("solution_verified") is not True:
@@ -135,23 +154,15 @@ def _allowed_tool_names(state: dict[str, Any], *, review_available: bool) -> set
             return {"verify_solution"}
         return {"verify_solution"}
     if not isinstance(state.get("visual_plan"), dict):
-        return {"visual_plan"}
-    if not state.get("latest_manim_code"):
-        return {"generate_manim_code"}
-    if state.get("last_validation_passed") is not True:
-        if state.get("retry_semantic_audit"):
-            return {"validate_manim_code"}
-        if state.get("last_validation_issues"):
-            return {"generate_manim_code", "validate_manim_code"}
-        return {"validate_manim_code"}
+        return {"direct_video"}
     if not state.get("latest_video_path"):
-        if state.get("last_run_error"):
-            return {"generate_manim_code", "run_manim"}
-        return {"run_manim"}
-    if review_available and not state.get("last_visual_review"):
-        return {"inspect_video"}
+        return {"compile_video"}
+    if review_available and (
+        not state.get("last_visual_review") or state.get("last_visual_failed")
+    ):
+        return {"watch_video"}
     if state.get("last_visual_failed"):
-        return {"generate_manim_code", "visual_plan"}
+        return {"watch_video"}
     return set()
 
 
@@ -166,14 +177,6 @@ def _select_next_tool(state: dict[str, Any], *, review_available: bool) -> str |
         return "solve_problem"
     if state.get("last_verify_format_failure"):
         return "verify_solution"
-    if state.get("retry_semantic_audit"):
-        return "validate_manim_code"
-    if state.get("force_visual_replan"):
-        return "visual_plan"
-    if state.get("last_validation_issues") or state.get("last_run_error"):
-        return "generate_manim_code"
-    if state.get("last_visual_failed"):
-        return "generate_manim_code"
     return sorted(allowed)[0]
 
 
@@ -239,8 +242,8 @@ class AgentLoop:
                 problem=problem,
                 grade=grade,
                 meta={
-                    "engine": "bounded_workflow_v2",
-                    "quality_contract": "open_world_v3",
+                    "engine": "five_stage_workflow_v3",
+                    "quality_contract": "open_world_v4",
                     "narration_timeline": "webvtt_v1",
                 },
             )
@@ -282,11 +285,11 @@ class AgentLoop:
             finish_reason = "stop"
 
             allowed_names = _allowed_tool_names(
-                state, review_available="inspect_video" in self._registry
+                state, review_available="watch_video" in self._registry
             )
             if self._deterministic_workflow:
                 selected = _select_next_tool(
-                    state, review_available="inspect_video" in self._registry
+                    state, review_available="watch_video" in self._registry
                 )
                 if selected is not None:
                     budget_error = _stage_budget_error(
@@ -438,7 +441,7 @@ class AgentLoop:
                     self._maybe_schedule_wiki_ingest(session_id, success=False)
                     return
 
-                review_required = "inspect_video" in self._registry
+                review_required = "watch_video" in self._registry
                 workflow_complete = bool(
                     state.get("latest_video_path")
                     and state.get("solution_verified") is True
@@ -605,7 +608,7 @@ class AgentLoop:
             # successful review (or render when review is unavailable). This
             # preserves the full retry budget at the max-turn boundary.
             if self._deterministic_workflow:
-                review_required = "inspect_video" in self._registry
+                review_required = "watch_video" in self._registry
                 workflow_complete = bool(
                     state.get("latest_video_path")
                     and state.get("solution_verified") is True

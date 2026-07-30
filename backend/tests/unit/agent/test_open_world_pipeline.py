@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,7 +25,10 @@ from math_tutor.infrastructure.agent.prompt_composer import PromptComposer
 from math_tutor.infrastructure.agent.tool_registry import ToolRegistry
 from math_tutor.infrastructure.agent.tools.validate_manim_code import (
     _check_animation_api_misuse,
+    _check_hierarchical_label_band_conflicts,
     _check_problem_opening,
+    _check_render_complexity,
+    _check_scene_magnitude_contract,
     _check_structure,
     _check_stale_loop_indices,
     _check_teaching_contract,
@@ -38,6 +42,8 @@ from math_tutor.infrastructure.agent.tools.inspect_video import (
     _derive_technical_issues,
     _parse_rate,
 )
+from math_tutor.infrastructure.agent.tools.compile_video import CompileVideoTool
+from math_tutor.infrastructure.agent.tools.watch_video import WatchVideoTool
 from math_tutor.infrastructure.agent.tools.visual_plan import (
     _normalize_plan,
     _parse_plan_audit,
@@ -48,6 +54,7 @@ from math_tutor.infrastructure.agent.wiki_ingester import (
     _parse_lesson_decision,
 )
 from math_tutor.infrastructure.agent.tools.verify_solution import (
+    _add_safe_data_aliases,
     _classify_verification_failure,
     _parse_consistency_audit,
     _parse_data_object,
@@ -109,10 +116,10 @@ def test_visual_plan_accepts_unseen_free_form_thesis_and_temporal_zone_reuse() -
     assert _validate_plan(plan, "advanced") == []
 
 
-def test_visual_plan_does_not_retry_for_arbitrary_ledger_item_count() -> None:
+def test_visual_plan_requires_reference_and_change_ledger_entries() -> None:
     plan = _open_world_plan()
     plan["symbol_ledger"] = ["stable reference = blue object"]
-    assert _validate_plan(plan, "advanced") == []
+    assert any("至少 2 项" in issue for issue in _validate_plan(plan, "advanced"))
 
 
 def test_visual_plan_audit_parser_requires_machine_checkable_verdict() -> None:
@@ -267,22 +274,17 @@ def test_logical_verification_requires_all_evidence_sections() -> None:
 
 def test_controller_exposes_only_next_valid_stage() -> None:
     state: dict = {}
-    assert _allowed_tool_names(state, review_available=True) == {"analyze_problem"}
-    state["analysis"] = {"question": "goal"}
     assert _allowed_tool_names(state, review_available=True) == {"solve_problem"}
     state["solution_steps"] = [{"description": "derive"}]
     assert _allowed_tool_names(state, review_available=True) == {"verify_solution"}
     state["solution_verified"] = True
-    assert _allowed_tool_names(state, review_available=True) == {"visual_plan"}
+    assert _allowed_tool_names(state, review_available=True) == {"direct_video"}
     state["visual_plan"] = _open_world_plan()
-    assert _allowed_tool_names(state, review_available=True) == {"generate_manim_code"}
-    state["latest_manim_code"] = "code"
-    assert _allowed_tool_names(state, review_available=True) == {"validate_manim_code"}
-    state["last_validation_passed"] = True
-    assert _allowed_tool_names(state, review_available=True) == {"run_manim"}
+    assert _allowed_tool_names(state, review_available=True) == {"compile_video"}
     state["latest_video_path"] = "video.mp4"
-    assert _allowed_tool_names(state, review_available=True) == {"inspect_video"}
+    assert _allowed_tool_names(state, review_available=True) == {"watch_video"}
     state["last_visual_review"] = {"overall_quality": "good"}
+    state["last_visual_failed"] = False
     assert _allowed_tool_names(state, review_available=True) == set()
 
 
@@ -299,18 +301,20 @@ def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> No
         "last_visual_failed": True,
         "visual_fail_count": 1,
     }
-    assert _select_next_tool(state, review_available=True) == "generate_manim_code"
+    assert _select_next_tool(state, review_available=True) == "watch_video"
     state["force_visual_replan"] = True
-    assert _select_next_tool(state, review_available=True) == "visual_plan"
+    assert _select_next_tool(state, review_available=True) == "watch_video"
 
 
 def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
-    assert _stage_budget_error("generate_manim_code", 0) is None
-    assert _stage_budget_error("generate_manim_code", 1) is None
-    message = _stage_budget_error("generate_manim_code", 2)
+    assert _stage_budget_error("solve_problem", 0) is None
+    assert _stage_budget_error("solve_problem", 1) is None
+    message = _stage_budget_error("solve_problem", 2)
     assert message is not None
     assert "首轮和一次兜底" in message
     assert "停止继续试错" in message
+    assert _stage_budget_error("compile_video", 0) is None
+    assert _stage_budget_error("compile_video", 1) is not None
 
 
 def test_solution_contract_rejects_visible_scratchpad_self_correction() -> None:
@@ -333,6 +337,68 @@ def test_solution_contract_rejects_visible_scratchpad_self_correction() -> None:
             "steps": [{"result": "代回全部条件后均成立"}],
         }
     ) == []
+
+
+def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> None:
+    step = {
+        "description": "计算最终量",
+        "operation": "14 × 14 × 3",
+        "explanation": "由已知关系",
+        "result": "588 立方厘米",
+    }
+    issues = _solution_contract_issues(
+        {"answer": "1254 立方厘米", "steps": [step, dict(step)]}
+    )
+    assert any("重复" in issue for issue in issues)
+    assert any("answer=1254" in issue and "last_result=588" in issue for issue in issues)
+
+
+def test_verifier_schema_alias_repairs_only_unambiguous_role_prefix() -> None:
+    code = 'def verify(data):\n    return data["answer_volume"] == data["volume"]'
+    repaired = _add_safe_data_aliases(code, {"volume": 588})
+    assert repaired["answer_volume"] == 588
+    assert _add_safe_data_aliases(
+        'def verify(data):\n    return data["mystery"]', {"volume": 588}
+    ) == {"volume": 588}
+
+
+def test_render_complexity_rejects_unreadable_literal_object_cloud() -> None:
+    tree = ast.parse(
+        """
+for row in range(14):
+    for column in range(14):
+        tile = Cube(side_length=0.1)
+"""
+    )
+    issues = _check_render_complexity(tree)
+    assert any("196" in issue and "预算 96" in issue for issue in issues)
+
+
+def test_scene_magnitude_contract_rejects_math_value_as_manim_size() -> None:
+    tree = ast.parse(
+        """
+original_length = 20
+paper = Square(side_length=original_length)
+"""
+    )
+    issues = _check_scene_magnitude_contract(tree)
+    assert any("side_length=20" in issue and "归一化" in issue for issue in issues)
+
+
+def test_static_gate_rejects_reusing_caption_child_after_group_fadeout() -> None:
+    code = """from manim import *
+class SolutionScene(Scene):
+    def construct(self):
+        caption_text = Text('first')
+        caption_box = Rectangle()
+        caption = VGroup(caption_box, caption_text)
+        self.play(FadeIn(caption))
+        self.play(FadeOut(caption))
+        next_text = Text('second')
+        self.play(Transform(caption_text, next_text))
+"""
+    issues = _check_structure(code, use_latex=False)
+    assert any("字幕生命周期错误" in issue for issue in issues)
 
 
 def test_executable_verification_survives_malformed_secondary_critic() -> None:
@@ -378,7 +444,7 @@ def verify(data):
     assert "格式无效" in str(result.data["consistency_audit_warning"])
 
 
-def test_malformed_semantic_audit_retries_validator_without_rewriting_code() -> None:
+def test_compile_stage_owns_semantic_audit_without_exposing_validator() -> None:
     state = {
         "analysis": {"question": "goal"},
         "solution_steps": [{}],
@@ -389,8 +455,8 @@ def test_malformed_semantic_audit_retries_validator_without_rewriting_code() -> 
         "last_validation_issues": ["独立语义审计返回格式无效"],
         "retry_semantic_audit": True,
     }
-    assert _allowed_tool_names(state, review_available=True) == {"validate_manim_code"}
-    assert _select_next_tool(state, review_available=True) == "validate_manim_code"
+    assert _allowed_tool_names(state, review_available=True) == {"compile_video"}
+    assert _select_next_tool(state, review_available=True) == "compile_video"
 
 
 def test_video_probe_rejects_draft_or_static_output_without_problem_types() -> None:
@@ -464,6 +530,13 @@ self.play(FadeIn(new_label))
         "self.play(FadeOut(old_label))\nnew_label = Text(\"new\")",
     )
     assert _check_visual_evidence_contract(fixed, {}) == []
+    nearby = code.replace("buff=0.2", "buff=0.5", 1).replace(
+        "new_label.next_to(grid, UP, buff=0.2)",
+        "new_label.next_to(grid, UP)",
+    )
+    assert any(
+        "相邻标签带" in issue for issue in _check_visual_evidence_contract(nearby, {})
+    )
 
 
 def test_static_gate_requires_faithful_visible_problem_opening() -> None:
@@ -508,7 +581,13 @@ class SolutionScene(Scene):
         'caption = Text("先讲答案")\n        self.play(Write(caption))\n'
         "        problem_card = Text(PROBLEM_TEXT).scale(0.8).to_edge(UP)",
     )
-    assert any("第一个动画 beat" in issue for issue in _check_problem_opening(bad_first, problem))
+    assert any("第一个可见 beat" in issue for issue in _check_problem_opening(bad_first, problem))
+    added_first = good.replace(
+        "problem_card = Text(PROBLEM_TEXT).scale(0.8).to_edge(UP)",
+        'caption = Text("先讲策略")\n        self.add(caption)\n'
+        "        problem_card = Text(PROBLEM_TEXT).scale(0.8).to_edge(UP)",
+    )
+    assert any("第一个可见 beat" in issue for issue in _check_problem_opening(added_first, problem))
     nested_helper = good.replace(
         "problem_card = Text(PROBLEM_TEXT).scale(0.8).to_edge(UP)",
         'def update_caption():\n            self.play(Write(Text("稍后字幕")))\n'
@@ -595,6 +674,16 @@ d = Text(TEACHING_LINES[3])
     assert issues == []
     assert matched >= 3
     assert planned_count == 3
+
+    frozen_code = """class SolutionScene:
+    TEACHING_LINES = ["先建立基准并观察总量。", "再把差额与单个对象的变化对应。", "最后核对两个条件。"]
+    def construct(self):
+        caption = Text(self.TEACHING_LINES[0])
+        self.add(caption)
+"""
+    frozen_issues, frozen_matched, _ = _check_teaching_contract(frozen_code, plan)
+    assert frozen_matched == 1
+    assert any("字幕契约" in issue for issue in frozen_issues)
 
 
 def test_semantic_audit_parser_is_strict_and_reports_contradictions() -> None:
@@ -693,6 +782,14 @@ volume_bar.set_height(target_h)"""
     assert parallel_animations == (
         "self.play(left.animate.scale(1.05), right.animate.scale(1.05))"
     )
+    legacy_play = _sanitize_code(
+        "self.play(removed.set_color, GREY, FadeOut(label))"
+    )
+    assert legacy_play == "self.play(removed.animate.set_color(GREY), FadeOut(label))"
+    anchored_caption = _sanitize_code(
+        "self.play(Transform(caption, Text(TEACHING_LINES[2], font_size=24)))"
+    )
+    assert "Text(TEACHING_LINES[2], font_size=24).move_to(caption.get_center())" in anchored_caption
     number_line = _sanitize_code(
         "axis = NumberLine(x_range=[-5, 10, 1], include_numbers=True)\n"
         "dot.move_to([value * SCALE, 0, 0])\n"
@@ -789,6 +886,10 @@ volume_bar.set_height(target_h)"""
     )
     assert "old" not in wrapped
     assert "\\n" in wrapped
+    problem_literal = ast.literal_eval(
+        re.search(r"PROBLEM_TEXT\s*=\s*(.+)", wrapped).group(1)  # type: ignore[union-attr]
+    )
+    assert max(len(line) for line in problem_literal.splitlines()) <= 22
     ordered = _ensure_problem_text(
         """from manim import *
 PROBLEM_TEXT = "old"
@@ -805,6 +906,64 @@ class SolutionScene(Scene):
     )
     assert ordered.index("self.play(Write(card))") < ordered.index("self.play(Write(caption))")
     assert ordered.index("self.play(FadeOut(card))") < ordered.index("self.play(Write(caption))")
+    multiline_ordered = _ensure_problem_text(
+        """from manim import *
+PROBLEM_TEXT = "old"
+class SolutionScene(Scene):
+    def construct(self):
+        caption_bg = Rectangle()
+        caption = Text("strategy")
+        self.play(
+            FadeIn(caption_bg),
+            FadeIn(caption),
+        )
+        problem_card = Text(PROBLEM_TEXT)
+        self.play(Write(problem_card))
+        self.wait(2)
+        self.play(FadeOut(problem_card))
+""",
+        "new problem",
+    )
+    assert multiline_ordered.index("self.play(Write(problem_card))") < multiline_ordered.index(
+        "FadeIn(caption_bg)"
+    )
+    assert multiline_ordered.index("self.play(FadeOut(problem_card))") < multiline_ordered.index(
+        "FadeIn(caption_bg)"
+    )
+    class_attr_ordered = _ensure_problem_text(
+        _sanitize_code("""from manim import *
+class SolutionScene(Scene):
+    PROBLEM_TEXT = "old"
+    def construct(self):
+        caption = Text("strategy")
+        self.add(caption)
+        card = Text(self.PROBLEM_TEXT, font_size=20)
+        self.play(Write(card))
+        self.wait(2)
+        self.play(FadeOut(card))
+"""),
+        "new problem",
+    )
+    assert "Text(self.PROBLEM_TEXT, font_size=40)" in class_attr_ordered
+    assert class_attr_ordered.index("self.play(FadeOut(card))") < class_attr_ordered.index(
+        "self.add(caption)"
+    )
+    atomic_opening = _ensure_problem_text(
+        _sanitize_code("""from manim import *
+PROBLEM_TEXT = "old"
+class SolutionScene(Scene):
+    def construct(self):
+        card = Text(PROBLEM_TEXT)
+        self.play(Write(card))
+        self.play(FadeIn(answer_hint))
+        self.wait(3)
+        self.play(FadeOut(card))
+"""),
+        "new problem",
+    )
+    assert atomic_opening.index("self.play(FadeOut(card))") < atomic_opening.index(
+        "self.play(FadeIn(answer_hint))"
+    )
     inline_problem = _ensure_problem_text(
         """from manim import *
 class SolutionScene(Scene):
@@ -959,6 +1118,55 @@ def test_static_gate_rejects_noop_or_unplayed_animation_patterns() -> None:
     assert any("generate_target" in issue for issue in issues)
     fade_tree = ast.parse("self.play(FadeOut(Text('new object'))) ")
     assert any("未在场" in issue for issue in _check_animation_api_misuse(fade_tree))
+    duplicate_tree = ast.parse(
+        "self.play(Transform(item, target), item.animate.set_fill(RED))"
+    )
+    assert any("重复驱动对象 item" in issue for issue in _check_animation_api_misuse(duplicate_tree))
+    mutated_target_tree = ast.parse("self.play(Transform(item, item.add(label)))")
+    assert any("动画前直接修改了源对象 item" in issue for issue in _check_animation_api_misuse(mutated_target_tree))
+    legacy_tree = ast.parse("self.play(item.set_color, RED)")
+    assert any("旧式方法参数" in issue for issue in _check_animation_api_misuse(legacy_tree))
+    drifting_caption = ast.parse(
+        "self.play(Transform(caption, Text(TEACHING_LINES[2], font_size=24)))"
+    )
+    assert any("默认原点" in issue for issue in _check_animation_api_misuse(drifting_caption))
+
+
+def test_static_gate_rejects_parent_and_child_labels_in_the_same_band() -> None:
+    tree = ast.parse(
+        """segments = VGroup()
+remaining = segments[3:]
+summary = Text("aggregate")
+summary.next_to(remaining, DOWN, buff=0.3)
+self.play(FadeIn(summary))
+labels = VGroup()
+for i in range(5):
+    label = Text("unit")
+    center = remaining[i].get_center()
+    label.move_to(center + DOWN * 0.5)
+    labels.add(label)
+self.play(FadeIn(labels))
+"""
+    )
+    issues = _check_hierarchical_label_band_conflicts(tree)
+    assert any("summary" in issue and "labels" in issue and "DOWN" in issue for issue in issues)
+
+    non_overlapping = ast.parse(
+        """segments = VGroup()
+remaining = segments[3:]
+summary = Text("aggregate")
+summary.next_to(remaining, UP, buff=0.3)
+self.play(FadeIn(summary))
+labels = VGroup()
+for i in range(5):
+    label = Text("unit")
+    center = remaining[i].get_center()
+    label.move_to(center + DOWN * 0.5)
+    labels.add(label)
+self.play(FadeIn(labels))
+"""
+    )
+    assert _check_hierarchical_label_band_conflicts(non_overlapping) == []
 
 
 def test_manim_error_compaction_preserves_exception_tail() -> None:
@@ -993,11 +1201,9 @@ def test_session_quality_summary_measures_first_pass_without_type_labels() -> No
             (
                 "solve_problem",
                 "verify_solution",
-                "visual_plan",
-                "generate_manim_code",
-                "validate_manim_code",
-                "run_manim",
-                "inspect_video",
+                "direct_video",
+                "compile_video",
+                "watch_video",
             ),
             start=1,
         )
@@ -1031,7 +1237,7 @@ def test_session_quality_summary_measures_first_pass_without_type_labels() -> No
     summary = build_session_quality_summary(session, calls, [report, subtitle])
     assert summary["quality_gate_passed"] is True
     assert summary["first_pass_success"] is True
-    assert summary["total_tool_latency_ms"] == 700
+    assert summary["total_tool_latency_ms"] == 500
     assert "problem_type" not in summary
     aggregate = aggregate_quality_summaries([summary])
     assert aggregate["quality_gate_pass_rate"] == 1.0
@@ -1116,22 +1322,18 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
 
         async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             state = ctx.state
-            if self.name == "analyze_problem":
+            if self.name == "solve_problem":
                 state["analysis"] = {"question": "goal"}
-            elif self.name == "solve_problem":
                 state["solution_steps"] = [{"description": "derive"}]
                 state["solution_answer"] = "answer"
                 state["solution_verified"] = False
             elif self.name == "verify_solution":
                 state["solution_verified"] = True
-            elif self.name == "visual_plan":
+            elif self.name == "direct_video":
                 state["visual_plan"] = _open_world_plan()
-            elif self.name == "generate_manim_code":
+            elif self.name == "compile_video":
                 state["latest_manim_code"] = "code"
-                state["last_validation_passed"] = False
-            elif self.name == "validate_manim_code":
                 state["last_validation_passed"] = True
-            elif self.name == "run_manim":
                 state["latest_video_path"] = "video.mp4"
                 return ToolResult(
                     success=True,
@@ -1144,21 +1346,18 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
                         )
                     ],
                 )
-            elif self.name == "inspect_video":
+            elif self.name == "watch_video":
                 state["last_visual_review"] = {"overall_quality": "good"}
                 state["last_visual_failed"] = False
             return ToolResult(success=True, summary="ok")
 
     registry = ToolRegistry()
     stage_names = (
-        "analyze_problem",
         "solve_problem",
         "verify_solution",
-        "visual_plan",
-        "generate_manim_code",
-        "validate_manim_code",
-        "run_manim",
-        "inspect_video",
+        "direct_video",
+        "compile_video",
+        "watch_video",
     )
     for name in stage_names:
         registry.register(StageTool(name))
@@ -1170,9 +1369,9 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
         composer=PromptComposer(),
         store=store,  # type: ignore[arg-type]
         use_latex=False,
-        # Exactly the eight production stages: success must not require a
-        # ninth empty controller turn.
-        max_turns=8,
+        # Exactly the five production stages: success must not require a
+        # sixth empty controller turn.
+        max_turns=5,
         deterministic_workflow=True,
     )
 
@@ -1186,3 +1385,109 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
     assert llm.calls == 0
     assert done.status == "ok"
     assert done.final_video_path == "video.mp4"
+
+
+def test_compile_video_hides_one_evidence_directed_repair_inside_stage() -> None:
+    class Writer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["latest_manim_code"] = f"code-{self.calls}"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            if self.calls == 1:
+                ctx.state["last_validation_issues"] = ["observed=x expected=y"]
+                ctx.state["last_error_source"] = "validate"
+                return ToolResult(success=False, summary="invalid", error="validation_failed")
+            ctx.state["last_validation_passed"] = True
+            return ToolResult(success=True, summary="valid")
+
+    class Renderer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["latest_video_path"] = "video.mp4"
+            ctx.state["latest_video_url"] = "/video.mp4"
+            return ToolResult(success=True, summary="rendered")
+
+    writer, validator, renderer = Writer(), Validator(), Renderer()
+    tool = CompileVideoTool(writer, validator, renderer)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="middle",
+        problem="opaque",
+        state={"solution_verified": True, "visual_plan": _open_world_plan()},
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data["internal_repair_count"] == 1
+    assert writer.calls == 2
+    assert validator.calls == 2
+    assert renderer.calls == 1
+
+
+def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
+    class Inspector:
+        calls = 0
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            quality = "bad" if self.calls == 1 else "good"
+            ctx.state["last_visual_review"] = {"overall_quality": quality}
+            ctx.state["last_visual_failed"] = quality == "bad"
+            if quality == "bad":
+                ctx.state["last_visual_issues"] = "24s observed=overlap expected=separate"
+                ctx.state["last_error_source"] = "inspect"
+            return ToolResult(
+                success=True,
+                summary=quality,
+                data={"overall_quality": quality, "blacklist_hits": []},
+            )
+
+    class Compiler:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            assert args == {"review_repair": True}
+            ctx.state["latest_video_path"] = "repaired.mp4"
+            ctx.state["latest_video_url"] = "/repaired.mp4"
+            return ToolResult(success=True, summary="recompiled")
+
+    class Director:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(success=True, summary="redirected")
+
+    inspector, compiler, director = Inspector(), Compiler(), Director()
+    tool = WatchVideoTool(  # type: ignore[arg-type]
+        inspector,
+        compiler,
+        director,
+    )
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={"latest_video_path": "first.mp4"},
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data["internal_repair_count"] == 1
+    assert inspector.calls == 2
+    assert compiler.calls == 1
+    assert director.calls == 0

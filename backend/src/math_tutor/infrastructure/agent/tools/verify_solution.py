@@ -319,6 +319,30 @@ def _safe_exec_verify(code: str, data: dict[str, Any]) -> tuple[bool, str]:
     return False, f"verify 返回 {result!r}（应返回 True 或在失败时 assert）"
 
 
+def _add_safe_data_aliases(code: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Repair harmless verifier-schema prefixes before sandbox execution.
+
+    Local models often emit ``answer_volume`` in code while declaring the
+    answer payload as ``{"volume": ...}``.  When stripping a conventional
+    role prefix yields an exact existing key, aliasing is unambiguous and
+    avoids spending a whole verification attempt on a KeyError.  Values are
+    never inferred or changed.
+    """
+    merged = dict(data)
+    required = set(re.findall(r"data\[\s*['\"]([^'\"]+)['\"]\s*\]", code))
+    prefixes = ("answer_", "expected_", "claimed_", "actual_", "final_", "result_")
+    for missing in sorted(required - merged.keys()):
+        candidates = {
+            missing.removeprefix(prefix)
+            for prefix in prefixes
+            if missing.startswith(prefix)
+        }
+        matches = [candidate for candidate in candidates if candidate in merged]
+        if len(matches) == 1:
+            merged[missing] = merged[matches[0]]
+    return merged
+
+
 def _classify_verification_failure(message: str, *, expected_pass: bool) -> str:
     """Separate a broken verifier program from evidence against the answer.
 
@@ -562,6 +586,12 @@ class VerifySolutionTool(ITool):
             )
 
         merged_data = {**problem_data, **answer_data}
+        # Preserve both the flat schema requested by most verifiers and the
+        # nested role schema occasionally emitted by local models. These are
+        # aliases of already-declared values, never inferred mathematics.
+        merged_data.setdefault("problem", problem_data)
+        merged_data.setdefault("answer", answer_data)
+        merged_data = _add_safe_data_aliases(code, merged_data)
         passed, message = _safe_exec_verify(code, merged_data)
 
         consistency_issues: list[str] = []

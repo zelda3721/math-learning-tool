@@ -9,11 +9,9 @@ from ..storage.models import Artifact, Feedback, Session, ToolCallRecord
 _CRITICAL_STAGES = (
     "solve_problem",
     "verify_solution",
-    "visual_plan",
-    "generate_manim_code",
-    "validate_manim_code",
-    "run_manim",
-    "inspect_video",
+    "direct_video",
+    "compile_video",
+    "watch_video",
 )
 
 
@@ -40,6 +38,17 @@ def build_session_quality_summary(
         artifact for artifact in artifact_list if artifact.kind == "quality_report"
     ]
     latest_quality = quality_artifacts[-1].meta if quality_artifacts else {}
+    pipeline_artifacts = [
+        artifact for artifact in artifact_list if artifact.kind == "pipeline_report"
+    ]
+    compile_internal_repairs = sum(
+        int(artifact.meta.get("internal_repair_count") or 0)
+        for artifact in pipeline_artifacts
+    )
+    watch_internal_repairs = int(
+        latest_quality.get("watch_internal_repair_count") or 0
+    )
+    internal_repair_count = compile_internal_repairs + watch_internal_repairs
     subtitle_artifacts = [
         artifact for artifact in artifact_list if artifact.kind == "subtitle"
     ]
@@ -52,7 +61,7 @@ def build_session_quality_summary(
     has_subtitles = bool(latest_subtitle.get("cue_count"))
     accessibility_pass = bool(has_audio or has_subtitles)
     quality_contract = str((session.meta or {}).get("quality_contract") or "legacy")
-    accessibility_required = quality_contract == "open_world_v3"
+    accessibility_required = quality_contract in {"open_world_v3", "open_world_v4"}
     quality_gate_passed = bool(
         overall in {"good", "acceptable"}
         and technical_pass
@@ -73,7 +82,10 @@ def build_session_quality_summary(
         "quality_contract": quality_contract,
         "quality_gate_passed": quality_gate_passed,
         "first_pass_success": bool(
-            session.status == "done" and quality_gate_passed and completed_once
+            session.status == "done"
+            and quality_gate_passed
+            and completed_once
+            and internal_repair_count == 0
         ),
         "overall_quality": overall,
         "b_total": latest_quality.get("b_total"),
@@ -93,6 +105,7 @@ def build_session_quality_summary(
         "attempts_by_stage": dict(counts),
         "failed_attempts_by_stage": dict(failures),
         "retry_counts": retry_counts,
+        "internal_repair_count": internal_repair_count,
         "user_feedback": latest_feedback,
     }
 

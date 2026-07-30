@@ -92,7 +92,7 @@ function extractManimCode(state: AgentRunState): string | null {
     for (let i = state.items.length - 1; i >= 0; i -= 1) {
         const item = state.items[i]
         if (item.kind !== 'tool') continue
-        if (item.name !== 'generate_manim_code') continue
+        if (!['generate_manim_code', 'compile_video'].includes(item.name)) continue
         const data = item.data
         if (data && typeof data['code'] === 'string') return data['code'] as string
     }
