@@ -5,9 +5,11 @@ JSON output is accepted as a fallback.
 """
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
+from fractions import Fraction
 from typing import Any
 
 from ....application.interfaces import (
@@ -165,6 +167,18 @@ def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
         return re.findall(r"(?<![A-Za-z_])-?\d+(?:\.\d+)?", str(value or ""))
 
     answer_numbers = numeric_tokens(payload.get("answer"))
+    result_numbers = {
+        number
+        for step in steps
+        for number in numeric_tokens(step.get("result"))
+    }
+    missing_answer_numbers = sorted(set(answer_numbers) - result_numbers)
+    if answer_numbers and result_numbers and missing_answer_numbers:
+        issues.append(
+            "最终答案数值没有被任何步骤结果推导出来："
+            + ",".join(missing_answer_numbers)
+        )
+
     last_result_numbers = numeric_tokens(steps[-1].get("result")) if steps else []
     if (
         len(answer_numbers) == 1
@@ -175,7 +189,66 @@ def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
             "最终答案中的唯一数值未出现在最后一步结果中："
             f"answer={answer_numbers[0]}, last_result={','.join(last_result_numbers)}"
         )
+
+    for step_index, step in enumerate(steps, start=1):
+        for equality in _invalid_literal_equalities(step.get("operation")):
+            issues.append(f"第{step_index}步包含算术矛盾：{equality}")
     return issues[:3]
+
+
+def _literal_arithmetic_value(expression: str) -> Fraction:
+    """Evaluate only a literal arithmetic expression, never names or calls."""
+    binary = {
+        ast.Add: lambda left, right: left + right,
+        ast.Sub: lambda left, right: left - right,
+        ast.Mult: lambda left, right: left * right,
+        ast.Div: lambda left, right: left / right,
+    }
+
+    def visit(node: ast.AST) -> Fraction:
+        if isinstance(node, ast.Expression):
+            return visit(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return Fraction(str(node.value))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = visit(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+        if isinstance(node, ast.BinOp) and type(node.op) in binary:
+            return binary[type(node.op)](visit(node.left), visit(node.right))
+        raise ValueError("non-literal arithmetic")
+
+    return visit(ast.parse(expression, mode="eval"))
+
+
+def _invalid_literal_equalities(value: Any) -> list[str]:
+    """Find false numeric equalities without making any problem-type assumptions."""
+    text = str(value or "")
+    normalized = (
+        text.replace(r"\times", "*")
+        .replace(r"\div", "/")
+        .replace(r"\cdot", "*")
+        .replace("×", "*")
+        .replace("÷", "/")
+        .replace("−", "-")
+        .replace("$", "")
+    )
+    issues: list[str] = []
+    equality_pattern = re.compile(
+        r"(?P<left>[+\-*/().\d\s]+?)\s*=\s*(?P<right>[+\-*/().\d\s]+)"
+    )
+    for match in equality_pattern.finditer(normalized):
+        left = match.group("left").strip()
+        right = match.group("right").strip()
+        if not left or not right:
+            continue
+        try:
+            left_value = _literal_arithmetic_value(left)
+            right_value = _literal_arithmetic_value(right)
+        except (SyntaxError, ValueError, ZeroDivisionError):
+            continue
+        if left_value != right_value:
+            issues.append(f"{left} = {right}")
+    return issues
 
 
 class SolveProblemTool(ITool):
@@ -311,12 +384,14 @@ class SolveProblemTool(ITool):
                     max_tokens=6144,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception("solve_problem bounded consistency repair failed")
                 repaired_done = None
             repaired_payload = _parse_solution(repaired_done) if repaired_done else None
             repaired_issues = (
-                _solution_contract_issues(repaired_payload) if repaired_payload else ["修复输出无法解析"]
+                _solution_contract_issues(repaired_payload)
+                if repaired_payload
+                else ["修复输出无法解析"]
             )
             if repaired_payload and not repaired_issues:
                 done = repaired_done

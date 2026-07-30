@@ -47,19 +47,30 @@ class WatchVideoTool(ITool):
             "issues": ctx.state.get("last_visual_issues") or "",
         }
         if self._passed(first):
+            fallback_delivery = bool(ctx.state.get("delivery_fallback"))
             return ToolResult(
                 success=True,
-                summary="成片首审通过：" + first.summary,
-                data={**(first.data or {}), "internal_repair_count": 0},
+                summary=(
+                    "可播放保底成片首审通过：" if fallback_delivery else "成片首审通过："
+                )
+                + first.summary,
+                data={
+                    **(first.data or {}),
+                    "internal_repair_count": 0,
+                    "quality_degraded": fallback_delivery,
+                    "delivery_fallback": fallback_delivery,
+                },
                 artifacts=artifacts,
             )
         if not first.success or not isinstance(first.data, dict):
-            return ToolResult(
-                success=False,
-                summary="成片审查未返回可操作的帧证据，未盲目改写视频",
-                data={"internal_repair_count": 0},
-                artifacts=artifacts,
-                error=first.error or first.summary,
+            return self._deliver_degraded(
+                "成片审查未返回可操作的帧证据",
+                first,
+                artifacts,
+                first_snapshot,
+                ctx,
+                replanned=False,
+                internal_repair_count=0,
             )
 
         # A proof/essence failure requires a new SceneSpec; technical layout
@@ -71,36 +82,31 @@ class WatchVideoTool(ITool):
             artifacts.extend(directed.artifacts)
             replanned = True
             if not directed.success:
-                return self._failed(
+                return self._deliver_degraded(
                     "成片证据要求重新导演，但新 SceneSpec 未通过契约",
                     first,
                     artifacts,
+                    first_snapshot,
+                    ctx,
                     replanned=True,
+                    internal_repair_count=1,
                 )
 
         compiled = await self._compiler.execute({"review_repair": True}, ctx)
         artifacts.extend(compiled.artifacts)
         if not compiled.success:
-            ctx.state["latest_manim_code"] = first_snapshot["code"]
-            ctx.state["latest_video_path"] = first_snapshot["video_path"]
-            ctx.state["latest_video_url"] = first_snapshot["video_url"]
-            ctx.state["last_visual_review"] = first_snapshot["review"]
-            ctx.state["last_visual_issues"] = first_snapshot["issues"]
-            ctx.state["last_visual_failed"] = True
-            return ToolResult(
-                success=False,
-                summary="成片定向修复未能重新编译，已恢复可播放的上一版候选",
-                data={
-                    **(first.data or {}),
-                    "internal_repair_count": 1,
-                    "replanned": replanned,
+            return self._deliver_degraded(
+                "成片定向修复未能重新编译，已恢复可播放的上一版候选",
+                first,
+                artifacts,
+                first_snapshot,
+                ctx,
+                replanned=replanned,
+                internal_repair_count=1,
+                extra={
                     "repair_compile_failed": True,
                     "repair_error": compiled.error,
-                    "video_path": first_snapshot["video_path"],
-                    "video_url": first_snapshot["video_url"],
                 },
-                artifacts=artifacts,
-                error=compiled.error or "visual_repair_compile_failed",
             )
 
         second = await self._inspector.execute({}, ctx)
@@ -111,34 +117,39 @@ class WatchVideoTool(ITool):
                 artifact.meta["watch_replanned"] = replanned
         if not self._passed(second):
             if self._quality_rank(first) > self._quality_rank(second):
-                ctx.state["latest_manim_code"] = first_snapshot["code"]
-                ctx.state["latest_video_path"] = first_snapshot["video_path"]
-                ctx.state["latest_video_url"] = first_snapshot["video_url"]
-                ctx.state["last_visual_review"] = first_snapshot["review"]
-                ctx.state["last_visual_issues"] = first_snapshot["issues"]
-                ctx.state["last_visual_failed"] = True
-                return ToolResult(
-                    success=False,
-                    summary="一次成片修复发生质量回归，已恢复更好的上一版候选",
-                    data={
-                        **(first.data or {}),
-                        "internal_repair_count": 1,
-                        "replanned": replanned,
-                        "repair_regressed": True,
-                        "video_path": first_snapshot["video_path"],
-                        "video_url": first_snapshot["video_url"],
-                    },
-                    artifacts=artifacts,
-                    error="visual_repair_regressed",
+                return self._deliver_degraded(
+                    "一次成片修复发生质量回归，已恢复更好的上一版候选",
+                    first,
+                    artifacts,
+                    first_snapshot,
+                    ctx,
+                    replanned=replanned,
+                    internal_repair_count=1,
+                    extra={"repair_regressed": True},
                 )
-            return self._failed(
+            current_snapshot = {
+                "code": ctx.state.get("latest_manim_code") or "",
+                "video_path": ctx.state.get("latest_video_path"),
+                "video_url": ctx.state.get("latest_video_url"),
+                "review": second.data or {},
+                "issues": ctx.state.get("last_visual_issues") or "",
+            }
+            return self._deliver_degraded(
                 "一次成片定向修复后仍未达到生产门禁",
                 second,
                 artifacts,
+                current_snapshot,
+                ctx,
                 replanned=replanned,
+                internal_repair_count=1,
             )
 
         ctx.state["watch_internal_repairs"] = 1
+        # Compile removes delivery_fallback when it produces a normal candidate.
+        # A passed second review is the point where its old warning can be cleared.
+        if not ctx.state.get("delivery_fallback"):
+            ctx.state.pop("quality_degraded", None)
+            ctx.state.pop("delivery_warning", None)
         return ToolResult(
             success=True,
             summary=(
@@ -205,4 +216,49 @@ class WatchVideoTool(ITool):
             },
             artifacts=artifacts,
             error=result.error or label,
+        )
+
+    @staticmethod
+    def _deliver_degraded(
+        label: str,
+        result: ToolResult,
+        artifacts: list[ArtifactSpec],
+        snapshot: dict[str, Any],
+        ctx: ToolContext,
+        *,
+        replanned: bool,
+        internal_repair_count: int,
+        extra: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Return a playable candidate while preserving an explicit warning."""
+        video_path = snapshot.get("video_path")
+        if not video_path:
+            return WatchVideoTool._failed(
+                label,
+                result,
+                artifacts,
+                replanned=replanned,
+            )
+        ctx.state["latest_manim_code"] = snapshot.get("code") or ""
+        ctx.state["latest_video_path"] = video_path
+        ctx.state["latest_video_url"] = snapshot.get("video_url")
+        ctx.state["last_visual_review"] = snapshot.get("review") or result.data or {}
+        ctx.state["last_visual_issues"] = snapshot.get("issues") or label
+        ctx.state["last_visual_failed"] = False
+        ctx.state["quality_degraded"] = True
+        ctx.state["delivery_warning"] = label
+        return ToolResult(
+            success=True,
+            summary=f"可播放视频已交付，但质量门禁未完全通过：{label}",
+            data={
+                **(result.data or {}),
+                "internal_repair_count": internal_repair_count,
+                "replanned": replanned,
+                "quality_degraded": True,
+                "delivery_warning": label,
+                "video_path": video_path,
+                "video_url": snapshot.get("video_url"),
+                **(extra or {}),
+            },
+            artifacts=artifacts,
         )

@@ -330,7 +330,13 @@ class AgentLoop:
                 else:
                     finish_reason = "stop"
                     answer = state.get("solution_answer") or "已验证"
-                    text_acc.append(f"答案：{answer}。视频已生成并通过质量评审。")
+                    if state.get("quality_degraded"):
+                        text_acc.append(
+                            f"答案：{answer}。视频已生成；当前为可播放保底版本，"
+                            "质量提示请查看 Watch 阶段。"
+                        )
+                    else:
+                        text_acc.append(f"答案：{answer}。视频已生成并通过质量评审。")
             else:
                 try:
                     tool_definitions = [
@@ -529,6 +535,11 @@ class AgentLoop:
 
             # 3) Persist completion + compact history, then yield event.
             for outcome in outcomes:
+                if outcome.tc.name == "solve_problem" and outcome.result.success:
+                    # Verification attempts belong to a specific solution artifact.
+                    # A corrected solution must receive a fresh bounded verification
+                    # budget instead of inheriting attempts spent on the rejected draft.
+                    stage_attempts["verify_solution"] = 0
                 if outcome.unknown_tool_error is not None:
                     await self._store.complete_tool_call(
                         outcome.tc.id,
@@ -621,10 +632,16 @@ class AgentLoop:
                     )
                 )
                 if workflow_complete:
-                    final_text = (
-                        f"答案：{state.get('solution_answer') or '已验证'}。"
-                        "视频已生成并通过质量评审。"
-                    )
+                    if state.get("quality_degraded"):
+                        final_text = (
+                            f"答案：{state.get('solution_answer') or '已验证'}。"
+                            "视频已生成；当前为可播放保底版本，质量提示请查看 Watch 阶段。"
+                        )
+                    else:
+                        final_text = (
+                            f"答案：{state.get('solution_answer') or '已验证'}。"
+                            "视频已生成并通过质量评审。"
+                        )
                     yield DoneEvent(
                         status="ok",
                         text=final_text,
