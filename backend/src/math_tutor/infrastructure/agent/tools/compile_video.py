@@ -311,7 +311,15 @@ class CompileVideoTool(ITool):
         steps.append(self._step("write", generated))
         if not generated.success:
             if review_repair:
-                return self._failed("写码失败", generated, steps, artifacts, repair_count)
+                return await self._fallback_or_failed(
+                    "成片修复写码失败",
+                    generated,
+                    steps,
+                    artifacts,
+                    repair_count,
+                    ctx,
+                    review_repair=review_repair,
+                )
             repair_count += 1
             ctx.state["last_generation_error"] = generated.error or generated.summary
             generated = await self._writer.execute({}, ctx)
@@ -519,9 +527,6 @@ class CompileVideoTool(ITool):
         review_repair: bool,
     ) -> ToolResult:
         """Guarantee a playable first delivery without hiding quality loss."""
-        if review_repair:
-            return self._failed(label, result, steps, artifacts, repair_count)
-
         original_error = result.error or result.summary
         fallback_code = build_verified_fallback_code(ctx)
         ctx.state["latest_manim_code"] = fallback_code

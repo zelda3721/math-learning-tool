@@ -45,6 +45,7 @@ class WatchVideoTool(ITool):
             "video_url": ctx.state.get("latest_video_url"),
             "review": first.data or {},
             "issues": ctx.state.get("last_visual_issues") or "",
+            "delivery_fallback": bool(ctx.state.get("delivery_fallback")),
         }
         if self._passed(first):
             fallback_delivery = bool(ctx.state.get("delivery_fallback"))
@@ -133,6 +134,7 @@ class WatchVideoTool(ITool):
                 "video_url": ctx.state.get("latest_video_url"),
                 "review": second.data or {},
                 "issues": ctx.state.get("last_visual_issues") or "",
+                "delivery_fallback": bool(ctx.state.get("delivery_fallback")),
             }
             return self._deliver_degraded(
                 "一次成片定向修复后仍未达到生产门禁",
@@ -247,6 +249,11 @@ class WatchVideoTool(ITool):
         ctx.state["last_visual_failed"] = False
         ctx.state["quality_degraded"] = True
         ctx.state["delivery_warning"] = label
+        if snapshot.get("delivery_fallback"):
+            ctx.state["delivery_fallback"] = True
+        else:
+            ctx.state.pop("delivery_fallback", None)
+            ctx.state.pop("delivery_fallback_reason", None)
         return ToolResult(
             success=True,
             summary=f"可播放视频已交付，但质量门禁未完全通过：{label}",
