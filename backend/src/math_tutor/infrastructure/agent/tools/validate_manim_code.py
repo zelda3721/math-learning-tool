@@ -329,6 +329,15 @@ def _check_structure(code: str, *, use_latex: bool) -> list[str]:
         )
     if "from manim" not in code:
         issues.append("缺少 from manim import *")
+    if ".get_part_by_class(" in code or ".get_parts_by_class(" in code:
+        issues.append(
+            "当前 Manim 不支持 get_part(s)_by_class；请使用已保存的子对象引用，"
+            "或通过 get_family()+isinstance 过滤"
+        )
+    if ".get_center().move_to(" in code:
+        issues.append(
+            "get_center() 返回坐标数组，不能继续调用 move_to；应把该坐标传给 Mobject.move_to"
+        )
     try:
         tree = ast.parse(code)
     except SyntaxError:
@@ -336,6 +345,23 @@ def _check_structure(code: str, *, use_latex: bool) -> list[str]:
     if tree is not None and any(isinstance(node, ast.While) for node in ast.walk(tree)):
         issues.append("禁止使用 while 循环：渲染帧数必须由 self.play/run_time 有界控制")
     if tree is not None:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "t2c" or not isinstance(keyword.value, ast.Dict):
+                    continue
+                keys = [
+                    item.value
+                    for item in keyword.value.keys
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                ]
+                if any(left != right and left in right for left in keys for right in keys):
+                    issues.append(
+                        "Text 的 t2c 字面量键互相包含，会触发 Pango Ambiguous style；"
+                        "请保留较长键或改用索引范围"
+                    )
+                    break
         solution_classes = [
             node
             for node in ast.walk(tree)

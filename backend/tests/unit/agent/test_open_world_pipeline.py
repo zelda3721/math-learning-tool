@@ -8,50 +8,47 @@ from typing import Any
 
 from math_tutor.application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
 from math_tutor.infrastructure.agent.events import DoneEvent, ToolCallStart
-from math_tutor.infrastructure.agent.loop import AgentLoop
-from math_tutor.infrastructure.agent.quality_metrics import (
-    aggregate_quality_summaries,
-    build_session_quality_summary,
-    compare_quality_windows,
-)
 from math_tutor.infrastructure.agent.learned_wiki import LearnedWiki, Lesson
 from math_tutor.infrastructure.agent.loop import (
+    AgentLoop,
     _allowed_tool_names,
     _compact_tool_data,
     _select_next_tool,
     _stage_budget_error,
 )
 from math_tutor.infrastructure.agent.prompt_composer import PromptComposer
+from math_tutor.infrastructure.agent.quality_metrics import (
+    aggregate_quality_summaries,
+    build_session_quality_summary,
+    compare_quality_windows,
+)
 from math_tutor.infrastructure.agent.tool_registry import ToolRegistry
+from math_tutor.infrastructure.agent.tools.compile_video import (
+    CompileVideoTool,
+    build_verified_fallback_code,
+)
+from math_tutor.infrastructure.agent.tools.inspect_video import (
+    InspectVideoTool,
+    _derive_technical_issues,
+    _parse_rate,
+)
+from math_tutor.infrastructure.agent.tools.run_manim import _compact_manim_error
+from math_tutor.infrastructure.agent.tools.solve_problem import (
+    _invalid_literal_equalities,
+    _solution_contract_issues,
+)
 from math_tutor.infrastructure.agent.tools.validate_manim_code import (
     _check_animation_api_misuse,
     _check_hierarchical_label_band_conflicts,
     _check_problem_opening,
     _check_render_complexity,
     _check_scene_magnitude_contract,
-    _check_structure,
     _check_stale_loop_indices,
+    _check_structure,
     _check_teaching_contract,
+    _check_visual_evidence_contract,
     _parse_semantic_audit,
     _teaching_similarity,
-    _check_visual_evidence_contract,
-)
-from math_tutor.infrastructure.agent.tools.run_manim import _compact_manim_error
-from math_tutor.infrastructure.agent.tools.inspect_video import (
-    InspectVideoTool,
-    _derive_technical_issues,
-    _parse_rate,
-)
-from math_tutor.infrastructure.agent.tools.compile_video import CompileVideoTool
-from math_tutor.infrastructure.agent.tools.watch_video import WatchVideoTool
-from math_tutor.infrastructure.agent.tools.visual_plan import (
-    _normalize_plan,
-    _parse_plan_audit,
-    _validate_plan,
-)
-from math_tutor.infrastructure.agent.wiki_ingester import (
-    _copies_problem_content,
-    _parse_lesson_decision,
 )
 from math_tutor.infrastructure.agent.tools.verify_solution import (
     _add_safe_data_aliases,
@@ -61,10 +58,19 @@ from math_tutor.infrastructure.agent.tools.verify_solution import (
     _parse_logical_audit,
     _safe_exec_verify,
 )
-from math_tutor.infrastructure.agent.tools.solve_problem import _solution_contract_issues
-from math_tutor.infrastructure.storage.models import Artifact, Session, ToolCallRecord
-from math_tutor.infrastructure.media import build_narration_cues, render_webvtt
+from math_tutor.infrastructure.agent.tools.visual_plan import (
+    _normalize_plan,
+    _parse_plan_audit,
+    _validate_plan,
+)
+from math_tutor.infrastructure.agent.tools.watch_video import WatchVideoTool
+from math_tutor.infrastructure.agent.wiki_ingester import (
+    _copies_problem_content,
+    _parse_lesson_decision,
+)
 from math_tutor.infrastructure.llm.openai_provider import _is_local_url
+from math_tutor.infrastructure.media import build_narration_cues, render_webvtt
+from math_tutor.infrastructure.storage.models import Artifact, Session, ToolCallRecord
 
 
 def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参照下显出目标关系") -> dict:
@@ -351,6 +357,24 @@ def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> N
     )
     assert any("重复" in issue for issue in issues)
     assert any("answer=1254" in issue and "last_result=588" in issue for issue in issues)
+
+
+def test_solution_contract_rejects_false_arithmetic_and_unproved_answer_values() -> None:
+    assert _invalid_literal_equalities(r"$24 \div 2 = 14$（只）") == [
+        "24 / 2 = 14"
+    ]
+    assert _invalid_literal_equalities(r"$24 \div 2 = 12$（只）") == []
+    issues = _solution_contract_issues(
+        {
+            "answer": "甲21个，乙14个",
+            "steps": [
+                {"operation": "24 ÷ 2 = 12", "result": "乙有12个"},
+                {"operation": "35 - 12 = 23", "result": "甲有23个"},
+                {"operation": "23 + 12 = 35", "result": "全部条件成立"},
+            ],
+        }
+    )
+    assert any("14,21" in issue for issue in issues)
 
 
 def test_verifier_schema_alias_repairs_only_unambiguous_role_prefix() -> None:
@@ -863,6 +887,26 @@ volume_bar.set_height(target_h)"""
     safe_append = _sanitize_code("body.move_to(np.append(position, 0))")
     assert "if len(position) == 2 else position" in safe_append
     assert "list(balls).index(ball)" in _sanitize_code("balls.get_index(ball)")
+    assert "get_part_by_class" not in _sanitize_code(
+        "feet = animal.get_part_by_class(Line)"
+    )
+    used_family = _sanitize_code(
+        "feet = animal.get_part_by_class(Line)\nself.play(FadeOut(feet))"
+    )
+    assert "animal.get_family()" in used_family
+    assert "isinstance(part, Line)" in used_family
+    broken_caption = (
+        "self.play(Transform(caption, Text('next').move_to("
+        "caption_box.get_center().move_to(caption.get_center()))))"
+    )
+    repaired_caption = _sanitize_code(broken_caption)
+    assert ".get_center().move_to(" not in repaired_caption
+    assert repaired_caption == _sanitize_code(repaired_caption)
+    ambiguous_colors = _sanitize_code(
+        'label = Text("24 and 2", t2c={"24": RED, "2": ORANGE})'
+    )
+    assert '"24": RED' in ambiguous_colors
+    assert '"2": ORANGE' not in ambiguous_colors
     assert "buff=max(0.3, 0.2)" in _sanitize_code(
         "items.arrange_in_grid(rows=5, cols=7, buff=(0.3, 0.2))"
     )
@@ -1062,6 +1106,10 @@ def test_verifier_program_fault_does_not_impugn_the_solution() -> None:
     )
     assert (
         _classify_verification_failure("断言失败: actual counterexample", expected_pass=False)
+        == "solution_failure"
+    )
+    assert (
+        _classify_verification_failure("verify 返回 False（应返回 True）", expected_pass=False)
         == "solution_failure"
     )
 
@@ -1435,6 +1483,60 @@ def test_compile_video_hides_one_evidence_directed_repair_inside_stage() -> None
     assert renderer.calls == 1
 
 
+def test_compile_video_guarantees_a_rendered_verified_fallback() -> None:
+    class Writer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["latest_manim_code"] = "model code"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(success=True, summary="valid")
+
+    class Renderer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            if not ctx.state.get("delivery_fallback"):
+                return ToolResult(success=False, summary="runtime failed", error="bad api")
+            ctx.state["latest_video_path"] = "fallback.mp4"
+            ctx.state["latest_video_url"] = "/fallback.mp4"
+            return ToolResult(success=True, summary="fallback rendered")
+
+    writer, validator, renderer = Writer(), Validator(), Renderer()
+    tool = CompileVideoTool(writer, validator, renderer)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="middle",
+        problem="一个此前未见的问题",
+        state={
+            "solution_verified": True,
+            "solution_steps": [
+                {"description": "建立关系", "operation": "7 + 5 = 12", "result": "12"}
+            ],
+            "solution_answer": "12",
+            "visual_plan": _open_world_plan(),
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None and result.data["delivery_fallback"] is True
+    assert result.data["video_path"] == "fallback.mp4"
+    assert renderer.calls == 3
+    fallback_code = build_verified_fallback_code(ctx)
+    compile(fallback_code, "<fallback>", "exec")
+    assert "一个此前未见的问题" in fallback_code
+    assert "答案：12" in fallback_code
+
+
 def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     class Inspector:
         calls = 0
@@ -1491,3 +1593,48 @@ def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     assert inspector.calls == 2
     assert compiler.calls == 1
     assert director.calls == 0
+
+
+def test_watch_video_delivers_playable_candidate_when_quality_repair_fails() -> None:
+    class Inspector:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            ctx.state["last_visual_review"] = {"overall_quality": "bad"}
+            ctx.state["last_visual_failed"] = True
+            ctx.state["last_visual_issues"] = "字幕遮挡"
+            return ToolResult(
+                success=True,
+                summary="bad",
+                data={
+                    "overall_quality": "bad",
+                    "blacklist_hits": [],
+                    "b_scores": {"b5": 2, "b6": 2},
+                },
+            )
+
+    class Compiler:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=False, summary="repair failed", error="bad api")
+
+    class Director:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=True, summary="unused")
+
+    tool = WatchVideoTool(Inspector(), Compiler(), Director())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={
+            "latest_manim_code": "playable code",
+            "latest_video_path": "playable.mp4",
+            "latest_video_url": "/playable.mp4",
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None and result.data["quality_degraded"] is True
+    assert result.data["video_path"] == "playable.mp4"
+    assert ctx.state["last_visual_failed"] is False

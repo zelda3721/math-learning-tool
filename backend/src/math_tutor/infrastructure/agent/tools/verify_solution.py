@@ -351,6 +351,8 @@ def _classify_verification_failure(message: str, *, expected_pass: bool) -> str:
     predicted pass we ask a second, logical adjudicator before discarding and
     regenerating a stable solution.
     """
+    if message.startswith("verify 返回 False"):
+        return "unconfirmed_assertion" if expected_pass else "solution_failure"
     verifier_fault_prefixes = (
         "执行错误:",
         "语法错误",

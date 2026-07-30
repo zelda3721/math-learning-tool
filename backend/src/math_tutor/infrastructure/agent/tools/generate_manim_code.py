@@ -113,7 +113,63 @@ def _extract_code(content: str) -> str:
     return re.sub(r"\n```[ \t]*$", "", value).strip()
 
 
+def _remove_point_move_to_calls(code: str) -> str:
+    """Remove impossible ``point.move_to(...)`` chains with balanced parsing.
+
+    ``get_center()`` returns a NumPy point, not a Mobject. A permissive caption
+    rewrite in an earlier draft could accidentally attach ``move_to`` to that
+    point. Keeping the point itself is the intended argument to the outer
+    Mobject's ``move_to``.
+    """
+    marker = ".get_center().move_to("
+    while marker in code:
+        start = code.index(marker)
+        open_index = start + len(".get_center().move_to")
+        depth = 0
+        close_index: int | None = None
+        for index in range(open_index, len(code)):
+            if code[index] == "(":
+                depth += 1
+            elif code[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    close_index = index
+                    break
+        if close_index is None:
+            break
+        keep_until = start + len(".get_center()")
+        code = code[:keep_until] + code[close_index + 1 :]
+    return code
+
+
+def _remove_overlapping_t2c_keys(code: str) -> str:
+    """Keep literal Text color spans unambiguous for Pango/Manim."""
+    mapping = re.compile(r"t2c\s*=\s*\{(?P<body>[^{}\n]*)\}")
+    entry = re.compile(
+        r"(?P<raw>(?P<quote>['\"])(?P<key>.*?)(?P=quote)\s*:\s*[^,}]+)"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        entries = list(entry.finditer(match.group("body")))
+        keys = [item.group("key") for item in entries]
+        kept = [
+            item.group("raw").strip()
+            for item in entries
+            if not any(
+                item.group("key") != other and item.group("key") in other
+                for other in keys
+            )
+        ]
+        if len(kept) == len(entries) or not kept:
+            return match.group(0)
+        return "t2c={" + ", ".join(kept) + "}"
+
+    return mapping.sub(replace, code)
+
+
 def _sanitize_code(code: str) -> str:
+    code = _remove_point_move_to_calls(code)
+    code = _remove_overlapping_t2c_keys(code)
     # Mechanical compatibility migrations are safer and much faster than
     # asking the model to rewrite an otherwise valid scene.  These aliases
     # preserve animation semantics across ManimCE versions.
@@ -455,6 +511,29 @@ def _sanitize_code(code: str) -> str:
         r"list(\1).index(\2)",
         code,
     )
+    # Some model outputs invent get_part(s)_by_class. Current Manim exposes
+    # neither spelling. Drop the assignment when its result is unused; when
+    # it is used, lower it to the supported get_family()+isinstance form.
+    family_lookup = re.compile(
+        r"^(?P<indent>[ \t]*)(?P<target>[A-Za-z_]\w*)\s*=\s*"
+        r"(?P<object>[A-Za-z_]\w*)\.get_parts?_by_class\("
+        r"(?P<class>[A-Za-z_]\w*)\)(?P<comment>\s*#.*)?$"
+    )
+    family_lines = code.splitlines()
+    normalized_family_lines: list[str] = []
+    for index, line in enumerate(family_lines):
+        match = family_lookup.match(line)
+        if match is None:
+            normalized_family_lines.append(line)
+            continue
+        later = "\n".join(family_lines[index + 1 :])
+        if not re.search(rf"\b{re.escape(match.group('target'))}\b", later):
+            continue
+        normalized_family_lines.append(
+            f"{match.group('indent')}{match.group('target')} = VGroup(*[part for part in "
+            f"{match.group('object')}.get_family() if isinstance(part, {match.group('class')})])"
+        )
+    code = "\n".join(normalized_family_lines)
     # In Manim 0.20 arrange_in_grid forwards buff into vector arithmetic;
     # a plain 2-tuple can produce a 2D-vs-3D broadcast failure. Collapse the
     # common horizontal/vertical tuple to one safe scalar spacing.
@@ -518,7 +597,7 @@ def _sanitize_code(code: str) -> str:
     code = re.sub(
         r"Transform\(\s*(?P<source>(?:caption|subtitle)(?:[A-Za-z_]\w*)?|"
         r"[A-Za-z_]\w*(?:caption|subtitle))\s*,\s*"
-        r"(?P<target>Text\([^\n]*?\))(?!\.move_to)\s*\)",
+        r"(?P<target>Text\([^()\n]*\))(?!\.move_to)\s*\)",
         lambda match: (
             f"Transform({match.group('source')}, {match.group('target')}.move_to("
             f"{match.group('source')}.get_center()))"
@@ -526,6 +605,7 @@ def _sanitize_code(code: str) -> str:
         code,
         flags=re.IGNORECASE,
     )
+    code = _remove_point_move_to_calls(code)
     # A same-object Transform is a no-op and often survives repeated local
     # fixes. Remove only the complete play statement with this exact shape.
     code = re.sub(
