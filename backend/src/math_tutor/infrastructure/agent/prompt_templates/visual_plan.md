@@ -10,6 +10,8 @@
 - 先让学生看见，再给符号命名；文字负责引导注意力，不承担主要推理。
 - 不引用相似题、题型名称、预设视觉模式或历史代码。不能通过枚举来限制方案空间。
 - `visual_thesis` 是一句自由文本，说明整段视频让学生通过什么画面看懂什么结论。
+- JSON 的自然语言字段、label 和 teaching_line 只用普通文本与 Unicode 数学符号，例如
+  `sin(x) / x → 1`；不要写 `$...$`、LaTeX 命令或反斜杠。精确可执行表达式只放在 params.expression。
 - `symbol_ledger` 固定全片视觉语言；同一颜色、对象和符号不能中途改变含义。
 - 把已验证解答的决定性推理映射为可见动作或关系；有限个取值、截图或个例只能核对，
   不能单独证明全局、唯一、恒成立或必然性结论。
@@ -60,13 +62,15 @@
 全片还必须定义 `visual_objects`。这是可执行 Visual IR，不是题型：
 
 - 每个对象包含 `id`、`primitive`、`meaning`、可选 `label/color/params`。
-- `primitive` 只能使用可组合原语：`dot | circle | rectangle | line | arrow | quantity_bar |
-  unit_grid | number_line | axes | polygon | relation_node`。
+- `primitive` 只能使用可组合原语：`dot | circle | rectangle | line | function_curve | arrow |
+  quantity_bar | unit_grid | number_line | axes | polygon | relation_node`。
 - `params` 保存数量、分组、端点、范围、边数等绘图参数；数学数值不得直接作为 Manim 坐标。
+- 函数图像必须用 `function_curve`，并填写 Python/SymPy 语法的 `params.expression`、
+  `params.variable` 和可选 `params.x_range`；不能把非线性函数伪装成 `line`。
 - `actions.op` 只能使用：`create | transform | move | highlight | partition | merge | compare |
   map | measure | verify | remove`。
-- `targets` 和 `result` 必须引用 `visual_objects.id`。每个动作必须写 `meaning`，说明屏幕动作代表
-  哪个数学关系。
+- `targets` 和 `result` 必须精确引用完整的 `visual_objects.id`，不能写 `axes.origin`、
+  `curve.point` 之类未声明的子属性。每个动作必须写 `meaning`，说明屏幕动作代表哪个数学关系。
 - `transform/partition/map` 必须填写与来源不同的 `result`；被操作的来源对象必须已经在更早动作中
   `create`，不能引用尚未出现的对象。只把若干数量图形依次 `create` 到画面上属于罗列，不是核心变化。
 - verify beat 只能核对已经可见的对象；若需要新的结论对象，先显式 `create`，再执行
@@ -75,8 +79,8 @@
   不允许写缺少 `result` 的 `transform/partition/map`。
 - 重复成员统一用 `params.count`，每个成员附加相同数量标记统一用 `params.count_per_unit`；不要写
   `count_per_head`、`count_per_item` 等领域专用字段。超过 64 的总量应使用 `quantity_bar.value` 或分组压缩。
-- 全部 `transform` beat 合起来必须让非文字数学图形发生可见变化；逐步创建新的证明对象，或使用
-  `transform/move/partition/merge/map` 改变既有对象都可以。`verify` beat 必须包含
+- 全部 `transform` beat 合起来必须至少使用一次 `transform/move/partition/merge/map`，让已经
+  出现的非文字数学图形发生可见变化；仅逐个 `create` 新对象不算因果变化。`verify` beat 必须包含
   `compare/measure/verify`。只创建文字、公式或字幕不算图形动作。
 
 至少一个 `transform` beat，至少一个 `verify` beat。最后的验证必须回到画面中的对象

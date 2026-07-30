@@ -22,6 +22,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..math_runtime import evaluate_real_expression_at, sample_real_expression
 from ..occupancy_table import parse_zone
 from ..prompt_library import PromptLibrary
 
@@ -33,6 +34,7 @@ _VISUAL_PRIMITIVES = {
     "circle",
     "rectangle",
     "line",
+    "function_curve",
     "arrow",
     "quantity_bar",
     "unit_grid",
@@ -287,6 +289,24 @@ def _machine_checkable_blocking_issue(issue: str) -> bool:
 
 def _strip_decorations(value: str) -> str:
     text = str(value or "").strip()
+    # JSON accepts sequences such as \f and \t. Local models frequently emit
+    # LaTeX with a single backslash inside JSON, so ``\frac`` and ``\text``
+    # arrive as control characters plus trailing letters. Recover only exact
+    # command spellings; ordinary whitespace remains untouched.
+    escaped_math_commands = {
+        "\x0crac": r"\frac",
+        "\text": r"\text",
+        "\times": r"\times",
+        "\theta": r"\theta",
+        "\to": r"\to",
+        "\right": r"\right",
+        "\begin": r"\begin",
+        "\neq": r"\neq",
+        "\nabla": r"\nabla",
+        "\not": r"\not",
+    }
+    for damaged, restored in escaped_math_commands.items():
+        text = text.replace(damaged, restored)
     while len(text) >= 2 and text[0] in _BACKTICKS and text[-1] in _BACKTICKS:
         text = text[1:-1].strip()
     return text
@@ -345,6 +365,18 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 if per_unit_key is not None:
                     params["count_per_unit"] = params[per_unit_key]
             primitive = item["primitive"]
+            function_name = str(params.get("func") or "").strip().lower()
+            if primitive == "line" and function_name == "linear":
+                params.setdefault("slope", 1)
+                params.setdefault("intercept", 0)
+                params.pop("func", None)
+            elif primitive == "line" and (function_name or params.get("expression")):
+                item["primitive"] = "function_curve"
+                if not params.get("expression"):
+                    params["expression"] = (
+                        f"{function_name}(x)" if function_name else "x"
+                    )
+                params.setdefault("variable", "x")
             total = params.get("total")
             if primitive == "quantity_bar" and "value" not in params and total is not None:
                 params["value"] = total
@@ -373,6 +405,11 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
     scenes = plan.get("scenes") or []
     if isinstance(scenes, list):
+        declared_object_ids = {
+            str(item.get("id"))
+            for item in visual_objects
+            if isinstance(item, dict) and item.get("id")
+        }
         for scene in scenes:
             if not isinstance(scene, dict):
                 continue
@@ -416,6 +453,18 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         _strip_decorations(target)
                         for target in targets
                         if isinstance(target, str) and target.strip()
+                    ]
+                    # A planner may address a geometric feature such as
+                    # ``axes.origin`` even though Visual IR deliberately keeps
+                    # only drawable object identities.  If the root is a
+                    # declared object, lower the feature reference to that
+                    # object. Unknown roots remain untouched for validation.
+                    action["targets"] = [
+                        target.split(".", 1)[0]
+                        if "." in target
+                        and target.split(".", 1)[0] in declared_object_ids
+                        else target
+                        for target in action["targets"]
                     ]
                     raw_result = action.get("result") or ""
                     result_values = (
@@ -485,6 +534,74 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         normalized_actions.append(action)
                 actions = normalized_actions
             scene["actions"] = actions if isinstance(actions, list) else []
+
+        # Some models correctly introduce successor graphics in a transform
+        # beat but encode them as independent ``create`` actions.  Recover an
+        # explicit causal transition only when source and successor identities
+        # share a stable semantic token (for example ``curve_sin`` ->
+        # ``tangent_sin`` or ``state_before`` -> ``state_after``). This is a
+        # generic Visual-IR identity repair and does not classify the problem.
+        visible_before_scene: set[str] = set()
+        ignored_identity_tokens = {
+            "curve", "line", "dot", "bar", "grid", "node", "shape",
+            "before", "after", "old", "new", "source", "result",
+        }
+
+        def identity_tokens(object_id: str) -> set[str]:
+            return {
+                token
+                for token in re.split(r"[^a-z0-9]+", object_id.lower())
+                if token and token not in ignored_identity_tokens
+            }
+
+        for scene in scenes:
+            if not isinstance(scene, dict):
+                continue
+            actions = scene.get("actions") or []
+            has_mutation = any(
+                isinstance(action, dict)
+                and action.get("op") in _MUTATING_VISUAL_ACTIONS
+                for action in actions
+            )
+            if scene.get("role") == "transform" and not has_mutation:
+                available_sources = set(visible_before_scene)
+                for action in actions:
+                    if not isinstance(action, dict) or action.get("op") != "create":
+                        continue
+                    targets = list(action.get("targets") or [])
+                    if len(targets) != 1:
+                        continue
+                    result_id = str(targets[0])
+                    result_tokens = identity_tokens(result_id)
+                    ranked_sources = sorted(
+                        (
+                            (
+                                len(identity_tokens(source_id) & result_tokens),
+                                source_id,
+                            )
+                            for source_id in available_sources
+                        ),
+                        reverse=True,
+                    )
+                    if not ranked_sources or ranked_sources[0][0] <= 0:
+                        continue
+                    source_id = ranked_sources[0][1]
+                    action["op"] = "transform"
+                    action["targets"] = [source_id]
+                    action["result"] = result_id
+                    available_sources.discard(source_id)
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                op = str(action.get("op") or "")
+                targets = list(action.get("targets") or [])
+                if op == "create":
+                    visible_before_scene.update(targets)
+                elif op in {"transform", "partition", "map"} and action.get("result"):
+                    visible_before_scene.difference_update(targets)
+                    visible_before_scene.add(str(action["result"]))
+                elif op == "remove":
+                    visible_before_scene.difference_update(targets)
 
         # Preserve actions that reference an undeclared successor.  The
         # validator reports the referential defect, while the semantic action
@@ -977,6 +1094,254 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
     }
 
 
+def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Lower executable one-variable math evidence into a visual argument.
+
+    This is a capability fallback, not a question-type template. It activates
+    only when the verified Math IR itself exposes a drawable expression, a
+    finite observation point, and a scalar result. The resulting curve,
+    neighborhood focus and reference value are all copied from deterministic
+    evidence, so a malformed director response cannot invent new mathematics.
+    """
+    request = ctx.state.get("verify_math_request") or ctx.state.get(
+        "solve_math_request"
+    )
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get(
+        "solve_math_evidence"
+    )
+    if not isinstance(request, dict) or not isinstance(evidence, dict):
+        return None
+    if not evidence.get("success") or evidence.get("all_claims_passed") is not True:
+        return None
+
+    evidence_by_id = {
+        str(item.get("id")): str(item.get("result") or "")
+        for item in evidence.get("operations") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    resolved_results: dict[str, str] = {}
+    candidate: tuple[str, str, float, float] | None = None
+    for operation in request.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        operation_id = str(operation.get("id") or "")
+        expression = str(operation.get("expression") or "").strip()
+        if expression.startswith("$"):
+            expression = resolved_results.get(expression[1:], "")
+        result = evidence_by_id.get(operation_id, "")
+        if operation_id and result:
+            resolved_results[operation_id] = result
+        variable = str(operation.get("variable") or "x").strip()
+        point = operation.get("point")
+        if not expression or point is None or not result:
+            continue
+        try:
+            point_value = float(point)
+            result_value = float(result)
+        except (TypeError, ValueError):
+            continue
+        if not (-1e6 < point_value < 1e6 and -1e6 < result_value < 1e6):
+            continue
+        candidate = (expression, variable, point_value, result_value)
+
+    if candidate is None:
+        return None
+    expression, variable, point_value, result_value = candidate
+    wide_radius = 2.4
+    focus_radius = 0.55
+    x_start, x_end = point_value - wide_radius, point_value + wide_radius
+    y_radius = max(2.0, min(8.0, abs(result_value) * 0.75 + 1.5))
+    y_start, y_end = result_value - y_radius, result_value + y_radius
+    try:
+        if not sample_real_expression(
+            expression,
+            variable=variable,
+            start=x_start,
+            end=x_end,
+            y_min=y_start,
+            y_max=y_end,
+        ):
+            return None
+        point_value_on_curve = evaluate_real_expression_at(
+            expression,
+            variable=variable,
+            point=point_value,
+        )
+    except (TypeError, ValueError):
+        return None
+    open_result_point = (
+        point_value_on_curve is None
+        or abs(point_value_on_curve - result_value) > 1e-8
+    )
+
+    expression_label = f"f({variable}) = {expression}"
+    result_label = f"y = {result_value:g}"
+    return {
+        "visual_thesis": (
+            "把确定性计算中的函数画出来，逐步收紧到指定点附近，"
+            "并与已验算的结果线直接比较。"
+        ),
+        "essence_rationale": (
+            "学生同时看到函数在目标点附近的局部走势和固定结果线；"
+            "观察范围收紧后两者贴合，数值结论由图形关系而不是字幕给出。"
+        ),
+        "symbol_ledger": [
+            "蓝色曲线 = 确定性数学执行中的原表达式",
+            "绿色曲线 = 收紧观察范围后的同一表达式",
+            "黄色横线与圆点 = 独立验算得到的结果",
+        ],
+        "visual_objects": [
+            {
+                "id": "grounded_axes",
+                "primitive": "axes",
+                "meaning": "承载确定性表达式与结果的坐标系",
+                "label": "",
+                "color": "gray",
+                "params": {
+                    "x_range": [x_start, x_end],
+                    "y_range": [y_start, y_end],
+                },
+            },
+            {
+                "id": "grounded_expression_wide",
+                "primitive": "function_curve",
+                "meaning": "确定性数学执行中的原表达式",
+                "label": expression_label,
+                "color": "blue",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "x_range": [x_start, x_end],
+                },
+            },
+            {
+                "id": "grounded_expression_focus",
+                "primitive": "function_curve",
+                "meaning": "只保留指定点邻域内的同一表达式",
+                "label": "",
+                "color": "green",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "x_range": [
+                        point_value - focus_radius,
+                        point_value + focus_radius,
+                    ],
+                },
+            },
+            {
+                "id": "grounded_result_line",
+                "primitive": "line",
+                "meaning": "独立验算得到的固定结果",
+                "label": result_label,
+                "color": "yellow",
+                "params": {"x_start": x_start, "x_end": x_end, "y": result_value},
+            },
+            {
+                "id": "grounded_result_intersection",
+                "primitive": "dot",
+                "meaning": "目标位置与已验算结果的交点",
+                "label": f"({point_value:g}, {result_value:g})",
+                "color": "yellow",
+                "params": {
+                    "x": point_value,
+                    "y": result_value,
+                    "open": open_result_point,
+                },
+            },
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "坐标系与原表达式曲线",
+                "action": "建立坐标参照并绘制确定性执行中的原表达式。",
+                "invariant": "表达式、变量和坐标含义保持不变",
+                "attention_target": "蓝色曲线在目标位置附近的走势",
+                "exit_condition": "原表达式及目标位置已经可见",
+                "teaching_line": "先看原表达式在目标位置附近怎样变化。",
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["grounded_axes"],
+                        "result": "",
+                        "meaning": "建立统一坐标参照",
+                    },
+                    {
+                        "op": "create",
+                        "targets": ["grounded_expression_wide"],
+                        "result": "",
+                        "meaning": "绘制确定性表达式",
+                    },
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "逐步收紧的表达式曲线",
+                "action": "把完整曲线变为目标点邻域内的曲线片段。",
+                "invariant": "函数表达式不变，只改变观察范围",
+                "attention_target": "绿色局部曲线的高度趋于稳定",
+                "exit_condition": "目标点附近的局部走势被清楚隔离",
+                "teaching_line": "收紧观察范围，只看越来越靠近目标点的部分。",
+                "duration_s": 7,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": ["grounded_expression_wide"],
+                        "result": "grounded_expression_focus",
+                        "meaning": "收紧到指定点邻域而不改变表达式",
+                    },
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "局部曲线、结果线与目标圆点",
+                "action": "显示独立验算结果线并与局部曲线直接核对。",
+                "invariant": "结果值来自独立 Math IR 验算",
+                "attention_target": "局部曲线与黄色结果标记的贴合",
+                "exit_condition": "画面中的曲线和结果值完成同屏核对",
+                "teaching_line": f"局部曲线贴近 {result_label}，与独立验算一致。",
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": [
+                            "grounded_result_line",
+                            "grounded_result_intersection",
+                        ],
+                        "result": "",
+                        "meaning": "显示确定性计算得到的结果",
+                    },
+                    {
+                        "op": "compare",
+                        "targets": [
+                            "grounded_expression_focus",
+                            "grounded_result_line",
+                        ],
+                        "result": "",
+                        "meaning": "比较局部函数值与固定结果",
+                    },
+                    {
+                        "op": "verify",
+                        "targets": [
+                            "grounded_expression_focus",
+                            "grounded_result_line",
+                            "grounded_result_intersection",
+                        ],
+                        "result": "",
+                        "meaning": "用同屏图形核对结论",
+                    },
+                ],
+            },
+        ],
+        "forbidden": ["用字幕代替曲线变化", "使用未经确定性执行验证的表达式或数值"],
+        "grounded_from_math_execution": True,
+    }
+
+
 def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] | None:
     """Keep valid graphical objects while discarding an unsafe directing story.
 
@@ -1370,6 +1735,12 @@ def _validate_plan(
             )
         if not meaning:
             errors.append(f"visual_objects[{index}].meaning 为空，图形没有稳定数学含义")
+        if primitive == "function_curve":
+            params = item.get("params") or {}
+            if not str(params.get("expression") or "").strip():
+                errors.append(
+                    f"visual_objects[{index}] 的 function_curve 缺少 params.expression"
+                )
 
     scenes = plan.get("scenes") or []
     transform_ops: set[str] = set()
@@ -1571,6 +1942,24 @@ class VisualPlanTool(ITool):
             if key_points:
                 solution_section += "\n\n独立检查证据：\n" + "\n".join(
                     f"- {str(item)[:240]}" for item in key_points[:10]
+                )
+            math_evidence = (
+                ctx.state.get("verify_math_evidence")
+                or ctx.state.get("solve_math_evidence")
+                or {}
+            )
+            if isinstance(math_evidence, dict) and math_evidence.get("success"):
+                compact_evidence = {
+                    "applicable": math_evidence.get("applicable"),
+                    "all_claims_passed": math_evidence.get("all_claims_passed"),
+                    "operations": (math_evidence.get("operations") or [])[:12],
+                    "claims": (math_evidence.get("claims") or [])[:12],
+                }
+                solution_section += (
+                    "\n\n确定性数学执行证据（图形中的数值和状态必须来自这里）：\n"
+                    "```json\n"
+                    + json.dumps(compact_evidence, ensure_ascii=False, indent=2)
+                    + "\n```"
                 )
 
         feedback = ""
