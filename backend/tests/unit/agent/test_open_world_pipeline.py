@@ -1844,7 +1844,7 @@ def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     assert director.calls == 0
 
 
-def test_watch_video_delivers_playable_candidate_when_quality_repair_fails() -> None:
+def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails() -> None:
     class Inspector:
         parameters: dict[str, Any] = {"type": "object", "properties": {}}
 
@@ -1883,10 +1883,11 @@ def test_watch_video_delivers_playable_candidate_when_quality_repair_fails() -> 
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success is True
+    assert result.success is False
     assert result.data is not None and result.data["quality_degraded"] is True
     assert result.data["video_path"] == "playable.mp4"
-    assert ctx.state["last_visual_failed"] is False
+    assert ctx.state["last_visual_failed"] is True
+    assert "未交付" in result.summary
 
 
 def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry() -> None:
@@ -1896,13 +1897,17 @@ def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry
 
         async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             self.calls += 1
-            ctx.state["last_visual_review"] = {"overall_quality": "bad"}
-            ctx.state["last_visual_failed"] = True
+            quality = "good" if self.calls == 3 else "bad"
+            ctx.state["last_visual_review"] = {"overall_quality": quality}
+            ctx.state["last_visual_failed"] = quality == "bad"
             ctx.state["last_visual_issues"] = "只有文字切换"
             return ToolResult(
                 success=True,
-                summary="bad",
-                data={"overall_quality": "bad", "blacklist_hits": ["文字搬运"]},
+                summary=quality,
+                data={
+                    "overall_quality": quality,
+                    "blacklist_hits": [] if quality == "good" else ["文字搬运"],
+                },
             )
 
     class Compiler:
@@ -1942,3 +1947,63 @@ def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry
     assert result.data["video_path"] == "visual-fallback.mp4"
     assert result.data["text_only_candidate_replaced"] is True
     assert compiler.calls == [{"review_repair": True}, {"visual_fallback_only": True}]
+    assert inspector.calls == 3
+
+
+def test_watch_treats_static_slideshow_as_meaningless_visual() -> None:
+    result = ToolResult(
+        success=True,
+        summary="bad",
+        data={"overall_quality": "bad", "blacklist_hits": ["静态幻灯片"]},
+    )
+    assert WatchVideoTool._meaningless_visual(result) is True
+
+
+def test_visual_ir_fallback_compiles_generic_repetition_partition_and_map() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "all_units", "primitive": "dot", "meaning": "all units",
+            "label": "35 units", "color": "blue", "params": {"count": 35, "columns": 7},
+        },
+        {
+            "id": "baseline", "primitive": "line", "meaning": "two marks per unit",
+            "label": "2 per unit", "color": "blue", "params": {"count_per_unit": 2},
+        },
+        {
+            "id": "difference", "primitive": "line", "meaning": "difference tokens",
+            "label": "24 tokens", "color": "red", "params": {"count": 24},
+        },
+        {
+            "id": "groups", "primitive": "circle", "meaning": "paired groups",
+            "label": "12 groups", "color": "green", "params": {"count": 12},
+        },
+    ]
+    plan["scenes"] = [
+        {
+            "role": "setup", "teaching_line": "establish every unit",
+            "actions": [{"op": "create", "targets": ["all_units", "baseline"]}],
+        },
+        {
+            "role": "transform", "teaching_line": "pair the differences",
+            "actions": [
+                {"op": "create", "targets": ["difference"]},
+                {"op": "partition", "targets": ["difference"], "result": "groups"},
+            ],
+        },
+        {
+            "role": "verify", "teaching_line": "map groups to the original units",
+            "actions": [{"op": "map", "targets": ["groups"], "result": "all_units"}],
+        },
+    ]
+    ctx = ToolContext(
+        session_id="s", turn_index=4, grade="middle", problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": plan},
+    )
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<fallback>", "exec")
+    assert "def repeated_body" in code
+    assert "params.get(\"count_per_unit\")" in code
+    assert "source_units[index * ratio:(index + 1) * ratio]" in code
+    assert "pair_count = min(len(source_units), len(result_units))" in code
+    assert "'count': 35" in code and "'count': 24" in code and "'count': 12" in code

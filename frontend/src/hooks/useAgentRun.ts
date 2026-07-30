@@ -143,7 +143,10 @@ function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunSt
     })
 
     let finalVideoUrl = state.finalVideoUrl
-    if (['run_manim', 'compile_video', 'watch_video'].includes(evt.name) && evt.success && evt.data) {
+    // A rendered MP4 is only a candidate. Publish it after the final Watch
+    // quality gate passes; otherwise a failed/revision candidate leaks into
+    // the player before the workflow has accepted it.
+    if (evt.name === 'watch_video' && evt.success && evt.data) {
         const candidate =
             (evt.data['video_url'] as string | undefined) ||
             (evt.data['video_path'] as string | undefined)
@@ -162,10 +165,12 @@ function applyToolResult(state: AgentRunState, evt: ToolResultEvent): AgentRunSt
 }
 
 function applyDone(state: AgentRunState, evt: DoneEvent): AgentRunState {
+    const delivered = evt.status === 'ok'
     return {
         ...state,
-        status: evt.status === 'ok' ? 'done' : evt.status === 'exhausted' ? 'exhausted' : 'failed',
-        finalVideoUrl: evt.final_video_url || state.finalVideoUrl,
+        status: delivered ? 'done' : evt.status === 'exhausted' ? 'exhausted' : 'failed',
+        finalVideoUrl: delivered ? evt.final_video_url || state.finalVideoUrl : null,
+        subtitleUrl: delivered ? state.subtitleUrl : null,
         finalText: evt.text || state.finalText,
     }
 }
