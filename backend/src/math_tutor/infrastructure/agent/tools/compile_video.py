@@ -51,31 +51,80 @@ def _wrap_fallback_text(value: Any, *, width: int = 26, max_lines: int = 4) -> s
     return "\n".join(lines)
 
 
-def build_verified_fallback_code(ctx: ToolContext) -> str:
-    """Build a deterministic, content-agnostic playable explanation.
+def _fallback_relation_model(raw: Any, index: int) -> dict[str, Any]:
+    """Build a universal relation model from one verified solution step."""
+    if isinstance(raw, dict):
+        description = _plain_fallback_text(raw.get("description"))
+        operation = _plain_fallback_text(raw.get("operation"))
+        result = _plain_fallback_text(raw.get("result"))
+    else:
+        description = _plain_fallback_text(raw)
+        operation = ""
+        result = ""
 
-    This is a delivery fallback, not a problem-type renderer. It displays the
-    exact question, independently verified steps, and answer with a stable
-    progress visualization when model-authored Manim cannot compile.
+    number = r"-?\d+(?:\.\d+)?"
+    arithmetic = re.search(
+        rf"(?P<left>{number})\s*(?P<operator>[+\-−×÷*/])\s*"
+        rf"(?P<right>{number})\s*=\s*(?P<output>{number})",
+        operation,
+    )
+    title = _wrap_fallback_text(
+        f"第{index}步：{description or result or operation}", width=25, max_lines=2
+    )
+    if arithmetic:
+        operator = arithmetic.group("operator").replace("*", "×").replace("/", "÷")
+        return {
+            "mode": "quantity",
+            "title": title,
+            "operator": operator,
+            "left_label": arithmetic.group("left"),
+            "right_label": arithmetic.group("right"),
+            "output_label": arithmetic.group("output"),
+            "left_value": float(arithmetic.group("left")),
+            "right_value": float(arithmetic.group("right")),
+            "output_value": float(arithmetic.group("output")),
+            "result": _wrap_fallback_text(result, width=25, max_lines=2),
+        }
+
+    if "=" in operation:
+        left, right = operation.split("=", 1)
+    else:
+        left = operation or description or "已验证前提"
+        right = result or "已验证结论"
+    return {
+        "mode": "relation",
+        "title": title,
+        "left": _wrap_fallback_text(left, width=16, max_lines=3),
+        "right": _wrap_fallback_text(right, width=16, max_lines=3),
+        "result": _wrap_fallback_text(result, width=25, max_lines=2),
+    }
+
+
+def build_verified_fallback_code(ctx: ToolContext) -> str:
+    """Build a deterministic, content-agnostic visual relation explanation.
+
+    This is a delivery fallback, not a problem-type renderer. Numeric steps
+    become animated magnitude relations; other steps become premise-to-result
+    diagrams. The fallback therefore preserves visual reasoning instead of
+    degrading into pages of prose.
     """
     raw_steps = ctx.state.get("solution_steps") or []
-    steps: list[str] = []
-    for index, raw in enumerate(raw_steps, start=1):
-        if isinstance(raw, dict):
-            parts: list[str] = []
-            for key in ("description", "operation", "result"):
-                value = _plain_fallback_text(raw.get(key))
-                if value and value not in parts:
-                    parts.append(value)
-            text = "；".join(parts)
-        else:
-            text = _plain_fallback_text(raw)
-        if text:
-            steps.append(f"第{index}步：{text}")
-    if len(steps) > 6:
-        steps = [*steps[:5], steps[-1]]
-    if not steps:
-        steps = ["解答已经通过独立数学校验。"]
+    if len(raw_steps) > 6:
+        raw_steps = [*raw_steps[:5], raw_steps[-1]]
+    models = [
+        _fallback_relation_model(raw, index)
+        for index, raw in enumerate(raw_steps, start=1)
+    ]
+    if not models:
+        models = [
+            {
+                "mode": "relation",
+                "title": "已验证推理",
+                "left": "题目条件",
+                "right": "已验证结论",
+                "result": "",
+            }
+        ]
 
     problem = _wrap_fallback_text(ctx.problem, width=22, max_lines=5)
     answer = _wrap_fallback_text(
@@ -83,21 +132,87 @@ def build_verified_fallback_code(ctx: ToolContext) -> str:
         width=24,
         max_lines=3,
     )
-    wrapped_steps = [_wrap_fallback_text(step, width=25, max_lines=4) for step in steps]
     return f'''from manim import *
 
 PROBLEM_TEXT = {json.dumps(problem, ensure_ascii=False)}
-STEP_TEXTS = {json.dumps(wrapped_steps, ensure_ascii=False, indent=4)}
+STEP_MODELS = {json.dumps(models, ensure_ascii=False, indent=4)}
 ANSWER_TEXT = {json.dumps(answer, ensure_ascii=False)}
 
 
 class SolutionScene(Scene):
-    def fit(self, item, max_width=10.8, max_height=4.6):
+    def fit(self, item, max_width=10.8, max_height=4.8):
         if item.width > max_width:
             item.scale_to_fit_width(max_width)
         if item.height > max_height:
             item.scale_to_fit_height(max_height)
         return item
+
+    def quantity_bar(self, value, label, color, max_value):
+        ratio = abs(float(value)) / max(max_value, 1.0)
+        width = max(1.0, 4.2 * ratio)
+        body = RoundedRectangle(
+            width=width,
+            height=0.72,
+            corner_radius=0.12,
+            stroke_color=color,
+            stroke_width=3,
+            fill_color=color,
+            fill_opacity=0.28,
+        )
+        tick_count = min(max(int(abs(float(value))), 1), 12)
+        ticks = VGroup()
+        for tick_index in range(1, tick_count):
+            x = -width / 2 + width * tick_index / tick_count
+            ticks.add(Line([x, -0.29, 0], [x, 0.29, 0], color=color, stroke_width=1))
+        value_text = Text(str(label), font_size=28, color=WHITE).move_to(body)
+        return VGroup(body, ticks, value_text)
+
+    def relation_card(self, text, color):
+        label = self.fit(Text(str(text), font_size=27, color=WHITE), 4.2, 1.8)
+        box = RoundedRectangle(
+            width=max(2.4, label.width + 0.65),
+            height=max(1.15, label.height + 0.5),
+            corner_radius=0.14,
+            stroke_color=color,
+            stroke_width=3,
+            fill_color=color,
+            fill_opacity=0.18,
+        )
+        label.move_to(box)
+        return VGroup(box, label)
+
+    def make_board(self, model):
+        if model["mode"] == "quantity":
+            maximum = max(
+                abs(float(model["left_value"])),
+                abs(float(model["right_value"])),
+                abs(float(model["output_value"])),
+                1.0,
+            )
+            left = self.quantity_bar(
+                model["left_value"], model["left_label"], BLUE, maximum
+            )
+            right = self.quantity_bar(
+                model["right_value"], model["right_label"], ORANGE, maximum
+            )
+            operator = Text(model["operator"], font_size=38, color=YELLOW)
+            inputs = VGroup(left, operator, right).arrange(RIGHT, buff=0.35)
+            arrow = Arrow(UP * 0.2, DOWN * 0.55, color=WHITE, buff=0.05)
+            output = self.quantity_bar(
+                model["output_value"], model["output_label"], GREEN, maximum
+            )
+            output_tag = Text("得到", font_size=22, color=GREEN).next_to(output, LEFT, buff=0.28)
+            result_group = VGroup(output_tag, output).arrange(RIGHT, buff=0.28)
+            board = VGroup(inputs, arrow, result_group).arrange(DOWN, buff=0.32)
+            focus = result_group
+        else:
+            premise = self.relation_card(model["left"], BLUE)
+            conclusion = self.relation_card(model["right"], GREEN)
+            arrow = Arrow(LEFT, RIGHT, color=YELLOW, buff=0.12, max_tip_length_to_length_ratio=0.15)
+            board = VGroup(premise, arrow, conclusion).arrange(RIGHT, buff=0.45)
+            focus = conclusion
+        self.fit(board, 10.6, 3.7)
+        return board, focus
 
     def construct(self):
         problem_card = self.fit(Text(PROBLEM_TEXT, font_size=40, color=WHITE))
@@ -106,33 +221,45 @@ class SolutionScene(Scene):
         self.wait(3)
         self.play(FadeOut(problem_card))
 
-        title = Text("已验证解题过程", font_size=34, color=BLUE).to_edge(UP, buff=0.45)
+        title = Text("已验证的数学关系", font_size=34, color=BLUE).to_edge(UP, buff=0.35)
         progress = VGroup(*[
             Circle(radius=0.11, stroke_color=WHITE, stroke_width=2)
-            for _ in STEP_TEXTS
+            for _ in STEP_MODELS
         ]).arrange(RIGHT, buff=0.28).next_to(title, DOWN, buff=0.3)
         progress[0].set_fill(BLUE, opacity=1)
-        body = self.fit(Text(STEP_TEXTS[0], font_size=30, color=WHITE))
-        body.move_to(DOWN * 0.15)
-        self.play(FadeIn(title), FadeIn(progress), FadeIn(body))
-        self.wait(2)
+        step_title = self.fit(Text(STEP_MODELS[0]["title"], font_size=27, color=WHITE), 10.4, 1.0)
+        step_title.next_to(progress, DOWN, buff=0.38)
+        board, focus = self.make_board(STEP_MODELS[0])
+        board.move_to(DOWN * 0.65)
+        self.play(FadeIn(title), FadeIn(progress), FadeIn(step_title))
+        self.play(FadeIn(board, shift=UP * 0.2))
+        self.play(Indicate(focus, color=GREEN, scale_factor=1.04))
+        self.wait(1.2)
 
-        for index in range(1, len(STEP_TEXTS)):
-            next_body = self.fit(Text(STEP_TEXTS[index], font_size=30, color=WHITE))
-            next_body.move_to(body.get_center())
+        for index in range(1, len(STEP_MODELS)):
+            next_title = self.fit(
+                Text(STEP_MODELS[index]["title"], font_size=27, color=WHITE), 10.4, 1.0
+            )
+            next_title.move_to(step_title)
+            next_board, next_focus = self.make_board(STEP_MODELS[index])
+            next_board.move_to(board)
             self.play(
-                FadeOut(body),
+                FadeOut(step_title),
+                FadeOut(board, shift=DOWN * 0.15),
                 progress[index].animate.set_fill(BLUE, opacity=1),
             )
-            body = next_body
-            self.play(FadeIn(body))
-            self.wait(2)
+            step_title = next_title
+            board = next_board
+            focus = next_focus
+            self.play(FadeIn(step_title), FadeIn(board, shift=UP * 0.15))
+            self.play(Indicate(focus, color=GREEN, scale_factor=1.04))
+            self.wait(1.2)
 
         answer = self.fit(Text(ANSWER_TEXT, font_size=38, color=GREEN), max_height=3.2)
         answer.move_to(UP * 0.35)
         verified = Text("上述结果已通过独立校验", font_size=26, color=WHITE)
         verified.next_to(answer, DOWN, buff=0.55)
-        self.play(FadeOut(body), FadeOut(progress), FadeOut(title))
+        self.play(FadeOut(step_title), FadeOut(board), FadeOut(progress), FadeOut(title))
         self.play(FadeIn(answer), FadeIn(verified))
         self.wait(3)
 '''
@@ -440,7 +567,7 @@ class CompileVideoTool(ITool):
         return ToolResult(
             success=True,
             summary=(
-                f"{label}；已生成可播放的已验证解答保底视频，"
+                f"{label}；已生成可播放的已验证关系图保底视频，"
                 "画面质量标记为 degraded，后续仍会进入成片审查"
             ),
             data={
