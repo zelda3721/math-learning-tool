@@ -21,7 +21,8 @@
 不能确定时不要猜测，不要输出 BLOCKING。
 
 当 `consistent=false` 时，必须同时在 `corrected_plan` 返回一份完整、可直接替换原稿的视觉计划
-JSON，字段保持为 `visual_thesis`、`essence_rationale`、`symbol_ledger`、`scenes`、`forbidden`；
+JSON，字段保持为 `visual_thesis`、`essence_rationale`、`symbol_ledger`、`visual_objects`、
+`scenes`、`forbidden`；
 每个 scene 保留原契约要求的全部字段。修正版必须已经消除 issues 中的矛盾，不能保留“等等”、
 “重新考虑”等草稿式自我纠错。不要仅给修改建议。这样审计本身即可完成一次有证据的纠正，
 无需再次调用规划模型。

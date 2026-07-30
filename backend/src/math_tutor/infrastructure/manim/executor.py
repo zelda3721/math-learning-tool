@@ -202,6 +202,42 @@ class ManimExecutor(IVideoGenerator):
 
         Handles LLM hallucinations like invalid APIs, colors, etc.
         """
+        # get_axis_labels() silently constructs MathTex labels. Replace its
+        # default with Pango Text so a no-LaTeX deployment can render axes.
+        code = re.sub(
+            r"(?m)^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*"
+            r"(?P<axes>[A-Za-z_]\w*)\.get_axis_labels\(\s*\)\s*$",
+            lambda match: (
+                f"{match.group('indent')}{match.group('var')} = VGroup("
+                f"Text('x', font_size=24).next_to("
+                f"{match.group('axes')}.x_axis.get_end(), RIGHT), "
+                f"Text('y', font_size=24).next_to("
+                f"{match.group('axes')}.y_axis.get_end(), UP))"
+            ),
+            code,
+        )
+        code = re.sub(
+            r"(?P<prefix>\b(?:x_axis_config|y_axis_config|axis_config)\s*=\s*\{)"
+            r"(?P<body>[^{}\n]*(?:[\"']?include_numbers[\"']?\s*:\s*True|"
+            r"[\"']?numbers_to_include[\"']?\s*:)[^{}\n]*)\}",
+            lambda match: (
+                match.group(0)
+                if "label_constructor" in match.group("body")
+                else f"{match.group('prefix')}{match.group('body').rstrip()}, "
+                "\"label_constructor\": Text}"
+            ),
+            code,
+        )
+        code = re.sub(
+            r"(?m)^(?P<indent>[ \t]*)(?P<var>label\w*|[A-Za-z_]\w*label\w*)"
+            r"\.next_to\((?P<args>[^\n]+)\)\s*$"
+            r"(?!\n(?P=indent)(?P=var)\.shift_onto_screen)",
+            lambda match: (
+                f"{match.group(0)}\n{match.group('indent')}"
+                f"{match.group('var')}.shift_onto_screen(buff=0.3)"
+            ),
+            code,
+        )
         # Remove invalid rate_func parameters
         code = re.sub(
             r",?\s*rate_func\s*=\s*(ease_\w+|easeIn\w*|easeOut\w*)",
@@ -224,6 +260,19 @@ class ManimExecutor(IVideoGenerator):
 
         # Preserve semantics while migrating common ManimCE/model slips.
         code = re.sub(r"\bShowCreation\b", "Create", code)
+        code = re.sub(r"\b([A-Za-z_]\w*)\.get_graph\(", r"\1.plot(", code)
+        graph_axes = {
+            graph: axes
+            for graph, axes in re.findall(
+                r"(?m)^\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\.plot\(", code
+            )
+        }
+        for graph, axes in graph_axes.items():
+            code = re.sub(
+                rf"\b{re.escape(graph)}\.get_point_at_x\(([^()\n]+)\)",
+                rf"{axes}.i2gp(\1, {graph})",
+                code,
+            )
         code = re.sub(r"\bstroke_color\s*=\s*NONE\b", "stroke_opacity=0", code)
         code = re.sub(
             r"(?P<prefix>[,(]\s*)stroke_dashes\s*=\s*[^,)]+\s*,?\s*",

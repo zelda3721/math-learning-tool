@@ -21,6 +21,34 @@ from ..prompt_library import PromptLibrary
 logger = logging.getLogger(__name__)
 
 _VALID_ROLES = {"setup", "transform", "reveal", "verify"}
+_VISUAL_PRIMITIVES = {
+    "dot",
+    "circle",
+    "rectangle",
+    "line",
+    "arrow",
+    "quantity_bar",
+    "unit_grid",
+    "number_line",
+    "axes",
+    "polygon",
+    "relation_node",
+}
+_VISUAL_ACTIONS = {
+    "create",
+    "transform",
+    "move",
+    "highlight",
+    "partition",
+    "merge",
+    "compare",
+    "map",
+    "measure",
+    "verify",
+    "remove",
+}
+_MUTATING_VISUAL_ACTIONS = {"create", "transform", "move", "partition", "merge", "map"}
+_VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify"}
 _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
 _BACKTICKS = "`'\"‘’“”"
 _ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
@@ -107,6 +135,19 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
         ledger = [*ledger, "高亮描边 = 当前 beat 的唯一注意焦点"]
     plan["symbol_ledger"] = ledger if isinstance(ledger, list) else []
 
+    visual_objects = plan.get("visual_objects") or []
+    if isinstance(visual_objects, list):
+        for item in visual_objects:
+            if not isinstance(item, dict):
+                continue
+            item["id"] = _strip_decorations(item.get("id") or "")
+            item["primitive"] = _strip_decorations(item.get("primitive") or "").lower()
+            item["meaning"] = _strip_decorations(item.get("meaning") or "")
+            item["label"] = _strip_decorations(item.get("label") or "")
+            item["color"] = _strip_decorations(item.get("color") or "blue").lower()
+            item["params"] = item.get("params") if isinstance(item.get("params"), dict) else {}
+    plan["visual_objects"] = visual_objects if isinstance(visual_objects, list) else []
+
     scenes = plan.get("scenes") or []
     if isinstance(scenes, list):
         for scene in scenes:
@@ -137,6 +178,29 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 scene["duration_s"] = float(scene.get("duration_s") or 0)
             except (TypeError, ValueError):
                 scene["duration_s"] = 0.0
+            actions = scene.get("actions") or []
+            if isinstance(actions, list):
+                for action in actions:
+                    if not isinstance(action, dict):
+                        continue
+                    action["op"] = _strip_decorations(action.get("op") or "").lower()
+                    targets = action.get("targets") or []
+                    if isinstance(targets, str):
+                        targets = [targets]
+                    action["targets"] = [
+                        _strip_decorations(target)
+                        for target in targets
+                        if isinstance(target, str) and target.strip()
+                    ]
+                    action["result"] = _strip_decorations(action.get("result") or "")
+                    # `result` has schema meaning only when an action creates a
+                    # successor state. Local models often put a prose status
+                    # such as "坐标系建立" on create/highlight; discarding that
+                    # unused decoration avoids a pointless repair turn.
+                    if action["op"] not in {"transform", "partition", "merge", "map"}:
+                        action["result"] = ""
+                    action["meaning"] = _strip_decorations(action.get("meaning") or "")
+            scene["actions"] = actions if isinstance(actions, list) else []
 
     forbidden = plan.get("forbidden") or []
     if isinstance(forbidden, str):
@@ -218,9 +282,151 @@ def _validate_essence_rationale(text: str) -> list[str]:
         errors.append("essence_rationale 至少 20 字，需解释画面为何能证明或解释结论")
     if len(value) > 400:
         errors.append("essence_rationale 超过 400 字，请聚焦一个核心数学关系")
-    if value and not any(word in value for word in _WHY_SIGNAL_WORDS):
-        errors.append("essence_rationale 必须说明学生通过画面看见了什么对应、变化或不变量")
     return errors
+
+
+def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] | None:
+    """Keep valid graphical objects while discarding an unsafe directing story.
+
+    The plan is composed from Visual IR primitives plus the independently
+    verified solution. It does not infer or enumerate a problem type.
+    """
+    if not isinstance(candidate, dict):
+        return None
+    normalized = _normalize_plan(candidate)
+    objects = [
+        item
+        for item in (normalized.get("visual_objects") or [])
+        if isinstance(item, dict)
+        and item.get("id")
+        and item.get("primitive") in _VISUAL_PRIMITIVES
+        and item.get("meaning")
+    ]
+    if len(objects) < 2:
+        return None
+    object_ids = [str(item["id"]) for item in objects]
+    axes_ids = [item["id"] for item in objects if item.get("primitive") == "axes"]
+    setup_ids = axes_ids[:1] or object_ids[:1]
+    transform_ids = [item for item in object_ids if item not in setup_ids]
+    result_ids = [
+        item["id"]
+        for item in objects
+        if item.get("primitive") == "dot"
+        or "result" in str(item.get("id") or "").lower()
+        or "交点" in str(item.get("meaning") or "")
+    ]
+    verify_ids = result_ids[:2] or object_ids[-2:]
+    steps = ctx.state.get("solution_steps") or []
+    verified_line = "观察图形对象如何在共同参照中建立已验证关系。"
+    if steps and isinstance(steps[0], dict):
+        step = steps[0]
+        verified_line = _strip_decorations(
+            str(step.get("description") or step.get("result") or verified_line)
+        )[:80]
+    answer = _strip_decorations(str(ctx.state.get("solution_answer") or "已验证结论"))
+    ledger = [
+        f"{item.get('color') or 'blue'} {item['id']} = {item['meaning']}"
+        for item in objects[:4]
+    ]
+    plan = {
+        "visual_thesis": "让题目中的数学对象在共同参照中逐步出现，并由图形关系核对已验证结论",
+        "essence_rationale": (
+            "学生先看到题目对象和共同参照，再看到由已验证解答确定的结果对象，"
+            "最后直接在同一画面核对对象之间的对应与不变量。"
+        ),
+        "symbol_ledger": ledger,
+        "visual_objects": objects,
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "A1-F6",
+                "key_objects": ", ".join(setup_ids),
+                "action": "建立承载题目关系的共同视觉参照。",
+                "invariant": "题目条件和对象含义保持不变",
+                "attention_target": "共同参照及其数学含义",
+                "exit_condition": "共同参照在画面中清晰可见",
+                "teaching_line": "先建立题目中所有对象共用的参照。",
+                "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": setup_ids,
+                        "result": "",
+                        "meaning": "建立共同视觉参照",
+                    }
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "A1-F6",
+                "key_objects": ", ".join(transform_ids),
+                "action": "在同一参照中逐项建立其余数学对象和决定性关系。",
+                "invariant": "图形参数来自题目与已验证解答，不改变其数学含义",
+                "attention_target": "新对象与共同参照的对应位置",
+                "exit_condition": "决定性图形关系完整可见",
+                "teaching_line": verified_line,
+                "duration_s": 7,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": transform_ids,
+                        "result": "",
+                        "meaning": "建立已验证解答中的其余数学对象",
+                    }
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "A1-F6",
+                "key_objects": ", ".join(verify_ids),
+                "action": "保留图形证据并核对已验证答案。",
+                "invariant": "所有题目条件同时成立",
+                "attention_target": "结果对象与原条件的共同满足关系",
+                "exit_condition": "学生能从图形直接定位并核对结论",
+                "teaching_line": f"最后在图形中核对：{answer}"[:100],
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "verify",
+                        "targets": verify_ids,
+                        "result": "",
+                        "meaning": "用结果对象核对已验证结论",
+                    }
+                ],
+            },
+        ],
+        "forbidden": ["用文字页替代图形关系", "改变题目对象的数学含义"],
+        "safe_plan_from_verified_objects": True,
+    }
+    plan = _normalize_plan(plan)
+    return plan if not _validate_plan(plan, ctx.grade) else None
+
+
+def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
+    """Install an accepted plan and invalidate artifacts derived from an older plan."""
+    ctx.state["visual_plan_last_violations"] = []
+    ctx.state["visual_plan"] = plan
+    ctx.state["visual_thesis"] = plan["visual_thesis"]
+    ctx.state["visual_pattern"] = plan["visual_thesis"]
+    ctx.state["essence_rationale"] = plan.get("essence_rationale") or ""
+    ctx.state["last_visual_failed"] = False
+    ctx.state.pop("force_visual_replan", None)
+    ctx.state.pop("visual_local_fix_attempted", None)
+    for key in (
+        "latest_manim_code",
+        "latest_video_path",
+        "latest_video_url",
+        "last_visual_review",
+        "last_validation_issues",
+        "last_validation_passed",
+        "last_run_error",
+        "last_visual_issues",
+        "last_inspect_payload",
+        "last_error_source",
+        "fix_attempt_count",
+        "last_fix_scope",
+    ):
+        ctx.state.pop(key, None)
 
 
 def _validate_plan(
@@ -242,7 +448,33 @@ def _validate_plan(
     if len(ledger) < 2:
         errors.append("symbol_ledger 至少 2 项，分别固定参照对象与变化/结论对象的全片含义")
 
+    visual_objects = plan.get("visual_objects") or []
+    object_ids: set[str] = set()
+    if len(visual_objects) < 2:
+        errors.append("visual_objects 至少需要 2 个承载数学意义的非文字图形对象")
+    for index, item in enumerate(visual_objects, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"visual_objects[{index}] 不是对象")
+            continue
+        object_id = str(item.get("id") or "").strip()
+        primitive = str(item.get("primitive") or "").strip()
+        meaning = str(item.get("meaning") or "").strip()
+        if not object_id or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", object_id):
+            errors.append(f"visual_objects[{index}].id 必须是稳定的标识符")
+        elif object_id in object_ids:
+            errors.append(f"visual object id 重复：{object_id}")
+        else:
+            object_ids.add(object_id)
+        if primitive not in _VISUAL_PRIMITIVES:
+            errors.append(
+                f"visual_objects[{index}].primitive='{primitive}' 不在可组合图形原语集合中"
+            )
+        if not meaning:
+            errors.append(f"visual_objects[{index}].meaning 为空，图形没有稳定数学含义")
+
     scenes = plan.get("scenes") or []
+    transform_ops: set[str] = set()
+    has_transform_scene = False
     if len(scenes) < 3:
         errors.append(f"场景数 {len(scenes)} < 3")
     if "transform" not in [s.get("role", "") for s in scenes if isinstance(s, dict)]:
@@ -252,6 +484,8 @@ def _validate_plan(
             errors.append(f"场景 {index} 不是对象")
             continue
         role = scene.get("role", "")
+        if role == "transform":
+            has_transform_scene = True
         if role not in _VALID_ROLES:
             errors.append(f"场景 {index} role='{role}' 不在允许集合 {sorted(_VALID_ROLES)}")
         for field in (
@@ -264,12 +498,48 @@ def _validate_plan(
         ):
             if not (scene.get(field) or "").strip():
                 errors.append(f"场景 {index} {field} 为空")
+        actions = scene.get("actions") or []
+        if not actions:
+            errors.append(f"场景 {index} actions 为空，只有文字导演描述而无可执行图形动作")
+        action_ops: set[str] = set()
+        for action_index, action in enumerate(actions, start=1):
+            if not isinstance(action, dict):
+                errors.append(f"场景 {index} action {action_index} 不是对象")
+                continue
+            op = str(action.get("op") or "")
+            action_ops.add(op)
+            if op not in _VISUAL_ACTIONS:
+                errors.append(f"场景 {index} action op='{op}' 不受支持")
+            targets = action.get("targets") or []
+            if not targets:
+                errors.append(f"场景 {index} action {action_index} 没有 targets")
+            unknown = [target for target in targets if target not in object_ids]
+            if unknown:
+                errors.append(
+                    f"场景 {index} action {action_index} 引用了未知图形对象：{','.join(unknown)}"
+                )
+            result = str(action.get("result") or "")
+            if result and result not in object_ids:
+                errors.append(f"场景 {index} action result 引用了未知图形对象：{result}")
+            if not str(action.get("meaning") or "").strip():
+                errors.append(f"场景 {index} action {action_index} 缺少数学语义 meaning")
+        if role == "transform":
+            transform_ops.update(action_ops)
+        if role == "verify" and not (action_ops & _VERIFY_VISUAL_ACTIONS):
+            errors.append("verify 场景必须通过 compare/measure/verify 图形动作核对结论")
         duration = float(scene.get("duration_s") or 0)
         if duration < 2 or duration > 20:
             errors.append(f"场景 {index} duration_s={duration:g}，应在 2-20 秒之间")
         zone = (scene.get("anchor_zone") or "").strip()
         if not zone or parse_zone(zone) is None:
             errors.append(f"场景 {index} anchor_zone='{zone}' 不符合 6×6 网格格式")
+
+    # A visual argument may use several beats for one continuous change: one
+    # beat performs the structural mutation and the next reveals projections
+    # or verification marks. Require a real mutation across that sequence,
+    # instead of forcing every beat labelled transform to mutate again.
+    if has_transform_scene and not (transform_ops & _MUTATING_VISUAL_ACTIONS):
+        errors.append("transform 场景序列必须包含会改变非文字图形状态的结构化动作")
 
     # Scenes are temporal beats, so reusing a zone later is valid.  Collision
     # checks belong to per-frame code/video validation, not cross-beat plans.
@@ -477,29 +747,7 @@ class VisualPlanTool(ITool):
 
         # Keep the session-level attempt history. Resetting it here used to
         # make a later visual replan look like another cold start.
-        ctx.state["visual_plan_last_violations"] = []
-        ctx.state["visual_plan"] = plan
-        ctx.state["visual_thesis"] = plan["visual_thesis"]
-        ctx.state["visual_pattern"] = plan["visual_thesis"]  # legacy state reader
-        ctx.state["essence_rationale"] = plan.get("essence_rationale") or ""
-        ctx.state["last_visual_failed"] = False
-        ctx.state.pop("force_visual_replan", None)
-        ctx.state.pop("visual_local_fix_attempted", None)
-        for key in (
-            "latest_manim_code",
-            "latest_video_path",
-            "latest_video_url",
-            "last_visual_review",
-            "last_validation_issues",
-            "last_validation_passed",
-            "last_run_error",
-            "last_visual_issues",
-            "last_inspect_payload",
-            "last_error_source",
-            "fix_attempt_count",
-            "last_fix_scope",
-        ):
-            ctx.state.pop(key, None)
+        store_visual_plan(ctx, plan)
         return ToolResult(
             success=True,
             summary=(

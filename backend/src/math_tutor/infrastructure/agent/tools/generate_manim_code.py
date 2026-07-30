@@ -170,10 +170,60 @@ def _remove_overlapping_t2c_keys(code: str) -> str:
 def _sanitize_code(code: str) -> str:
     code = _remove_point_move_to_calls(code)
     code = _remove_overlapping_t2c_keys(code)
+    # Axes.get_axis_labels() defaults to MathTex("x"), MathTex("y") even
+    # when generated source contains no explicit Tex call. Use Pango labels
+    # so no-LaTeX installations remain renderable.
+    code = re.sub(
+        r"(?m)^(?P<indent>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*"
+        r"(?P<axes>[A-Za-z_]\w*)\.get_axis_labels\(\s*\)\s*$",
+        lambda match: (
+            f"{match.group('indent')}{match.group('var')} = VGroup("
+            f"Text('x', font_size=24).next_to("
+            f"{match.group('axes')}.x_axis.get_end(), RIGHT), "
+            f"Text('y', font_size=24).next_to("
+            f"{match.group('axes')}.y_axis.get_end(), UP))"
+        ),
+        code,
+    )
+    code = re.sub(
+        r"(?P<prefix>\b(?:x_axis_config|y_axis_config|axis_config)\s*=\s*\{)"
+        r"(?P<body>[^{}\n]*(?:[\"']?include_numbers[\"']?\s*:\s*True|"
+        r"[\"']?numbers_to_include[\"']?\s*:)[^{}\n]*)\}",
+        lambda match: (
+            match.group(0)
+            if "label_constructor" in match.group("body")
+            else f"{match.group('prefix')}{match.group('body').rstrip()}, "
+            "\"label_constructor\": Text}"
+        ),
+        code,
+    )
+    code = re.sub(
+        r"(?m)^(?P<indent>[ \t]*)(?P<var>label\w*|[A-Za-z_]\w*label\w*)"
+        r"\.next_to\((?P<args>[^\n]+)\)\s*$"
+        r"(?!\n(?P=indent)(?P=var)\.shift_onto_screen)",
+        lambda match: (
+            f"{match.group(0)}\n{match.group('indent')}"
+            f"{match.group('var')}.shift_onto_screen(buff=0.3)"
+        ),
+        code,
+    )
     # Mechanical compatibility migrations are safer and much faster than
     # asking the model to rewrite an otherwise valid scene.  These aliases
     # preserve animation semantics across ManimCE versions.
     code = re.sub(r"\bShowCreation\b", "Create", code)
+    code = re.sub(r"\b([A-Za-z_]\w*)\.get_graph\(", r"\1.plot(", code)
+    graph_axes = {
+        graph: axes
+        for graph, axes in re.findall(
+            r"(?m)^\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\.plot\(", code
+        )
+    }
+    for graph, axes in graph_axes.items():
+        code = re.sub(
+            rf"\b{re.escape(graph)}\.get_point_at_x\(([^()\n]+)\)",
+            rf"{axes}.i2gp(\1, {graph})",
+            code,
+        )
     # ManimCE shapes do not accept the matplotlib-style ``fill=True``
     # keyword.  Generated scenes often already provide fill_opacity; dropping
     # the boolean preserves that intended fill and avoids a render-only
@@ -1331,6 +1381,17 @@ class GenerateManimCodeTool(ITool):
             thesis = visual_plan.get("visual_thesis") or visual_plan.get("primary_pattern") or ""
             ledger = visual_plan.get("symbol_ledger") or []
             ledger_lines = "\n".join(f"  - {item}" for item in ledger[:12])
+            visual_ir = {
+                "visual_objects": visual_plan.get("visual_objects") or [],
+                "scenes": [
+                    {
+                        "role": scene.get("role"),
+                        "actions": scene.get("actions") or [],
+                    }
+                    for scene in scenes_raw
+                    if isinstance(scene, dict)
+                ],
+            }
 
             # essence_rationale comes FIRST in the section: it's the
             # north-star. Every animation choice must serve this.
@@ -1348,6 +1409,9 @@ class GenerateManimCodeTool(ITool):
                 + f"visual_thesis: **{thesis}**\n"
                 + "\n符号账本：\n"
                 + ledger_lines
+                + "\n\n结构化 Visual IR（源码必须逐项实现，文字不能代替）：\n```json\n"
+                + json.dumps(visual_ir, ensure_ascii=False, indent=2)
+                + "\n```"
                 + "\n\n场景脚本：\n"
                 + "\n".join(scene_lines)
                 + "\n\n禁用反模式：\n"
