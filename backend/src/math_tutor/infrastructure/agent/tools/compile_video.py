@@ -295,6 +295,10 @@ class CompileVideoTool(ITool):
                 "review_repair": {
                     "type": "boolean",
                     "description": "是否由成片审查触发；该模式不再进行内部二次修复",
+                },
+                "visual_fallback_only": {
+                    "type": "boolean",
+                    "description": "跳过模型写码，直接渲染已验证关系图保底",
                 }
             },
             "required": [],
@@ -305,6 +309,21 @@ class CompileVideoTool(ITool):
         artifacts: list[ArtifactSpec] = []
         steps: list[dict[str, Any]] = []
         repair_count = 0
+        if args.get("visual_fallback_only"):
+            rejected = ToolResult(
+                success=False,
+                summary="成片复审判定为纯文字或无视觉论证",
+                error="meaningless_visual_candidate",
+            )
+            return await self._fallback_or_failed(
+                "已拒绝纯文字候选",
+                rejected,
+                steps,
+                artifacts,
+                repair_count,
+                ctx,
+                review_repair=False,
+            )
 
         generated = await self._writer.execute({}, ctx)
         artifacts.extend(generated.artifacts)
