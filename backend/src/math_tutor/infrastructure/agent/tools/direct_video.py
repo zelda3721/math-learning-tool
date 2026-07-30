@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from ....application.interfaces import ITool, ToolContext, ToolResult
-from .visual_plan import VisualPlanTool, build_safe_visual_plan, store_visual_plan
+from .visual_plan import (
+    VisualPlanTool,
+    build_grounded_math_visual_plan,
+    build_safe_visual_plan,
+    store_visual_plan,
+)
 
 
 def _semantic_plan_ready_for_codegen(candidate: Any) -> bool:
@@ -62,6 +67,17 @@ class DirectVideoTool(ITool):
         return self._planner.parameters
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        grounded_plan = build_grounded_math_visual_plan(ctx)
+        if grounded_plan is not None:
+            store_visual_plan(ctx, grounded_plan)
+            return ToolResult(
+                success=True,
+                summary=(
+                    "已从独立 Math IR 证据直接构造可执行图形计划；"
+                    "无需模型猜测表达式或重写视觉计划"
+                ),
+                data=grounded_plan,
+            )
         result = await self._planner.execute(args, ctx)
         if result.success:
             return ToolResult(

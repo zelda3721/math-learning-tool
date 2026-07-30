@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from ....application.interfaces import (
+    ArtifactSpec,
     ChatMessage,
     ILLMProvider,
     ITool,
@@ -24,6 +25,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..math_runtime import execute_math_request
 from ..prompt_library import PromptLibrary
 
 logger = logging.getLogger(__name__)
@@ -488,7 +490,7 @@ class VerifySolutionTool(ITool):
             previous_failure_section = (
                 "\n## ⚠️ 上次验证失败原因\n"
                 f"{prev_failure[:400]}\n"
-                "本轮请重新抽数值并重写 verify 函数（确保覆盖全部题面条件）。\n"
+                "本轮请修正验证规格，并确保覆盖全部题面条件；能用 Math IR 时不要改成数值采样。\n"
             )
         if ctx.state.get("force_logical_verification"):
             previous_failure_section += (
@@ -530,6 +532,70 @@ class VerifySolutionTool(ITool):
         mode = (
             (md.get_field(section, "验证模式", "verification_mode", "mode") or "").strip().lower()
         )
+        if mode in {"math_ir", "math-ir", "sympy", "deterministic"}:
+            request_section = md.find_section(section, "计算请求", level=3) or md.find_section(
+                section, "计算请求"
+            )
+            request = md.parse_json_anywhere(request_section or "")
+            execution = execute_math_request(request)
+            evidence = execution.to_dict()
+            passed = bool(
+                execution.success
+                and execution.applicable
+                and execution.all_claims_passed
+            )
+            if passed:
+                message = "独立 Math IR 计算与全部 claims 通过"
+                ctx.state["solution_verified"] = True
+                ctx.state["verify_math_request"] = request or {}
+                ctx.state["verify_math_evidence"] = evidence
+                ctx.state.pop("last_verify_failure", None)
+                self._clear_format_failure(ctx)
+            elif not execution.success or not execution.applicable:
+                message = "独立 Math IR 无法执行：" + (
+                    "；".join(execution.errors[:2])
+                    or execution.reason
+                    or "请求不适用于确定性计算"
+                )
+                ctx.state["solution_verified"] = False
+                ctx.state.pop("last_verify_failure", None)
+                self._record_format_failure(ctx, message)
+            else:
+                failed_claims = [
+                    item for item in execution.claims if item.get("passed") is not True
+                ]
+                message = "独立 Math IR 发现结论不成立：" + str(failed_claims[:1])
+                ctx.state["solution_verified"] = False
+                ctx.state["last_verify_failure"] = message
+            report = {
+                "stage": self.name,
+                "source": "verify",
+                "request": request,
+                "evidence": evidence,
+            }
+            return ToolResult(
+                success=passed,
+                summary=message,
+                data={
+                    "passed": passed,
+                    "message": message,
+                    "mode": "math_ir",
+                    "math_execution": evidence,
+                },
+                artifacts=[
+                    ArtifactSpec(
+                        kind="math_execution",
+                        filename=f"verify-math-turn{ctx.turn_index:02d}.json",
+                        content=json.dumps(report, ensure_ascii=False, indent=2),
+                        meta={
+                            "source": "verify",
+                            "success": execution.success,
+                            "all_claims_passed": execution.all_claims_passed,
+                        },
+                    )
+                ],
+                error=None if passed else message,
+            )
         if mode in {"logical", "logic", "逻辑审计", "proof-audit"}:
             passed, message, evidence = _parse_logical_audit(section)
             ctx.state["solution_verified"] = passed

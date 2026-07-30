@@ -7,7 +7,39 @@
 范围和逻辑结论。任何两处表述互相矛盾，即使最终主答案恰好正确，也必须判失败；不得把
 `explanation_valid: true`、`reasoning_correct: true` 等由求解器自行声明的布尔值当成验证证据。
 
-## 模式 A：executable
+## 模式 A：math_ir（优先）
+
+当关键结论能由精确符号运算检查时，必须独立从原题编译 Math IR；不能复制求解器可能采用的
+计算规格，也不能用有限采样代替恒等式、极限或全局结论。严格输出：
+
+## 验证
+
+**验证模式**: math_ir
+
+### 计算请求
+
+```json
+{
+  "engine": "sympy",
+  "symbols": {"变量名": {"domain": "real|integer|positive|nonnegative|negative|nonzero|complex"}},
+  "operations": [
+    {"id": "稳定id", "op": "evaluate|simplify|expand|factor|differentiate|integrate|limit|solve|substitute|determinant|summation|product", "expression": "来自原题的表达式", "variable": "可选变量"}
+  ],
+  "claims": [
+    {"id": "check_answer", "relation": "equal|equivalent|not_equal|less|less_equal|greater|greater_equal", "left": "$操作id", "right": "候选答案的精确表达式"}
+  ]
+}
+```
+
+表达式使用 Python/SymPy 语法，按需增加 `variables`、`point`、`direction`、`order`、`bounds`
+或 `substitutions`。claims 必须把从题面独立计算出的结果与候选答案比较，不能直接 evaluate
+候选答案本身。若 Math IR 无法充分验证，选择下面的模式，而不是在 math_ir 中写 engine=none。
+
+必填参数：`differentiate/integrate` 需要 `variable`；`limit` 需要 `variable` 和 `point`；
+`solve` 需要 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`；后序操作引用前序
+结果必须写成 `$操作id`（例如 `"expression":"$derivative"`）。提交前逐项检查必填参数，不能依赖修复轮次补全。
+
+## 模式 B：executable
 
 当题目条件和答案可完整表示为 JSON 标量、列表或有限集合，并能用基本 Python 谓词覆盖
 所有条件时使用。严格输出：
@@ -36,7 +68,7 @@ def verify(data):
 验证函数必须覆盖解题步骤和最终答案中所有会影响结论的显式可执行主张；若源文本自身冲突，
 `**预期**` 写“失败”，并用必然失败且消息明确的 assert 指出第一处冲突。
 
-## 模式 B：logical
+## 模式 C：logical
 
 如果有限 Python 谓词不能充分验证结论，则进行证据化逻辑审计。不能因为代码难写就选此
 模式，也不能只写“推理正确”。严格输出：

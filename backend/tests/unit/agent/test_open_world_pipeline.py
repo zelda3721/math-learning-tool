@@ -62,6 +62,7 @@ from math_tutor.infrastructure.agent.tools.verify_solution import (
     _safe_exec_verify,
 )
 from math_tutor.infrastructure.agent.tools.visual_plan import (
+    build_grounded_math_visual_plan,
     _machine_checkable_blocking_issue,
     _normalize_plan,
     _parse_plan_audit,
@@ -257,6 +258,35 @@ def test_visual_plan_normalizes_domain_quantity_aliases() -> None:
     assert first_params["count_per_unit"] == 2
     assert "count" not in first_params
     assert second_params["count"] == 24
+
+
+def test_visual_plan_lowers_object_features_and_causal_create_actions() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][0]["actions"].append(
+        {
+            "op": "highlight",
+            "targets": ["reference.origin"],
+            "result": "",
+            "meaning": "highlight a feature of the declared reference",
+        }
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["final_state"],
+            "result": "",
+            "meaning": "introduce the successor state",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+
+    assert normalized["scenes"][0]["actions"][-1]["targets"] == ["reference"]
+    transition = normalized["scenes"][1]["actions"][0]
+    assert transition["op"] == "transform"
+    assert transition["targets"] == ["state"]
+    assert transition["result"] == "final_state"
+    assert _validate_plan(normalized, "advanced") == []
 
 
 def test_visual_plan_splits_parallel_result_arrays_into_single_result_actions() -> None:
@@ -786,6 +816,69 @@ def test_direct_video_rejects_static_safe_plan_without_whole_plan_retry() -> Non
     assert planner.calls == 1
     assert "停止整稿重生成" in result.summary
     assert "visual_plan" not in ctx.state
+
+
+def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(
+                success=False,
+                summary="模型输出被截断，JSON 未闭合",
+                error="parse_failed",
+            )
+
+    state = {
+        "solution_verified": True,
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "limit_value",
+                    "op": "limit",
+                    "expression": "sin(x)/x",
+                    "variable": "x",
+                    "point": 0,
+                }
+            ],
+            "claims": [],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "limit_value", "result": "1"}],
+        },
+    }
+    ctx = ToolContext("s", 3, "advanced", "求给定表达式的极限", state)
+    planner = Planner()
+    tool = DirectVideoTool(planner)  # type: ignore[arg-type]
+
+    result = asyncio.run(tool.execute({}, ctx))
+
+    assert result.success is True
+    assert planner.calls == 0
+    plan = build_grounded_math_visual_plan(ctx)
+    assert plan is not None
+    assert plan["grounded_from_math_execution"] is True
+    assert _validate_plan(plan, "advanced") == []
+    assert "sin(x)/x" in str(plan["visual_objects"])
+    assert "tan" not in str(plan["visual_objects"])
+    point = next(
+        item
+        for item in plan["visual_objects"]
+        if item["id"] == "grounded_result_intersection"
+    )
+    assert point["params"]["open"] is True
+    code = build_verified_fallback_code(ctx)
+    assert "sampled_segments" in code
+    assert "'grounded_expression_focus'" in code and "'label': ''" in code
+    ast.parse(code)
 
 
 def test_direct_video_salvages_graphics_when_local_model_omits_actions() -> None:
@@ -2369,7 +2462,7 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
     assert done.final_video_path == "video.mp4"
 
 
-def test_compile_video_uses_visual_ir_compiler_only_when_explicit() -> None:
+def test_compile_video_prefers_visual_ir_compiler_without_a_generative_hop() -> None:
     class Unused:
         async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             raise AssertionError("production Visual IR must not call free-form codegen")
@@ -2399,7 +2492,7 @@ def test_compile_video_uses_visual_ir_compiler_only_when_explicit() -> None:
             "visual_plan": _open_world_plan(),
         },
     )
-    result = asyncio.run(tool.execute({"deterministic_ir": True}, ctx))
+    result = asyncio.run(tool.execute({}, ctx))
     assert result.success is True
     assert result.data is not None
     assert result.data["deterministic_compiler"] is True
@@ -2862,3 +2955,102 @@ def test_visual_ir_fallback_compiles_generic_repetition_partition_and_map() -> N
     assert "for item in framed" in code
     assert "greater = max(first_value, second_value)" in code
     assert "'count': 35" in code and "'count': 24" in code and "'count': 12" in code
+
+
+def test_visual_ir_compiles_safe_function_curve_instead_of_generic_line() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "axes",
+            "color": "grey",
+            "params": {"x_range": [-2, 2], "y_range": [-2, 2]},
+        },
+        {
+            "id": "curve",
+            "primitive": "line",
+            "meaning": "a nonlinear graph",
+            "label": "sin(x)",
+            "color": "red",
+            "params": {"func": "sin"},
+        },
+        {
+            "id": "tangent",
+            "primitive": "line",
+            "meaning": "its tangent",
+            "label": "slope 1",
+            "color": "green",
+            "params": {"slope": 1, "intercept": 0},
+        },
+    ]
+    plan["scenes"] = [
+        {
+            "role": "setup",
+            "teaching_line": "draw the curve",
+            "actions": [{"op": "create", "targets": ["axes", "curve"]}],
+        },
+        {
+            "role": "transform",
+            "teaching_line": "show the local tangent",
+            "actions": [
+                {"op": "transform", "targets": ["curve"], "result": "tangent"}
+            ],
+        },
+        {
+            "role": "verify",
+            "teaching_line": "compare on the same axes",
+            "actions": [{"op": "measure", "targets": ["tangent"]}],
+        },
+    ]
+    normalized = _normalize_plan(plan)
+    curve = next(
+        item for item in normalized["visual_objects"] if item["id"] == "curve"
+    )
+    assert curve["primitive"] == "function_curve"
+    assert curve["params"]["expression"] == "sin(x)"
+    plan_issues = _validate_plan(normalized, "advanced")
+    assert not any("primitive='function_curve'" in issue for issue in plan_issues)
+    assert not any("function_curve 缺少" in issue for issue in plan_issues)
+
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": normalized},
+    )
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<fallback>", "exec")
+    assert "sampled_segments" in code
+    assert 'elif primitive == "function_curve"' in code
+    assert "path.set_points_smoothly" in code
+    assert '"include_numbers": False' in code
+    assert 'Text(f"{x_value:g}"' in code
+    assert "def nice_tick(span):" in code
+    assert "label.next_to(body.get_right(), UP" in code
+    assert "label.next_to(body, UR" in code
+    assert "if result_id not in self.coordinate_ids:" in code
+    assert "body = Line(LEFT * 1.2" in code  # still available for true lines
+
+
+def test_visual_plan_recovers_json_damaged_latex_before_plain_text_lowering() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][0]["teaching_line"] = (
+        "转化为 " + "\x0crac{" + "\text" + "{cos}(x)}{1}"
+    )
+    normalized = _normalize_plan(plan)
+    assert normalized["scenes"][0]["teaching_line"] == (
+        r"转化为 \frac{\text{cos}(x)}{1}"
+    )
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "1", "visual_plan": normalized},
+    )
+    code = build_verified_fallback_code(ctx)
+    assert "转化为 cos(x)/1" in code
+    assert "转化为 rac" not in code

@@ -12,6 +12,7 @@ import textwrap
 from typing import Any
 
 from ....application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
+from ..math_runtime import sample_real_expression
 from .generate_manim_code import GenerateManimCodeTool
 from .run_manim import RunManimTool
 from .validate_manim_code import ValidateManimCodeTool
@@ -20,8 +21,8 @@ from .validate_manim_code import ValidateManimCodeTool
 def _plain_fallback_text(value: Any) -> str:
     """Convert common math markup into glyphs safe for Manim Text."""
     text = str(value or "").strip()
-    text = re.sub(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"\1/\2", text)
     text = re.sub(r"\\text\s*\{([^{}]*)\}", r"\1", text)
+    text = re.sub(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"\1/\2", text)
     replacements = {
         r"\times": "×",
         r"\div": "÷",
@@ -109,6 +110,7 @@ _FALLBACK_IR_PRIMITIVES = {
     "circle",
     "rectangle",
     "line",
+    "function_curve",
     "arrow",
     "quantity_bar",
     "unit_grid",
@@ -175,13 +177,14 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
         ):
             continue
         object_ids.add(object_id)
+        raw_label = raw.get("label") if "label" in raw else meaning
         objects.append(
             {
                 "id": object_id,
                 "primitive": primitive,
                 "meaning": _wrap_fallback_text(meaning, width=18, max_lines=2),
                 "label": _wrap_fallback_text(
-                    raw.get("label") or meaning, width=14, max_lines=2
+                    raw_label, width=14, max_lines=2
                 ),
                 "color": str(raw.get("color") or "blue").strip().lower()[:24],
                 "params": _safe_ir_value(raw.get("params") or {}),
@@ -189,6 +192,42 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
         )
     if len(objects) < 2:
         return None
+
+    axes_object = next(
+        (item for item in objects if item.get("primitive") == "axes"), None
+    )
+    if axes_object is not None:
+        axis_params = axes_object.get("params") or {}
+        x_range = axis_params.get("x_range") or [-3, 3]
+        y_range = axis_params.get("y_range") or [-2, 2]
+        try:
+            x_start, x_end = float(x_range[0]), float(x_range[1])
+            y_start, y_end = float(y_range[0]), float(y_range[1])
+        except (IndexError, TypeError, ValueError):
+            return None
+        for item in objects:
+            if item.get("primitive") != "function_curve":
+                continue
+            params = item.get("params") or {}
+            curve_range = params.get("x_range") or [x_start, x_end]
+            try:
+                expression = str(params.get("expression") or "").strip()
+                variable = str(params.get("variable") or "x").strip()
+                segments = sample_real_expression(
+                    expression,
+                    variable=variable,
+                    start=float(curve_range[0]),
+                    end=float(curve_range[1]),
+                    y_min=y_start,
+                    y_max=y_end,
+                )
+            except (IndexError, TypeError, ValueError):
+                return None
+            params["sampled_segments"] = segments
+            item["params"] = params
+        # The generated Scene needs the axes before converting data points to
+        # screen coordinates, independent of the planner's object ordering.
+        objects.sort(key=lambda item: item.get("primitive") != "axes")
 
     scenes: list[dict[str, Any]] = []
     for raw_scene in raw_scenes[:8]:
@@ -335,6 +374,18 @@ class SolutionScene(Scene):
 
     def animate_create(self, object_id):
         item = self.objects[object_id]
+        if object_id in self.coordinate_ids:
+            body = self.object_bodies.get(object_id, item)
+            label = self.object_labels.get(object_id)
+            if isinstance(body, VGroup):
+                animations = [Create(part) for part in body]
+            elif isinstance(body, (VMobject, Axes, NumberLine)):
+                animations = [Create(body)]
+            else:
+                animations = [FadeIn(body)]
+            if label is not None:
+                animations.append(FadeIn(label, shift=UP * 0.08))
+            return AnimationGroup(*animations, lag_ratio=0.08)
         units = self.repeat_units.get(object_id)
         if units is None or len(units) <= 1:
             return FadeIn(item, shift=UP * 0.12)
@@ -429,6 +480,9 @@ class SolutionScene(Scene):
         path_specs = []
         height_specs = []
         for spec in VISUAL_OBJECTS:
+            if spec["primitive"] == "function_curve":
+                self.coordinate_ids.add(spec["id"])
+                continue
             if spec["primitive"] != "line":
                 continue
             params = spec.get("params") or {}
@@ -509,10 +563,18 @@ class SolutionScene(Scene):
                 params = spec.get("params") or {}
                 point_x = self.number(params.get("x"), self.scan_target_x)
                 point_y = self.number(params.get("y"), self.scan_target_y)
-                body = Dot(
-                    self.primary_axes.c2p(point_x, point_y),
-                    radius=0.16, color=color,
-                )
+                if params.get("open"):
+                    body = Circle(
+                        radius=0.16,
+                        color=color,
+                        fill_opacity=0,
+                        stroke_width=5,
+                    ).move_to(self.primary_axes.c2p(point_x, point_y))
+                else:
+                    body = Dot(
+                        self.primary_axes.c2p(point_x, point_y),
+                        radius=0.16, color=color,
+                    )
             else:
                 body = Dot(radius=0.16, color=color)
         elif primitive == "circle":
@@ -564,6 +626,24 @@ class SolutionScene(Scene):
                 body = always_redraw(moving_height)
             else:
                 body = Line(LEFT * 1.2, RIGHT * 1.2, color=color, stroke_width=5)
+        elif primitive == "function_curve":
+            if not hasattr(self, "primary_axes"):
+                body = VGroup()
+            else:
+                paths = VGroup()
+                for segment in params.get("sampled_segments") or []:
+                    if not isinstance(segment, list) or len(segment) < 2:
+                        continue
+                    path = VMobject(color=color, stroke_width=5)
+                    path.set_points_smoothly([
+                        self.primary_axes.c2p(
+                            self.number(point[0], 0), self.number(point[1], 0)
+                        )
+                        for point in segment
+                        if isinstance(point, list) and len(point) >= 2
+                    ])
+                    paths.add(path)
+                body = paths
         elif primitive == "arrow":
             body = Arrow(LEFT * 1.15, RIGHT * 1.15, color=color, buff=0.04)
         elif primitive == "quantity_bar":
@@ -617,13 +697,47 @@ class SolutionScene(Scene):
             x_end = self.number(x_values[1] if len(x_values) > 1 else 3, 3)
             y_start = self.number(y_values[0] if len(y_values) > 0 else -2, -2)
             y_end = self.number(y_values[1] if len(y_values) > 1 else 2, 2)
+
+            def nice_tick(span):
+                raw = max(abs(span) / 5, 1e-6)
+                magnitude = 10 ** math.floor(math.log10(raw))
+                scaled = raw / magnitude
+                factor = 1 if scaled <= 1 else 2 if scaled <= 2 else 5
+                return factor * magnitude
+
+            x_step = nice_tick(x_end - x_start)
+            y_step = nice_tick(y_end - y_start)
             body = Axes(
-                x_range=[x_start, x_end, max((x_end - x_start) / 5, 0.5)],
-                y_range=[y_start, y_end, max((y_end - y_start) / 5, 0.5)],
+                x_range=[x_start, x_end, x_step],
+                y_range=[y_start, y_end, y_step],
                 x_length=8.6, y_length=4.7,
-                axis_config={"color": color, "include_tip": True},
+                axis_config={
+                    "color": color,
+                    "include_tip": True,
+                    # NumberLine defaults to MathTex for numeric labels. The
+                    # deterministic renderer must work without a LaTeX binary,
+                    # so readable ticks are added below with ordinary Text.
+                    "include_numbers": False,
+                    "font_size": 20,
+                },
             )
             body.move_to(UP * 0.15)
+            x_labels = VGroup()
+            y_labels = VGroup()
+            x_value = math.ceil(x_start / x_step) * x_step
+            while x_value <= x_end + 1e-8:
+                x_label = Text(f"{x_value:g}", font_size=16, color=GREY_B)
+                x_label.next_to(body.c2p(x_value, 0), DOWN, buff=0.08)
+                x_labels.add(x_label)
+                x_value += x_step
+            y_value = math.ceil(y_start / y_step) * y_step
+            while y_value <= y_end + 1e-8:
+                if abs(y_value) > 1e-8:
+                    y_label = Text(f"{y_value:g}", font_size=16, color=GREY_B)
+                    y_label.next_to(body.c2p(0, y_value), LEFT, buff=0.08)
+                    y_labels.add(y_label)
+                y_value += y_step
+            body.add(x_labels, y_labels)
             self.primary_axes = body
             if len(self.coordinate_models) >= 2:
                 x_mark = Text(f"{self.scan_target_x:g}", font_size=20, color=WHITE)
@@ -651,9 +765,19 @@ class SolutionScene(Scene):
         self.object_bodies[spec["id"]] = body
         if spec["id"] in self.coordinate_ids:
             label_text = str(spec.get("label") or "").strip()
-            if label_text and primitive in {"line", "dot"}:
+            if label_text and primitive in {"line", "function_curve", "dot"}:
                 label = Text(label_text, font_size=20, color=color)
-                label.next_to(body, UP, buff=0.12)
+                if primitive == "function_curve":
+                    curve_count = sum(
+                        item.get("primitive") == "function_curve"
+                        for item in VISUAL_OBJECTS[:VISUAL_OBJECTS.index(spec)]
+                    )
+                    anchor = body.get_left() if curve_count % 2 == 0 else body.get_right()
+                    label.next_to(anchor, UP, buff=0.16)
+                elif primitive == "line":
+                    label.next_to(body.get_right(), UP, buff=0.16)
+                else:
+                    label.next_to(body, UR, buff=0.18)
                 label.shift_onto_screen(buff=0.25)
                 group = VGroup(body, label)
                 self.object_labels[spec["id"]] = label
@@ -1067,8 +1191,12 @@ class SolutionScene(Scene):
             source_objects = [self.objects[item] for item in source_ids]
             source = source_objects[0] if len(source_objects) == 1 else VGroup(*source_objects)
             result = self.objects[result_id]
-            self.fit(result)
-            result.move_to(source.get_center())
+            # Coordinate objects are already positioned by Axes.c2p. Moving
+            # them to the source bounding-box centre destroys the mathematical
+            # coordinates (a focused curve near y=1 can visibly fall to y=.6).
+            if result_id not in self.coordinate_ids:
+                self.fit(result)
+                result.move_to(source.get_center())
             self.play(ReplacementTransform(source, result))
             for item in source_ids:
                 if item in visible:
@@ -1587,7 +1715,7 @@ class CompileVideoTool(ITool):
                 },
                 "model_codegen": {
                     "type": "boolean",
-                    "description": "兼容参数；生产默认由模型把视觉计划写成 Manim",
+                    "description": "仅当 Visual IR 无法无损编译时显式启用模型写码",
                 },
                 "deterministic_ir": {
                     "type": "boolean",
@@ -1617,7 +1745,25 @@ class CompileVideoTool(ITool):
                 ctx,
                 review_repair=False,
             )
-        if ctx.state.get("visual_plan") and args.get("deterministic_ir"):
+        visual_plan = ctx.state.get("visual_plan")
+        compile_strategy = (
+            str(visual_plan.get("compile_strategy") or "")
+            if isinstance(visual_plan, dict)
+            else ""
+        )
+        deterministic_ir = _fallback_visual_ir(visual_plan)
+        if (
+            visual_plan
+            and not review_repair
+            and deterministic_ir is not None
+            and (
+                bool(args.get("deterministic_ir"))
+                or (
+                    not args.get("model_codegen")
+                    and compile_strategy != "model_codegen"
+                )
+            )
+        ):
             return await self._compile_visual_ir(ctx, artifacts, steps)
 
         generated = await self._writer.execute({}, ctx)

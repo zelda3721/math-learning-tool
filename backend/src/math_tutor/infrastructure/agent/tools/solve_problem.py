@@ -21,6 +21,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..math_runtime import MathExecutionResult, execute_math_request
 from ..prompt_library import PromptLibrary
 from .analyze_problem import _parse_analysis
 
@@ -94,6 +95,32 @@ def _parse_solution(done: Any) -> dict[str, Any] | None:
         if json_payload and isinstance(json_payload.get("steps"), list):
             return json_payload
     return None
+
+
+def _execute_declared_math(done: Any) -> tuple[dict[str, Any] | None, MathExecutionResult]:
+    for source in (
+        getattr(done, "text", "") or "",
+        getattr(done, "reasoning", "") or "",
+    ):
+        section = md.find_section(source, "确定性计算", level=2) or md.find_section(
+            source, "确定性计算"
+        )
+        if section is None:
+            continue
+        request = md.parse_json_anywhere(section)
+        if isinstance(request, dict):
+            return request, execute_math_request(request)
+    return None, MathExecutionResult(False, errors=["缺少 ## 确定性计算 JSON 请求"])
+
+
+def _math_execution_issues(result: MathExecutionResult) -> list[str]:
+    if not result.success:
+        return ["确定性计算失败：" + "；".join(result.errors[:2])]
+    if result.applicable and not result.all_claims_passed:
+        failed = [item for item in result.claims if item.get("passed") is not True]
+        detail = str(failed[0])[:300] if failed else "没有声明可核对最终答案的 claim"
+        return ["确定性计算没有证明最终答案：" + detail]
+    return []
 
 
 def _md_to_solution(section: str) -> dict[str, Any]:
@@ -391,8 +418,13 @@ class SolveProblemTool(ITool):
                 data=payload,
             )
 
-        contract_issues = _solution_contract_issues(payload)
+        math_request, math_execution = _execute_declared_math(done)
+        contract_issues = [
+            *_solution_contract_issues(payload),
+            *_math_execution_issues(math_execution),
+        ][:4]
         internal_repair_count = 0
+        repaired_done = None
         if contract_issues:
             # This is a bounded self-repair inside Solve, driven only by
             # machine-observed contradictions in the submitted artifact. It
@@ -416,15 +448,24 @@ class SolveProblemTool(ITool):
                 logger.exception("solve_problem bounded consistency repair failed")
                 repaired_done = None
             repaired_payload = _parse_solution(repaired_done) if repaired_done else None
-            repaired_issues = (
-                _solution_contract_issues(repaired_payload)
-                if repaired_payload
-                else ["修复输出无法解析"]
-            )
+            if repaired_payload and repaired_done:
+                repaired_request, repaired_execution = _execute_declared_math(repaired_done)
+                repaired_issues = [
+                    *_solution_contract_issues(repaired_payload),
+                    *_math_execution_issues(repaired_execution),
+                ][:4]
+            else:
+                repaired_request = None
+                repaired_execution = MathExecutionResult(
+                    False, errors=["修复输出无法解析"]
+                )
+                repaired_issues = ["修复输出无法解析"]
             if repaired_payload and not repaired_issues:
                 done = repaired_done
                 payload = repaired_payload
                 steps = payload.get("steps") or []
+                math_request = repaired_request
+                math_execution = repaired_execution
                 contract_issues = []
                 internal_repair_count = 1
             else:
@@ -468,6 +509,8 @@ class SolveProblemTool(ITool):
         ctx.state["solution"] = payload
         ctx.state["solution_steps"] = steps
         ctx.state["solution_answer"] = payload.get("answer", "")
+        ctx.state["solve_math_request"] = math_request or {}
+        ctx.state["solve_math_evidence"] = math_execution.to_dict()
         ctx.state["solution_verified"] = False
         ctx.state.pop("last_solve_contract_issues", None)
         ctx.state.pop("last_verify_failure", None)
@@ -479,7 +522,25 @@ class SolveProblemTool(ITool):
 
         n = len(steps)
         ans = payload.get("answer") or "(无答案)"
-        artifacts = []
+        execution_report = {
+            "stage": self.name,
+            "source": "solve",
+            "request": math_request,
+            "evidence": math_execution.to_dict(),
+        }
+        artifacts = [
+            ArtifactSpec(
+                kind="math_execution",
+                filename=f"solve-math-turn{ctx.turn_index:02d}.json",
+                content=json.dumps(execution_report, ensure_ascii=False, indent=2),
+                meta={
+                    "source": "solve",
+                    "success": math_execution.success,
+                    "applicable": math_execution.applicable,
+                    "all_claims_passed": math_execution.all_claims_passed,
+                },
+            )
+        ]
         if internal_repair_count:
             report = {
                 "stage": self.name,
@@ -503,6 +564,7 @@ class SolveProblemTool(ITool):
             data={
                 **payload,
                 "analysis": analysis,
+                "math_execution": math_execution.to_dict(),
                 "internal_repair_count": internal_repair_count,
             },
             artifacts=artifacts,
