@@ -14,12 +14,15 @@ interface Props {
 
 export function HistoricalSessionView({ detail, onBack }: Props) {
     const { session, quality, messages, tool_calls, artifacts, feedback } = detail
+    const deliveryPassed = session.status === 'done' && quality?.quality_gate_passed === true
 
     // Retries append artifacts in chronological order. Always show the final
     // render that passed the quality gate, not the first failed attempt.
     const videoArtifact = useMemo(
-        () => [...artifacts].reverse().find((a) => a.kind === 'video'),
-        [artifacts],
+        () => deliveryPassed
+            ? [...artifacts].reverse().find((a) => a.kind === 'video')
+            : undefined,
+        [artifacts, deliveryPassed],
     )
     const manimArtifact = useMemo(
         () => [...artifacts].reverse().find((a) => a.kind === 'manim_code'),
@@ -116,7 +119,11 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                             )}
                         </video>
                     ) : (
-                        <div className="text-center text-slate-500 py-12">未保存视频</div>
+                        <div className="text-center text-slate-500 py-12">
+                            {session.status === 'done'
+                                ? '视频未通过质量门禁，候选未交付'
+                                : '任务未完成，候选视频不作为成品展示'}
+                        </div>
                     )}
                 </div>
                 {manimArtifact && (

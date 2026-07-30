@@ -48,7 +48,11 @@ def _wrap_fallback_text(value: Any, *, width: int = 26, max_lines: int = 4) -> s
     )
     if len(lines) > max_lines:
         lines = [*lines[: max_lines - 1], lines[max_lines - 1][: actual_width - 1] + "…"]
-    return "\n".join(lines)
+    wrapped = "\n".join(lines)
+    # Chinese punctuation belongs to the preceding phrase.  Leaving it alone
+    # on the next line creates a distracting pseudo-bullet in captions.
+    wrapped = re.sub(r"\n([，。！？；：、])", r"\1\n", wrapped)
+    return wrapped.strip()
 
 
 def _fallback_relation_model(raw: Any, index: int) -> dict[str, Any]:
@@ -279,8 +283,112 @@ class SolutionScene(Scene):
         self.fit(label, 3.0, 0.65)
         return VGroup(body, label).arrange(DOWN, buff=0.18)
 
+    def repeat_count(self, params):
+        raw = params.get("count")
+        if isinstance(raw, bool) or raw is None:
+            return 1
+        try:
+            return min(max(int(round(float(raw))), 1), 64)
+        except (TypeError, ValueError):
+            return 1
+
+    def repeated_body(self, primitive, params, color):
+        count = self.repeat_count(params)
+        if count <= 1 or primitive not in {
+            "dot", "circle", "rectangle", "line", "arrow", "polygon"
+        }:
+            return None
+        units = []
+        for _ in range(count):
+            if primitive == "dot":
+                unit = Dot(radius=0.105, color=color)
+            elif primitive == "circle":
+                unit = Circle(
+                    radius=0.15, color=color,
+                    fill_color=color, fill_opacity=0.2,
+                )
+            elif primitive == "rectangle":
+                unit = Rectangle(
+                    width=0.3, height=0.2, color=color,
+                    fill_color=color, fill_opacity=0.2,
+                )
+            elif primitive == "line":
+                unit = Line(DOWN * 0.15, UP * 0.15, color=color, stroke_width=3)
+            elif primitive == "arrow":
+                unit = Arrow(LEFT * 0.17, RIGHT * 0.17, color=color, buff=0)
+            else:
+                unit = RegularPolygon(
+                    n=max(3, int(self.number(params.get("sides", 3), 3, 3, 8))),
+                    radius=0.16, color=color,
+                    fill_color=color, fill_opacity=0.18,
+                )
+            units.append(unit)
+        columns = int(self.number(
+            params.get("columns", math.ceil(math.sqrt(count * 1.45))),
+            math.ceil(math.sqrt(count * 1.45)), 1, 10,
+        ))
+        rows = math.ceil(count / columns)
+        body = VGroup(*units).arrange_in_grid(
+            rows=rows, cols=columns, buff=(0.11, 0.13),
+        )
+        return body
+
+    def animate_create(self, object_id):
+        item = self.objects[object_id]
+        units = self.repeat_units.get(object_id)
+        if units is None or len(units) <= 1:
+            return FadeIn(item, shift=UP * 0.12)
+        animations = [FadeIn(unit, scale=0.7) for unit in units]
+        label = self.object_labels.get(object_id)
+        if label is not None:
+            animations.insert(0, FadeIn(label, shift=UP * 0.08))
+        return LaggedStart(*animations, lag_ratio=min(0.08, 1.6 / len(animations)))
+
+    def attach_per_unit_marks(self, marker_id, visible, new_ids):
+        spec = self.specs[marker_id]
+        params = spec.get("params") or {}
+        per_unit = int(self.number(params.get("count_per_unit"), 0, 0, 6))
+        if per_unit <= 0:
+            return None
+        candidates = [
+            object_id for object_id in [*visible, *new_ids]
+            if object_id != marker_id and object_id in self.repeat_units
+        ]
+        if not candidates:
+            return None
+        host_id = max(candidates, key=lambda item: len(self.repeat_units[item]))
+        host_units = self.repeat_units[host_id]
+        color = self.color(spec.get("color"))
+        marks = VGroup()
+        for unit in host_units:
+            center = unit.get_center()
+            for index in range(per_unit):
+                offset = (index - (per_unit - 1) / 2) * 0.075
+                mark = Line(
+                    center + [offset, -0.08, 0],
+                    center + [offset, -0.27, 0],
+                    color=color, stroke_width=2.5,
+                )
+                unit.add(mark)
+                marks.add(mark)
+        self.attached_ids.add(marker_id)
+        self.attachment_hosts[marker_id] = host_id
+        self.objects[marker_id] = marks
+        return LaggedStart(
+            *[Create(mark) for mark in marks],
+            lag_ratio=min(0.025, 1.2 / max(len(marks), 1)),
+        )
+
     def prepare_coordinate_system(self):
         self.specs = {spec["id"]: spec for spec in VISUAL_OBJECTS}
+        self.repeat_units = {}
+        self.object_bodies = {}
+        self.object_labels = {}
+        self.attached_ids = set()
+        self.attachment_hosts = {}
+        self.mapped_into = {}
+        self.partition_ratios = {}
+        self.mapping_badges = {}
         self.coordinate_ids = set()
         self.coordinate_models = {}
         self.coordinate_domains = {}
@@ -337,8 +445,6 @@ class SolutionScene(Scene):
                     (self.number(params.get("x_end"), 1), y_value),
                 )
                 self.coordinate_ids.add(spec["id"])
-                path_specs.append(spec)
-                self.coordinate_ids.add(spec["id"])
             elif str(params.get("type") or "").lower() == "vertical":
                 height_specs.append(spec)
                 self.coordinate_ids.add(spec["id"])
@@ -368,7 +474,11 @@ class SolutionScene(Scene):
         primitive = spec["primitive"]
         params = spec.get("params") or {}
         color = self.color(spec.get("color"))
-        if primitive == "dot":
+        repeated = self.repeated_body(primitive, params, color)
+        if repeated is not None and spec["id"] not in self.coordinate_ids:
+            body = repeated
+            self.repeat_units[spec["id"]] = body
+        elif primitive == "dot":
             if spec["id"] in self.coordinate_ids and hasattr(self, "primary_axes"):
                 params = spec.get("params") or {}
                 point_x = self.number(params.get("x"), self.scan_target_x)
@@ -508,15 +618,21 @@ class SolutionScene(Scene):
             )
             node_label.move_to(box)
             return VGroup(box, node_label)
+        self.object_bodies[spec["id"]] = body
         if spec["id"] in self.coordinate_ids:
             label_text = str(spec.get("label") or "").strip()
             if label_text and primitive in {"line", "dot"}:
                 label = Text(label_text, font_size=20, color=color)
                 label.next_to(body, UP, buff=0.12)
                 label.shift_onto_screen(buff=0.25)
-                return VGroup(body, label)
+                group = VGroup(body, label)
+                self.object_labels[spec["id"]] = label
+                return group
             return body
-        return self.labeled(body, spec)
+        group = self.labeled(body, spec)
+        if isinstance(group, VGroup) and len(group) > 1:
+            self.object_labels[spec["id"]] = group[-1]
+        return group
 
     def slots(self, count):
         columns = min(3, max(count, 1))
@@ -532,7 +648,10 @@ class SolutionScene(Scene):
 
     def relayout(self, visible, new_ids):
         ids = [*visible, *[item for item in new_ids if item not in visible]]
-        free_ids = [item for item in ids if item not in self.coordinate_ids]
+        free_ids = [
+            item for item in ids
+            if item not in self.coordinate_ids and item not in self.attached_ids
+        ]
         positions = self.slots(len(free_ids))
         animations = []
         for object_id, position in zip(free_ids, positions):
@@ -545,13 +664,16 @@ class SolutionScene(Scene):
         return animations
 
     def show_caption(self, old_caption, text):
-        caption = Text(str(text or "观察图形关系的变化"), font_size=25, color=WHITE)
+        caption = Text(str(text or "观察图形关系的变化"), font_size=23, color=WHITE)
         self.fit(caption, 11.0, 0.9)
         caption.to_edge(DOWN, buff=0.3)
         if old_caption is None:
             self.play(FadeIn(caption))
         else:
-            self.play(FadeOut(old_caption), FadeIn(caption))
+            # Never cross-fade two unrelated sentences in the same safe band:
+            # even a short overlap is unreadable in sampled frames.
+            self.play(FadeOut(old_caption), run_time=0.22)
+            self.play(FadeIn(caption), run_time=0.3)
         return caption
 
     def execute_action(self, action, visible):
@@ -561,11 +683,109 @@ class SolutionScene(Scene):
         if op == "create":
             new_ids = [item for item in targets if item not in visible]
             animations = self.relayout(visible, new_ids)
-            animations.extend(FadeIn(self.objects[item], shift=UP * 0.12) for item in new_ids)
+            regular_ids = []
+            attachment_ids = []
+            for item in new_ids:
+                if self.number(
+                    (self.specs[item].get("params") or {}).get("count_per_unit"), 0
+                ) > 0:
+                    attachment_ids.append(item)
+                else:
+                    regular_ids.append(item)
+            animations.extend(self.animate_create(item) for item in regular_ids)
             if animations:
                 self.play(*animations)
+            attachment_animations = [
+                animation for item in attachment_ids
+                if (animation := self.attach_per_unit_marks(item, visible, new_ids)) is not None
+            ]
+            if attachment_animations:
+                self.play(*attachment_animations)
             visible.extend(new_ids)
-        elif op in {"transform", "map"} and targets and result_id in self.objects:
+        elif op == "map" and targets and result_id in self.objects:
+            source_ids = [item for item in targets if item in visible]
+            if not source_ids:
+                return
+            source_id = source_ids[0]
+            source_units = self.repeat_units.get(source_id)
+            result_units = self.repeat_units.get(result_id)
+            if source_units is not None and result_units is not None:
+                if result_id not in visible:
+                    self.objects[result_id].move_to(self.objects[source_id].get_center())
+                    self.play(self.animate_create(result_id))
+                    visible.append(result_id)
+                pair_count = min(len(source_units), len(result_units))
+                connector = Arrow(
+                    self.objects[source_id].get_left(),
+                    self.objects[result_id].get_right(),
+                    color=YELLOW, buff=0.16, stroke_width=5,
+                )
+                self.play(GrowArrow(connector))
+                self.play(LaggedStart(*[
+                    AnimationGroup(
+                        FadeOut(source_units[index], shift=LEFT * 0.16),
+                        result_units[index].animate.set_color(GREEN).scale(1.18),
+                        lag_ratio=0,
+                    )
+                    for index in range(pair_count)
+                ], lag_ratio=min(0.08, 1.4 / max(pair_count, 1))))
+                self.play(
+                    *[result_units[index].animate.scale(1 / 1.18) for index in range(pair_count)],
+                    FadeOut(self.objects[source_id]), FadeOut(connector),
+                )
+                extra_per_unit = self.partition_ratios.get(source_id, 0)
+                extra_marks = []
+                if extra_per_unit > 0:
+                    for unit_index in range(pair_count):
+                        unit = result_units[unit_index]
+                        center = unit.get_center()
+                        for mark_index in range(extra_per_unit):
+                            offset = (
+                                mark_index - (extra_per_unit - 1) / 2
+                            ) * 0.26
+                            mark = Line(
+                                center + [offset, -0.08, 0],
+                                center + [offset, -0.27, 0],
+                                color=GREEN, stroke_width=2.5,
+                            )
+                            extra_marks.append((unit, mark))
+                    self.play(LaggedStart(*[
+                        GrowFromPoint(mark, unit.get_center())
+                        for unit, mark in extra_marks
+                    ], lag_ratio=min(0.035, 1.2 / max(len(extra_marks), 1))))
+                    for unit, mark in extra_marks:
+                        self.remove(mark)
+                        unit.add(mark)
+                base_per_unit = 0
+                for marker_id, host_id in self.attachment_hosts.items():
+                    if host_id == result_id:
+                        marker_params = self.specs[marker_id].get("params") or {}
+                        base_per_unit = int(self.number(
+                            marker_params.get("count_per_unit"), 0, 0, 12
+                        ))
+                        break
+                remainder = max(0, len(result_units) - pair_count)
+                if base_per_unit > 0 and extra_per_unit > 0:
+                    mapped_total = base_per_unit + extra_per_unit
+                    formulas = VGroup(
+                        Text(
+                            f"{pair_count} × {mapped_total} = {pair_count * mapped_total}",
+                            font_size=25, color=GREEN,
+                        ),
+                        Text(
+                            f"{remainder} × {base_per_unit} = {remainder * base_per_unit}",
+                            font_size=25, color=BLUE,
+                        ),
+                    ).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+                    formulas.next_to(self.objects[result_id], RIGHT, buff=0.72)
+                    formulas.shift_onto_screen(buff=0.35)
+                    self.mapping_badges[result_id] = formulas
+                    self.play(FadeIn(formulas, shift=LEFT * 0.12))
+                self.mapped_into[source_id] = (result_id, pair_count)
+                visible.remove(source_id)
+                return
+            self.play(TransformFromCopy(self.objects[source_id], self.objects[result_id]))
+        elif op == "transform" and targets and result_id in self.objects:
             source_ids = [item for item in targets if item in visible]
             if not source_ids:
                 source_ids = targets[:1]
@@ -607,7 +827,42 @@ class SolutionScene(Scene):
                 self.play(*[item.animate.shift(UP * 0.35) for item in moving])
         elif op == "partition":
             selected = [self.objects[item] for item in targets if item in visible]
-            if selected:
+            source_id = next((item for item in targets if item in visible), None)
+            source_units = self.repeat_units.get(source_id) if source_id else None
+            result_units = self.repeat_units.get(result_id)
+            if source_units is not None and result_units is not None and result_id in self.objects:
+                source = self.objects[source_id]
+                result = self.objects[result_id]
+                result.move_to(source.get_center())
+                ratio = max(1, math.ceil(len(source_units) / len(result_units)))
+                self.partition_ratios[result_id] = ratio
+                outlines = VGroup()
+                for index in range(len(result_units)):
+                    chunk = source_units[index * ratio:(index + 1) * ratio]
+                    if len(chunk):
+                        outlines.add(SurroundingRectangle(
+                            VGroup(*chunk), color=YELLOW, buff=0.035, stroke_width=2,
+                        ))
+                self.play(LaggedStart(*[Create(box) for box in outlines], lag_ratio=0.06))
+                copies = []
+                for index, result_unit in enumerate(result_units):
+                    chunk = source_units[index * ratio:(index + 1) * ratio]
+                    if len(chunk):
+                        copy = VGroup(*[unit.copy() for unit in chunk])
+                        copies.append((copy, result_unit))
+                        self.add(copy)
+                self.play(*[
+                    copy.animate.move_to(result_unit).scale(0.7)
+                    for copy, result_unit in copies
+                ])
+                self.play(
+                    *[FadeOut(copy) for copy, _ in copies],
+                    FadeOut(source), FadeOut(outlines),
+                    self.animate_create(result_id),
+                )
+                visible.remove(source_id)
+                visible.append(result_id)
+            elif selected:
                 self.play(*[
                     item.animate.scale(0.88).shift((LEFT if index % 2 == 0 else RIGHT) * 0.32)
                     for index, item in enumerate(selected)
@@ -647,23 +902,53 @@ class SolutionScene(Scene):
             elif selected:
                 self.play(Indicate(selected[0], color=YELLOW))
         elif op == "verify":
-            selected = [self.objects[item] for item in targets if item in visible]
-            if selected:
-                frame = SurroundingRectangle(VGroup(*selected), color=GREEN, buff=0.18)
-                check = Text("✓", font_size=42, color=GREEN).next_to(frame, RIGHT, buff=0.22)
-                self.play(
-                    Create(frame), FadeIn(check),
-                    *[Indicate(item, color=GREEN) for item in selected],
+            selected_ids = [item for item in targets if item in visible]
+            selected_ids = [
+                item for item in selected_ids
+                if not (
+                    item in self.attached_ids
+                    and self.attachment_hosts.get(item) in selected_ids
                 )
+            ]
+            selected = [self.objects[item] for item in selected_ids]
+            if selected:
+                framed = [*selected]
+                for item in selected_ids:
+                    badge = self.mapping_badges.get(item)
+                    if badge is not None:
+                        framed.append(badge)
+                frame = SurroundingRectangle(VGroup(*framed), color=GREEN, buff=0.18)
+                check = Text("✓", font_size=42, color=GREEN).next_to(frame, RIGHT, buff=0.22)
+                # The frame verifies the whole relation without recolouring
+                # every object; recolouring would erase the mapped/unmapped
+                # distinction at exactly the moment it is being checked.
+                self.play(Create(frame), FadeIn(check))
                 self.play(FadeOut(frame), FadeOut(check))
         elif op == "highlight":
-            missing = [item for item in targets if item not in visible]
+            mapped_units = []
+            mapped_ids = set()
+            for item in targets:
+                mapping = self.mapped_into.get(item)
+                if mapping is None:
+                    continue
+                mapped_ids.add(item)
+                target_id, count = mapping
+                target_units = self.repeat_units.get(target_id)
+                if target_units is not None:
+                    mapped_units.extend(target_units[:count])
+            missing = [
+                item for item in targets
+                if item not in visible and item not in mapped_ids
+            ]
             if missing:
                 self.play(*[FadeIn(self.objects[item]) for item in missing])
                 visible.extend(missing)
             selected = [self.objects[item] for item in targets if item in visible]
-            if selected:
-                self.play(*[Indicate(item, color=YELLOW) for item in selected])
+            if selected or mapped_units:
+                self.play(
+                    *[Indicate(item, color=YELLOW) for item in selected],
+                    *[Indicate(item, color=GREEN, scale_factor=1.35) for item in mapped_units],
+                )
         else:
             selected = [self.objects[item] for item in targets if item in visible]
             if selected:
@@ -673,12 +958,11 @@ class SolutionScene(Scene):
         problem_card = self.fit(Text(PROBLEM_TEXT, font_size=39, color=WHITE), 11.0, 5.4)
         self.play(Write(problem_card))
         self.wait(3)
-        self.play(FadeOut(problem_card))
+        heading = Text("用图形观察数学关系", font_size=31, color=BLUE).to_edge(UP, buff=0.28)
+        self.play(FadeOut(problem_card), FadeIn(heading))
 
         self.prepare_coordinate_system()
         self.objects = {spec["id"]: self.make_visual(spec) for spec in VISUAL_OBJECTS}
-        heading = Text("用图形观察数学关系", font_size=31, color=BLUE).to_edge(UP, buff=0.28)
-        self.play(FadeIn(heading))
         visible = []
         caption = None
         for scene in VISUAL_SCENES:
@@ -692,7 +976,14 @@ class SolutionScene(Scene):
         answer = self.fit(Text(ANSWER_TEXT, font_size=34, color=GREEN), 10.6, 1.0)
         answer.to_edge(DOWN, buff=0.3)
         self.play(FadeIn(answer))
-        shown = [self.objects[item] for item in visible]
+        shown_ids = [
+            item for item in visible
+            if not (
+                item in self.attached_ids
+                and self.attachment_hosts.get(item) in visible
+            )
+        ]
+        shown = [self.objects[item] for item in shown_ids]
         if shown:
             self.play(*[Indicate(item, color=GREEN, scale_factor=1.03) for item in shown])
         self.wait(3)

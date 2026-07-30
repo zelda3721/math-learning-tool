@@ -305,14 +305,14 @@ class AgentLoop:
                         yield DoneEvent(
                             status="failed",
                             text=budget_error,
-                            final_video_url=final_video_url,
-                            final_video_path=final_video_path,
+                            final_video_url=None,
+                            final_video_path=None,
                         )
                         await self._store.update_session(
                             session_id,
                             status="failed",
                             error=f"stage_budget_exhausted:{selected}",
-                            final_video_path=final_video_path,
+                            final_video_path=None,
                         )
                         self._maybe_schedule_wiki_ingest(session_id, success=False)
                         return
@@ -478,14 +478,14 @@ class AgentLoop:
                     yield DoneEvent(
                         status="exhausted",
                         text="达到最大推理轮数，工作流仍未完成",
-                        final_video_url=final_video_url,
-                        final_video_path=final_video_path,
+                        final_video_url=None,
+                        final_video_path=None,
                     )
                     await self._store.update_session(
                         session_id,
                         status="failed",
                         error="incomplete_workflow",
-                        final_video_path=final_video_path,
+                        final_video_path=None,
                     )
                     self._maybe_schedule_wiki_ingest(session_id, success=False)
                     return
@@ -660,14 +660,14 @@ class AgentLoop:
         yield DoneEvent(
             status="exhausted",
             text="达到最大推理轮数",
-            final_video_url=final_video_url,
-            final_video_path=final_video_path,
+            final_video_url=None,
+            final_video_path=None,
         )
         await self._store.update_session(
             session_id,
             status="failed",
             error="max_turns_exhausted",
-            final_video_path=final_video_path,
+            final_video_path=None,
         )
         self._maybe_schedule_wiki_ingest(session_id, success=False)
 

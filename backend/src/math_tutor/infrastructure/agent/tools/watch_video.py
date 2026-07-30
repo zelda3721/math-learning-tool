@@ -121,17 +121,35 @@ class WatchVideoTool(ITool):
                 fallback = await self._compiler.execute({"visual_fallback_only": True}, ctx)
                 artifacts.extend(fallback.artifacts)
                 if fallback.success:
+                    fallback_review = await self._inspector.execute({}, ctx)
+                    artifacts.extend(fallback_review.artifacts)
                     fallback_snapshot = {
                         "code": ctx.state.get("latest_manim_code") or "",
                         "video_path": ctx.state.get("latest_video_path"),
                         "video_url": ctx.state.get("latest_video_url"),
-                        "review": second.data or {},
+                        "review": fallback_review.data or {},
                         "issues": ctx.state.get("last_visual_issues") or "",
                         "delivery_fallback": True,
                     }
+                    if self._passed(fallback_review):
+                        ctx.state["watch_internal_repairs"] = 1
+                        return ToolResult(
+                            success=True,
+                            summary="模型候选缺少有效可视化；确定性关系动画已替换并通过复审",
+                            data={
+                                **(fallback_review.data or {}),
+                                "internal_repair_count": 1,
+                                "replanned": replanned,
+                                "delivery_fallback": True,
+                                "video_path": ctx.state.get("latest_video_path"),
+                                "video_url": ctx.state.get("latest_video_url"),
+                                "text_only_candidate_replaced": True,
+                            },
+                            artifacts=artifacts,
+                        )
                     return self._deliver_degraded(
-                        "模型修复成片仍是纯文字表达，已替换为可视化关系图保底",
-                        second,
+                        "模型修复成片缺少有效可视化，确定性关系动画复审仍未通过",
+                        fallback_review,
                         artifacts,
                         fallback_snapshot,
                         ctx,
@@ -203,7 +221,10 @@ class WatchVideoTool(ITool):
     def _meaningless_visual(result: ToolResult) -> bool:
         data = result.data or {}
         hits = " ".join(str(item) for item in (data.get("blacklist_hits") or []))
-        return "PPT" in hits or "文字搬运" in hits or "纯文字" in hits
+        return any(
+            marker in hits
+            for marker in ("PPT", "文字搬运", "纯文字", "静态幻灯片", "静态展示")
+        )
 
     @staticmethod
     def _quality_rank(result: ToolResult) -> tuple[int, int, int, int, int]:
@@ -260,7 +281,13 @@ class WatchVideoTool(ITool):
         internal_repair_count: int,
         extra: dict[str, Any] | None = None,
     ) -> ToolResult:
-        """Return a playable candidate while preserving an explicit warning."""
+        """Preserve the best candidate for diagnosis, but never deliver it as success.
+
+        A decodable MP4 is not a useful product when the visual quality gate says
+        that students cannot follow it.  Keeping the candidate in state makes the
+        failure reproducible; ``last_visual_failed`` prevents the agent loop and
+        frontend from treating it as the final video.
+        """
         video_path = snapshot.get("video_path")
         if not video_path:
             return WatchVideoTool._failed(
@@ -274,7 +301,7 @@ class WatchVideoTool(ITool):
         ctx.state["latest_video_url"] = snapshot.get("video_url")
         ctx.state["last_visual_review"] = snapshot.get("review") or result.data or {}
         ctx.state["last_visual_issues"] = snapshot.get("issues") or label
-        ctx.state["last_visual_failed"] = False
+        ctx.state["last_visual_failed"] = True
         ctx.state["quality_degraded"] = True
         ctx.state["delivery_warning"] = label
         if snapshot.get("delivery_fallback"):
@@ -283,8 +310,8 @@ class WatchVideoTool(ITool):
             ctx.state.pop("delivery_fallback", None)
             ctx.state.pop("delivery_fallback_reason", None)
         return ToolResult(
-            success=True,
-            summary=f"可播放视频已交付，但质量门禁未完全通过：{label}",
+            success=False,
+            summary=f"候选视频未交付：质量门禁未通过；{label}",
             data={
                 **(result.data or {}),
                 "internal_repair_count": internal_repair_count,
@@ -296,4 +323,5 @@ class WatchVideoTool(ITool):
                 **(extra or {}),
             },
             artifacts=artifacts,
+            error=label,
         )
