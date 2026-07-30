@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from ....application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
-from .visual_plan import VisualPlanTool
+from .visual_plan import VisualPlanTool, build_safe_visual_plan, store_visual_plan
 
 
 class DirectVideoTool(ITool):
@@ -43,6 +43,20 @@ class DirectVideoTool(ITool):
                 artifacts=result.artifacts,
             )
         first_summary = result.summary
+        candidate = (result.data or {}).get("plan")
+        safe_plan = build_safe_visual_plan(candidate, ctx)
+        if safe_plan is not None:
+            safe_plan["discarded_plan_error"] = result.error
+            safe_plan["discarded_plan_summary"] = first_summary[:500]
+            store_visual_plan(ctx, safe_plan)
+            return ToolResult(
+                success=True,
+                summary=(
+                    "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+                ),
+                data=safe_plan,
+                artifacts=result.artifacts,
+            )
         repaired = await self._planner.execute(args, ctx)
         if repaired.success:
             report = {
@@ -64,6 +78,20 @@ class DirectVideoTool(ITool):
                         meta=report,
                     ),
                 ],
+            )
+        repaired_safe_plan = build_safe_visual_plan((repaired.data or {}).get("plan"), ctx)
+        if repaired_safe_plan is not None:
+            repaired_safe_plan["discarded_plan_error"] = repaired.error
+            repaired_safe_plan["discarded_plan_summary"] = repaired.summary[:500]
+            store_visual_plan(ctx, repaired_safe_plan)
+            return ToolResult(
+                success=True,
+                summary=(
+                    "视觉导演无法解析首稿，修正版文案未通过契约；"
+                    "已保留可验证图形对象并切换为安全视觉基线"
+                ),
+                data={**repaired_safe_plan, "internal_repair_count": 1},
+                artifacts=[*result.artifacts, *repaired.artifacts],
             )
         return ToolResult(
             success=False,

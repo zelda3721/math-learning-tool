@@ -13,7 +13,8 @@
 - `symbol_ledger` 固定全片视觉语言；同一颜色、对象和符号不能中途改变含义。
 - 把已验证解答的决定性推理映射为可见动作或关系；有限个取值、截图或个例只能核对，
   不能单独证明全局、唯一、恒成立或必然性结论。
-- 每个 transform 的 `action` 必须写清“可见初态 → 屏幕上实际发生的操作 → 可见终态”。若讲解声称
+- transform 场景序列整体必须写清“可见初态 → 屏幕上实际发生的操作 → 可见终态”，并至少包含
+  一次真实结构变换。连续序列中的后续 beat 可以只创建投影、测量或验证标记。若讲解声称
   同一操作施加到多个对象、区域或关系两端，画面必须先同步显示每个受影响位置的操作证据，再做
   抵消、合并或简化；不能直接跳到结果状态。verify beat 必须把决定性关系的各组成部分同时留在
   画面中供学生核对，而不是只由 teaching_line 宣告成立。
@@ -54,43 +55,69 @@
 - `exit_condition`: 进入下一 beat 前，画面需要达到的可验证状态
 - `teaching_line`: 与动作同步的一句简短讲解/字幕，指出“看哪里、为何变化”；不能代替视觉推理
 - `duration_s`: 该 beat 的目标秒数，2-20 秒；全片目标 12-120 秒
+- `actions`: 结构化图形动作数组。每项包含 `op`、`targets`、可选 `result` 和 `meaning`。
+
+全片还必须定义 `visual_objects`。这是可执行 Visual IR，不是题型：
+
+- 每个对象包含 `id`、`primitive`、`meaning`、可选 `label/color/params`。
+- `primitive` 只能使用可组合原语：`dot | circle | rectangle | line | arrow | quantity_bar |
+  unit_grid | number_line | axes | polygon | relation_node`。
+- `params` 保存数量、分组、端点、范围、边数等绘图参数；数学数值不得直接作为 Manim 坐标。
+- `actions.op` 只能使用：`create | transform | move | highlight | partition | merge | compare |
+  map | measure | verify | remove`。
+- `targets` 和 `result` 必须引用 `visual_objects.id`。每个动作必须写 `meaning`，说明屏幕动作代表
+  哪个数学关系。
+- 全部 `transform` beat 合起来必须让非文字数学图形发生可见变化；逐步创建新的证明对象，或使用
+  `transform/move/partition/merge/map` 改变既有对象都可以。`verify` beat 必须包含
+  `compare/measure/verify`。只创建文字、公式或字幕不算图形动作。
 
 至少一个 `transform` beat，至少一个 `verify` beat。最后的验证必须回到画面中的对象
 或关系，不能只显示一句“答案正确”。
 
 ## 输出格式
 
-只输出以下结构，不要解释格式：
+只输出一个 JSON 对象，不要 Markdown，不要解释。结构如下；对象和动作数量按当前问题决定，
+不得照抄示例占位符：
 
-## 视觉计划
-
-**visual_thesis**: <完整的一句话，自由描述，不是模式名>
-
-**essence_rationale**: <20-400 字，解释为什么这组画面能让学生看见核心对应、变化或不变量>
-
-**symbol_ledger**: <至少两项，用分号分隔；每项写“关键视觉对象/颜色 = 稳定含义”>
-
-### 场景 1
-- role: setup
-- anchor_zone: <zone>
-- key_objects: <可读题目卡，以及题目对象的初始状态>
-- action: <先展示完整题目且不泄露答案，再把题目中的关键对象/关系建立为可见画面>
-- invariant: <保持的关系或初始状态说明>
-- attention_target: <唯一注意焦点>
-- exit_condition: <下一场景开始前可检查的画面状态>
-- teaching_line: <一句与视觉动作同步的讲解>
-- duration_s: <2-20 的数字>
-
-### 场景 2
-<同样字段；至少有一场 role: transform>
-
-### 场景 3
-<同样字段；至少有一场 role: verify>
-
-### 反模式禁用清单
-- 连续替换文字但数学对象没有变化
-- 动画只起装饰作用，无法说出它对应的数学语义
-- <结合当前计划再写至少一项>
+```json
+{
+  "visual_thesis": "自由描述的视觉论证主线",
+  "essence_rationale": "学生为什么能从这些图形变化看懂结论",
+  "symbol_ledger": ["蓝色对象 = 稳定参照", "绿色对象 = 当前结论"],
+  "visual_objects": [
+    {
+      "id": "stable_object_id",
+      "primitive": "unit_grid",
+      "meaning": "该对象在当前题目中的稳定数学含义",
+      "label": "简短标签",
+      "color": "blue",
+      "params": {"count": 12, "columns": 4}
+    }
+  ],
+  "scenes": [
+    {
+      "role": "setup",
+      "anchor_zone": "B2-E5",
+      "key_objects": "当前可见图形对象",
+      "action": "可见初态、操作和终态的自然语言导演说明",
+      "invariant": "保持的数学关系",
+      "attention_target": "唯一注意焦点",
+      "exit_condition": "可检查的画面终态",
+      "teaching_line": "只负责引导观察的一句话",
+      "duration_s": 5,
+      "actions": [
+        {
+          "op": "create",
+          "targets": ["stable_object_id"],
+          "result": "",
+          "meaning": "建立题目中的初始数学对象"
+        }
+      ]
+    }
+  ],
+  "forbidden": ["连续替换文字但数学对象没有变化", "装饰动画没有数学语义"]
+}
+```
 
 ## 当前输入
 

@@ -707,6 +707,229 @@ def _check_visual_evidence_contract(
     return issues
 
 
+_GRAPHICAL_CONSTRUCTORS = {
+    "Dot",
+    "Circle",
+    "Square",
+    "Rectangle",
+    "RoundedRectangle",
+    "Line",
+    "DashedLine",
+    "Arrow",
+    "DoubleArrow",
+    "Arc",
+    "Sector",
+    "AnnularSector",
+    "Polygon",
+    "RegularPolygon",
+    "NumberLine",
+    "Axes",
+    "NumberPlane",
+    "ComplexPlane",
+    "BarChart",
+    "Graph",
+    "ParametricFunction",
+    "FunctionGraph",
+    "Brace",
+}
+_PRESENTATION_NAME_PARTS = ("caption", "subtitle", "background", "panel", "card", "title")
+
+
+def _check_graphical_reasoning_contract(
+    code: str, visual_plan: dict[str, Any] | None
+) -> list[str]:
+    """Reject technically rendered slides that contain no graphical proof."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    graphical_vars: set[str] = set()
+    group_vars: set[str] = set()
+    tracker_vars: set[str] = set()
+    redraw_vars: set[str] = set()
+    constructor_count = 0
+
+    def target_names(node: ast.AST) -> set[str]:
+        if isinstance(node, ast.Name):
+            return {node.id}
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return {name for item in node.elts for name in target_names(item)}
+        return set()
+
+    def call_name(node: ast.AST) -> str:
+        return node.id if isinstance(node, ast.Name) else ""
+
+    def graphical_constructor(node: ast.AST) -> str:
+        """Return the root graphical constructor through fluent Manim calls."""
+        current = node
+        while isinstance(current, ast.Call):
+            direct = call_name(current.func)
+            if direct in _GRAPHICAL_CONSTRUCTORS:
+                return direct
+            if isinstance(current.func, ast.Attribute):
+                current = current.func.value
+                continue
+            break
+        return ""
+
+    redraw_factories = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            isinstance(child, ast.Return)
+            and child.value is not None
+            and bool(graphical_constructor(child.value))
+            for child in ast.walk(node)
+        )
+    }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and graphical_constructor(node):
+            constructor_count += 1
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        targets = (
+            {name for target in node.targets for name in target_names(target)}
+            if isinstance(node, ast.Assign)
+            else target_names(node.target)
+        )
+        if not isinstance(value, ast.Call):
+            continue
+        if graphical_constructor(value):
+            graphical_vars.update(
+                name
+                for name in targets
+                if not any(part in name.lower() for part in _PRESENTATION_NAME_PARTS)
+            )
+        if call_name(value.func) == "ValueTracker":
+            tracker_vars.update(targets)
+        if (
+            call_name(value.func) == "always_redraw"
+            and value.args
+            and isinstance(value.args[0], ast.Name)
+            and value.args[0].id in redraw_factories
+        ):
+            graphical_vars.update(targets)
+            redraw_vars.update(targets)
+        if call_name(value.func) in {"VGroup", "Group"}:
+            group_vars.update(targets)
+
+    # Propagate graphical meaning through VGroup construction and .add calls.
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                value = node.value
+                targets = (
+                    {name for target in node.targets for name in target_names(target)}
+                    if isinstance(node, ast.Assign)
+                    else target_names(node.target)
+                )
+                if (
+                    isinstance(value, ast.Call)
+                    and call_name(value.func) in {"VGroup", "Group"}
+                    and any(
+                        isinstance(argument, ast.Name) and argument.id in graphical_vars
+                        for argument in value.args
+                    )
+                ):
+                    before = len(graphical_vars)
+                    graphical_vars.update(targets)
+                    changed = changed or len(graphical_vars) > before
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in group_vars
+                and any(
+                    isinstance(argument, ast.Name) and argument.id in graphical_vars
+                    for argument in node.args
+                )
+                and node.func.value.id not in graphical_vars
+            ):
+                graphical_vars.add(node.func.value.id)
+                changed = True
+
+    animated_graphics = False
+    mutated_graphics = False
+    has_visual_factory = constructor_count >= 2 and any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in {"make_visual", "make_object", "build_visual"}
+        for node in ast.walk(tree)
+    )
+    has_visual_object_store = any(
+        isinstance(node, ast.Attribute) and node.attr in {"objects", "visual_objects"}
+        for node in ast.walk(tree)
+    )
+    dynamic_graphics = has_visual_factory and has_visual_object_store
+    mutation_names = {
+        "Transform",
+        "ReplacementTransform",
+        "MoveAlongPath",
+        "Rotate",
+        "ApplyMatrix",
+        "ApplyComplexFunction",
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        referenced = {
+            child.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Name) and child.id in graphical_vars
+        }
+        referenced_trackers = {
+            child.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Name) and child.id in tracker_vars
+        }
+        if referenced:
+            animated_graphics = True
+        if call_name(node.func) in mutation_names and (referenced or dynamic_graphics):
+            mutated_graphics = True
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "animate"
+            and (referenced or dynamic_graphics)
+        ):
+            mutated_graphics = True
+        if isinstance(node.func, ast.Attribute):
+            chain_text = ast.unparse(node.func)
+            if ".animate." in chain_text and (
+                referenced
+                or dynamic_graphics
+                or (redraw_vars and referenced_trackers)
+            ):
+                mutated_graphics = True
+
+    issues: list[str] = []
+    if constructor_count < 2 or len(graphical_vars) < 2:
+        issues.append(
+            "图形化硬门禁未通过：至少需要两个承载数学含义的非文字图形对象；"
+            "Text/Paragraph/公式和字幕不能作为主要证明"
+        )
+    if not animated_graphics:
+        issues.append("图形化硬门禁未通过：非文字数学对象没有进入任何动画")
+    scenes = (visual_plan or {}).get("scenes") or []
+    needs_mutation = any(
+        isinstance(action, dict)
+        and action.get("op") in {"transform", "move", "partition", "merge", "map"}
+        for scene in scenes
+        if isinstance(scene, dict)
+        for action in (scene.get("actions") or [])
+    )
+    if needs_mutation and not mutated_graphics:
+        issues.append(
+            "图形化硬门禁未通过：transform beat 没有改变任何非文字对象的形状、位置或结构"
+        )
+    return issues
+
+
 def _check_class_helper_scope_leaks(tree: ast.AST) -> list[str]:
     """Reject class helpers that read construct-only local variables.
 
@@ -1467,6 +1690,7 @@ class ValidateManimCodeTool(ITool):
         visual_plan = ctx.state.get("visual_plan") or {}
         scenes = visual_plan.get("scenes") or []
         visual_evidence_issues = _check_visual_evidence_contract(code, visual_plan)
+        graphical_reasoning_issues = _check_graphical_reasoning_contract(code, visual_plan)
         teaching_issues, teaching_lines_matched, teaching_lines_planned = _check_teaching_contract(
             code, visual_plan
         )
@@ -1485,9 +1709,9 @@ class ValidateManimCodeTool(ITool):
         static_valid = (
             syntax_ok
             and not structure_issues
-            and not teaching_issues
             and not problem_opening_issues
             and not visual_evidence_issues
+            and not graphical_reasoning_issues
         )
         semantic_issues: list[str] = []
         semantic_checked_claims: list[str] = []
@@ -1565,8 +1789,10 @@ class ValidateManimCodeTool(ITool):
             ctx.state.pop("semantic_audit_retry_count", None)
 
         valid = static_valid and not semantic_issues
-        # Layout heuristics remain warnings; missing planned teaching cues are
-        # a hard contract failure because captions cannot be recovered later.
+        # Captions improve pedagogy but are supporting evidence. A source that
+        # opens with the full problem and carries its reasoning through real
+        # graphical objects must not be rejected solely because a local model
+        # used labels instead of the planned teaching-line constants.
 
         data = {
             "valid": valid,
@@ -1583,6 +1809,7 @@ class ValidateManimCodeTool(ITool):
             "teaching_lines_planned": teaching_lines_planned,
             "problem_opening_issues": problem_opening_issues,
             "visual_evidence_issues": visual_evidence_issues,
+            "graphical_reasoning_issues": graphical_reasoning_issues,
             "semantic_consistent": semantic_consistent,
             "semantic_audit_issues": semantic_issues,
             "semantic_checked_claims": semantic_checked_claims,
@@ -1599,6 +1826,7 @@ class ValidateManimCodeTool(ITool):
                 + len(overlap_issues)
                 + len(occupancy_overlap)
                 + len(zone_violations)
+                + len(teaching_issues)
                 + int(semantic_audit_warning is not None)
             )
             summary = "校验通过"
@@ -1616,9 +1844,9 @@ class ValidateManimCodeTool(ITool):
         if syntax_error:
             problems.append(f"语法错误: {syntax_error}")
         problems.extend(structure_issues)
-        problems.extend(teaching_issues)
         problems.extend(problem_opening_issues)
         problems.extend(visual_evidence_issues)
+        problems.extend(graphical_reasoning_issues)
         problems.extend(semantic_issues)
         ctx.state["last_validation_issues"] = problems
         ctx.state["last_error_source"] = "validate"

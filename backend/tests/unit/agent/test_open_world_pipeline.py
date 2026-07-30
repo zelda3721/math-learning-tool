@@ -39,6 +39,7 @@ from math_tutor.infrastructure.agent.tools.solve_problem import (
 )
 from math_tutor.infrastructure.agent.tools.validate_manim_code import (
     _check_animation_api_misuse,
+    _check_graphical_reasoning_contract,
     _check_hierarchical_label_band_conflicts,
     _check_problem_opening,
     _check_render_complexity,
@@ -78,6 +79,32 @@ def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参�
         "visual_thesis": thesis,
         "essence_rationale": "因为学生能看到状态变化与稳定参照的对应，所以结论由画面本身得到验证。",
         "symbol_ledger": ["blue object = changing state", "gold mark = stable reference"],
+        "visual_objects": [
+            {
+                "id": "state",
+                "primitive": "quantity_bar",
+                "meaning": "the changing mathematical state",
+                "label": "state",
+                "color": "blue",
+                "params": {"value": 7},
+            },
+            {
+                "id": "reference",
+                "primitive": "line",
+                "meaning": "the invariant reference",
+                "label": "reference",
+                "color": "yellow",
+                "params": {},
+            },
+            {
+                "id": "final_state",
+                "primitive": "quantity_bar",
+                "meaning": "the verified final state",
+                "label": "result",
+                "color": "green",
+                "params": {"value": 12},
+            },
+        ],
         "scenes": [
             {
                 "role": "setup",
@@ -89,6 +116,14 @@ def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参�
                 "exit_condition": "both meanings are visible",
                 "teaching_line": "First fix the meaning of the stable reference.",
                 "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["state", "reference"],
+                        "result": "",
+                        "meaning": "establish the state and stable reference",
+                    }
+                ],
             },
             {
                 "role": "transform",
@@ -100,6 +135,14 @@ def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参�
                 "exit_condition": "target state is reached",
                 "teaching_line": "Watch only what changes while the reference remains fixed.",
                 "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": ["state"],
+                        "result": "final_state",
+                        "meaning": "change the state while preserving the reference",
+                    }
+                ],
             },
             {
                 "role": "verify",
@@ -111,6 +154,14 @@ def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参�
                 "exit_condition": "the conclusion is checked on screen",
                 "teaching_line": "Now check the final state against every constraint.",
                 "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "compare",
+                        "targets": ["final_state", "reference"],
+                        "result": "",
+                        "meaning": "visually compare the result with the invariant",
+                    }
+                ],
             },
         ],
         "forbidden": ["text-only page changes", "decorative motion without semantics"],
@@ -126,6 +177,40 @@ def test_visual_plan_requires_reference_and_change_ledger_entries() -> None:
     plan = _open_world_plan()
     plan["symbol_ledger"] = ["stable reference = blue object"]
     assert any("至少 2 项" in issue for issue in _validate_plan(plan, "advanced"))
+
+
+def test_visual_plan_requires_executable_graphics_and_mutating_actions() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = []
+    issues = _validate_plan(plan, "advanced")
+    assert any("visual_objects 至少需要 2 个" in issue for issue in issues)
+    assert any("未知图形对象" in issue for issue in issues)
+
+    plan = _open_world_plan()
+    plan["scenes"][0]["actions"] = []
+    assert any("actions 为空" in issue for issue in _validate_plan(plan, "advanced"))
+
+    plan = _open_world_plan()
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "highlight",
+            "targets": ["state"],
+            "result": "",
+            "meaning": "draw attention without changing the state",
+        }
+    ]
+    assert any(
+        "transform 场景序列必须包含" in issue
+        for issue in _validate_plan(plan, "advanced")
+    )
+
+
+def test_visual_plan_ignores_descriptive_results_on_non_successor_actions() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][0]["actions"][0]["result"] = "坐标系建立"
+    normalized = _normalize_plan(plan)
+    assert normalized["scenes"][0]["actions"][0]["result"] == ""
+    assert _validate_plan(normalized, "advanced") == []
 
 
 def test_visual_plan_audit_parser_requires_machine_checkable_verdict() -> None:
@@ -294,6 +379,52 @@ def test_controller_exposes_only_next_valid_stage() -> None:
     assert _allowed_tool_names(state, review_available=True) == set()
 
 
+def test_graphical_reasoning_gate_rejects_text_slides_and_requires_real_transform() -> None:
+    text_slides = """from manim import *
+class SolutionScene(Scene):
+    def construct(self):
+        first = Text('step one')
+        second = Text('step two')
+        self.play(Write(first))
+        self.play(Transform(first, second))
+"""
+    issues = _check_graphical_reasoning_contract(text_slides, _open_world_plan())
+    assert any("至少需要两个" in issue for issue in issues)
+    assert any("非文字数学对象" in issue for issue in issues)
+
+    static_shapes = """from manim import *
+class SolutionScene(Scene):
+    def construct(self):
+        left = Circle()
+        right = Square()
+        self.play(FadeIn(left), FadeIn(right))
+"""
+    issues = _check_graphical_reasoning_contract(static_shapes, _open_world_plan())
+    assert any("transform beat" in issue for issue in issues)
+
+    visual_transform = static_shapes.replace(
+        "self.play(FadeIn(left), FadeIn(right))",
+        "self.play(FadeIn(left), FadeIn(right))\n        self.play(Transform(left, right.copy()))",
+    )
+    assert _check_graphical_reasoning_contract(visual_transform, _open_world_plan()) == []
+
+    tracker_driven_transform = """from manim import *
+class SolutionScene(Scene):
+    def construct(self):
+        axes = Axes()
+        tracker = ValueTracker(0)
+        def moving_line():
+            return Line(ORIGIN, RIGHT * (1 + tracker.get_value()))
+        gap = always_redraw(moving_line)
+        self.play(Create(axes), Create(gap))
+        self.play(tracker.animate.set_value(2))
+"""
+    assert (
+        _check_graphical_reasoning_contract(tracker_driven_transform, _open_world_plan())
+        == []
+    )
+
+
 def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> None:
     state = {
         "analysis": {"question": "goal"},
@@ -310,6 +441,42 @@ def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> No
     assert _select_next_tool(state, review_available=True) == "watch_video"
     state["force_visual_replan"] = True
     assert _select_next_tool(state, review_available=True) == "watch_video"
+
+
+def test_direct_video_keeps_graphics_and_discards_unsafe_story_without_retry() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(
+                success=False,
+                summary="数学叙事不一致",
+                data={"plan": _open_world_plan()},
+                error="plan_math_inconsistent",
+            )
+
+    planner = Planner()
+    tool = DirectVideoTool(planner)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "任意新问题",
+        {
+            "solution_verified": True,
+            "solution_answer": "已验证答案",
+            "solution_steps": [{"description": "建立已验证关系"}],
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success
+    assert planner.calls == 1
+    assert result.data is not None and result.data["safe_plan_from_verified_objects"] is True
+    assert ctx.state["visual_plan"] == result.data
 
 
 def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
@@ -740,8 +907,13 @@ class SolutionScene(Scene):
     def construct(self):
         card = Text(PROBLEM_TEXT)
         self.play(Write(card))
+        self.wait(1)
+        source = Circle(radius=1, color=BLUE)
+        target = Square(side_length=1.6, color=GREEN).shift(RIGHT * 2)
+        self.play(FadeOut(card), FadeIn(source), FadeIn(target))
         caption = Text(TEACHING_LINES[0])
-        self.play(Transform(card, caption))
+        caption.to_edge(DOWN)
+        self.play(FadeIn(caption), Transform(source, target.copy()))
         self.wait(1)
 """
     state = {
@@ -755,7 +927,8 @@ class SolutionScene(Scene):
 
     result = asyncio.run(tool.execute({}, ctx))
     assert result.success
-    assert "降级到静态与成片审查" in result.summary
+    assert result.data is not None
+    assert "降级到静态与成片审查" in str(result.data.get("semantic_audit_warning"))
     assert "retry_semantic_audit" not in state
 
 
@@ -772,6 +945,34 @@ def test_code_extraction_accepts_unclosed_or_balanced_markdown_fences() -> None:
     assert _extract_code(f"Here is the source:\n{source}") == source
     assert "ShowCreation" not in _sanitize_code("self.play(ShowCreation(shape))")
     assert "Create(shape)" in _sanitize_code("self.play(ShowCreation(shape))")
+    axis_labels = "axes_labels = axes.get_axis_labels()"
+    pango_axis_labels = _sanitize_code(axis_labels)
+    assert "get_axis_labels" not in pango_axis_labels
+    assert "Text('x'" in pango_axis_labels and "Text('y'" in pango_axis_labels
+    from math_tutor.infrastructure.manim import ManimExecutor
+
+    executor = object.__new__(ManimExecutor)
+    runtime_axis_labels = executor._sanitize_code(axis_labels)
+    assert "get_axis_labels" not in runtime_axis_labels
+    assert "Text('x'" in runtime_axis_labels and "Text('y'" in runtime_axis_labels
+    axis_numbers = 'x_axis_config={"include_numbers": True}'
+    assert '"label_constructor": Text' in _sanitize_code(axis_numbers)
+    assert '"label_constructor": Text' in executor._sanitize_code(axis_numbers)
+    selected_axis_numbers = 'y_axis_config={"numbers_to_include": range(0, 9, 2)}'
+    assert '"label_constructor": Text' in _sanitize_code(selected_axis_numbers)
+    assert '"label_constructor": Text' in executor._sanitize_code(selected_axis_numbers)
+    legacy_graph = "line = axes.get_graph(fn, color=RED)\npoint = line.get_point_at_x(2)"
+    for migrated_graph in (
+        _sanitize_code(legacy_graph),
+        executor._sanitize_code(legacy_graph),
+    ):
+        assert "line = axes.plot(fn, color=RED)" in migrated_graph
+        assert "point = axes.i2gp(2, line)" in migrated_graph
+    edge_label = "label_red.next_to(point, UP + RIGHT, buff=0.2)"
+    for guarded_label in (_sanitize_code(edge_label), executor._sanitize_code(edge_label)):
+        assert "label_red.shift_onto_screen(buff=0.3)" in guarded_label
+        assert guarded_label.count("shift_onto_screen") == 1
+    assert _sanitize_code(_sanitize_code(edge_label)).count("shift_onto_screen") == 1
     star = _sanitize_code("mark = Star(scale_factor=0.3, color=YELLOW)")
     assert "Star(color=YELLOW).scale(0.3)" in star
     layout_code = """TEACHING_LINES = ["first"]
@@ -1531,15 +1732,19 @@ def test_compile_video_guarantees_a_rendered_verified_fallback() -> None:
     assert result.data is not None and result.data["delivery_fallback"] is True
     assert result.data["video_path"] == "fallback.mp4"
     assert renderer.calls == 3
+    ctx.state["visual_plan"]["visual_objects"][0]["params"]["ticks"] = True
     fallback_code = build_verified_fallback_code(ctx)
     compile(fallback_code, "<fallback>", "exec")
     assert "一个此前未见的问题" in fallback_code
     assert "答案：12" in fallback_code
-    assert "STEP_MODELS" in fallback_code
+    assert "VISUAL_OBJECTS" in fallback_code
+    assert "VISUAL_SCENES" in fallback_code
     assert "quantity_bar" in fallback_code
     assert "RoundedRectangle" in fallback_code
     assert "Arrow(" in fallback_code
     assert "STEP_TEXTS" not in fallback_code
+    assert "'ticks': True" in fallback_code
+    assert _check_graphical_reasoning_contract(fallback_code, ctx.state["visual_plan"]) == []
 
 
 def test_review_repair_uses_visual_fallback_instead_of_restoring_text_only_video() -> None:
