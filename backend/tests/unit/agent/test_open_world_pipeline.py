@@ -16,6 +16,7 @@ from math_tutor.infrastructure.agent.loop import (
     _select_next_tool,
     _stage_budget_error,
 )
+from math_tutor.infrastructure.agent.markdown_extract import parse_json_anywhere
 from math_tutor.infrastructure.agent.prompt_composer import PromptComposer
 from math_tutor.infrastructure.agent.quality_metrics import (
     aggregate_quality_summaries,
@@ -29,6 +30,7 @@ from math_tutor.infrastructure.agent.tools.compile_video import (
 )
 from math_tutor.infrastructure.agent.tools.inspect_video import (
     InspectVideoTool,
+    _core_visual_gate_issue,
     _derive_technical_issues,
     _parse_rate,
 )
@@ -167,6 +169,20 @@ def _open_world_plan(thesis: str = "让一个状态连续变化并在同一参�
         ],
         "forbidden": ["text-only page changes", "decorative motion without semantics"],
     }
+
+
+def test_json_extraction_uses_balanced_objects_and_ignores_braces_in_strings() -> None:
+    text = '前言 {"discard": true} 后续 {"plan": "观察 {x} 的变化"} 尾声'
+    assert parse_json_anywhere(text) == {"discard": True}
+
+
+def test_json_extraction_accepts_safe_python_literal_from_local_model() -> None:
+    text = "```json\n{'ok': True, 'items': [1, 2,],}\n```"
+    assert parse_json_anywhere(text) == {"ok": True, "items": [1, 2]}
+
+
+def test_json_extraction_does_not_invent_truncated_artifacts() -> None:
+    assert parse_json_anywhere('{"visual_thesis": "unfinished"') is None
 
 
 def test_visual_plan_accepts_unseen_free_form_thesis_and_temporal_zone_reuse() -> None:
@@ -468,7 +484,7 @@ def test_visual_plan_ignores_descriptive_results_on_non_successor_actions() -> N
     assert _validate_plan(normalized, "advanced") == []
 
 
-def test_visual_plan_discards_actions_with_undeclared_object_ids() -> None:
+def test_visual_plan_preserves_undeclared_actions_for_codegen_diagnostics() -> None:
     plan = _open_world_plan()
     plan["scenes"][-1]["actions"].append(
         {
@@ -481,9 +497,9 @@ def test_visual_plan_discards_actions_with_undeclared_object_ids() -> None:
 
     normalized = _normalize_plan(plan)
 
-    assert len(normalized["scenes"][-1]["actions"]) == 1
-    assert normalized["scenes"][-1]["actions"][0]["op"] == "compare"
-    assert _validate_plan(normalized, "advanced") == []
+    assert len(normalized["scenes"][-1]["actions"]) == 2
+    assert normalized["scenes"][-1]["actions"][1]["op"] == "merge"
+    assert any("未知图形对象" in issue for issue in _validate_plan(normalized, "advanced"))
 
 
 def test_visual_plan_audit_parser_requires_machine_checkable_verdict() -> None:
@@ -736,7 +752,7 @@ def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> No
     assert _select_next_tool(state, review_available=True) == "watch_video"
 
 
-def test_direct_video_rejects_static_safe_plan_after_one_bounded_retry() -> None:
+def test_direct_video_rejects_static_safe_plan_without_whole_plan_retry() -> None:
     from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
 
     class Planner:
@@ -767,8 +783,8 @@ def test_direct_video_rejects_static_safe_plan_after_one_bounded_retry() -> None
     )
     result = asyncio.run(tool.execute({}, ctx))
     assert result.success is False
-    assert planner.calls == 2
-    assert "一次证据定向修正" in result.summary
+    assert planner.calls == 1
+    assert "停止整稿重生成" in result.summary
     assert "visual_plan" not in ctx.state
 
 
@@ -1104,11 +1120,13 @@ def test_direct_video_uses_verified_ir_without_retry_when_plan_is_unparseable() 
 
 def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
     assert _stage_budget_error("solve_problem", 0) is None
-    assert _stage_budget_error("solve_problem", 1) is None
-    message = _stage_budget_error("solve_problem", 2)
+    message = _stage_budget_error("solve_problem", 1)
     assert message is not None
-    assert "首轮和一次兜底" in message
+    assert "首轮" in message
     assert "停止继续试错" in message
+    assert _stage_budget_error("verify_solution", 0) is None
+    assert _stage_budget_error("verify_solution", 1) is None
+    assert _stage_budget_error("verify_solution", 2) is not None
     assert _stage_budget_error("compile_video", 0) is None
     assert _stage_budget_error("compile_video", 1) is not None
 
@@ -1165,6 +1183,12 @@ def test_solution_contract_rejects_false_arithmetic_and_unproved_answer_values()
         }
     )
     assert any("14,21" in issue for issue in issues)
+
+
+def test_literal_arithmetic_checker_does_not_slice_symbolic_function_context() -> None:
+    assert _invalid_literal_equalities(r"\lim_{x\to 0} \frac{\sin(x)}{x} = 1") == []
+    assert _invalid_literal_equalities("f(0) = 1") == []
+    assert _invalid_literal_equalities("2 + 3 = 6") == ["2 + 3 = 6"]
 
 
 def test_verifier_schema_alias_repairs_only_unambiguous_role_prefix() -> None:
@@ -1256,6 +1280,71 @@ def verify(data):
     assert state["solution_verified"] is True
     assert result.data is not None
     assert "格式无效" in str(result.data["consistency_audit_warning"])
+
+
+def test_self_contradictory_verifier_is_adjudicated_without_resolving() -> None:
+    from types import SimpleNamespace
+
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.verify_solution import VerifySolutionTool
+
+    class AdjudicatingLLM:
+        calls = 0
+
+        async def chat_complete(self, *args: Any, **kwargs: Any) -> Any:
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    text="""## 验证
+**验证模式**: executable
+**题目数值**: {"sample_x": 0.1}
+**答案数值**: {"limit_value": 1}
+**预期**: 通过
+
+```python
+def verify(data):
+    import math
+    observed = math.sin(data["sample_x"]) / data["sample_x"]
+    assert math.isclose(observed, data["limit_value"], abs_tol=1e-6)
+    return True
+```""",
+                    reasoning="",
+                )
+            return SimpleNamespace(
+                text=(
+                    '{"consistent": true, "issues": [], '
+                    '"checked_claims": ["前提与结论一致", "推导条件成立"]}'
+                ),
+                reasoning="",
+            )
+
+    state = {
+        "solution_steps": [{"description": "derive", "result": "1"}],
+        "solution_answer": "1",
+    }
+    ctx = ToolContext("session", 1, "advanced", "求一个连续过程的结论", state)
+    llm = AdjudicatingLLM()
+    result = asyncio.run(
+        VerifySolutionTool(llm, PromptLibrary()).execute({}, ctx)  # type: ignore[arg-type]
+    )
+
+    assert result.success is True
+    assert llm.calls == 2
+    assert state["solution_verified"] is True
+    assert "忽略" in str(result.data["message"])
+
+
+def test_tuple_false_verifier_uses_normalized_counterexample_channel() -> None:
+    passed, message = _safe_exec_verify(
+        "def verify(data):\n    return (False, 'finite sample is not a limit')",
+        {},
+    )
+    assert passed is False
+    assert message == "verify 返回 False: finite sample is not a limit"
+    assert (
+        _classify_verification_failure(message, expected_pass=True)
+        == "unconfirmed_assertion"
+    )
 
 
 def test_compile_stage_owns_semantic_audit_without_exposing_validator() -> None:
@@ -1606,6 +1695,13 @@ volume_bar.set_height(target_h)"""
     assert "Text(TEACHING_LINES[0]," in sanitized_layout
     assert "if caption.width > 11.5:" in sanitized_layout
     assert "volume_bar.stretch_to_fit_height(target_h)" in sanitized_layout
+    inline_caption = (
+        "Transform(caption, Text('next', font_size=24)"
+        ".scale_to_fit_width(11.5).center())"
+    )
+    sanitized_caption = _sanitize_code(inline_caption)
+    assert ".scale_to_fit_width" not in sanitized_caption
+    assert "Text('next', font_size=24).center()" in sanitized_caption
     assert "v_bar.copy().stretch_to_fit_height(h)" in _sanitize_code(
         "small_bar = v_bar.copy().set_height(h)"
     )
@@ -1936,6 +2032,20 @@ def test_verifier_program_fault_does_not_impugn_the_solution() -> None:
         _classify_verification_failure("verify 返回 False（应返回 True）", expected_pass=False)
         == "solution_failure"
     )
+    passed, message, _ = _parse_logical_audit(
+        """**结论**: 推导过程符合定理要求
+### 前提与条件覆盖
+- 已核对前提
+### 步骤审计
+- 已核对步骤
+### 边界与反例
+- 未发现反例
+### 独立检查
+- 使用另一条路径核对
+"""
+    )
+    assert passed is False
+    assert message.startswith("逻辑审计结论格式无效：")
 
 
 def test_independent_consistency_audit_parses_specific_contradictions() -> None:
@@ -2259,7 +2369,7 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
     assert done.final_video_path == "video.mp4"
 
 
-def test_compile_video_uses_visual_ir_compiler_by_default() -> None:
+def test_compile_video_uses_visual_ir_compiler_only_when_explicit() -> None:
     class Unused:
         async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             raise AssertionError("production Visual IR must not call free-form codegen")
@@ -2289,7 +2399,7 @@ def test_compile_video_uses_visual_ir_compiler_by_default() -> None:
             "visual_plan": _open_world_plan(),
         },
     )
-    result = asyncio.run(tool.execute({}, ctx))
+    result = asyncio.run(tool.execute({"deterministic_ir": True}, ctx))
     assert result.success is True
     assert result.data is not None
     assert result.data["deterministic_compiler"] is True
@@ -2507,7 +2617,7 @@ def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     assert director.calls == 0
 
 
-def test_watch_replans_bad_deterministic_fallback_instead_of_patching_it() -> None:
+def test_watch_patches_existing_candidate_without_replanning() -> None:
     class Inspector:
         calls = 0
         parameters: dict[str, Any] = {"type": "object", "properties": {}}
@@ -2557,8 +2667,8 @@ def test_watch_replans_bad_deterministic_fallback_instead_of_patching_it() -> No
     result = asyncio.run(tool.execute({}, ctx))
 
     assert result.success is True
-    assert result.data is not None and result.data["replanned"] is True
-    assert director.calls == 1
+    assert result.data is not None and result.data["replanned"] is False
+    assert director.calls == 0
     assert compiler.calls == 1
     assert inspector.calls == 2
 
@@ -2609,7 +2719,7 @@ def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails
     assert "未交付" in result.summary
 
 
-def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry() -> None:
+def test_watch_rejects_second_text_only_candidate_without_meaningless_fallback() -> None:
     class Inspector:
         calls = 0
         parameters: dict[str, Any] = {"type": "object", "properties": {}}
@@ -2661,12 +2771,10 @@ def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success is True
-    assert result.data is not None
-    assert result.data["video_path"] == "visual-fallback.mp4"
-    assert result.data["text_only_candidate_replaced"] is True
-    assert compiler.calls == [{"review_repair": True}, {"visual_fallback_only": True}]
-    assert inspector.calls == 3
+    assert result.success is False
+    assert result.data is not None and result.data["quality_degraded"] is True
+    assert compiler.calls == [{"review_repair": True}]
+    assert inspector.calls == 2
 
 
 def test_watch_treats_static_slideshow_as_meaningless_visual() -> None:
@@ -2676,6 +2784,16 @@ def test_watch_treats_static_slideshow_as_meaningless_visual() -> None:
         data={"overall_quality": "bad", "blacklist_hits": ["静态幻灯片"]},
     )
     assert WatchVideoTool._meaningless_visual(result) is True
+
+
+def test_core_visual_gate_rejects_formula_cards_even_with_high_total_score() -> None:
+    assert _core_visual_gate_issue({"b3": 1, "b4": 2}) == (
+        "B3 < 2：关闭文字后无法看懂核心数学变化"
+    )
+    assert _core_visual_gate_issue({"b3": 2, "b4": 1}) == (
+        "B4 < 2：核心关系或变化没有被图形显式揭示"
+    )
+    assert _core_visual_gate_issue({"b3": 2, "b4": 2}) is None
 
 
 def test_visual_ir_fallback_compiles_generic_repetition_partition_and_map() -> None:

@@ -54,12 +54,12 @@ from .tool_registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-# Every production stage gets one cold-start attempt and at most one fallback.
-# The global ceiling remains a second circuit breaker, but this table is the
-# authoritative retry policy: no stage can consume the remaining turns by
-# repeatedly asking the model to try a different rewrite.
+# Solve is a single committed mathematical artifact. Re-running it after a
+# verifier defect used to create solve→verify loops and silently replace a
+# correct derivation. Verification may retry its own format once; later stages
+# own only evidence-directed local repair.
 _STAGE_ATTEMPT_LIMITS: dict[str, int] = {
-    "solve_problem": 2,
+    "solve_problem": 1,
     "verify_solution": 2,
     "direct_video": 1,
     # These stages already own one evidence-directed internal repair.

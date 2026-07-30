@@ -57,6 +57,24 @@ _GRADE_GUIDANCE: dict[str, str] = {
 }
 
 
+def _raw_solution_artifact(done: Any, ctx: ToolContext, label: str) -> ArtifactSpec:
+    text = getattr(done, "text", "") or ""
+    reasoning = getattr(done, "reasoning", "") or ""
+    content = text
+    if reasoning and reasoning != text:
+        content = f"## visible\n{text}\n\n## reasoning\n{reasoning}"
+    return ArtifactSpec(
+        kind="solver_raw",
+        filename=f"solve-raw-{label}-turn{ctx.turn_index:02d}.txt",
+        content=content,
+        meta={
+            "finish_reason": getattr(done, "finish_reason", ""),
+            "visible_chars": len(text),
+            "reasoning_chars": len(reasoning),
+        },
+    )
+
+
 def _parse_solution(done: Any) -> dict[str, Any] | None:
     for source in (
         getattr(done, "text", "") or "",
@@ -237,9 +255,18 @@ def _invalid_literal_equalities(value: Any) -> list[str]:
         r"(?P<left>[+\-*/().\d\s]+?)\s*=\s*(?P<right>[+\-*/().\d\s]+)"
     )
     for match in equality_pattern.finditer(normalized):
-        left = match.group("left").strip()
+        raw_left = match.group("left")
+        left = raw_left.strip()
         right = match.group("right").strip()
         if not left or not right:
+            continue
+        left_start = match.start("left") + len(raw_left) - len(raw_left.lstrip())
+        prefix = normalized[max(0, left_start - 16) : left_start].rstrip()
+        # The regex intentionally sees digits only. Do not let it carve a
+        # parenthesized argument or a subscript out of a symbolic expression
+        # such as f(0), a_0 or x→0 and then misread the outer relation as the
+        # literal arithmetic claim ``(0) = ...``.
+        if prefix and (re.search(r"[A-Za-z_\\}]$", prefix) or prefix.endswith("→")):
             continue
         try:
             left_value = _literal_arithmetic_value(left)
@@ -352,6 +379,7 @@ class SolveProblemTool(ITool):
                     "raw_reasoning": (done.reasoning or "")[:600],
                     "finish_reason": getattr(done, "finish_reason", None),
                 },
+                artifacts=[_raw_solution_artifact(done, ctx, "initial")],
             )
 
         steps = payload.get("steps") or []
@@ -403,11 +431,17 @@ class SolveProblemTool(ITool):
                 contract_issues = repaired_issues
         if contract_issues:
             ctx.state["last_solve_contract_issues"] = contract_issues
+            raw_artifacts = [_raw_solution_artifact(done, ctx, "initial")]
+            if repaired_done is not None and repaired_done is not done:
+                raw_artifacts.append(
+                    _raw_solution_artifact(repaired_done, ctx, "repair")
+                )
             return ToolResult(
                 success=False,
                 summary="解答不是可交付的一致版本：" + "；".join(contract_issues),
                 error="solution_contract_violation",
                 data={"issues": contract_issues},
+                artifacts=raw_artifacts,
             )
 
         # Solve owns semantic decomposition as well as the settled derivation.

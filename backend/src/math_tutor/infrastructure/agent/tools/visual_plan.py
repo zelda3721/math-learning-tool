@@ -13,7 +13,14 @@ import logging
 import re
 from typing import Any
 
-from ....application.interfaces import ChatMessage, ILLMProvider, ITool, ToolContext, ToolResult
+from ....application.interfaces import (
+    ArtifactSpec,
+    ChatMessage,
+    ILLMProvider,
+    ITool,
+    ToolContext,
+    ToolResult,
+)
 from .. import markdown_extract as md
 from ..occupancy_table import parse_zone
 from ..prompt_library import PromptLibrary
@@ -80,6 +87,138 @@ _AUDIT_OPERATION_RE = re.compile(
     r"([-+]?\d+(?:\.\d+)?)\s*([+\-×xX*÷/])\s*"
     r"([-+]?\d+(?:\.\d+)?)"
 )
+
+_VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "open_world_visual_plan",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "visual_thesis": {"type": "string"},
+                "essence_rationale": {"type": "string"},
+                "symbol_ledger": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "visual_objects": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "primitive": {
+                                "type": "string",
+                                "enum": sorted(_VISUAL_PRIMITIVES),
+                            },
+                            "meaning": {"type": "string"},
+                            "label": {"type": "string"},
+                            "color": {"type": "string"},
+                            "params": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
+                        },
+                        "required": [
+                            "id",
+                            "primitive",
+                            "meaning",
+                            "label",
+                            "color",
+                            "params",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
+                "scenes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string",
+                                "enum": sorted(_VALID_ROLES),
+                            },
+                            "anchor_zone": {"type": "string"},
+                            "key_objects": {"type": "string"},
+                            "action": {"type": "string"},
+                            "invariant": {"type": "string"},
+                            "attention_target": {"type": "string"},
+                            "exit_condition": {"type": "string"},
+                            "teaching_line": {"type": "string"},
+                            "duration_s": {"type": "number"},
+                            "actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "op": {
+                                            "type": "string",
+                                            "enum": sorted(_VISUAL_ACTIONS),
+                                        },
+                                        "targets": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        "result": {"type": "string"},
+                                        "meaning": {"type": "string"},
+                                    },
+                                    "required": ["op", "targets", "result", "meaning"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": [
+                            "role",
+                            "anchor_zone",
+                            "key_objects",
+                            "action",
+                            "invariant",
+                            "attention_target",
+                            "exit_condition",
+                            "teaching_line",
+                            "duration_s",
+                            "actions",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
+                "forbidden": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": [
+                "visual_thesis",
+                "essence_rationale",
+                "symbol_ledger",
+                "visual_objects",
+                "scenes",
+                "forbidden",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _raw_plan_artifact(done: Any, ctx: ToolContext) -> ArtifactSpec:
+    text = getattr(done, "text", "") or ""
+    reasoning = getattr(done, "reasoning", "") or ""
+    content = text
+    if reasoning and reasoning != text:
+        content = f"## visible\n{text}\n\n## reasoning\n{reasoning}"
+    return ArtifactSpec(
+        kind="planner_raw",
+        filename=f"visual-plan-raw-turn{ctx.turn_index:02d}.txt",
+        content=content,
+        meta={
+            "finish_reason": getattr(done, "finish_reason", ""),
+            "visible_chars": len(text),
+            "reasoning_chars": len(reasoning),
+        },
+    )
 
 
 def archetype_to_code_pattern_names(archetype: str) -> list[str]:
@@ -347,31 +486,11 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 actions = normalized_actions
             scene["actions"] = actions if isinstance(actions, list) else []
 
-        # Remove schema-noise actions that refer to wholly undeclared object
-        # IDs.  Inventing those objects would invent mathematical evidence;
-        # keeping the action would reject an otherwise complete causal plan.
-        # The normal validator still rejects the plan when this leaves a beat
-        # empty or removes its only genuine mutation.
-        declared_object_ids = {
-            str(item.get("id"))
-            for item in visual_objects
-            if isinstance(item, dict) and item.get("id")
-        }
-        for scene in scenes:
-            if not isinstance(scene, dict):
-                continue
-            valid_actions = []
-            for action in scene.get("actions") or []:
-                if not isinstance(action, dict):
-                    continue
-                targets = list(action.get("targets") or [])
-                result = str(action.get("result") or "")
-                if any(target not in declared_object_ids for target in targets):
-                    continue
-                if result and result not in declared_object_ids:
-                    continue
-                valid_actions.append(action)
-            scene["actions"] = valid_actions
+        # Preserve actions that reference an undeclared successor.  The
+        # validator reports the referential defect, while the semantic action
+        # remains useful to a Manim code generator (for example a continuously
+        # shrinking geometric state).  Earlier code deleted these actions and
+        # silently converted a rich plan into a static slideshow.
 
         # Track object identity across successor-producing actions. Local
         # planners often keep referring to a semantic source name after it
@@ -1485,8 +1604,18 @@ class VisualPlanTool(ITool):
                 # the first plan internally consistent; diversity belongs in
                 # explicit experiments, not in production retries.
                 temperature=0.25,
-                max_tokens=4096,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                # A complete typed artifact is safer than truncation repair.
+                # Compactness is enforced by the prompt; this is only a hard
+                # ceiling for complex open-world geometry.
+                max_tokens=6144,
+                extra_body={
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    # LM Studio and other modern OpenAI-compatible runtimes
+                    # compile this schema into constrained decoding. The
+                    # model chooses the mathematical content; the transport
+                    # guarantees that the typed artifact is complete JSON.
+                    "response_format": _VISUAL_PLAN_RESPONSE_FORMAT,
+                },
             )
         except Exception as exc:
             logger.exception("visual_plan LLM call failed")
@@ -1494,7 +1623,16 @@ class VisualPlanTool(ITool):
 
         plan = _parse_plan(done)
         if plan is None:
-            return ToolResult(success=False, summary="无法解析视觉计划", error="parse_failed")
+            return ToolResult(
+                success=False,
+                summary="无法解析视觉计划；已保存模型原始输出用于诊断",
+                data={
+                    "finish_reason": getattr(done, "finish_reason", ""),
+                    "visible_chars": len(getattr(done, "text", "") or ""),
+                },
+                artifacts=[_raw_plan_artifact(done, ctx)],
+                error="parse_failed",
+            )
         errors = _validate_plan(plan, grade)
         if errors:
             ctx.state["visual_plan_last_violations"] = errors
@@ -1505,6 +1643,7 @@ class VisualPlanTool(ITool):
                 success=False,
                 summary="视觉计划结构不完整：" + "；".join(errors[:3]),
                 data={"plan": plan, "violations": errors},
+                artifacts=[_raw_plan_artifact(done, ctx)],
                 error="contract_violation",
             )
 
@@ -1565,6 +1704,7 @@ class VisualPlanTool(ITool):
                         success=False,
                         summary="视觉计划数学契约不一致：" + "；".join(violations[:2]),
                         data={"plan": plan, "violations": violations},
+                        artifacts=[_raw_plan_artifact(done, ctx)],
                         error="plan_math_inconsistent",
                     )
             ignored_audit_opinions = [

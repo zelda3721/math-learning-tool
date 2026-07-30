@@ -316,6 +316,17 @@ def _safe_exec_verify(code: str, data: dict[str, Any]) -> tuple[bool, str]:
 
     if result is True:
         return True, "通过"
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and result[0] is False
+        and isinstance(result[1], str)
+    ):
+        # Local models often return ``(False, reason)`` despite the requested
+        # boolean protocol. Preserve its evidence in the same normalized form
+        # as a false predicate so an expected-pass contradiction receives the
+        # independent consistency audit instead of a blind verifier retry.
+        return False, f"verify 返回 False: {result[1]}"
     return False, f"verify 返回 {result!r}（应返回 True 或在失败时 assert）"
 
 
@@ -398,12 +409,15 @@ def _parse_logical_audit(section: str) -> tuple[bool, str, dict[str, Any]]:
         "boundary_checks": boundary_checks,
         "independent_checks": independent_checks,
     }
-    passing_word = verdict in {"pass", "passed", "通过", "成立"}
+    passing_verdicts = {"pass", "passed", "通过", "成立"}
+    failing_verdicts = {"fail", "failed", "失败", "不成立"}
     missing = [name for name, items in evidence.items() if not items]
     if missing:
         return False, "逻辑审计缺少证据区：" + ", ".join(missing), evidence
-    if not passing_word:
-        return False, f"逻辑审计结论未通过：{verdict or '未声明'}", evidence
+    if verdict not in passing_verdicts | failing_verdicts:
+        return False, f"逻辑审计结论格式无效：{verdict or '未声明'}", evidence
+    if verdict in failing_verdicts:
+        return False, "逻辑审计结论未通过：fail", evidence
     return True, "逻辑审计通过", evidence
 
 
@@ -522,6 +536,9 @@ class VerifySolutionTool(ITool):
             if passed:
                 ctx.state.pop("last_verify_failure", None)
                 self._clear_format_failure(ctx)
+            elif message.startswith(("逻辑审计缺少证据区：", "逻辑审计结论格式无效：")):
+                ctx.state.pop("last_verify_failure", None)
+                self._record_format_failure(ctx, message)
             else:
                 ctx.state["last_verify_failure"] = message
             return ToolResult(
@@ -596,13 +613,25 @@ class VerifySolutionTool(ITool):
         merged_data = _add_safe_data_aliases(code, merged_data)
         passed, message = _safe_exec_verify(code, merged_data)
 
+        # The verifier writes both the executable predicate and its expected
+        # outcome. When those contradict, the predicate is not yet evidence
+        # against the solution; adjudicate the solution contract directly
+        # instead of sending the workflow back to Solve.
+        expected = (md.get_field(section, "预期", "expected") or "").lower()
+        expected_pass = "通过" in expected or "pass" in expected
+        initial_failure_kind = (
+            None
+            if passed
+            else _classify_verification_failure(message, expected_pass=expected_pass)
+        )
+
         consistency_issues: list[str] = []
         checked_claims: list[str] = []
         consistency_audit_warning: str | None = None
         # Executable constraints can pass even when a separate explanatory
         # sentence is wrong. Audit the complete student-facing contract before
         # allowing the visual planner to amplify it.
-        if passed:
+        if passed or initial_failure_kind == "unconfirmed_assertion":
             audit_prompt = self._prompts.render(
                 "audit_solution_consistency",
                 problem=problem,
@@ -625,29 +654,38 @@ class VerifySolutionTool(ITool):
                 audit = None
                 consistency_audit_warning = f"独立一致性审计调用失败: {exc}"
             if audit is None:
-                # A critic transport/format defect is not evidence that a
-                # solution is wrong. The executable verifier already checked
-                # the answer against independently derived constraints, so
-                # keep that result and surface a warning instead of wasting
-                # the one solve fallback on another stochastic rewrite.
-                consistency_audit_warning = (
-                    consistency_audit_warning
-                    or "独立一致性审计返回格式无效，已保留可执行验证结论"
-                )
+                if initial_failure_kind == "unconfirmed_assertion":
+                    message = (
+                        "验证器断言与自身预期冲突，且独立一致性审计格式无效；"
+                        "这属于验证器故障，不构成数学反例"
+                    )
+                    initial_failure_kind = "verifier_fault"
+                    consistency_audit_warning = (
+                        consistency_audit_warning
+                        or "独立一致性审计返回格式无效"
+                    )
+                else:
+                    # A critic transport/format defect is not evidence that a
+                    # solution is wrong. The executable verifier already
+                    # checked the answer, so preserve that conclusion.
+                    consistency_audit_warning = (
+                        consistency_audit_warning
+                        or "独立一致性审计返回格式无效，已保留可执行验证结论"
+                    )
             else:
                 consistent, consistency_issues, checked_claims = audit
-                if not consistent:
+                if consistent and initial_failure_kind == "unconfirmed_assertion":
+                    passed = True
+                    message = "独立一致性审计通过；已忽略与自身预期冲突的验证器断言"
+                    initial_failure_kind = None
+                elif not consistent:
                     passed = False
+                    initial_failure_kind = "solution_failure"
                     message = "解答内部不一致：" + (
                         consistency_issues[0]
                         if consistency_issues
                         else "审计判定失败但未给出具体问题"
                     )
-
-        # Match LLM's "expected" claim against actual outcome — a healthy
-        # signal that the model is calibrated about its own answer quality.
-        expected = (md.get_field(section, "预期", "expected") or "").lower()
-        expected_pass = "通过" in expected or "pass" in expected
 
         # Persist outcome to state for downstream tools to read. Broken
         # verifier code is retried as verification, never as re-solving.
@@ -658,7 +696,9 @@ class VerifySolutionTool(ITool):
             self._clear_format_failure(ctx)
         else:
             ctx.state["solution_verified"] = False
-            failure_kind = _classify_verification_failure(message, expected_pass=expected_pass)
+            failure_kind = initial_failure_kind or _classify_verification_failure(
+                message, expected_pass=expected_pass
+            )
             if failure_kind == "verifier_fault":
                 ctx.state.pop("last_verify_failure", None)
                 self._record_format_failure(ctx, message)
