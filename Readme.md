@@ -1,7 +1,6 @@
 # 🎓 AI Math Tutor
 
 > 把一道数学题变成可播放的 Manim 教学动画。
-> 架构借鉴 Claude Code / DispatchMind 的 harness agent 思想，使用本地 LLM（默认 LMStudio + Qwen3.6），全链路对话与代码本地持久化，支持人类反馈闭环。
 
 ---
 
@@ -12,7 +11,9 @@
 - 每次对话、生成的代码、最终视频都本地落库（SQLite + 文件系统）
 - 你可以对每次结果打 👍/👎；反馈会进入候选—复现—晋升学习流程
 - 不枚举题型、不向生产提示词注入相似题代码；视觉方案由当前数学语义生成
-- 渲染后结合确定性技术检测和多模态模型评审；有问题自动局部修复或重做视觉 beat
+- Solve/Verify 把模型结论编译为安全 Math IR，并由 SymPy 独立计算、验算
+- 可绘制的数学证据直接降低为 Visual IR；确定性编译器优先生成 Manim，不必反复重写整份代码
+- 渲染后结合确定性技术检测和多模态模型评审；只有明确证据时才进行一次局部修复
 - 历史页展示首轮通过率、数学一致性、技术规格、阶段耗时与重试次数
 
 ---
@@ -37,13 +38,16 @@
 │   • Fast provider      (分析/求解/规划)  ← 小模型 / 复用主 LLM  │
 ├──────────────────────────────────────────────────────────────┤
 │  ToolRegistry — 5 个产品阶段（严格按证据状态推进）：           │
-│      • Solve    问题事实简报 + 结构化解答（同一次调用）         │
-│      • Verify   可执行校验或逻辑/反例审计                       │
-│      • Direct   开放式 SceneSpec / 符号账本 / 时间 beat        │
-│      • Compile  写码 + 静态/语义门禁 + 720p30 渲染             │
+│      • Solve    问题事实简报 + 结构化解答 + Math IR             │
+│      • Verify   独立 Math IR / 逻辑 / 反例审计                  │
+│      • Direct   数学证据 → Visual IR；否则开放式 SceneSpec     │
+│      • Compile  确定性 IR 编译优先 + 门禁 + 720p30 渲染         │
 │      • Watch    抽帧 + 技术指标 + 数学/教学评审                 │
 │  Compile/Watch 的内部动作不再显示成独立失败；各自最多一次       │
 │  由具体错误或帧证据驱动的修复。                                │
+├──────────────────────────────────────────────────────────────┤
+│  MathRuntime：白名单 AST → SymPy 精确运算 → claims 验证        │
+│  Visual IR：可组合图元 + 因果动作 → 无任意代码的 Manim 场景    │
 ├──────────────────────────────────────────────────────────────┤
 │  LearnedWiki：candidate 隔离 → 3 个独立 session 复现 → 晋升    │
 │  QualityReport：首轮成功/数学一致性/技术门禁/耗时/重试          │
@@ -51,8 +55,28 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
-生产链路不按题型路由。状态机只负责依赖和失败回退，LLM 分别负责当前问题的语义、解答、
-视觉论证与代码；大段代码保存在 state/artifact 中，不回灌控制器上下文。
+生产链路不按题型路由。状态机只负责依赖和失败回退，LLM 把当前问题编译为紧凑的数学与
+视觉中间表示；确定性运行时负责计算、验算、采样、布局和优先渲染。大段代码保存在
+state/artifact 中，不回灌控制器上下文。
+
+### 从数学证据到视频
+
+```
+题目
+  → Solve：结构化解答 + Math IR
+  → Verify：独立构造并执行 Math IR
+  → Direct：验证证据 → 可绘制对象、稳定含义、因果动作
+  → Compile：Visual IR → Manim → MP4
+  → Watch：技术指标 + 抽帧数学/教学审查
+```
+
+- Math IR 是能力协议，不是题型表。模型声明符号、表达式、操作和 claims；运行时支持精确化简、
+  展开、因式分解、微分、积分、极限、求解、代入、行列式、求和与连乘等可组合操作。
+- 表达式只经过白名单 AST 解析，不执行模型生成的任意 Python。
+- 当验证证据包含可绘制的一元表达式时，系统可直接安全采样函数曲线并构造视觉论证；
+  不可无损降低的内容仍交给开放式视觉导演，而不是增加题型分支。
+- 题目卡总是在视频开头出现。坐标对象保持真实数据坐标；空心点、易读刻度和标签分区由
+  编译器统一处理，避免公式依赖、双字幕和末段遮挡。
 
 ---
 
@@ -78,6 +102,7 @@ math-learning-tool/
 │   │   │   ├── prompt_composer.py # 兼容自由控制器的系统提示
 │   │   │   ├── prompt_library.py  # 外置模板加载器
 │   │   │   ├── prompt_templates/  # 各阶段紧凑契约
+│   │   │   ├── math_runtime.py     # 安全 Math IR / SymPy 执行与函数采样
 │   │   │   ├── markdown_extract.py # markdown→结构化数据
 │   │   │   ├── learned_wiki.py    # 候选/跨会话晋升
 │   │   │   ├── quality_metrics.py # 内容无关质量指标
@@ -133,6 +158,8 @@ infinity_emb v2 \
 ```bash
 cp .env.example .env
 # 主 LLM 默认指向 LMStudio + qwen3.6-35b-a3b
+# 已验证模型名示例：LLM_MODEL=qwen/qwen3.6-35b-a3b
+# OpenAI 兼容端点需要包含 /v1，例如 LLM_API_BASE=http://localhost:1234/v1
 # Vision/Embedding/Rerank 留空 = 自动回退（不影响主链路）
 # 如装了 infinity：
 #   LLM_EMBEDDING_API_BASE=http://localhost:8090
@@ -155,7 +182,7 @@ cd backend && python -m math_tutor.api.main
 启动日志应能看到：
 
 ```
-PromptLibrary loaded 8 templates: ['analyze', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'wiki_ingest']
+PromptLibrary loaded 11 templates: ['analyze', 'audit_manim_semantics', 'audit_solution_consistency', 'audit_visual_plan', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'wiki_ingest']
 OpenAILLMProvider ready (base_url=..., model=qwen/qwen3.6-35b-a3b, bypass_proxy=True)
 ```
 
@@ -169,8 +196,8 @@ cd frontend && npm install && npm run dev
 ### 5) 玩起来
 
 - 选年级，输入数学题，提交
-- 右侧实时看到 agent 思考链：分析 → 解题 → 匹配技能/查例子（并行）→ 生成代码 → 校验 → 渲染 → 视觉评审
-- 视频出来后用反馈条打 👍/👎，可勾选"加入示例库"
+- 右侧实时看到五阶段证据链：Solve → Verify → Direct → Compile → Watch
+- 视频出来后用反馈条打 👍/👎；反馈先进入隔离候选区，不会把单题代码注入生产提示词
 
 ### Docker 一键
 
@@ -277,6 +304,22 @@ python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
 
 ---
 
+## ✅ 测试
+
+```bash
+uv sync --project backend --extra dev
+backend/.venv/bin/pytest -q backend/tests
+```
+
+前端端到端验收建议至少检查：
+
+1. Solve 与 Verify 的 Math IR 都通过，并且没有依赖模型心算得出最终数值。
+2. Direct/Compile 首次成功；重试只作为有明确错误证据时的兜底。
+3. 视频开头完整显示题目，核心数学变化由图形表达，不是依次罗列文字或对象。
+4. 抽查中段和末段帧：无双字幕、标签遮挡、坐标漂移或错误的实心/空心点。
+
+---
+
 ## 🛣️ 设计原则
 
 1. **有界而开放**：工作流依赖固定，数学内容和视觉方案开放；不枚举题型
@@ -287,6 +330,8 @@ python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
 6. **紧凑阶段契约**：每个工具只接收当前阶段所需信息，大产物不回灌上下文
 7. **双重成片门禁**：确定性技术检测 + 多模态数学/教学评审，失败自动修复
 8. **同源讲解轨道**：画面字幕、WebVTT 和可选旁白共享 visual plan 时间轴
+9. **数学先执行后表达**：模型声明 Math IR，确定性工具计算与验算，视频只消费已验证证据
+10. **重试只是兜底**：优先修复局部结构；没有可定位证据时停止，不进行无限整稿重生成
 
 ---
 
