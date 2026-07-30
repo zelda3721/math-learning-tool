@@ -47,7 +47,7 @@ _VISUAL_ACTIONS = {
     "verify",
     "remove",
 }
-_MUTATING_VISUAL_ACTIONS = {"create", "transform", "move", "partition", "merge", "map"}
+_MUTATING_VISUAL_ACTIONS = {"transform", "move", "partition", "merge", "map"}
 _VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify"}
 _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
 _BACKTICKS = "`'\"‘’“”"
@@ -70,6 +70,11 @@ _WHY_SIGNAL_WORDS = (
     "保持",
     "变化",
     "等价",
+)
+_AUDIT_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_])[-+]?\d+(?:\.\d+)?")
+_AUDIT_EQUALITY_RE = re.compile(
+    r"([-+]?\d+(?:\.\d+)?)\s*([+\-×xX*÷/])\s*"
+    r"([-+]?\d+(?:\.\d+)?)\s*=\s*([-+]?\d+(?:\.\d+)?)"
 )
 
 
@@ -95,6 +100,39 @@ def _parse_plan_audit(
         payload.get("corrected_plan")
         if isinstance(payload.get("corrected_plan"), dict)
         else None,
+    )
+
+
+def _machine_checkable_blocking_issue(issue: str) -> bool:
+    """Accept only falsifiable arithmetic/scalar conflicts as blockers."""
+    text = str(issue or "")
+    if not (
+        text.startswith("BLOCKING:")
+        and "observed=" in text
+        and "expected=" in text
+    ):
+        return False
+    for left, operator, right, result in _AUDIT_EQUALITY_RE.findall(text):
+        a, b, expected_result = float(left), float(right), float(result)
+        if operator == "+":
+            actual = a + b
+        elif operator == "-":
+            actual = a - b
+        elif operator in {"×", "x", "X", "*"}:
+            actual = a * b
+        elif b != 0:
+            actual = a / b
+        else:
+            return True
+        if abs(actual - expected_result) > 1e-8:
+            return True
+    observed, expected = text.split("observed=", 1)[1].split("expected=", 1)
+    observed_numbers = _AUDIT_NUMBER_RE.findall(observed)
+    expected_numbers = _AUDIT_NUMBER_RE.findall(expected)
+    return (
+        len(observed_numbers) == 1
+        and len(expected_numbers) == 1
+        and float(observed_numbers[0]) != float(expected_numbers[0])
     )
 
 
@@ -145,8 +183,44 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
             item["meaning"] = _strip_decorations(item.get("meaning") or "")
             item["label"] = _strip_decorations(item.get("label") or "")
             item["color"] = _strip_decorations(item.get("color") or "blue").lower()
-            item["params"] = item.get("params") if isinstance(item.get("params"), dict) else {}
+            params = item.get("params") if isinstance(item.get("params"), dict) else {}
+            # Canonicalize semantic quantity names without knowing the
+            # problem domain. Local models often emit count_per_head,
+            # count_per_item, etc.; the renderer only needs the universal
+            # relation "marks per repeated unit".
+            if "count_per_unit" not in params:
+                per_unit_key = next(
+                    (key for key in params if str(key).startswith("count_per_")),
+                    None,
+                )
+                if per_unit_key is not None:
+                    params["count_per_unit"] = params[per_unit_key]
+            primitive = item["primitive"]
+            total = params.get("total")
+            if primitive == "quantity_bar" and "value" not in params and total is not None:
+                params["value"] = total
+            elif primitive in {
+                "dot", "circle", "rectangle", "line", "arrow", "polygon", "unit_grid"
+            } and "count" not in params:
+                try:
+                    numeric_total = int(round(float(total)))
+                except (TypeError, ValueError):
+                    numeric_total = 0
+                if 1 < numeric_total <= 64:
+                    params["count"] = numeric_total
+            item["params"] = params
     plan["visual_objects"] = visual_objects if isinstance(visual_objects, list) else []
+
+    repeat_counts: dict[str, int] = {}
+    for item in visual_objects:
+        if not isinstance(item, dict):
+            continue
+        try:
+            count = int(round(float((item.get("params") or {}).get("count") or 0)))
+        except (TypeError, ValueError):
+            continue
+        if 1 < count <= 64 and item.get("id"):
+            repeat_counts[str(item["id"])] = count
 
     scenes = plan.get("scenes") or []
     if isinstance(scenes, list):
@@ -180,9 +254,11 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 scene["duration_s"] = 0.0
             actions = scene.get("actions") or []
             if isinstance(actions, list):
-                for action in actions:
-                    if not isinstance(action, dict):
+                normalized_actions: list[dict[str, Any]] = []
+                for raw_action in actions:
+                    if not isinstance(raw_action, dict):
                         continue
+                    action = dict(raw_action)
                     action["op"] = _strip_decorations(action.get("op") or "").lower()
                     targets = action.get("targets") or []
                     if isinstance(targets, str):
@@ -192,15 +268,220 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         for target in targets
                         if isinstance(target, str) and target.strip()
                     ]
-                    action["result"] = _strip_decorations(action.get("result") or "")
+                    raw_result = action.get("result") or ""
+                    result_values = (
+                        [
+                            _strip_decorations(item)
+                            for item in raw_result
+                            if isinstance(item, str) and item.strip()
+                        ]
+                        if isinstance(raw_result, list)
+                        else []
+                    )
+                    action["result"] = (
+                        result_values[0]
+                        if len(result_values) == 1
+                        else _strip_decorations(raw_result)
+                        if not isinstance(raw_result, list)
+                        else ""
+                    )
                     # `result` has schema meaning only when an action creates a
                     # successor state. Local models often put a prose status
                     # such as "坐标系建立" on create/highlight; discarding that
                     # unused decoration avoids a pointless repair turn.
-                    if action["op"] not in {"transform", "partition", "merge", "map"}:
+                    if action["op"] not in {"transform", "partition", "map"}:
                         action["result"] = ""
                     action["meaning"] = _strip_decorations(action.get("meaning") or "")
+                    # Some planners express exact grouping as a multi-source
+                    # map: total units + units per group -> group count. When
+                    # the declared counts close exactly, lower it to the
+                    # renderer's structural partition operation. This is
+                    # algebra on the Visual IR, not a topic-specific rule.
+                    if (
+                        action["op"] == "map"
+                        and len(action["targets"]) >= 2
+                        and action["result"] in repeat_counts
+                    ):
+                        counted_targets = [
+                            target
+                            for target in action["targets"]
+                            if target in repeat_counts
+                        ]
+                        if len(counted_targets) >= 2:
+                            source = max(counted_targets, key=repeat_counts.get)
+                            divisor = min(counted_targets, key=repeat_counts.get)
+                            source_count = repeat_counts[source]
+                            divisor_count = repeat_counts[divisor]
+                            result_count = repeat_counts[action["result"]]
+                            if (
+                                divisor_count > 0
+                                and source_count / divisor_count == result_count
+                            ):
+                                action["op"] = "partition"
+                                action["targets"] = [source]
+                    if (
+                        action["op"] in {"transform", "partition", "map"}
+                        and len(action["targets"]) == len(result_values)
+                        and len(result_values) > 1
+                    ):
+                        normalized_actions.extend(
+                            {
+                                **action,
+                                "targets": [target],
+                                "result": result,
+                            }
+                            for target, result in zip(action["targets"], result_values)
+                        )
+                    else:
+                        normalized_actions.append(action)
+                actions = normalized_actions
             scene["actions"] = actions if isinstance(actions, list) else []
+
+        # Remove schema-noise actions that refer to wholly undeclared object
+        # IDs.  Inventing those objects would invent mathematical evidence;
+        # keeping the action would reject an otherwise complete causal plan.
+        # The normal validator still rejects the plan when this leaves a beat
+        # empty or removes its only genuine mutation.
+        declared_object_ids = {
+            str(item.get("id"))
+            for item in visual_objects
+            if isinstance(item, dict) and item.get("id")
+        }
+        for scene in scenes:
+            if not isinstance(scene, dict):
+                continue
+            valid_actions = []
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                targets = list(action.get("targets") or [])
+                result = str(action.get("result") or "")
+                if any(target not in declared_object_ids for target in targets):
+                    continue
+                if result and result not in declared_object_ids:
+                    continue
+                valid_actions.append(action)
+            scene["actions"] = valid_actions
+
+        # Track object identity across successor-producing actions. Local
+        # planners often keep referring to a semantic source name after it
+        # has been partitioned or transformed. Resolve that stale name to the
+        # current visible successor so the next action cannot become a no-op.
+        lineage: dict[str, str] = {}
+
+        def current_id(object_id: str) -> str:
+            seen: set[str] = set()
+            while object_id in lineage and object_id not in seen:
+                seen.add(object_id)
+                object_id = lineage[object_id]
+            return object_id
+
+        for scene in scenes:
+            if not isinstance(scene, dict):
+                continue
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                original_targets = list(action.get("targets") or [])
+                resolved_targets = [current_id(target) for target in original_targets]
+                action["targets"] = resolved_targets
+                result = str(action.get("result") or "")
+                if action.get("op") in {"transform", "partition", "map"} and result:
+                    for original, resolved in zip(original_targets, resolved_targets):
+                        lineage[original] = result
+                        lineage[resolved] = result
+
+        # Repair a bounded, unambiguous omission: a structurally mutating
+        # action may reference a declared source before its create action.
+        # Materialize that source immediately before the mutation. Results
+        # and relationships are never inferred here, so this cannot turn a
+        # listing-only plan into a causal one.
+        object_meanings = {
+            str(item.get("id")): str(item.get("meaning") or item.get("label") or "数学对象")
+            for item in visual_objects
+            if isinstance(item, dict) and item.get("id")
+        }
+        visible_ids: set[str] = set()
+        for scene in scenes:
+            if not isinstance(scene, dict):
+                continue
+            completed_actions: list[dict[str, Any]] = []
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                op = str(action.get("op") or "")
+                targets = list(action.get("targets") or [])
+                should_materialize = op in {"transform", "partition", "map"} or (
+                    scene.get("role") == "verify" and op in _VERIFY_VISUAL_ACTIONS
+                )
+                if should_materialize:
+                    missing = [
+                        target
+                        for target in targets
+                        if target in object_meanings and target not in visible_ids
+                    ]
+                    if missing:
+                        completed_actions.append(
+                            {
+                                "op": "create",
+                                "targets": missing,
+                                "result": "",
+                                "meaning": "建立后续动作需要的可见对象："
+                                + "、".join(object_meanings[target] for target in missing),
+                            }
+                        )
+                        visible_ids.update(missing)
+                completed_actions.append(action)
+                if op == "create":
+                    visible_ids.update(targets)
+                elif op in {"transform", "partition", "map"} and action.get("result"):
+                    for target in targets:
+                        visible_ids.discard(target)
+                    visible_ids.add(str(action["result"]))
+                elif op == "remove":
+                    for target in targets:
+                        visible_ids.discard(target)
+            scene["actions"] = completed_actions
+
+        # Partition and map need addressable members. An aggregate bar can
+        # compare totals but cannot show which units were grouped or mapped.
+        # For bounded counts, lower such bars to a generic unit grid; large
+        # totals remain compressed bars and must use aggregate operations.
+        addressable_ids: set[str] = set()
+        for scene in scenes:
+            if not isinstance(scene, dict):
+                continue
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict) or action.get("op") not in {"partition", "map"}:
+                    continue
+                addressable_ids.update(str(item) for item in action.get("targets") or [])
+                if action.get("result"):
+                    addressable_ids.add(str(action["result"]))
+        for item in visual_objects:
+            if not isinstance(item, dict) or item.get("id") not in addressable_ids:
+                continue
+            params = item.get("params") or {}
+            try:
+                count = int(
+                    round(
+                        float(
+                            params.get(
+                                "count",
+                                params.get("value", params.get("total_units")),
+                            )
+                        )
+                    )
+                )
+            except (TypeError, ValueError):
+                count = 0
+            if 1 < count <= 64:
+                params["count"] = count
+                if item.get("primitive") == "quantity_bar":
+                    item["primitive"] = "unit_grid"
+                    params.setdefault(
+                        "columns", min(8, max(2, int(count**0.5 + 0.999)))
+                    )
+                item["params"] = params
 
     forbidden = plan.get("forbidden") or []
     if isinstance(forbidden, str):
@@ -305,17 +586,124 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     if len(objects) < 2:
         return None
     object_ids = [str(item["id"]) for item in objects]
-    axes_ids = [item["id"] for item in objects if item.get("primitive") == "axes"]
-    setup_ids = axes_ids[:1] or object_ids[:1]
-    transform_ids = [item for item in object_ids if item not in setup_ids]
-    result_ids = [
-        item["id"]
-        for item in objects
-        if item.get("primitive") == "dot"
-        or "result" in str(item.get("id") or "").lower()
-        or "交点" in str(item.get("meaning") or "")
+    object_by_id = {str(item["id"]): item for item in objects}
+
+    def repeated_count(object_id: str) -> int:
+        params = object_by_id[object_id].get("params") or {}
+        try:
+            value = int(round(float(params.get("count") or 0)))
+        except (TypeError, ValueError):
+            return 0
+        return value if 1 < value <= 64 else 0
+
+    # Prefer a causal transition that survived parsing. If the model omitted
+    # actions altogether, derive one solely from addressable visual objects:
+    # a larger collection visibly yields a smaller collection. This is a
+    # generic collection relation, not a problem/archetype branch.
+    transition: dict[str, Any] | None = None
+    for scene in normalized.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for action in scene.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            targets = [
+                item for item in action.get("targets") or [] if item in object_by_id
+            ]
+            result = str(action.get("result") or "")
+            if (
+                action.get("op") in {"transform", "partition", "map"}
+                and targets
+                and result in object_by_id
+                and result not in targets
+            ):
+                transition = {
+                    "op": action["op"],
+                    "targets": targets,
+                    "result": result,
+                    "meaning": action.get("meaning") or "显示来源对象如何产生结果对象",
+                }
+                break
+        if transition is not None:
+            break
+
+    repeated_ids = [item for item in object_ids if repeated_count(item)]
+    if transition is None:
+        if len(repeated_ids) >= 2:
+            source_id = max(repeated_ids, key=repeated_count)
+            result_id = min(
+                (item for item in repeated_ids if item != source_id),
+                key=repeated_count,
+            )
+        else:
+            non_axes = [
+                item for item in object_ids
+                if object_by_id[item].get("primitive") != "axes"
+            ]
+            if len(non_axes) < 2:
+                return None
+            source_id, result_id = non_axes[0], non_axes[-1]
+        transition = {
+            "op": "transform",
+            "targets": [source_id],
+            "result": result_id,
+            "meaning": "让来源图形逐步变为已验证关系中的结果图形",
+        }
+
+    source_ids = list(transition["targets"])
+    result_id = str(transition["result"])
+    setup_ids = list(source_ids)
+
+    # A pair of scalar magnitudes supplies a stable visible comparison before
+    # the collection changes. The compiler derives the exact difference and
+    # only displays a division formula when another declared relation closes
+    # it exactly, so no new mathematical claim is invented here.
+    scalar_ids = []
+    for item in object_ids:
+        params = object_by_id[item].get("params") or {}
+        try:
+            value = float(params.get("value"))
+        except (TypeError, ValueError):
+            continue
+        if value >= 0 and item not in setup_ids and item != result_id:
+            scalar_ids.append(item)
+    comparison_ids = scalar_ids[:2] if len(scalar_ids) >= 2 else []
+    for item in comparison_ids:
+        if item not in setup_ids:
+            setup_ids.append(item)
+
+    transform_actions: list[dict[str, Any]] = []
+    if comparison_ids:
+        transform_actions.append(
+            {
+                "op": "compare",
+                "targets": comparison_ids,
+                "result": "",
+                "meaning": "先把两个已验证数量的差异直接标在同一画面",
+            }
+        )
+    transform_actions.append(transition)
+
+    verify_ids = [result_id]
+    source_count = repeated_count(source_ids[0]) if len(source_ids) == 1 else 0
+    result_count = repeated_count(result_id)
+    companion_id = next(
+        (
+            item for item in repeated_ids
+            if item not in {*source_ids, result_id}
+            and source_count > 0
+            and repeated_count(item) + result_count == source_count
+        ),
+        None,
+    )
+    if companion_id is not None:
+        verify_ids.append(companion_id)
+    elif comparison_ids:
+        verify_ids.append(comparison_ids[-1])
+    verify_creates = [
+        item for item in verify_ids
+        if item not in setup_ids and item != result_id
     ]
-    verify_ids = result_ids[:2] or object_ids[-2:]
     steps = ctx.state.get("solution_steps") or []
     verified_line = "观察图形对象如何在共同参照中建立已验证关系。"
     if steps and isinstance(steps[0], dict):
@@ -359,21 +747,14 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             {
                 "role": "transform",
                 "anchor_zone": "A1-F6",
-                "key_objects": ", ".join(transform_ids),
-                "action": "在同一参照中逐项建立其余数学对象和决定性关系。",
+                "key_objects": ", ".join(dict.fromkeys([*source_ids, result_id])),
+                "action": "在同一参照中展示来源对象到结果对象的决定性变化。",
                 "invariant": "图形参数来自题目与已验证解答，不改变其数学含义",
-                "attention_target": "新对象与共同参照的对应位置",
+                "attention_target": "来源集合中实际发生变化并产生结果的单位",
                 "exit_condition": "决定性图形关系完整可见",
                 "teaching_line": verified_line,
                 "duration_s": 7,
-                "actions": [
-                    {
-                        "op": "create",
-                        "targets": transform_ids,
-                        "result": "",
-                        "meaning": "建立已验证解答中的其余数学对象",
-                    }
-                ],
+                "actions": transform_actions,
             },
             {
                 "role": "verify",
@@ -386,12 +767,24 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 "teaching_line": f"最后在图形中核对：{answer}"[:100],
                 "duration_s": 5,
                 "actions": [
+                    *(
+                        [
+                            {
+                                "op": "create",
+                                "targets": verify_creates,
+                                "result": "",
+                                "meaning": "补全与结果共同满足原条件的图形对象",
+                            }
+                        ]
+                        if verify_creates
+                        else []
+                    ),
                     {
                         "op": "verify",
                         "targets": verify_ids,
                         "result": "",
                         "meaning": "用结果对象核对已验证结论",
-                    }
+                    },
                 ],
             },
         ],
@@ -425,6 +818,10 @@ def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
         "last_error_source",
         "fix_attempt_count",
         "last_fix_scope",
+        "quality_degraded",
+        "delivery_warning",
+        "delivery_fallback",
+        "delivery_fallback_reason",
     ):
         ctx.state.pop(key, None)
 
@@ -475,6 +872,9 @@ def _validate_plan(
     scenes = plan.get("scenes") or []
     transform_ops: set[str] = set()
     has_transform_scene = False
+    visible_ids: set[str] = set()
+    mapped_aliases: dict[str, str] = {}
+    causal_transition_count = 0
     if len(scenes) < 3:
         errors.append(f"场景数 {len(scenes)} < 3")
     if "transform" not in [s.get("role", "") for s in scenes if isinstance(s, dict)]:
@@ -521,6 +921,49 @@ def _validate_plan(
             result = str(action.get("result") or "")
             if result and result not in object_ids:
                 errors.append(f"场景 {index} action result 引用了未知图形对象：{result}")
+            if op in {"transform", "partition", "map"} and not result:
+                errors.append(
+                    f"场景 {index} action {action_index} 的 {op} 缺少 result，"
+                    "无法形成可见的来源→结果变化"
+                )
+            if op in {"transform", "partition", "map"} and result in targets:
+                errors.append(
+                    f"场景 {index} action {action_index} 的 result 与来源相同，"
+                    "没有可辨认的终态"
+                )
+            resolved_targets = [
+                target
+                for target in targets
+                if target in visible_ids or target in mapped_aliases
+            ]
+            if op == "create":
+                visible_ids.update(targets)
+            elif op in {
+                "transform", "move", "highlight", "partition", "merge",
+                "compare", "map", "measure", "verify", "remove",
+            }:
+                missing_targets = [
+                    target
+                    for target in targets
+                    if target not in visible_ids and target not in mapped_aliases
+                ]
+                if missing_targets:
+                    errors.append(
+                        f"场景 {index} action {action_index} 在对象出现前执行 {op}："
+                        + ",".join(missing_targets)
+                    )
+                if op in _MUTATING_VISUAL_ACTIONS and resolved_targets:
+                    causal_transition_count += 1
+                if op in {"transform", "partition", "map"} and result:
+                    for target in targets:
+                        visible_ids.discard(target)
+                    visible_ids.add(result)
+                    if op == "map":
+                        for target in targets:
+                            mapped_aliases[target] = result
+                elif op == "remove":
+                    for target in targets:
+                        visible_ids.discard(target)
             if not str(action.get("meaning") or "").strip():
                 errors.append(f"场景 {index} action {action_index} 缺少数学语义 meaning")
         if role == "transform":
@@ -540,6 +983,10 @@ def _validate_plan(
     # instead of forcing every beat labelled transform to mutate again.
     if has_transform_scene and not (transform_ops & _MUTATING_VISUAL_ACTIONS):
         errors.append("transform 场景序列必须包含会改变非文字图形状态的结构化动作")
+    if has_transform_scene and causal_transition_count == 0:
+        errors.append(
+            "transform 场景只有对象罗列，没有对已出现对象执行可见的因果变化"
+        )
 
     # Scenes are temporal beats, so reusing a zone later is valid.  Collision
     # checks belong to per-frame code/video validation, not cross-beat plans.
@@ -714,11 +1161,7 @@ class VisualPlanTool(ITool):
         else:
             consistent, audit_issues, checked_claims, corrected_plan = audit
             blocking = [
-                issue
-                for issue in audit_issues
-                if issue.startswith("BLOCKING:")
-                and "observed=" in issue
-                and "expected=" in issue
+                issue for issue in audit_issues if _machine_checkable_blocking_issue(issue)
             ]
             if not consistent and blocking:
                 corrected_errors: list[str] = []
@@ -741,6 +1184,11 @@ class VisualPlanTool(ITool):
                         data={"plan": plan, "violations": violations},
                         error="plan_math_inconsistent",
                     )
+            ignored_audit_opinions = [
+                issue for issue in audit_issues if issue not in blocking
+            ]
+            if ignored_audit_opinions:
+                plan["audit_advisory_issues"] = ignored_audit_opinions[:3]
             plan["audit_checked_claims"] = checked_claims
         if audit_warning:
             plan["audit_warning"] = audit_warning

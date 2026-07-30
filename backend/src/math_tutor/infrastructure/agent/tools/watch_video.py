@@ -74,6 +74,12 @@ class WatchVideoTool(ITool):
                 internal_repair_count=0,
             )
 
+        # A deterministic fallback has no model-authored code block to patch.
+        # If its visual proof is still insufficient, the one useful bounded
+        # repair is a new SceneSpec, followed by recompilation from that plan.
+        if first_snapshot["delivery_fallback"]:
+            ctx.state["force_visual_replan"] = True
+
         # A proof/essence failure requires a new SceneSpec; technical layout
         # defects retain the plan and patch the code.  The decision comes from
         # review evidence, never from a problem-type branch.

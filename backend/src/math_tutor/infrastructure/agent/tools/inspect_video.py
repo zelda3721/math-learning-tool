@@ -28,6 +28,7 @@ from ....application.interfaces import (
 )
 from .. import markdown_extract as md
 from ..prompt_library import PromptLibrary
+from .visual_plan import _validate_plan
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +409,13 @@ class InspectVideoTool(ITool):
                 technical_metrics["planned_duration_s"] = planned_duration
                 technical_metrics["duration_ratio"] = round(duration / planned_duration, 3)
             technical_critical, technical_warnings = _derive_technical_issues(technical_metrics)
+            plan_contract_issues = (
+                _validate_plan(plan, ctx.grade) if isinstance(plan, dict) else ["视觉计划缺失"]
+            )
+            if plan_contract_issues:
+                technical_critical.append(
+                    "视觉动作因果契约失效：" + "；".join(plan_contract_issues[:3])
+                )
 
             essence = (
                 ctx.state.get("essence_rationale")
@@ -489,7 +497,7 @@ class InspectVideoTool(ITool):
                 done = await self._llm.chat_complete(
                     messages=[ChatMessage(role="user", content=content_parts)],
                     model=self._vision_model,
-                    temperature=0.2,
+                    temperature=0.0,
                     max_tokens=3072,
                     # Vision evaluation: structured markdown rubric output.
                     # Thinking adds latency without improving accuracy here.
@@ -529,6 +537,14 @@ class InspectVideoTool(ITool):
         forced_bad = False
         forced_reason = ""
         b_scores = payload.get("b_scores") or {}
+        if all(key in b_scores for key in ("b1", "b2", "b3", "b4", "b5", "b6")):
+            computed_total = sum(int(b_scores[key]) for key in (
+                "b1", "b2", "b3", "b4", "b5", "b6",
+            ))
+            if b_total != computed_total:
+                payload["reported_b_total"] = payload.get("b_total")
+                payload["b_total"] = f"{computed_total}/12"
+                b_total = computed_total
         b5 = b_scores.get("b5")
         b6 = b_scores.get("b6")
         fatal_layout_terms = (
@@ -604,6 +620,15 @@ class InspectVideoTool(ITool):
         elif b_total is not None and b_total < 7:
             forced_bad = True
             forced_reason = f"B 段总分 {b_total}/12 < 7"
+        elif b_total is not None and b_total >= 9:
+            # When proof/essence are complete and all objective gates passed,
+            # derive delivery quality from the rubric instead of a stochastic
+            # adjective. Minor aesthetic suggestions remain in ``issues`` but
+            # must not make a correct, readable video disappear from the UI.
+            if overall != "good":
+                payload["reported_overall_quality"] = overall
+                payload["overall_quality"] = "good"
+                overall = "good"
         elif overall != "good":
             forced_bad = True
             forced_reason = f"整体质量仅为 {overall or 'unknown'}；生产门禁要求 good"

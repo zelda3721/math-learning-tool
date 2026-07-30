@@ -43,7 +43,11 @@ class DirectVideoTool(ITool):
                 artifacts=result.artifacts,
             )
         first_summary = result.summary
-        candidate = (result.data or {}).get("plan")
+        candidate = (
+            (result.data or {}).get("plan")
+            if result.error != "plan_math_inconsistent"
+            else None
+        )
         safe_plan = build_safe_visual_plan(candidate, ctx)
         if safe_plan is not None:
             safe_plan["discarded_plan_error"] = result.error
@@ -79,7 +83,12 @@ class DirectVideoTool(ITool):
                     ),
                 ],
             )
-        repaired_safe_plan = build_safe_visual_plan((repaired.data or {}).get("plan"), ctx)
+        repaired_candidate = (
+            (repaired.data or {}).get("plan")
+            if repaired.error != "plan_math_inconsistent"
+            else None
+        )
+        repaired_safe_plan = build_safe_visual_plan(repaired_candidate, ctx)
         if repaired_safe_plan is not None:
             repaired_safe_plan["discarded_plan_error"] = repaired.error
             repaired_safe_plan["discarded_plan_summary"] = repaired.summary[:500]

@@ -35,7 +35,6 @@ export function LiveResult({ state, onReset }: LiveResultProps) {
                                     src={state.subtitleUrl}
                                     srcLang="zh"
                                     label="中文讲解"
-                                    default
                                 />
                             )}
                         </video>
