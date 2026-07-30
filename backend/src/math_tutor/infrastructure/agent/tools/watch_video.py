@@ -117,6 +117,28 @@ class WatchVideoTool(ITool):
                 artifact.meta["watch_internal_repair_count"] = 1
                 artifact.meta["watch_replanned"] = replanned
         if not self._passed(second):
+            if self._meaningless_visual(second) and not ctx.state.get("delivery_fallback"):
+                fallback = await self._compiler.execute({"visual_fallback_only": True}, ctx)
+                artifacts.extend(fallback.artifacts)
+                if fallback.success:
+                    fallback_snapshot = {
+                        "code": ctx.state.get("latest_manim_code") or "",
+                        "video_path": ctx.state.get("latest_video_path"),
+                        "video_url": ctx.state.get("latest_video_url"),
+                        "review": second.data or {},
+                        "issues": ctx.state.get("last_visual_issues") or "",
+                        "delivery_fallback": True,
+                    }
+                    return self._deliver_degraded(
+                        "模型修复成片仍是纯文字表达，已替换为可视化关系图保底",
+                        second,
+                        artifacts,
+                        fallback_snapshot,
+                        ctx,
+                        replanned=replanned,
+                        internal_repair_count=1,
+                        extra={"text_only_candidate_replaced": True},
+                    )
             if self._quality_rank(first) > self._quality_rank(second):
                 return self._deliver_degraded(
                     "一次成片修复发生质量回归，已恢复更好的上一版候选",
@@ -176,6 +198,12 @@ class WatchVideoTool(ITool):
             and str(result.data.get("overall_quality") or "").lower() == "good"
             and not result.data.get("blacklist_hits")
         )
+
+    @staticmethod
+    def _meaningless_visual(result: ToolResult) -> bool:
+        data = result.data or {}
+        hits = " ".join(str(item) for item in (data.get("blacklist_hits") or []))
+        return "PPT" in hits or "文字搬运" in hits or "纯文字" in hits
 
     @staticmethod
     def _quality_rank(result: ToolResult) -> tuple[int, int, int, int, int]:

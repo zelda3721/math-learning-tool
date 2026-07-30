@@ -1682,3 +1682,58 @@ def test_watch_video_delivers_playable_candidate_when_quality_repair_fails() -> 
     assert result.data is not None and result.data["quality_degraded"] is True
     assert result.data["video_path"] == "playable.mp4"
     assert ctx.state["last_visual_failed"] is False
+
+
+def test_watch_replaces_a_second_text_only_candidate_without_another_model_retry() -> None:
+    class Inspector:
+        calls = 0
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["last_visual_review"] = {"overall_quality": "bad"}
+            ctx.state["last_visual_failed"] = True
+            ctx.state["last_visual_issues"] = "只有文字切换"
+            return ToolResult(
+                success=True,
+                summary="bad",
+                data={"overall_quality": "bad", "blacklist_hits": ["文字搬运"]},
+            )
+
+    class Compiler:
+        calls: list[dict[str, Any]] = []
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls.append(args)
+            if args.get("visual_fallback_only"):
+                ctx.state["delivery_fallback"] = True
+                ctx.state["latest_video_path"] = "visual-fallback.mp4"
+                ctx.state["latest_video_url"] = "/visual-fallback.mp4"
+                return ToolResult(success=True, summary="visual fallback")
+            ctx.state["latest_video_path"] = "second-text-only.mp4"
+            ctx.state["latest_video_url"] = "/second-text-only.mp4"
+            return ToolResult(success=True, summary="model repair rendered")
+
+    class Director:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=True, summary="unused")
+
+    inspector, compiler = Inspector(), Compiler()
+    tool = WatchVideoTool(inspector, compiler, Director())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={
+            "latest_manim_code": "text-only code",
+            "latest_video_path": "first-text-only.mp4",
+            "latest_video_url": "/first-text-only.mp4",
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data["video_path"] == "visual-fallback.mp4"
+    assert result.data["text_only_candidate_replaced"] is True
+    assert compiler.calls == [{"review_repair": True}, {"visual_fallback_only": True}]
