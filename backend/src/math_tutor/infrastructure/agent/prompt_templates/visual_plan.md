@@ -67,6 +67,14 @@
   map | measure | verify | remove`。
 - `targets` 和 `result` 必须引用 `visual_objects.id`。每个动作必须写 `meaning`，说明屏幕动作代表
   哪个数学关系。
+- `transform/partition/map` 必须填写与来源不同的 `result`；被操作的来源对象必须已经在更早动作中
+  `create`，不能引用尚未出现的对象。只把若干数量图形依次 `create` 到画面上属于罗列，不是核心变化。
+- verify beat 只能核对已经可见的对象；若需要新的结论对象，先显式 `create`，再执行
+  `verify/measure/compare`。
+- `result` 永远是一个对象 id 字符串，不能是数组。若两个来源分别变成两个结果，拆成两个 action；
+  不允许写缺少 `result` 的 `transform/partition/map`。
+- 重复成员统一用 `params.count`，每个成员附加相同数量标记统一用 `params.count_per_unit`；不要写
+  `count_per_head`、`count_per_item` 等领域专用字段。超过 64 的总量应使用 `quantity_bar.value` 或分组压缩。
 - 全部 `transform` beat 合起来必须让非文字数学图形发生可见变化；逐步创建新的证明对象，或使用
   `transform/move/partition/merge/map` 改变既有对象都可以。`verify` beat 必须包含
   `compare/measure/verify`。只创建文字、公式或字幕不算图形动作。

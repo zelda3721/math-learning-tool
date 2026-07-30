@@ -16,9 +16,11 @@
 
 {"consistent": true, "issues": [], "checked_claims": ["已核对的关键主张"], "corrected_plan": null}
 
-若存在确定矛盾，输出 `consistent=false`。每条 issue 必须给出可证伪证据，严格写成：
+若存在可直接计算或由答案唯一判定的数学矛盾，输出 `consistent=false`。每条 issue 必须给出可证伪
+的数值证据，严格写成：
 `BLOCKING: <主张>; observed=<计划中的具体内容>; expected=<由题目和已验证解答得到的内容>`。
-不能确定时不要猜测，不要输出 BLOCKING。
+对图形原语选择、动作导演方式、是否增加辅助对象等视觉充分性意见，不得输出 BLOCKING；这些由
+结构门禁和成片评审负责。不能确定时不要猜测，不要输出 BLOCKING。
 
 当 `consistent=false` 时，必须同时在 `corrected_plan` 返回一份完整、可直接替换原稿的视觉计划
 JSON，字段保持为 `visual_thesis`、`essence_rationale`、`symbol_ledger`、`visual_objects`、

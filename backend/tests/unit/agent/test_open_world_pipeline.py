@@ -60,6 +60,7 @@ from math_tutor.infrastructure.agent.tools.verify_solution import (
     _safe_exec_verify,
 )
 from math_tutor.infrastructure.agent.tools.visual_plan import (
+    _machine_checkable_blocking_issue,
     _normalize_plan,
     _parse_plan_audit,
     _validate_plan,
@@ -205,11 +206,260 @@ def test_visual_plan_requires_executable_graphics_and_mutating_actions() -> None
     )
 
 
+def test_visual_plan_rejects_listing_disguised_as_partition_and_map() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["state"],
+            "result": "",
+            "meaning": "claim grouping without a visible grouped result",
+        },
+        {
+            "op": "map",
+            "targets": ["final_state"],
+            "result": "reference",
+            "meaning": "claim a mapping before its source has appeared",
+        },
+    ]
+    issues = _validate_plan(plan, "advanced")
+    assert any("partition 缺少 result" in issue for issue in issues)
+    assert any("在对象出现前执行 map" in issue for issue in issues)
+
+
+def test_visual_plan_normalizes_domain_quantity_aliases() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][0].update(
+        {"primitive": "line", "params": {"count_per_head": 2, "total": 70}}
+    )
+    plan["visual_objects"][1].update(
+        {"primitive": "circle", "params": {"total": 24}}
+    )
+    normalized = _normalize_plan(plan)
+    first_params = normalized["visual_objects"][0]["params"]
+    second_params = normalized["visual_objects"][1]["params"]
+    assert first_params["count_per_unit"] == 2
+    assert "count" not in first_params
+    assert second_params["count"] == 24
+
+
+def test_visual_plan_splits_parallel_result_arrays_into_single_result_actions() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["state", "reference"],
+            "result": ["final_state", "state"],
+            "meaning": "apply two visible successor changes",
+        }
+    ]
+    actions = _normalize_plan(plan)["scenes"][1]["actions"]
+    assert [action["targets"] for action in actions] == [["state"], ["reference"]]
+    assert [action["result"] for action in actions] == ["final_state", "state"]
+
+
+def test_visual_plan_resolves_stale_source_to_current_successor() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["state"],
+            "result": "final_state",
+            "meaning": "group the visible source",
+        },
+        {
+            "op": "map",
+            "targets": ["state"],
+            "result": "reference",
+            "meaning": "map the successor using the old semantic name",
+        },
+    ]
+    actions = _normalize_plan(plan)["scenes"][1]["actions"]
+    assert actions[0]["targets"] == ["state"]
+    assert actions[1]["targets"] == ["final_state"]
+
+
+def test_visual_plan_materializes_declared_source_before_causal_action() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["final_state"],
+            "result": "state",
+            "meaning": "partition a declared but not yet visible source",
+        }
+    ]
+    actions = _normalize_plan(plan)["scenes"][1]["actions"]
+    assert actions[0]["op"] == "create"
+    assert actions[0]["targets"] == ["final_state"]
+    assert actions[1]["op"] == "partition"
+    assert _validate_plan(plan, "advanced") == []
+
+
+def test_visual_plan_materializes_declared_verify_targets() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"].extend(
+        [
+            {
+                "id": "left_result",
+                "primitive": "unit_grid",
+                "meaning": "first verified result subset",
+                "label": "left",
+                "color": "green",
+                "params": {"count": 3},
+            },
+            {
+                "id": "right_result",
+                "primitive": "unit_grid",
+                "meaning": "second verified result subset",
+                "label": "right",
+                "color": "yellow",
+                "params": {"count": 4},
+            },
+        ]
+    )
+    plan["scenes"][-1]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["left_result", "right_result"],
+            "meaning": "verify both declared result subsets",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+    actions = normalized["scenes"][-1]["actions"]
+
+    assert actions[0]["op"] == "create"
+    assert actions[0]["targets"] == ["left_result", "right_result"]
+    assert actions[1]["op"] == "verify"
+    assert not any(
+        "在对象出现前执行 verify" in issue
+        for issue in _validate_plan(normalized, "middle")
+    )
+
+
+def test_visual_plan_lowers_bounded_aggregate_bars_for_addressable_actions() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][0].update(
+        {"primitive": "quantity_bar", "params": {"count": 24}}
+    )
+    plan["visual_objects"][2].update(
+        {"primitive": "quantity_bar", "params": {"count": 12}}
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["state"],
+            "result": "final_state",
+            "meaning": "group addressable members",
+        }
+    ]
+    objects = {
+        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
+    }
+    assert objects["state"]["primitive"] == "unit_grid"
+    assert objects["final_state"]["primitive"] == "unit_grid"
+    assert objects["reference"]["primitive"] == "line"
+
+
+def test_visual_plan_lowers_bounded_value_bar_for_mapping() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][2].update(
+        {"primitive": "quantity_bar", "params": {"value": 12}}
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "map",
+            "targets": ["state"],
+            "result": "final_state",
+            "meaning": "extract an addressable subset",
+        }
+    ]
+
+    objects = {
+        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
+    }
+
+    assert objects["final_state"]["primitive"] == "unit_grid"
+    assert objects["final_state"]["params"]["count"] == 12
+
+
+def test_visual_plan_lowers_exact_multi_source_map_to_partition() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][0].update(
+        {"primitive": "unit_grid", "params": {"count": 24}}
+    )
+    plan["visual_objects"][1].update(
+        {"primitive": "line", "params": {"count": 2}}
+    )
+    plan["visual_objects"][2].update(
+        {"primitive": "unit_grid", "params": {"count": 12}}
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "map",
+            "targets": ["state", "reference"],
+            "result": "final_state",
+            "meaning": "group a total by a declared unit size",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+    action = normalized["scenes"][1]["actions"][-1]
+    assert action["op"] == "partition"
+    assert action["targets"] == ["state"]
+    assert action["result"] == "final_state"
+
+
+def test_visual_plan_normalizes_total_units_for_partition_result() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][2].update(
+        {
+            "primitive": "line",
+            "params": {"total_units": 12, "count_per_unit": 2},
+        }
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["state"],
+            "result": "final_state",
+            "meaning": "partition a total into addressable groups",
+        }
+    ]
+
+    objects = {
+        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
+    }
+
+    assert objects["final_state"]["primitive"] == "line"
+    assert objects["final_state"]["params"]["count"] == 12
+    assert objects["final_state"]["params"]["count_per_unit"] == 2
+
+
 def test_visual_plan_ignores_descriptive_results_on_non_successor_actions() -> None:
     plan = _open_world_plan()
     plan["scenes"][0]["actions"][0]["result"] = "坐标系建立"
     normalized = _normalize_plan(plan)
     assert normalized["scenes"][0]["actions"][0]["result"] == ""
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_discards_actions_with_undeclared_object_ids() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][-1]["actions"].append(
+        {
+            "op": "merge",
+            "targets": ["undeclared_left", "undeclared_right"],
+            "result": "undeclared_total",
+            "meaning": "hallucinated redundant verification action",
+        }
+    )
+
+    normalized = _normalize_plan(plan)
+
+    assert len(normalized["scenes"][-1]["actions"]) == 1
+    assert normalized["scenes"][-1]["actions"][0]["op"] == "compare"
     assert _validate_plan(normalized, "advanced") == []
 
 
@@ -224,6 +474,23 @@ def test_visual_plan_audit_parser_requires_machine_checkable_verdict() -> None:
         {"visual_thesis": "fixed"},
     )
     assert _parse_plan_audit('{"consistent":"yes","issues":[]}') is None
+
+
+def test_visual_plan_audit_blocks_only_falsifiable_math_conflicts() -> None:
+    assert _machine_checkable_blocking_issue(
+        "BLOCKING: count; observed=10; expected=20"
+    )
+    assert _machine_checkable_blocking_issue(
+        "BLOCKING: arithmetic; observed=24 ÷ 3 = 12; expected=24 ÷ 3 = 8"
+    )
+    assert not _machine_checkable_blocking_issue(
+        "BLOCKING: prefer another partition; observed=94 contains 70 and 24; "
+        "expected=compare 94 with 70 and show 24"
+    )
+    assert not _machine_checkable_blocking_issue(
+        "BLOCKING: add more anchors; observed=verify current objects; "
+        "expected=also display 46 and 48 before 94"
+    )
 
 
 def test_visual_plan_fills_only_safe_structural_omissions() -> None:
@@ -443,7 +710,7 @@ def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> No
     assert _select_next_tool(state, review_available=True) == "watch_video"
 
 
-def test_direct_video_keeps_graphics_and_discards_unsafe_story_without_retry() -> None:
+def test_direct_video_rejects_static_safe_plan_after_one_bounded_retry() -> None:
     from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
 
     class Planner:
@@ -473,10 +740,52 @@ def test_direct_video_keeps_graphics_and_discards_unsafe_story_without_retry() -
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success
+    assert result.success is False
+    assert planner.calls == 2
+    assert "一次证据定向修正" in result.summary
+    assert "visual_plan" not in ctx.state
+
+
+def test_direct_video_salvages_graphics_when_local_model_omits_actions() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    incomplete = _open_world_plan()
+    incomplete["scenes"][1]["actions"] = []
+    incomplete["scenes"][2]["actions"] = []
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(
+                success=False,
+                summary="场景 actions 为空",
+                data={"plan": incomplete},
+                error="contract_violation",
+            )
+
+    planner = Planner()
+    tool = DirectVideoTool(planner)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "任意新问题",
+        {
+            "solution_verified": True,
+            "solution_answer": "已验证答案",
+            "solution_steps": [{"description": "建立已验证关系"}],
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
     assert planner.calls == 1
-    assert result.data is not None and result.data["safe_plan_from_verified_objects"] is True
-    assert ctx.state["visual_plan"] == result.data
+    plan = ctx.state["visual_plan"]
+    assert _validate_plan(plan, "middle") == []
+    transform_actions = plan["scenes"][1]["actions"]
+    assert any(action["op"] == "transform" for action in transform_actions)
 
 
 def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
@@ -1636,6 +1945,44 @@ def test_bounded_workflow_skips_controller_llm_calls() -> None:
     assert done.final_video_path == "video.mp4"
 
 
+def test_compile_video_uses_visual_ir_compiler_by_default() -> None:
+    class Unused:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            raise AssertionError("production Visual IR must not call free-form codegen")
+
+    class Renderer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            code = str(args.get("code") or "")
+            assert "VISUAL_OBJECTS" in code
+            assert ctx.state.get("delivery_fallback") is not True
+            ctx.state["latest_video_path"] = "compiled.mp4"
+            ctx.state["latest_video_url"] = "/compiled.mp4"
+            return ToolResult(success=True, summary="rendered")
+
+    renderer = Renderer()
+    tool = CompileVideoTool(Unused(), Unused(), renderer)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="middle",
+        problem="任意新问题",
+        state={
+            "solution_verified": True,
+            "solution_answer": "已验证答案",
+            "visual_plan": _open_world_plan(),
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data["deterministic_compiler"] is True
+    assert result.data["delivery_fallback"] is False
+    assert renderer.calls == 1
+
+
 def test_compile_video_hides_one_evidence_directed_repair_inside_stage() -> None:
     class Writer:
         calls = 0
@@ -1675,7 +2022,7 @@ def test_compile_video_hides_one_evidence_directed_repair_inside_stage() -> None
         problem="opaque",
         state={"solution_verified": True, "visual_plan": _open_world_plan()},
     )
-    result = asyncio.run(tool.execute({}, ctx))
+    result = asyncio.run(tool.execute({"model_codegen": True}, ctx))
     assert result.success is True
     assert result.data is not None
     assert result.data["internal_repair_count"] == 1
@@ -1727,7 +2074,7 @@ def test_compile_video_guarantees_a_rendered_verified_fallback() -> None:
             "visual_plan": _open_world_plan(),
         },
     )
-    result = asyncio.run(tool.execute({}, ctx))
+    result = asyncio.run(tool.execute({"model_codegen": True}, ctx))
     assert result.success is True
     assert result.data is not None and result.data["delivery_fallback"] is True
     assert result.data["video_path"] == "fallback.mp4"
@@ -1780,7 +2127,9 @@ def test_review_repair_uses_visual_fallback_instead_of_restoring_text_only_video
             "latest_video_path": "text-only.mp4",
         },
     )
-    result = asyncio.run(tool.execute({"review_repair": True}, ctx))
+    result = asyncio.run(
+        tool.execute({"review_repair": True, "model_codegen": True}, ctx)
+    )
     assert result.success is True
     assert result.data is not None and result.data["delivery_fallback"] is True
     assert result.data["video_path"] == "visual-fallback.mp4"
@@ -1842,6 +2191,62 @@ def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
     assert inspector.calls == 2
     assert compiler.calls == 1
     assert director.calls == 0
+
+
+def test_watch_replans_bad_deterministic_fallback_instead_of_patching_it() -> None:
+    class Inspector:
+        calls = 0
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            quality = "bad" if self.calls == 1 else "good"
+            ctx.state["last_visual_failed"] = quality == "bad"
+            return ToolResult(
+                success=True,
+                summary=quality,
+                data={"overall_quality": quality, "blacklist_hits": []},
+            )
+
+    class Director:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state.pop("delivery_fallback", None)
+            return ToolResult(success=True, summary="new causal plan")
+
+    class Compiler:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            assert args == {"review_repair": True}
+            ctx.state["latest_video_path"] = "replanned.mp4"
+            ctx.state["latest_video_url"] = "/replanned.mp4"
+            return ToolResult(success=True, summary="recompiled")
+
+    inspector, director, compiler = Inspector(), Director(), Compiler()
+    tool = WatchVideoTool(inspector, compiler, director)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={
+            "delivery_fallback": True,
+            "latest_video_path": "fallback.mp4",
+            "latest_video_url": "/fallback.mp4",
+        },
+    )
+
+    result = asyncio.run(tool.execute({}, ctx))
+
+    assert result.success is True
+    assert result.data is not None and result.data["replanned"] is True
+    assert director.calls == 1
+    assert compiler.calls == 1
+    assert inspector.calls == 2
 
 
 def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails() -> None:
@@ -2003,7 +2408,25 @@ def test_visual_ir_fallback_compiles_generic_repetition_partition_and_map() -> N
     code = build_verified_fallback_code(ctx)
     compile(code, "<fallback>", "exec")
     assert "def repeated_body" in code
+    assert 'self.repeat_units[spec["id"]] = body' in code
     assert "params.get(\"count_per_unit\")" in code
     assert "source_units[index * ratio:(index + 1) * ratio]" in code
     assert "pair_count = min(len(source_units), len(result_units))" in code
+    assert "layout_animations = self.relayout(visible, [result_id])" in code
+    assert "FadeIn(result_units[index], scale=0.7)" in code
+    assert "个已对应" in code
+    assert "attached_source_id = next" in code
+    assert "len(source_units) > len(result_units)" in code
+    assert "从原集合逐个取出" in code
+    assert "个来自原集合" in code
+    assert 'spec.get("primitive") in {"relation_node", "line", "arrow"}' in code
+    assert "smaller_id = min(repeated_ids" in code
+    assert "self.quantity_bar_max" in code
+    assert "每组对应一个单位" in code
+    assert "个发生变化的单位" in code
+    assert "self.deferred_creates.update" in code
+    assert "compare_badge.add_updater" in code
+    assert "compared_ids.issubset(selected_set)" in code
+    assert "for item in framed" in code
+    assert "greater = max(first_value, second_value)" in code
     assert "'count': 35" in code and "'count': 24" in code and "'count': 12" in code

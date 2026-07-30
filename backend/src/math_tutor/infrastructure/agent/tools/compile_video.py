@@ -389,6 +389,32 @@ class SolutionScene(Scene):
         self.mapped_into = {}
         self.partition_ratios = {}
         self.mapping_badges = {}
+        self.mapping_evidence = {}
+        self.comparison_badges = {}
+        self.deferred_creates = set()
+        self.last_comparison_difference = None
+        self.relation_values = []
+        quantity_values = []
+        for spec in VISUAL_OBJECTS:
+            params = spec.get("params") or {}
+            if spec.get("primitive") in {"relation_node", "line", "arrow"}:
+                value = abs(self.number(
+                    params.get(
+                        "value",
+                        params.get("length", params.get("count_per_unit")),
+                    ),
+                    0,
+                    0,
+                    1000,
+                ))
+                if value > 0:
+                    self.relation_values.append(value)
+            if spec.get("primitive") != "quantity_bar":
+                continue
+            quantity_values.append(abs(self.number(
+                params.get("value", params.get("count", 0)), 0, 0, 1000,
+            )))
+        self.quantity_bar_max = max(quantity_values, default=1.0) or 1.0
         self.coordinate_ids = set()
         self.coordinate_models = {}
         self.coordinate_domains = {}
@@ -543,7 +569,10 @@ class SolutionScene(Scene):
         elif primitive == "quantity_bar":
             value = abs(self.number(params.get("value", params.get("count", 1)), 1, 0, 1000))
             units = min(max(int(round(value)), 1), 16)
-            width = min(3.2, 1.0 + 0.18 * units)
+            # Preserve relative magnitude across all aggregate bars.  The old
+            # capped ``1 + .18 * min(value, 16)`` made any two values above 16
+            # look identical, erasing the comparison the bar was meant to show.
+            width = 1.0 + 2.2 * value / self.quantity_bar_max
             shell = RoundedRectangle(
                 width=width, height=0.72, corner_radius=0.1,
                 color=color, fill_color=color, fill_opacity=0.25,
@@ -569,6 +598,7 @@ class SolutionScene(Scene):
             rows = math.ceil(count / columns)
             cells.arrange_in_grid(rows=rows, cols=columns, buff=0.055)
             body = cells
+            self.repeat_units[spec["id"]] = body
         elif primitive == "number_line":
             start = self.number(params.get("min", params.get("start", 0)), 0, -100, 100)
             end = self.number(params.get("max", params.get("end", 10)), 10, -100, 100)
@@ -711,16 +741,109 @@ class SolutionScene(Scene):
             result_units = self.repeat_units.get(result_id)
             if source_units is not None and result_units is not None:
                 if result_id not in visible:
-                    self.objects[result_id].move_to(self.objects[source_id].get_center())
-                    self.play(self.animate_create(result_id))
+                    # Extraction map: keep the invariant source visible, put
+                    # the derived subset in its own slot, and copy members one
+                    # by one.  Placing the result at the source centre used to
+                    # superimpose bars/labels around the 24-second transition.
+                    layout_animations = self.relayout(visible, [result_id])
+                    if layout_animations:
+                        self.play(*layout_animations)
                     visible.append(result_id)
+                    pair_count = min(len(source_units), len(result_units))
+                    source_object = self.objects[source_id]
+                    result_object = self.objects[result_id]
+                    connector = Arrow(
+                        source_object.get_bottom(), result_object.get_top(),
+                        color=YELLOW, buff=0.12, stroke_width=5,
+                    )
+                    mapping_label = Text(
+                        "逐个对应", font_size=19, color=YELLOW,
+                    ).next_to(connector, RIGHT, buff=0.12)
+                    result_label = self.object_labels.get(result_id)
+                    entrance = [GrowArrow(connector), FadeIn(mapping_label)]
+                    if result_label is not None:
+                        entrance.append(FadeIn(result_label))
+                    self.play(*entrance)
+                    self.play(LaggedStart(*[
+                        AnimationGroup(
+                            FadeIn(result_units[index], scale=0.7),
+                            source_units[index].animate.set_color(GREEN).scale(1.16),
+                            lag_ratio=0,
+                        )
+                        for index in range(pair_count)
+                    ], lag_ratio=min(0.08, 1.4 / max(pair_count, 1))))
+                    self.play(
+                        *[
+                            source_units[index].animate.scale(1 / 1.16)
+                            for index in range(pair_count)
+                        ],
+                        FadeOut(connector), FadeOut(mapping_label),
+                    )
+                    mapped_units = VGroup(*source_units[:pair_count])
+                    mapped_outline = SurroundingRectangle(
+                        mapped_units, color=GREEN, buff=0.07, stroke_width=2.5,
+                    )
+                    mapped_outline.add_updater(
+                        lambda outline, units=mapped_units: outline.become(
+                            SurroundingRectangle(
+                                units, color=GREEN, buff=0.07, stroke_width=2.5,
+                            )
+                        )
+                    )
+                    mapped_label = Text(
+                        f"{pair_count} 个已对应", font_size=19, color=GREEN,
+                    ).next_to(mapped_outline, UP, buff=0.1)
+                    mapped_label.add_updater(
+                        lambda label, outline=mapped_outline: label.next_to(
+                            outline, UP, buff=0.1,
+                        )
+                    )
+                    self.mapping_evidence[result_id] = VGroup(
+                        mapped_outline, mapped_label,
+                    )
+                    self.play(Create(mapped_outline), FadeIn(mapped_label))
+                    divisor = next(
+                        (
+                            value for value in self.relation_values
+                            if self.last_comparison_difference is not None
+                            and abs(
+                                self.last_comparison_difference / value - pair_count
+                            ) < 1e-6
+                        ),
+                        None,
+                    )
+                    if divisor is not None:
+                        formula = Text(
+                            f"{self.last_comparison_difference:g} ÷ {divisor:g} = {pair_count}",
+                            font_size=22, color=GREEN,
+                        )
+                        formula.next_to(result_object, DOWN, buff=0.22)
+                        formula.add_updater(
+                            lambda badge, host=result_object: badge.next_to(
+                                host, DOWN, buff=0.22,
+                            )
+                        )
+                        self.mapping_badges[result_id] = formula
+                        self.play(FadeIn(formula, shift=UP * 0.08))
+                    self.mapped_into[source_id] = (result_id, pair_count)
+                    return
                 pair_count = min(len(source_units), len(result_units))
+                result_object = self.objects[result_id]
+                # Route along the outside edges.  A centre-to-centre diagonal
+                # crosses the source/target labels and can look like graphical
+                # overlap in both sampled frames and ordinary playback.
+                start = source_object.get_right()
+                end = result_object.get_right()
+                if np.linalg.norm(end - start) < 0.45:
+                    start = source_object.get_right()
+                    end = result_object.get_left()
                 connector = Arrow(
-                    self.objects[source_id].get_left(),
-                    self.objects[result_id].get_right(),
-                    color=YELLOW, buff=0.16, stroke_width=5,
+                    start, end, color=YELLOW, buff=0.12, stroke_width=5,
                 )
-                self.play(GrowArrow(connector))
+                mapping_label = Text("每组对应一个单位", font_size=19, color=YELLOW)
+                mapping_label.next_to(connector, RIGHT, buff=0.12)
+                mapping_label.shift_onto_screen(buff=0.3)
+                self.play(GrowArrow(connector), FadeIn(mapping_label))
                 self.play(LaggedStart(*[
                     AnimationGroup(
                         FadeOut(source_units[index], shift=LEFT * 0.16),
@@ -732,6 +855,7 @@ class SolutionScene(Scene):
                 self.play(
                     *[result_units[index].animate.scale(1 / 1.18) for index in range(pair_count)],
                     FadeOut(self.objects[source_id]), FadeOut(connector),
+                    FadeOut(mapping_label),
                 )
                 extra_per_unit = self.partition_ratios.get(source_id, 0)
                 extra_marks = []
@@ -765,9 +889,14 @@ class SolutionScene(Scene):
                         ))
                         break
                 remainder = max(0, len(result_units) - pair_count)
+                mapped_count_line = Text(
+                    f"{pair_count} 组 → {pair_count} 个发生变化的单位",
+                    font_size=21, color=YELLOW,
+                )
                 if base_per_unit > 0 and extra_per_unit > 0:
                     mapped_total = base_per_unit + extra_per_unit
                     formulas = VGroup(
+                        mapped_count_line,
                         Text(
                             f"{pair_count} × {mapped_total} = {pair_count * mapped_total}",
                             font_size=25, color=GREEN,
@@ -777,7 +906,24 @@ class SolutionScene(Scene):
                             font_size=25, color=BLUE,
                         ),
                     ).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
-                    formulas.next_to(self.objects[result_id], RIGHT, buff=0.72)
+                    formulas.next_to(self.objects[result_id], DOWN, buff=0.42)
+                    formulas.shift_onto_screen(buff=0.35)
+                    self.mapping_badges[result_id] = formulas
+                    self.play(FadeIn(formulas, shift=LEFT * 0.12))
+                elif extra_per_unit > 0:
+                    source_total = pair_count * extra_per_unit
+                    formulas = VGroup(
+                        mapped_count_line,
+                        Text(
+                            f"{source_total} ÷ {extra_per_unit} = {pair_count}",
+                            font_size=25, color=GREEN,
+                        ),
+                        Text(
+                            f"{len(result_units)} − {pair_count} = {remainder}",
+                            font_size=25, color=BLUE,
+                        ),
+                    ).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+                    formulas.next_to(self.objects[result_id], DOWN, buff=0.42)
                     formulas.shift_onto_screen(buff=0.35)
                     self.mapping_badges[result_id] = formulas
                     self.play(FadeIn(formulas, shift=LEFT * 0.12))
@@ -796,6 +942,127 @@ class SolutionScene(Scene):
                 item = self.objects[result_id]
                 self.play(item.animate.scale(1.06).set_color(GREEN))
                 self.play(item.animate.scale(1 / 1.06))
+                return
+            attached_source_id = next(
+                (item for item in source_ids if item in self.attachment_hosts), None
+            )
+            result_units = self.repeat_units.get(result_id)
+            if attached_source_id is not None and result_units is not None:
+                host_id = self.attachment_hosts[attached_source_id]
+                host_units = self.repeat_units.get(host_id)
+                if host_units is not None:
+                    layout_animations = self.relayout(visible, [result_id])
+                    if layout_animations:
+                        self.play(*layout_animations)
+                    pair_count = min(len(host_units), len(result_units))
+                    result_label = self.object_labels.get(result_id)
+                    entrance = []
+                    if result_label is not None:
+                        entrance.append(FadeIn(result_label))
+                    entrance.append(LaggedStart(*[
+                        AnimationGroup(
+                            host_units[index].animate.set_color(GREEN),
+                            FadeIn(result_units[index], scale=0.7),
+                            lag_ratio=0,
+                        )
+                        for index in range(pair_count)
+                    ], lag_ratio=min(0.08, 1.4 / max(pair_count, 1))))
+                    self.play(*entrance)
+                    if result_id not in visible:
+                        visible.append(result_id)
+                    self.mapped_into[attached_source_id] = (host_id, pair_count)
+                    return
+            # A transform from a larger addressable collection to a smaller
+            # one represents subset extraction, even when the planner chose
+            # ``transform`` instead of ``map``.  Preserve the source and show
+            # which individual units produce the result; replacing the whole
+            # collection hid the mathematical change in page-generated runs.
+            source_id = source_ids[0] if len(source_ids) == 1 else None
+            source_units = self.repeat_units.get(source_id) if source_id else None
+            if (
+                source_id is not None
+                and source_units is not None
+                and result_units is not None
+                and len(source_units) > len(result_units)
+            ):
+                layout_animations = self.relayout(visible, [result_id])
+                if layout_animations:
+                    self.play(*layout_animations)
+                if result_id not in visible:
+                    visible.append(result_id)
+                pair_count = len(result_units)
+                result_object = self.objects[result_id]
+                mapping_label = Text(
+                    "从原集合逐个取出", font_size=19, color=YELLOW,
+                ).next_to(result_object, UP, buff=0.16)
+                mapping_label.shift_onto_screen(buff=0.3)
+                result_label = self.object_labels.get(result_id)
+                entrance = [FadeIn(mapping_label)]
+                if result_label is not None:
+                    entrance.append(FadeIn(result_label))
+                self.play(*entrance)
+                self.play(LaggedStart(*[
+                    AnimationGroup(
+                        source_units[index].animate.set_color(GREEN).scale(1.16),
+                        FadeIn(result_units[index], scale=0.7),
+                        lag_ratio=0,
+                    )
+                    for index in range(pair_count)
+                ], lag_ratio=min(0.08, 1.4 / max(pair_count, 1))))
+                self.play(
+                    *[
+                        source_units[index].animate.scale(1 / 1.16)
+                        for index in range(pair_count)
+                    ],
+                    FadeOut(mapping_label),
+                )
+                mapped_units = VGroup(*source_units[:pair_count])
+                mapped_outline = SurroundingRectangle(
+                    mapped_units, color=GREEN, buff=0.07, stroke_width=2.5,
+                )
+                mapped_outline.add_updater(
+                    lambda outline, units=mapped_units: outline.become(
+                        SurroundingRectangle(
+                            units, color=GREEN, buff=0.07, stroke_width=2.5,
+                        )
+                    )
+                )
+                evidence_label = Text(
+                    f"{pair_count} 个来自原集合", font_size=19, color=GREEN,
+                ).next_to(mapped_outline, UP, buff=0.1)
+                evidence_label.add_updater(
+                    lambda label, outline=mapped_outline: label.next_to(
+                        outline, UP, buff=0.1,
+                    )
+                )
+                self.mapping_evidence[result_id] = VGroup(
+                    mapped_outline, evidence_label,
+                )
+                self.play(Create(mapped_outline), FadeIn(evidence_label))
+                divisor = next(
+                    (
+                        value for value in self.relation_values
+                        if self.last_comparison_difference is not None
+                        and abs(
+                            self.last_comparison_difference / value - pair_count
+                        ) < 1e-6
+                    ),
+                    None,
+                )
+                if divisor is not None:
+                    formula = Text(
+                        f"{self.last_comparison_difference:g} ÷ {divisor:g} = {pair_count}",
+                        font_size=22, color=GREEN,
+                    )
+                    formula.next_to(result_object, DOWN, buff=0.22)
+                    formula.add_updater(
+                        lambda badge, host=result_object: badge.next_to(
+                            host, DOWN, buff=0.22,
+                        )
+                    )
+                    self.mapping_badges[result_id] = formula
+                    self.play(FadeIn(formula, shift=UP * 0.08))
+                self.mapped_into[source_id] = (result_id, pair_count)
                 return
             source_objects = [self.objects[item] for item in source_ids]
             source = source_objects[0] if len(source_objects) == 1 else VGroup(*source_objects)
@@ -828,10 +1095,22 @@ class SolutionScene(Scene):
         elif op == "partition":
             selected = [self.objects[item] for item in targets if item in visible]
             source_id = next((item for item in targets if item in visible), None)
+            deferred_source = False
+            if source_id is None:
+                source_id = next(
+                    (item for item in targets if item in self.deferred_creates), None
+                )
+                deferred_source = source_id is not None
             source_units = self.repeat_units.get(source_id) if source_id else None
             result_units = self.repeat_units.get(result_id)
             if source_units is not None and result_units is not None and result_id in self.objects:
                 source = self.objects[source_id]
+                entrance_animations = []
+                if deferred_source:
+                    entrance_animations.extend(self.relayout(visible, [source_id]))
+                    entrance_animations.append(FadeIn(source))
+                    visible.append(source_id)
+                    self.deferred_creates.discard(source_id)
                 result = self.objects[result_id]
                 result.move_to(source.get_center())
                 ratio = max(1, math.ceil(len(source_units) / len(result_units)))
@@ -843,7 +1122,10 @@ class SolutionScene(Scene):
                         outlines.add(SurroundingRectangle(
                             VGroup(*chunk), color=YELLOW, buff=0.035, stroke_width=2,
                         ))
-                self.play(LaggedStart(*[Create(box) for box in outlines], lag_ratio=0.06))
+                self.play(
+                    *entrance_animations,
+                    LaggedStart(*[Create(box) for box in outlines], lag_ratio=0.06),
+                )
                 copies = []
                 for index, result_unit in enumerate(result_units):
                     chunk = source_units[index * ratio:(index + 1) * ratio]
@@ -860,6 +1142,20 @@ class SolutionScene(Scene):
                     FadeOut(source), FadeOut(outlines),
                     self.animate_create(result_id),
                 )
+                if len(source_units) == ratio * len(result_units):
+                    formula = Text(
+                        f"{len(source_units)} ÷ {ratio} = {len(result_units)}",
+                        font_size=22,
+                        color=GREEN,
+                    )
+                    formula.next_to(result, DOWN, buff=0.22)
+                    formula.add_updater(
+                        lambda badge, host=result: badge.next_to(
+                            host, DOWN, buff=0.22,
+                        )
+                    )
+                    self.mapping_badges[result_id] = formula
+                    self.play(FadeIn(formula, shift=UP * 0.08))
                 visible.remove(source_id)
                 visible.append(result_id)
             elif selected:
@@ -868,7 +1164,34 @@ class SolutionScene(Scene):
                     for index, item in enumerate(selected)
                 ])
         elif op == "merge":
-            selected = [self.objects[item] for item in targets if item in visible]
+            selected_ids = [item for item in targets if item in visible]
+            selected = [self.objects[item] for item in selected_ids]
+            repeated_ids = [
+                item for item in selected_ids if item in self.repeat_units
+            ]
+            if len(repeated_ids) >= 2:
+                smaller_id = min(repeated_ids, key=lambda item: len(self.repeat_units[item]))
+                larger_id = max(repeated_ids, key=lambda item: len(self.repeat_units[item]))
+                smaller_units = self.repeat_units[smaller_id]
+                larger_units = self.repeat_units[larger_id]
+                pair_count = min(len(smaller_units), len(larger_units))
+                connector = DoubleArrow(
+                    self.objects[smaller_id].get_right(),
+                    self.objects[larger_id].get_left(),
+                    color=YELLOW, buff=0.12,
+                )
+                self.play(
+                    GrowArrow(connector),
+                    *[
+                        larger_units[index].animate.set_color(
+                            self.color(self.specs[smaller_id].get("color"))
+                        )
+                        for index in range(pair_count)
+                    ],
+                )
+                self.play(FadeOut(connector))
+                self.mapped_into[smaller_id] = (larger_id, pair_count)
+                return
             if selected:
                 center = sum((item.get_center() for item in selected), ORIGIN) / len(selected)
                 self.play(*[item.animate.move_to(center) for item in selected])
@@ -894,11 +1217,36 @@ class SolutionScene(Scene):
                     start, end,
                     color=YELLOW, buff=0.12,
                 )
+                compare_badge = None
+                first_params = self.specs[targets[0]].get("params") or {}
+                second_params = self.specs[targets[1]].get("params") or {}
+                first_raw = first_params.get("value", first_params.get("count"))
+                second_raw = second_params.get("value", second_params.get("count"))
+                if first_raw is not None and second_raw is not None:
+                    first_value = self.number(first_raw, 0)
+                    second_value = self.number(second_raw, 0)
+                    greater = max(first_value, second_value)
+                    smaller = min(first_value, second_value)
+                    difference = greater - smaller
+                    self.last_comparison_difference = difference
+                    compare_badge = Text(
+                        f"{greater:g} − {smaller:g} = {difference:g}",
+                        font_size=22, color=YELLOW,
+                    )
+                    compare_badge.next_to(VGroup(*selected[:2]), DOWN, buff=0.22)
+                    compare_badge.add_updater(
+                        lambda badge, pair=selected[:2]: badge.next_to(
+                            VGroup(*pair), DOWN, buff=0.22,
+                        )
+                    )
                 self.play(
                     GrowArrow(connector),
                     *[Indicate(item, color=YELLOW) for item in selected[:2]],
+                    *([FadeIn(compare_badge)] if compare_badge is not None else []),
                 )
                 self.play(FadeOut(connector))
+                if compare_badge is not None:
+                    self.comparison_badges[frozenset(targets[:2])] = compare_badge
             elif selected:
                 self.play(Indicate(selected[0], color=YELLOW))
         elif op == "verify":
@@ -913,17 +1261,31 @@ class SolutionScene(Scene):
             selected = [self.objects[item] for item in selected_ids]
             if selected:
                 framed = [*selected]
+                selected_set = set(selected_ids)
+                framed.extend(
+                    badge
+                    for compared_ids, badge in self.comparison_badges.items()
+                    if compared_ids.issubset(selected_set)
+                )
                 for item in selected_ids:
                     badge = self.mapping_badges.get(item)
                     if badge is not None:
                         framed.append(badge)
-                frame = SurroundingRectangle(VGroup(*framed), color=GREEN, buff=0.18)
-                check = Text("✓", font_size=42, color=GREEN).next_to(frame, RIGHT, buff=0.22)
+                frames = VGroup(*[
+                    SurroundingRectangle(item, color=GREEN, buff=0.16)
+                    for item in framed
+                ])
+                check = Text("✓", font_size=42, color=GREEN).next_to(
+                    frames, RIGHT, buff=0.22,
+                )
                 # The frame verifies the whole relation without recolouring
                 # every object; recolouring would erase the mapped/unmapped
                 # distinction at exactly the moment it is being checked.
-                self.play(Create(frame), FadeIn(check))
-                self.play(FadeOut(frame), FadeOut(check))
+                self.play(
+                    LaggedStart(*[Create(frame) for frame in frames], lag_ratio=0.12),
+                    FadeIn(check),
+                )
+                self.play(FadeOut(frames), FadeOut(check))
         elif op == "highlight":
             mapped_units = []
             mapped_ids = set()
@@ -967,7 +1329,23 @@ class SolutionScene(Scene):
         caption = None
         for scene in VISUAL_SCENES:
             caption = self.show_caption(caption, scene.get("teaching_line"))
-            for action in scene.get("actions", []):
+            actions = scene.get("actions", [])
+            for index, action in enumerate(actions):
+                next_action = actions[index + 1] if index + 1 < len(actions) else {}
+                # A source created only to be immediately partitioned is one
+                # semantic action.  Deferring its entrance lets the units and
+                # grouping outlines appear together instead of presenting a
+                # misleading static block for a full animation beat.
+                if (
+                    action.get("op") == "create"
+                    and next_action.get("op") == "partition"
+                    and set(action.get("targets") or [])
+                    and set(action.get("targets") or []).issubset(
+                        set(next_action.get("targets") or [])
+                    )
+                ):
+                    self.deferred_creates.update(action.get("targets") or [])
+                    continue
                 self.execute_action(action, visible)
             self.wait(0.7)
 
@@ -1206,6 +1584,10 @@ class CompileVideoTool(ITool):
                 "visual_fallback_only": {
                     "type": "boolean",
                     "description": "跳过模型写码，直接渲染已验证关系图保底",
+                },
+                "model_codegen": {
+                    "type": "boolean",
+                    "description": "仅供实验：让模型自由写 Manim；生产默认编译 Visual IR",
                 }
             },
             "required": [],
@@ -1216,6 +1598,8 @@ class CompileVideoTool(ITool):
         artifacts: list[ArtifactSpec] = []
         steps: list[dict[str, Any]] = []
         repair_count = 0
+        if ctx.state.get("visual_plan") and not args.get("model_codegen"):
+            return await self._compile_visual_ir(ctx, artifacts, steps)
         if args.get("visual_fallback_only"):
             rejected = ToolResult(
                 success=False,
@@ -1389,6 +1773,66 @@ class CompileVideoTool(ITool):
                 + (f"（内部定向修复 {repair_count} 次）" if repair_count else "（首稿通过）")
             ),
             data=data,
+            artifacts=artifacts,
+        )
+
+    async def _compile_visual_ir(
+        self,
+        ctx: ToolContext,
+        artifacts: list[ArtifactSpec],
+        steps: list[dict[str, Any]],
+    ) -> ToolResult:
+        """Compile the validated scene contract without another generative hop."""
+        code = build_verified_fallback_code(ctx)
+        ctx.state["latest_manim_code"] = code
+        ctx.state["last_validation_passed"] = True
+        ctx.state.pop("delivery_fallback", None)
+        ctx.state.pop("delivery_fallback_reason", None)
+        artifacts.append(
+            ArtifactSpec(
+                kind="manim_code",
+                filename=f"compiled-turn{ctx.turn_index:02d}.py",
+                content=code,
+                meta={"mode": "visual_ir_compiler", "quality_degraded": False},
+            )
+        )
+        rendered = await self._renderer.execute({"code": code}, ctx)
+        artifacts.extend(rendered.artifacts)
+        steps.append(self._step("visual_ir_render", rendered))
+        if not rendered.success:
+            return self._failed(
+                "Visual IR 确定性编译未能渲染",
+                rendered,
+                steps,
+                artifacts,
+                0,
+            )
+        report = {
+            "stage": self.name,
+            "success": True,
+            "compiler": "visual_ir",
+            "internal_repair_count": 0,
+        }
+        artifacts.append(
+            ArtifactSpec(
+                kind="pipeline_report",
+                filename=f"compile-turn{ctx.turn_index:02d}.json",
+                content=json.dumps(report, ensure_ascii=False, indent=2),
+                meta=report,
+            )
+        )
+        return ToolResult(
+            success=True,
+            summary="编译成功：已验证 Visual IR 首次确定性渲染通过",
+            data={
+                "code": code,
+                "video_path": ctx.state.get("latest_video_path"),
+                "video_url": ctx.state.get("latest_video_url"),
+                "internal_repair_count": 0,
+                "internal_steps": steps,
+                "deterministic_compiler": True,
+                "delivery_fallback": False,
+            },
             artifacts=artifacts,
         )
 

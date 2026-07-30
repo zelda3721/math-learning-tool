@@ -114,7 +114,6 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                                     src={subtitleUrl}
                                     srcLang="zh"
                                     label="中文讲解"
-                                    default
                                 />
                             )}
                         </video>
