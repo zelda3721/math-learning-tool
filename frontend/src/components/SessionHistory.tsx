@@ -31,6 +31,7 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
+    const [refreshNonce, setRefreshNonce] = useState(0)
 
     async function handleDelete(s: PersistedSession, e: React.MouseEvent) {
         e.stopPropagation()
@@ -72,7 +73,7 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
         return () => {
             cancelled = true
         }
-    }, [open, filter, refreshKey])
+    }, [open, filter, refreshKey, refreshNonce])
 
     const grouped = useMemo(() => groupByDate(sessions), [sessions])
 
@@ -122,7 +123,7 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
                         ))}
                     </div>
                     <button
-                        onClick={() => setFilter((f) => f)}
+                        onClick={() => setRefreshNonce((value) => value + 1)}
                         className="ml-auto text-slate-400 hover:text-slate-700"
                         aria-label="刷新"
                     >

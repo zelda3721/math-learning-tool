@@ -76,6 +76,10 @@ _AUDIT_EQUALITY_RE = re.compile(
     r"([-+]?\d+(?:\.\d+)?)\s*([+\-×xX*÷/])\s*"
     r"([-+]?\d+(?:\.\d+)?)\s*=\s*([-+]?\d+(?:\.\d+)?)"
 )
+_AUDIT_OPERATION_RE = re.compile(
+    r"([-+]?\d+(?:\.\d+)?)\s*([+\-×xX*÷/])\s*"
+    r"([-+]?\d+(?:\.\d+)?)"
+)
 
 
 def archetype_to_code_pattern_names(archetype: str) -> list[str]:
@@ -126,7 +130,13 @@ def _machine_checkable_blocking_issue(issue: str) -> bool:
             return True
         if abs(actual - expected_result) > 1e-8:
             return True
-    observed, expected = text.split("observed=", 1)[1].split("expected=", 1)
+    observed_tail = text.split("observed=", 1)[1]
+    # Audit prose is model-authored and may place ``expected=`` before
+    # ``observed=``. That is not a machine-checkable blocker and must never
+    # crash the production pipeline.
+    if "expected=" not in observed_tail:
+        return False
+    observed, expected = observed_tail.split("expected=", 1)
     observed_numbers = _AUDIT_NUMBER_RE.findall(observed)
     expected_numbers = _AUDIT_NUMBER_RE.findall(expected)
     return (
@@ -462,18 +472,16 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 continue
             params = item.get("params") or {}
             try:
-                count = int(
-                    round(
-                        float(
-                            params.get(
-                                "count",
-                                params.get("value", params.get("total_units")),
-                            )
-                        )
-                    )
-                )
+                count = int(round(float(params.get("count") or 0)))
             except (TypeError, ValueError):
                 count = 0
+            if count <= 1:
+                try:
+                    count = int(round(float(
+                        params.get("value", params.get("total_units"))
+                    )))
+                except (TypeError, ValueError):
+                    count = 0
             if 1 < count <= 64:
                 params["count"] = count
                 if item.get("primitive") == "quantity_bar":
@@ -566,6 +574,290 @@ def _validate_essence_rationale(text: str) -> list[str]:
     return errors
 
 
+def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
+    """Build Visual IR from literal equalities in independently verified steps."""
+    answer_text = _strip_decorations(str(ctx.state.get("solution_answer") or ""))
+    answer_numbers = [
+        float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer_text)
+    ]
+    if not answer_numbers:
+        return None
+    answer_value = answer_numbers[-1]
+    equations: list[tuple[float, str, float, float, str]] = []
+    step_records: list[tuple[str, float, str]] = []
+    for step in ctx.state.get("solution_steps") or []:
+        if not isinstance(step, dict):
+            continue
+        operation_text = str(step.get("operation") or "")
+        result_text = str(step.get("result") or "")
+        text = " ".join(
+            (operation_text, result_text, str(step.get("description") or ""))
+        )
+        for left, operator, right, output in _AUDIT_EQUALITY_RE.findall(text):
+            a, b, c = float(left), float(right), float(output)
+            if operator == "+":
+                actual = a + b
+            elif operator == "-":
+                actual = a - b
+            elif operator in {"×", "x", "X", "*"}:
+                actual = a * b
+            elif b != 0:
+                actual = a / b
+            else:
+                continue
+            if abs(actual - c) <= 1e-8:
+                equations.append((a, operator, b, c, text[:100]))
+        # Algebraic steps commonly write the equivalent operation as
+        # ``2x + 5 - 5 = 13 - 5`` and put ``2x = 8`` in the result field.
+        # Recover the literal arithmetic side only when its computed value is
+        # explicitly present in that independently verified step result. This
+        # is expression-level grounding and does not classify the problem.
+        result_numbers = [
+            float(item) for item in _AUDIT_NUMBER_RE.findall(result_text)
+        ]
+        if result_numbers:
+            step_records.append((operation_text, result_numbers[-1], text[:100]))
+        normalized_operation = re.sub(
+            r"\\(?:d?frac)\s*\{\s*([-+]?\d+(?:\.\d+)?)\s*\}"
+            r"\s*\{\s*([-+]?\d+(?:\.\d+)?)\s*\}",
+            r"\1/\2",
+            operation_text,
+        )
+        normalized_operation = (
+            normalized_operation.replace(r"\times", "*")
+            .replace(r"\div", "/")
+            .replace(r"\cdot", "*")
+            .replace("−", "-")
+        )
+        for left, operator, right in _AUDIT_OPERATION_RE.findall(
+            normalized_operation
+        ):
+            a, b = float(left), float(right)
+            if operator == "+":
+                actual = a + b
+            elif operator == "-":
+                actual = a - b
+            elif operator in {"×", "x", "X", "*"}:
+                actual = a * b
+            elif b != 0:
+                actual = a / b
+            else:
+                continue
+            if not any(abs(actual - item) <= 1e-8 for item in result_numbers):
+                continue
+            equation = (a, operator, b, actual, text[:100])
+            if equation not in equations:
+                equations.append(equation)
+    answer_index = next(
+        (
+            index for index in range(len(equations) - 1, -1, -1)
+            if abs(equations[index][3] - answer_value) <= 1e-8
+        ),
+        None,
+    )
+    if answer_index is None:
+        # Some valid solutions express the operation verbally (for example,
+        # "both sides subtract 5") and expose only the resulting state. Build
+        # the chain by accepting an arithmetic edge iff it closes exactly on
+        # that verified result. This searches finite arithmetic semantics, not
+        # a catalogue of question forms.
+        problem_numbers = [
+            float(item)
+            for item in re.findall(r"[-+]?\d+(?:\.\d+)?", ctx.problem or "")
+        ]
+        known_values = list(dict.fromkeys(problem_numbers))
+        recovered: list[tuple[float, str, float, float, str]] = []
+        previous_output: float | None = None
+        for operation_text, output, evidence in step_records:
+            normalized = operation_text.replace("−", "-")
+            hints: list[str] = []
+            for marker, operator in (
+                (("减", "-"), "-"),
+                (("除", "÷", "/", r"\frac"), "/"),
+                (("加", "+"), "+"),
+                (("乘", "×", "*", r"\times", r"\cdot"), "*"),
+            ):
+                if any(item in normalized for item in marker):
+                    hints.append(operator)
+            if not hints:
+                hints = ["-", "/", "+", "*"]
+            operation_numbers = [
+                float(item)
+                for item in re.findall(r"[-+]?\d+(?:\.\d+)?", normalized)
+            ]
+            candidates = list(dict.fromkeys([*operation_numbers, *known_values]))
+            sources = [previous_output] if previous_output is not None else candidates
+            recovered_edge: tuple[float, str, float, float, str] | None = None
+            for operator in hints:
+                for source in sources:
+                    for operand in candidates:
+                        if operator == "-":
+                            actual = source - operand
+                        elif operator == "/" and operand != 0:
+                            actual = source / operand
+                        elif operator == "+":
+                            actual = source + operand
+                        elif operator == "*":
+                            actual = source * operand
+                        else:
+                            continue
+                        if source != output and abs(actual - output) <= 1e-8:
+                            recovered_edge = (
+                                source,
+                                operator,
+                                operand,
+                                output,
+                                evidence,
+                            )
+                            break
+                    if recovered_edge is not None:
+                        break
+                if recovered_edge is not None:
+                    break
+            if recovered_edge is None:
+                recovered = []
+                break
+            recovered.append(recovered_edge)
+            known_values.append(output)
+            previous_output = output
+        if recovered and abs(recovered[-1][3] - answer_value) <= 1e-8:
+            equations = recovered
+            answer_index = len(equations) - 1
+    if answer_index is None:
+        return None
+    equations = equations[: answer_index + 1]
+
+    def number_label(value: float) -> str:
+        return f"{value:g}"
+
+    values: list[float] = []
+    for left, _, right, output, _ in equations:
+        for value in (left, right, output):
+            if value not in values:
+                values.append(value)
+    object_ids = {value: f"verified_value_{index}" for index, value in enumerate(values)}
+    objects = []
+    for value in values:
+        count = int(round(abs(value))) if abs(value - round(value)) <= 1e-8 else 0
+        params: dict[str, Any] = {"value": value}
+        primitive = "quantity_bar"
+        if 1 < count <= 64:
+            primitive = "unit_grid"
+            params.update(
+                {
+                    "count": count,
+                    "columns": min(8, max(2, int(count**0.5 + 0.999))),
+                }
+            )
+        objects.append(
+            {
+                "id": object_ids[value],
+                "primitive": primitive,
+                "meaning": f"已验证运算链中的数量 {number_label(value)}",
+                "label": number_label(value),
+                "color": "green" if value == answer_value else "blue",
+                "params": params,
+            }
+        )
+
+    produced: set[str] = set()
+    setup_ids: list[str] = []
+    actions: list[dict[str, Any]] = []
+    for left, operator, right, output, step_text in equations:
+        source_id = object_ids[left]
+        operand_id = object_ids[right]
+        result_id = object_ids[output]
+        for object_id in (source_id, operand_id):
+            if object_id not in produced and object_id not in setup_ids:
+                setup_ids.append(object_id)
+        if operator == "-" and abs(abs(left - right) - output) <= 1e-8:
+            actions.append(
+                {
+                    "op": "compare",
+                    "targets": [source_id, operand_id],
+                    "result": "",
+                    "meaning": f"直接显示 {number_label(left)} 与 {number_label(right)} 的差",
+                }
+            )
+        action_op = "partition" if operator in {"÷", "/"} else "transform"
+        actions.append(
+            {
+                "op": action_op,
+                "targets": [source_id],
+                "result": result_id,
+                "meaning": step_text or (
+                    f"{number_label(left)} {operator} {number_label(right)}"
+                    f" = {number_label(output)}"
+                ),
+            }
+        )
+        produced.add(result_id)
+
+    final_id = object_ids[answer_value]
+    return {
+        "grounding_source": "verified_solution_arithmetic",
+        "visual_thesis": "让已验证运算链中的每个数量状态连续变化并最终落到答案",
+        "essence_rationale": (
+            "每次图形变化都对应已独立验证的一个等式，学生可以从初始数量、"
+            "中间数量和最终数量的连续变化直接核对答案。"
+        ),
+        "symbol_ledger": [
+            "蓝色单位 = 当前已知或中间数量",
+            "绿色单位 = 已验证的最终答案数量",
+        ],
+        "visual_objects": objects,
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "A1-F6",
+                "key_objects": ", ".join(setup_ids),
+                "action": "建立已验证运算链的初始数量和操作量。",
+                "invariant": "所有数量来自已验证解答",
+                "attention_target": "初始数量及操作量",
+                "exit_condition": "初始关系清楚可见",
+                "teaching_line": "先把已知数量放到同一个画面中。",
+                "duration_s": 4,
+                "actions": [{
+                    "op": "create",
+                    "targets": setup_ids,
+                    "result": "",
+                    "meaning": "建立已验证运算链的初始数量",
+                }],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "A1-F6",
+                "key_objects": ", ".join(object_ids.values()),
+                "action": "逐步执行已验证等式对应的图形变化。",
+                "invariant": "每个终态等于对应等式的结果",
+                "attention_target": "数量在每一步如何改变",
+                "exit_condition": "最终答案数量由连续变化得到",
+                "teaching_line": "依次执行相同的运算，观察数量怎样到达答案。",
+                "duration_s": max(6, min(16, 4 * len(equations))),
+                "actions": actions,
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "A1-F6",
+                "key_objects": final_id,
+                "action": "框选最终数量并核对答案。",
+                "invariant": "最终数量满足已验证答案",
+                "attention_target": "最终答案对象",
+                "exit_condition": "答案对象清楚可见并可计数",
+                "teaching_line": f"最后核对：{answer_text}",
+                "duration_s": 4,
+                "actions": [{
+                    "op": "verify",
+                    "targets": [final_id],
+                    "result": "",
+                    "meaning": "核对已验证答案",
+                }],
+            },
+        ],
+        "forbidden": ["只显示文字等式", "跳过中间数量状态"],
+    }
+
+
 def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] | None:
     """Keep valid graphical objects while discarding an unsafe directing story.
 
@@ -573,7 +865,17 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     verified solution. It does not infer or enumerate a problem type.
     """
     if not isinstance(candidate, dict):
-        return None
+        candidate = _verified_arithmetic_candidate(ctx)
+        if candidate is None:
+            return None
+    elif candidate.get("grounding_source") != "verified_solution_arithmetic":
+        # This function is reached only after the model plan failed its
+        # contract. Prefer a complete chain reconstructed from verified steps
+        # over salvaging attractive but semantically ungrounded objects (such
+        # as an arrow or a pan that merely happens to lead to an answer label).
+        verified_candidate = _verified_arithmetic_candidate(ctx)
+        if verified_candidate is not None:
+            candidate = verified_candidate
     normalized = _normalize_plan(candidate)
     objects = [
         item
@@ -584,7 +886,10 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         and item.get("meaning")
     ]
     if len(objects) < 2:
-        return None
+        verified_candidate = _verified_arithmetic_candidate(ctx)
+        if verified_candidate is None or verified_candidate is candidate:
+            return None
+        return build_safe_visual_plan(verified_candidate, ctx)
     object_ids = [str(item["id"]) for item in objects]
     object_by_id = {str(item["id"]): item for item in objects}
 
@@ -596,11 +901,47 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             return 0
         return value if 1 < value <= 64 else 0
 
-    # Prefer a causal transition that survived parsing. If the model omitted
-    # actions altogether, derive one solely from addressable visual objects:
-    # a larger collection visibly yields a smaller collection. This is a
-    # generic collection relation, not a problem/archetype branch.
-    transition: dict[str, Any] | None = None
+    answer = _strip_decorations(str(ctx.state.get("solution_answer") or "已验证结论"))
+    answer_numbers = [
+        float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer)
+    ]
+    answer_object_id: str | None = None
+    answer_value: float | None = answer_numbers[-1] if answer_numbers else None
+    if answer_value is not None:
+        for object_id in reversed(object_ids):
+            item = object_by_id[object_id]
+            label_numbers = [
+                float(value)
+                for value in re.findall(r"-?\d+(?:\.\d+)?", str(item.get("label") or ""))
+            ]
+            params = item.get("params") or {}
+            try:
+                param_value = float(params.get("value"))
+            except (TypeError, ValueError):
+                param_value = None
+            # A verification formula such as ``2(4)+5=13`` mentions the
+            # answer but is not an addressable answer state. Accept a label
+            # only when it denotes one numeric value; structured objects can
+            # also ground the answer explicitly through params.value.
+            if (
+                len(label_numbers) == 1
+                and label_numbers[0] == answer_value
+            ) or param_value == answer_value:
+                answer_object_id = object_id
+                break
+    if answer_object_id is None:
+        verified_candidate = _verified_arithmetic_candidate(ctx)
+        if verified_candidate is not None:
+            return build_safe_visual_plan(verified_candidate, ctx)
+
+    # Preserve every causal transition that survived parsing. Keeping only
+    # the first one used to truncate multi-step arguments (for example, an
+    # intermediate quantity was shown but never transformed into the verified
+    # answer). If the model omitted all actions, derive one solely from
+    # addressable visual objects. This is Visual-IR continuity, not a topic
+    # or problem-archetype branch.
+    transitions: list[dict[str, Any]] = []
+    preserved_comparisons: list[dict[str, Any]] = []
     for scene in normalized.get("scenes") or []:
         if not isinstance(scene, dict):
             continue
@@ -611,24 +952,31 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 item for item in action.get("targets") or [] if item in object_by_id
             ]
             result = str(action.get("result") or "")
+            if action.get("op") == "compare" and len(targets) >= 2:
+                comparison = {
+                    "op": "compare",
+                    "targets": targets,
+                    "result": "",
+                    "meaning": action.get("meaning")
+                    or "把已验证数量放在同一参照下直接比较",
+                }
+                if comparison not in preserved_comparisons:
+                    preserved_comparisons.append(comparison)
             if (
                 action.get("op") in {"transform", "partition", "map"}
                 and targets
                 and result in object_by_id
                 and result not in targets
             ):
-                transition = {
+                transitions.append({
                     "op": action["op"],
                     "targets": targets,
                     "result": result,
                     "meaning": action.get("meaning") or "显示来源对象如何产生结果对象",
-                }
-                break
-        if transition is not None:
-            break
+                })
 
     repeated_ids = [item for item in object_ids if repeated_count(item)]
-    if transition is None:
+    if not transitions:
         if len(repeated_ids) >= 2:
             source_id = max(repeated_ids, key=repeated_count)
             result_id = min(
@@ -643,16 +991,49 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             if len(non_axes) < 2:
                 return None
             source_id, result_id = non_axes[0], non_axes[-1]
-        transition = {
+        transitions = [{
             "op": "transform",
             "targets": [source_id],
             "result": result_id,
             "meaning": "让来源图形逐步变为已验证关系中的结果图形",
-        }
+        }]
 
-    source_ids = list(transition["targets"])
-    result_id = str(transition["result"])
-    setup_ids = list(source_ids)
+    if answer_object_id is not None and transitions[-1]["result"] != answer_object_id:
+        previous_result = str(transitions[-1]["result"])
+        if transitions[-1]["op"] == "partition":
+            transitions[-1] = {**transitions[-1], "result": answer_object_id}
+        else:
+            transitions.append(
+                {
+                    "op": "transform",
+                    "targets": [previous_result],
+                    "result": answer_object_id,
+                    "meaning": "把最后一个已验证中间状态变为题目所求结果",
+                }
+            )
+        if answer_value is not None and answer_value.is_integer() and 1 < answer_value <= 64:
+            answer_params = object_by_id[answer_object_id].get("params") or {}
+            try:
+                current_count = int(round(float(answer_params.get("count") or 0)))
+            except (TypeError, ValueError):
+                current_count = 0
+            if current_count <= 1:
+                answer_params["count"] = int(answer_value)
+                object_by_id[answer_object_id]["params"] = answer_params
+
+    setup_ids: list[str] = []
+    produced_ids: set[str] = set()
+    for transition in transitions:
+        for target in transition["targets"]:
+            if target not in produced_ids and target not in setup_ids:
+                setup_ids.append(target)
+        produced_ids.add(str(transition["result"]))
+    for comparison in preserved_comparisons:
+        for target in comparison["targets"]:
+            if target not in produced_ids and target not in setup_ids:
+                setup_ids.append(target)
+    source_ids = list(setup_ids)
+    result_id = str(transitions[-1]["result"])
 
     # A pair of scalar magnitudes supplies a stable visible comparison before
     # the collection changes. The compiler derives the exact difference and
@@ -665,15 +1046,15 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             value = float(params.get("value"))
         except (TypeError, ValueError):
             continue
-        if value >= 0 and item not in setup_ids and item != result_id:
+        if value >= 0 and item not in setup_ids and item not in produced_ids:
             scalar_ids.append(item)
     comparison_ids = scalar_ids[:2] if len(scalar_ids) >= 2 else []
     for item in comparison_ids:
         if item not in setup_ids:
             setup_ids.append(item)
 
-    transform_actions: list[dict[str, Any]] = []
-    if comparison_ids:
+    transform_actions: list[dict[str, Any]] = list(preserved_comparisons)
+    if comparison_ids and not preserved_comparisons:
         transform_actions.append(
             {
                 "op": "compare",
@@ -682,7 +1063,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 "meaning": "先把两个已验证数量的差异直接标在同一画面",
             }
         )
-    transform_actions.append(transition)
+    transform_actions.extend(transitions)
 
     verify_ids = [result_id]
     source_count = repeated_count(source_ids[0]) if len(source_ids) == 1 else 0
@@ -711,7 +1092,6 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         verified_line = _strip_decorations(
             str(step.get("description") or step.get("result") or verified_line)
         )[:80]
-    answer = _strip_decorations(str(ctx.state.get("solution_answer") or "已验证结论"))
     ledger = [
         f"{item.get('color') or 'blue'} {item['id']} = {item['meaning']}"
         for item in objects[:4]
@@ -747,7 +1127,10 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             {
                 "role": "transform",
                 "anchor_zone": "A1-F6",
-                "key_objects": ", ".join(dict.fromkeys([*source_ids, result_id])),
+                "key_objects": ", ".join(dict.fromkeys([
+                    *source_ids,
+                    *(str(item["result"]) for item in transitions),
+                ])),
                 "action": "在同一参照中展示来源对象到结果对象的决定性变化。",
                 "invariant": "图形参数来自题目与已验证解答，不改变其数学含义",
                 "attention_target": "来源集合中实际发生变化并产生结果的单位",

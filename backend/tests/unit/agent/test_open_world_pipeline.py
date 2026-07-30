@@ -411,6 +411,29 @@ def test_visual_plan_lowers_exact_multi_source_map_to_partition() -> None:
     assert action["result"] == "final_state"
 
 
+def test_visual_plan_uses_value_when_addressable_count_is_placeholder_one() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"][0].update(
+        {"primitive": "rectangle", "params": {"count": 1, "value": 8}}
+    )
+    plan["visual_objects"][2].update(
+        {"primitive": "rectangle", "params": {"count": 1, "value": 4}}
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "partition",
+            "targets": ["state"],
+            "result": "final_state",
+            "meaning": "divide addressable units equally",
+        }
+    ]
+    objects = {
+        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
+    }
+    assert objects["state"]["params"]["count"] == 8
+    assert objects["final_state"]["params"]["count"] == 4
+
+
 def test_visual_plan_normalizes_total_units_for_partition_result() -> None:
     plan = _open_world_plan()
     plan["visual_objects"][2].update(
@@ -490,6 +513,9 @@ def test_visual_plan_audit_blocks_only_falsifiable_math_conflicts() -> None:
     assert not _machine_checkable_blocking_issue(
         "BLOCKING: add more anchors; observed=verify current objects; "
         "expected=also display 46 and 48 before 94"
+    )
+    assert not _machine_checkable_blocking_issue(
+        "BLOCKING: prose field order; expected=8; observed=13 minus 5"
     )
 
 
@@ -786,6 +812,294 @@ def test_direct_video_salvages_graphics_when_local_model_omits_actions() -> None
     assert _validate_plan(plan, "middle") == []
     transform_actions = plan["scenes"][1]["actions"]
     assert any(action["op"] == "transform" for action in transform_actions)
+
+
+def test_direct_video_safe_plan_preserves_multi_step_causal_chain() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    incomplete = _open_world_plan()
+    incomplete["visual_objects"].append(
+        {
+            "id": "intermediate",
+            "primitive": "quantity_bar",
+            "meaning": "a verified intermediate state",
+            "label": "8",
+            "color": "yellow",
+            "params": {"value": 8},
+        }
+    )
+    incomplete["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["state"],
+            "result": "intermediate",
+            "meaning": "first verified change",
+        },
+        {
+            "op": "transform",
+            "targets": ["intermediate"],
+            "result": "final_state",
+            "meaning": "second verified change",
+        },
+    ]
+    incomplete["scenes"][2]["actions"] = []
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(
+                success=False,
+                summary="verify action missing",
+                data={"plan": incomplete},
+                error="contract_violation",
+            )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "任意新问题",
+        {
+            "solution_verified": True,
+            "solution_answer": "已验证答案",
+            "solution_steps": [{"description": "连续执行两个等价变化"}],
+        },
+    )
+    result = asyncio.run(
+        DirectVideoTool(Planner()).execute({}, ctx)  # type: ignore[arg-type]
+    )
+    assert result.success is True
+    actions = ctx.state["visual_plan"]["scenes"][1]["actions"]
+    successors = [
+        action["result"]
+        for action in actions
+        if action["op"] in {"transform", "partition", "map"}
+    ]
+    assert successors == ["intermediate", "final_state"]
+    assert ctx.state["visual_plan"]["scenes"][2]["actions"][-1]["targets"] == [
+        "final_state"
+    ]
+
+
+def test_direct_video_safe_plan_grounds_final_transition_in_verified_answer() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    incomplete = _open_world_plan()
+    incomplete["visual_objects"] = [
+        {
+            "id": "total",
+            "primitive": "rectangle",
+            "meaning": "verified total",
+            "label": "13",
+            "color": "purple",
+            "params": {"value": 13},
+        },
+        {
+            "id": "remaining",
+            "primitive": "rectangle",
+            "meaning": "verified remainder",
+            "label": "8",
+            "color": "yellow",
+            "params": {"count": 1, "value": 8},
+        },
+        {
+            "id": "two_groups",
+            "primitive": "relation_node",
+            "meaning": "two equal groups",
+            "label": "2 groups",
+            "color": "blue",
+            "params": {},
+        },
+        {
+            "id": "answer_value",
+            "primitive": "rectangle",
+            "meaning": "verified requested value",
+            "label": "4",
+            "color": "green",
+            "params": {"count": 1},
+        },
+    ]
+    incomplete["scenes"][0]["actions"] = [
+        {"op": "create", "targets": ["total"], "result": "", "meaning": "show total"}
+    ]
+    incomplete["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["total"],
+            "result": "remaining",
+            "meaning": "show verified remainder",
+        },
+        {
+            "op": "partition",
+            "targets": ["remaining"],
+            "result": "two_groups",
+            "meaning": "split equally",
+        },
+    ]
+    incomplete["scenes"][2]["actions"] = []
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(
+                success=False,
+                summary="verification omitted",
+                data={"plan": incomplete},
+                error="contract_violation",
+            )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "任意新问题",
+        {
+            "solution_verified": True,
+            "solution_answer": "x = 4",
+            "solution_steps": [{"description": "连续执行等价变化"}],
+        },
+    )
+    result = asyncio.run(
+        DirectVideoTool(Planner()).execute({}, ctx)  # type: ignore[arg-type]
+    )
+    assert result.success is True
+    plan = ctx.state["visual_plan"]
+    structural = [
+        action
+        for action in plan["scenes"][1]["actions"]
+        if action["op"] in {"transform", "partition", "map"}
+    ]
+    assert structural[-1]["op"] == "partition"
+    assert structural[-1]["result"] == "answer_value"
+    objects = {item["id"]: item for item in plan["visual_objects"]}
+    assert objects["remaining"]["params"]["count"] == 8
+    assert objects["answer_value"]["params"]["count"] == 4
+    assert plan["scenes"][2]["actions"][-1]["targets"] == ["answer_value"]
+
+
+def test_direct_video_rebuilds_missing_answer_object_from_verified_equalities() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    incomplete = _open_world_plan()
+    incomplete["visual_objects"] = incomplete["visual_objects"][:2]
+    incomplete["visual_objects"].append(
+        {
+            "id": "verification_formula",
+            "primitive": "relation_node",
+            "meaning": "代入答案后的验证公式",
+            "label": "2(4)+5=13",
+            "color": "green",
+            "params": {},
+        }
+    )
+    incomplete["scenes"][1]["actions"] = []
+    incomplete["scenes"][2]["actions"] = []
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(
+                success=False,
+                summary="answer object omitted",
+                data={"plan": incomplete},
+                error="contract_violation",
+            )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "解方程 2x + 5 = 13",
+        {
+            "solution_verified": True,
+            "solution_answer": "x = 4",
+            "solution_steps": [
+                {"operation": "方程两边同时减去 5", "result": "2x = 8"},
+                {"operation": "方程两边同时除以 2", "result": "x = 4"},
+            ],
+        },
+    )
+    result = asyncio.run(
+        DirectVideoTool(Planner()).execute({}, ctx)  # type: ignore[arg-type]
+    )
+    assert result.success is True
+    plan = ctx.state["visual_plan"]
+    labels = {item["label"]: item for item in plan["visual_objects"]}
+    assert {"13", "5", "8", "2", "4"}.issubset(labels)
+    structural = [
+        action
+        for action in plan["scenes"][1]["actions"]
+        if action["op"] in {"transform", "partition", "map"}
+    ]
+    assert [structural[0]["op"], structural[-1]["op"]] == [
+        "transform",
+        "partition",
+    ]
+    comparisons = [
+        action
+        for action in plan["scenes"][1]["actions"]
+        if action["op"] == "compare"
+    ]
+    assert len(comparisons) == 1
+    compared_labels = {
+        next(
+            item["label"]
+            for item in plan["visual_objects"]
+            if item["id"] == target
+        )
+        for target in comparisons[0]["targets"]
+    }
+    assert compared_labels == {"13", "5"}
+    answer_id = next(
+        item["id"] for item in plan["visual_objects"] if item["label"] == "4"
+    )
+    assert structural[-1]["result"] == answer_id
+    assert plan["scenes"][2]["actions"][-1]["targets"][0] == answer_id
+
+
+def test_direct_video_uses_verified_ir_without_retry_when_plan_is_unparseable() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class Planner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(
+                success=False,
+                summary="无法解析视觉计划",
+                error="parse_failed",
+            )
+
+    planner = Planner()
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "解方程 2x + 5 = 13",
+        {
+            "solution_verified": True,
+            "solution_answer": "x = 4",
+            "solution_steps": [
+                {"operation": "方程两边同时减去 5", "result": "2x = 8"},
+                {"operation": "方程两边同时除以 2", "result": "x = 4"},
+            ],
+        },
+    )
+
+    result = asyncio.run(
+        DirectVideoTool(planner).execute({}, ctx)  # type: ignore[arg-type]
+    )
+
+    assert result.success is True
+    assert planner.calls == 1
+    assert ctx.state["visual_plan"]["scenes"][2]["actions"][0]["op"] == "verify"
 
 
 def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
