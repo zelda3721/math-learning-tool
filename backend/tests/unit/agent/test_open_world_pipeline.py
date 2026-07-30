@@ -1535,6 +1535,11 @@ def test_compile_video_guarantees_a_rendered_verified_fallback() -> None:
     compile(fallback_code, "<fallback>", "exec")
     assert "一个此前未见的问题" in fallback_code
     assert "答案：12" in fallback_code
+    assert "STEP_MODELS" in fallback_code
+    assert "quantity_bar" in fallback_code
+    assert "RoundedRectangle" in fallback_code
+    assert "Arrow(" in fallback_code
+    assert "STEP_TEXTS" not in fallback_code
 
 
 def test_watch_video_allows_exactly_one_frame_evidence_repair() -> None:
