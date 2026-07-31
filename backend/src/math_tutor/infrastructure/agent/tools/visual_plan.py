@@ -63,9 +63,7 @@ _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan"
 _BACKTICKS = "`'\"‘’“”"
 _ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
 _SINGLE_ANCHOR_RE = re.compile(r"\b([A-Fa-f][1-6])\b")
-_COORDINATE_PAIR_RE = re.compile(
-    r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)\s*[)）]"
-)
+_COORDINATE_PAIR_RE = re.compile(r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)\s*[)）]")
 _WHY_SIGNAL_WORDS = (
     "为什么",
     "因为",
@@ -246,20 +244,14 @@ def _parse_plan_audit(
         payload["consistent"],
         [str(item) for item in issues if str(item).strip()],
         [str(item) for item in checked if str(item).strip()],
-        payload.get("corrected_plan")
-        if isinstance(payload.get("corrected_plan"), dict)
-        else None,
+        payload.get("corrected_plan") if isinstance(payload.get("corrected_plan"), dict) else None,
     )
 
 
 def _machine_checkable_blocking_issue(issue: str) -> bool:
     """Accept only falsifiable arithmetic/scalar conflicts as blockers."""
     text = str(issue or "")
-    if not (
-        text.startswith("BLOCKING:")
-        and "observed=" in text
-        and "expected=" in text
-    ):
+    if not (text.startswith("BLOCKING:") and "observed=" in text and "expected=" in text):
         return False
     for left, operator, right, result in _AUDIT_EQUALITY_RE.findall(text):
         a, b, expected_result = float(left), float(right), float(result)
@@ -382,9 +374,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 primitive = "line"
                 params["points"] = [params["start"], params["end"]]
             if primitive == "dot" and not all(key in params for key in ("x", "y")):
-                coordinate = _COORDINATE_PAIR_RE.search(
-                    f"{item['meaning']} {item['label']}"
-                )
+                coordinate = _COORDINATE_PAIR_RE.search(f"{item['meaning']} {item['label']}")
                 if coordinate is not None:
                     params["x"] = float(coordinate.group(1))
                     params["y"] = float(coordinate.group(2))
@@ -412,16 +402,15 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
             elif primitive == "line" and (function_name or params.get("expression")):
                 item["primitive"] = "function_curve"
                 if not params.get("expression"):
-                    params["expression"] = (
-                        f"{function_name}(x)" if function_name else "x"
-                    )
+                    params["expression"] = f"{function_name}(x)" if function_name else "x"
                 params.setdefault("variable", "x")
             total = params.get("total")
             if primitive == "quantity_bar" and "value" not in params and total is not None:
                 params["value"] = total
-            elif primitive in {
-                "dot", "circle", "rectangle", "line", "arrow", "polygon", "unit_grid"
-            } and "count" not in params:
+            elif (
+                primitive in {"dot", "circle", "rectangle", "line", "arrow", "polygon", "unit_grid"}
+                and "count" not in params
+            ):
                 try:
                     numeric_total = int(round(float(total)))
                 except (TypeError, ValueError):
@@ -430,6 +419,78 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                     params["count"] = numeric_total
             item["params"] = params
     plan["visual_objects"] = visual_objects if isinstance(visual_objects, list) else []
+
+    # Close any four-vertex polygon that is explicitly anchored by two vector
+    # arrows with a shared origin.  The three shared points determine the
+    # fourth affine point exactly: p12 = p1 + p2 - origin.  This repairs a
+    # common coordinate transcription error without knowing what problem
+    # produced the vectors or inventing a new visual template.
+    vector_pairs: list[tuple[list[float], list[float], list[float]]] = []
+    arrows = [
+        item
+        for item in visual_objects
+        if isinstance(item, dict) and item.get("primitive") == "arrow"
+    ]
+    for index, first in enumerate(arrows):
+        first_params = first.get("params") or {}
+        first_start = first_params.get("start")
+        first_end = first_params.get("end")
+        if not (
+            isinstance(first_start, list)
+            and len(first_start) >= 2
+            and isinstance(first_end, list)
+            and len(first_end) >= 2
+        ):
+            continue
+        for second in arrows[index + 1 :]:
+            second_params = second.get("params") or {}
+            second_start = second_params.get("start")
+            second_end = second_params.get("end")
+            if not (
+                isinstance(second_start, list)
+                and len(second_start) >= 2
+                and isinstance(second_end, list)
+                and len(second_end) >= 2
+            ):
+                continue
+            try:
+                origin = [float(first_start[0]), float(first_start[1])]
+                other_origin = [float(second_start[0]), float(second_start[1])]
+                first_point = [float(first_end[0]), float(first_end[1])]
+                second_point = [float(second_end[0]), float(second_end[1])]
+            except (TypeError, ValueError):
+                continue
+            if all(abs(left - right) <= 1e-8 for left, right in zip(origin, other_origin)):
+                vector_pairs.append((origin, first_point, second_point))
+
+    def same_point(left: Any, right: list[float]) -> bool:
+        if not isinstance(left, list) or len(left) < 2:
+            return False
+        try:
+            return all(abs(float(left[index]) - right[index]) <= 1e-8 for index in range(2))
+        except (TypeError, ValueError):
+            return False
+
+    for item in visual_objects:
+        if not isinstance(item, dict) or item.get("primitive") != "polygon":
+            continue
+        params = item.get("params") or {}
+        vertices = params.get("vertices")
+        if not isinstance(vertices, list) or len(vertices) != 4:
+            continue
+        for origin, first_point, second_point in vector_pairs:
+            if not all(
+                any(same_point(vertex, required) for vertex in vertices)
+                for required in (origin, first_point, second_point)
+            ):
+                continue
+            expected = [
+                first_point[0] + second_point[0] - origin[0],
+                first_point[1] + second_point[1] - origin[1],
+            ]
+            params["vertices"] = [origin, first_point, expected, second_point]
+            item["params"] = params
+            break
 
     repeat_counts: dict[str, int] = {}
     for item in visual_objects:
@@ -500,8 +561,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                     # object. Unknown roots remain untouched for validation.
                     action["targets"] = [
                         target.split(".", 1)[0]
-                        if "." in target
-                        and target.split(".", 1)[0] in declared_object_ids
+                        if "." in target and target.split(".", 1)[0] in declared_object_ids
                         else target
                         for target in action["targets"]
                     ]
@@ -551,9 +611,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         and action["result"] in repeat_counts
                     ):
                         counted_targets = [
-                            target
-                            for target in action["targets"]
-                            if target in repeat_counts
+                            target for target in action["targets"] if target in repeat_counts
                         ]
                         if len(counted_targets) >= 2:
                             source = max(counted_targets, key=repeat_counts.get)
@@ -561,10 +619,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                             source_count = repeat_counts[source]
                             divisor_count = repeat_counts[divisor]
                             result_count = repeat_counts[action["result"]]
-                            if (
-                                divisor_count > 0
-                                and source_count / divisor_count == result_count
-                            ):
+                            if divisor_count > 0 and source_count / divisor_count == result_count:
                                 action["op"] = "partition"
                                 action["targets"] = [source]
                     if (
@@ -592,8 +647,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
             # the planner otherwise produced no verification operation.  This
             # is a Visual-IR repair, independent of the mathematical topic.
             if scene["role"] == "verify" and not any(
-                isinstance(action, dict)
-                and action.get("op") in _VERIFY_VISUAL_ACTIONS
+                isinstance(action, dict) and action.get("op") in _VERIFY_VISUAL_ACTIONS
                 for action in scene["actions"]
             ):
                 highlight = next(
@@ -608,6 +662,25 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 )
                 if highlight is not None:
                     highlight["op"] = "verify"
+            if scene["role"] == "verify":
+                evidence_targets = [
+                    str(target)
+                    for action in scene["actions"]
+                    if isinstance(action, dict) and action.get("op") in {"measure", "compare"}
+                    for target in action.get("targets") or []
+                ]
+                final_verify = next(
+                    (
+                        action
+                        for action in reversed(scene["actions"])
+                        if isinstance(action, dict) and action.get("op") == "verify"
+                    ),
+                    None,
+                )
+                if final_verify is not None:
+                    final_verify["targets"] = list(
+                        dict.fromkeys([*(final_verify.get("targets") or []), *evidence_targets])
+                    )
 
         # Local planners sometimes put the only new relationship graphic in
         # the verify beat, after a transform beat made solely of self-
@@ -620,17 +693,14 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, dict) and item.get("id")
         }
         verify_scenes = [
-            scene
-            for scene in scenes
-            if isinstance(scene, dict) and scene.get("role") == "verify"
+            scene for scene in scenes if isinstance(scene, dict) and scene.get("role") == "verify"
         ]
         for scene in scenes:
             if not isinstance(scene, dict) or scene.get("role") != "transform":
                 continue
             actions = scene.get("actions") or []
             if any(
-                isinstance(action, dict)
-                and action.get("op") in _MUTATING_VISUAL_ACTIONS
+                isinstance(action, dict) and action.get("op") in _MUTATING_VISUAL_ACTIONS
                 for action in actions
             ):
                 continue
@@ -643,8 +713,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         isinstance(action, dict)
                         and action.get("op") == "create"
                         and any(
-                            primitive_by_id.get(str(target))
-                            in {"line", "arrow", "function_curve"}
+                            primitive_by_id.get(str(target)) in {"line", "arrow", "function_curve"}
                             for target in targets
                         )
                     )
@@ -677,8 +746,19 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
         # generic Visual-IR identity repair and does not classify the problem.
         visible_before_scene: set[str] = set()
         ignored_identity_tokens = {
-            "curve", "line", "dot", "bar", "grid", "node", "shape",
-            "before", "after", "old", "new", "source", "result",
+            "curve",
+            "line",
+            "dot",
+            "bar",
+            "grid",
+            "node",
+            "shape",
+            "before",
+            "after",
+            "old",
+            "new",
+            "source",
+            "result",
         }
 
         def identity_tokens(object_id: str) -> set[str]:
@@ -693,8 +773,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 continue
             actions = scene.get("actions") or []
             has_mutation = any(
-                isinstance(action, dict)
-                and action.get("op") in _MUTATING_VISUAL_ACTIONS
+                isinstance(action, dict) and action.get("op") in _MUTATING_VISUAL_ACTIONS
                 for action in actions
             )
             if scene.get("role") == "transform" and not has_mutation:
@@ -847,18 +926,14 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 count = 0
             if count <= 1:
                 try:
-                    count = int(round(float(
-                        params.get("value", params.get("total_units"))
-                    )))
+                    count = int(round(float(params.get("value", params.get("total_units")))))
                 except (TypeError, ValueError):
                     count = 0
             if 1 < count <= 64:
                 params["count"] = count
                 if item.get("primitive") == "quantity_bar":
                     item["primitive"] = "unit_grid"
-                    params.setdefault(
-                        "columns", min(8, max(2, int(count**0.5 + 0.999)))
-                    )
+                    params.setdefault("columns", min(8, max(2, int(count**0.5 + 0.999))))
                 item["params"] = params
 
     forbidden = plan.get("forbidden") or []
@@ -947,9 +1022,7 @@ def _validate_essence_rationale(text: str) -> list[str]:
 def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
     """Build Visual IR from literal equalities in independently verified steps."""
     answer_text = _strip_decorations(str(ctx.state.get("solution_answer") or ""))
-    answer_numbers = [
-        float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer_text)
-    ]
+    answer_numbers = [float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer_text)]
     if not answer_numbers:
         return None
     answer_value = answer_numbers[-1]
@@ -960,9 +1033,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             continue
         operation_text = str(step.get("operation") or "")
         result_text = str(step.get("result") or "")
-        text = " ".join(
-            (operation_text, result_text, str(step.get("description") or ""))
-        )
+        text = " ".join((operation_text, result_text, str(step.get("description") or "")))
         for left, operator, right, output in _AUDIT_EQUALITY_RE.findall(text):
             a, b, c = float(left), float(right), float(output)
             if operator == "+":
@@ -982,9 +1053,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
         # Recover the literal arithmetic side only when its computed value is
         # explicitly present in that independently verified step result. This
         # is expression-level grounding and does not classify the problem.
-        result_numbers = [
-            float(item) for item in _AUDIT_NUMBER_RE.findall(result_text)
-        ]
+        result_numbers = [float(item) for item in _AUDIT_NUMBER_RE.findall(result_text)]
         if result_numbers:
             step_records.append((operation_text, result_numbers[-1], text[:100]))
         normalized_operation = re.sub(
@@ -999,9 +1068,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             .replace(r"\cdot", "*")
             .replace("−", "-")
         )
-        for left, operator, right in _AUDIT_OPERATION_RE.findall(
-            normalized_operation
-        ):
+        for left, operator, right in _AUDIT_OPERATION_RE.findall(normalized_operation):
             a, b = float(left), float(right)
             if operator == "+":
                 actual = a + b
@@ -1020,7 +1087,8 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 equations.append(equation)
     answer_index = next(
         (
-            index for index in range(len(equations) - 1, -1, -1)
+            index
+            for index in range(len(equations) - 1, -1, -1)
             if abs(equations[index][3] - answer_value) <= 1e-8
         ),
         None,
@@ -1032,8 +1100,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
         # that verified result. This searches finite arithmetic semantics, not
         # a catalogue of question forms.
         problem_numbers = [
-            float(item)
-            for item in re.findall(r"[-+]?\d+(?:\.\d+)?", ctx.problem or "")
+            float(item) for item in re.findall(r"[-+]?\d+(?:\.\d+)?", ctx.problem or "")
         ]
         known_values = list(dict.fromkeys(problem_numbers))
         recovered: list[tuple[float, str, float, float, str]] = []
@@ -1052,8 +1119,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             if not hints:
                 hints = ["-", "/", "+", "*"]
             operation_numbers = [
-                float(item)
-                for item in re.findall(r"[-+]?\d+(?:\.\d+)?", normalized)
+                float(item) for item in re.findall(r"[-+]?\d+(?:\.\d+)?", normalized)
             ]
             candidates = list(dict.fromkeys([*operation_numbers, *known_values]))
             sources = [previous_output] if previous_output is not None else candidates
@@ -1155,7 +1221,8 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "op": action_op,
                 "targets": [source_id],
                 "result": result_id,
-                "meaning": step_text or (
+                "meaning": step_text
+                or (
                     f"{number_label(left)} {operator} {number_label(right)}"
                     f" = {number_label(output)}"
                 ),
@@ -1187,12 +1254,14 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "exit_condition": "初始关系清楚可见",
                 "teaching_line": "先把已知数量放到同一个画面中。",
                 "duration_s": 4,
-                "actions": [{
-                    "op": "create",
-                    "targets": setup_ids,
-                    "result": "",
-                    "meaning": "建立已验证运算链的初始数量",
-                }],
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": setup_ids,
+                        "result": "",
+                        "meaning": "建立已验证运算链的初始数量",
+                    }
+                ],
             },
             {
                 "role": "transform",
@@ -1216,12 +1285,14 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "exit_condition": "答案对象清楚可见并可计数",
                 "teaching_line": f"最后核对：{answer_text}",
                 "duration_s": 4,
-                "actions": [{
-                    "op": "verify",
-                    "targets": [final_id],
-                    "result": "",
-                    "meaning": "核对已验证答案",
-                }],
+                "actions": [
+                    {
+                        "op": "verify",
+                        "targets": [final_id],
+                        "result": "",
+                        "meaning": "核对已验证答案",
+                    }
+                ],
             },
         ],
         "forbidden": ["只显示文字等式", "跳过中间数量状态"],
@@ -1237,48 +1308,92 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     neighborhood focus and reference value are all copied from deterministic
     evidence, so a malformed director response cannot invent new mathematics.
     """
-    request = ctx.state.get("verify_math_request") or ctx.state.get(
-        "solve_math_request"
-    )
-    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get(
-        "solve_math_evidence"
-    )
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
     if not isinstance(request, dict) or not isinstance(evidence, dict):
         return None
     if not evidence.get("success") or evidence.get("all_claims_passed") is not True:
         return None
 
+    operations = [item for item in request.get("operations") or [] if isinstance(item, dict)]
     raw_evidence_by_id = {
         str(item.get("id")): item.get("result")
         for item in evidence.get("operations") or []
         if isinstance(item, dict) and item.get("id")
     }
     evidence_by_id = {
-        operation_id: str(result or "")
-        for operation_id, result in raw_evidence_by_id.items()
+        operation_id: str(result or "") for operation_id, result in raw_evidence_by_id.items()
     }
+    reference_pattern = re.compile(r"^\$(?P<id>[A-Za-z_][A-Za-z0-9_]*)(?:\[(?P<index>\d+)\])?$")
+
+    def resolve_reference(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        match = reference_pattern.fullmatch(value.strip())
+        if match is None:
+            return value
+        resolved = raw_evidence_by_id.get(match.group("id"))
+        index = match.group("index")
+        if index is not None:
+            if not isinstance(resolved, list):
+                return None
+            try:
+                return resolved[int(index)]
+            except (IndexError, TypeError, ValueError):
+                return None
+        return resolved
+
+    def contains_reference(value: Any, operation_id: str) -> bool:
+        if isinstance(value, str):
+            match = reference_pattern.fullmatch(value.strip())
+            return bool(match and match.group("id") == operation_id)
+        if isinstance(value, list):
+            return any(contains_reference(item, operation_id) for item in value)
+        if isinstance(value, dict):
+            return any(contains_reference(item, operation_id) for item in value.values())
+        return False
+
+    # A solve operation may be an intermediate calculation (for example a
+    # stationary point later substituted into the original expression).  It
+    # represents the problem's roots only when the verified final claim
+    # directly consumes that solve result.  This is data-flow analysis over
+    # Math IR, not a classification of the natural-language question.
+    final_claim_solve_ids = {
+        str(operation.get("id"))
+        for operation in operations
+        if str(operation.get("op") or "").lower() == "solve"
+        and operation.get("id")
+        and any(
+            contains_reference(claim, str(operation.get("id")))
+            for claim in request.get("claims") or []
+            if isinstance(claim, dict)
+        )
+    }
+
     resolved_results: dict[str, str] = {}
     candidate: tuple[str, str, float, float] | None = None
-    for operation in request.get("operations") or []:
-        if not isinstance(operation, dict):
-            continue
+    for operation in operations:
         operation_id = str(operation.get("id") or "")
         expression = str(operation.get("expression") or "").strip()
         if expression.startswith("$"):
-            expression = resolved_results.get(expression[1:], "")
+            resolved_expression = resolve_reference(expression)
+            expression = str(resolved_expression or "")
         result = evidence_by_id.get(operation_id, "")
         if operation_id and result:
             resolved_results[operation_id] = result
         variable = str(operation.get("variable") or "x").strip()
-        if str(operation.get("op") or "").lower() == "solve" and expression:
+        operation_name = str(operation.get("op") or "").lower()
+        if operation_name == "solve" and operation_id in final_claim_solve_ids and expression:
             raw_roots = raw_evidence_by_id.get(operation_id)
             roots = raw_roots if isinstance(raw_roots, list) else []
             try:
                 root_values = sorted({float(root) for root in roots})
             except (TypeError, ValueError):
                 root_values = []
-            if root_values and len(root_values) <= 8 and all(
-                math.isfinite(root) and abs(root) < 1e6 for root in root_values
+            if (
+                root_values
+                and len(root_values) <= 8
+                and all(math.isfinite(root) and abs(root) < 1e6 for root in root_values)
             ):
                 margin = max(2.2, (root_values[-1] - root_values[0]) * 0.35 + 1.4)
                 x_start = root_values[0] - margin
@@ -1315,8 +1430,7 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                 guide_ids = [f"grounded_root_guide_{index}" for index in range(len(root_values))]
                 plan = {
                     "visual_thesis": (
-                        "把一元方程移到同一侧形成函数曲线，"
-                        "用曲线与 x 轴的交点直接定位全部实根。"
+                        "把一元方程移到同一侧形成函数曲线，用曲线与 x 轴的交点直接定位全部实根。"
                     ),
                     "essence_rationale": (
                         "方程成立等价于同侧表达式的函数值为零；"
@@ -1387,12 +1501,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                             "exit_condition": "曲线及 x 轴清楚可见",
                             "teaching_line": "把方程移到同一侧，解就是这条曲线的零点。",
                             "duration_s": 5,
-                            "actions": [{
-                                "op": "create",
-                                "targets": ["grounded_solve_axes", "grounded_solve_curve"],
-                                "result": "",
-                                "meaning": "显示确定性方程对应的函数曲线",
-                            }],
+                            "actions": [
+                                {
+                                    "op": "create",
+                                    "targets": ["grounded_solve_axes", "grounded_solve_curve"],
+                                    "result": "",
+                                    "meaning": "显示确定性方程对应的函数曲线",
+                                }
+                            ],
                         },
                         {
                             "role": "transform",
@@ -1404,12 +1520,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                             "exit_condition": "全部实根均被图形标出",
                             "teaching_line": "曲线与 x 轴相交的位置给出全部实数解。",
                             "duration_s": 7,
-                            "actions": [{
-                                "op": "create",
-                                "targets": [*guide_ids, "grounded_solve_roots"],
-                                "result": "",
-                                "meaning": "把确定性求得的根落到 x 轴交点",
-                            }],
+                            "actions": [
+                                {
+                                    "op": "create",
+                                    "targets": [*guide_ids, "grounded_solve_roots"],
+                                    "result": "",
+                                    "meaning": "把确定性求得的根落到 x 轴交点",
+                                }
+                            ],
                         },
                         {
                             "role": "verify",
@@ -1421,12 +1539,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                             "exit_condition": "每个根都与零点位置一致",
                             "teaching_line": f"交点横坐标为 {root_label}，代回后函数值为零。",
                             "duration_s": 5,
-                            "actions": [{
-                                "op": "verify",
-                                "targets": ["grounded_solve_roots"],
-                                "result": "",
-                                "meaning": "核对曲线零点与确定性解集",
-                            }],
+                            "actions": [
+                                {
+                                    "op": "verify",
+                                    "targets": ["grounded_solve_roots"],
+                                    "result": "",
+                                    "meaning": "核对曲线零点与确定性解集",
+                                }
+                            ],
                         },
                     ],
                     "forbidden": ["用答案文字代替零点", "省略多根中的任意一个"],
@@ -1436,6 +1556,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                 if not _validate_plan(normalized, ctx.grade):
                     return normalized
         point = operation.get("point")
+        if operation_name == "substitute":
+            substitutions = operation.get("substitutions")
+            if isinstance(substitutions, dict) and len(substitutions) == 1:
+                substitution_variable, substitution_value = next(iter(substitutions.items()))
+                resolved_point = resolve_reference(substitution_value)
+                if resolved_point is not None:
+                    variable = str(substitution_variable or variable)
+                    point = resolved_point
         if not expression or point is None or not result:
             continue
         try:
@@ -1473,16 +1601,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         return None
     open_result_point = (
-        point_value_on_curve is None
-        or abs(point_value_on_curve - result_value) > 1e-8
+        point_value_on_curve is None or abs(point_value_on_curve - result_value) > 1e-8
     )
 
     expression_label = f"f({variable}) = {expression}"
     result_label = f"y = {result_value:g}"
     return {
         "visual_thesis": (
-            "把确定性计算中的函数画出来，逐步收紧到指定点附近，"
-            "并与已验算的结果线直接比较。"
+            "把确定性计算中的函数画出来，逐步收紧到指定点附近，并与已验算的结果线直接比较。"
         ),
         "essence_rationale": (
             "学生同时看到函数在目标点附近的局部走势和固定结果线；"
@@ -1645,6 +1771,216 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     }
 
 
+def ground_visual_plan_from_math_execution(
+    plan: dict[str, Any], ctx: ToolContext
+) -> dict[str, Any]:
+    """Make drawable geometry agree with already verified Math IR.
+
+    This is deliberately driven by executable operation semantics rather than
+    natural-language problem labels. Whenever a verified 2×2 linear map is
+    followed by a polygon transform, the mapped vertices and basis vectors are
+    fully determined. The director may choose the story and styling, but it
+    may not invent those coordinates.
+    """
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
+    if not isinstance(request, dict) or not isinstance(evidence, dict):
+        return plan
+    if not evidence.get("success") or evidence.get("all_claims_passed") is not True:
+        return plan
+
+    result_by_id = {
+        str(item.get("id")): item.get("result")
+        for item in evidence.get("operations") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+
+    def finite_number(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    matrix_contracts: list[tuple[list[list[float]], float]] = []
+    for operation in request.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        if str(operation.get("op") or "").lower() != "determinant":
+            continue
+        expression = operation.get("expression")
+        if (
+            not isinstance(expression, list)
+            or len(expression) != 2
+            or not all(isinstance(row, list) and len(row) == 2 for row in expression)
+        ):
+            continue
+        flattened = [finite_number(value) for row in expression for value in row]
+        determinant = finite_number(result_by_id.get(str(operation.get("id") or "")))
+        if determinant is None or any(value is None for value in flattened):
+            continue
+        a, b, c, d = (float(value) for value in flattened if value is not None)
+        matrix_contracts.append(([[a, b], [c, d]], determinant))
+    if len(matrix_contracts) != 1:
+        return plan
+
+    matrix, determinant = matrix_contracts[0]
+    objects = {
+        str(item.get("id")): item
+        for item in plan.get("visual_objects") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    transforms: list[tuple[dict[str, Any], str, str]] = []
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for action in scene.get("actions") or []:
+            if not isinstance(action, dict) or action.get("op") != "transform":
+                continue
+            targets = [str(item) for item in action.get("targets") or []]
+            result_id = str(action.get("result") or "")
+            source_id = next(
+                (
+                    item
+                    for item in targets
+                    if (objects.get(item) or {}).get("primitive") == "polygon"
+                ),
+                "",
+            )
+            if (
+                source_id
+                and result_id
+                and (objects.get(result_id) or {}).get("primitive") == "polygon"
+            ):
+                transforms.append((scene, source_id, result_id))
+    if len(transforms) != 1:
+        return plan
+
+    transform_scene, source_id, result_id = transforms[0]
+    source = objects[source_id]
+    result = objects[result_id]
+    source_vertices = (source.get("params") or {}).get("vertices")
+    if (
+        not isinstance(source_vertices, list)
+        or len(source_vertices) < 3
+        or not all(isinstance(point, list) and len(point) >= 2 for point in source_vertices)
+    ):
+        return plan
+
+    mapped_vertices: list[list[float]] = []
+    for point in source_vertices:
+        x = finite_number(point[0])
+        y = finite_number(point[1])
+        if x is None or y is None:
+            return plan
+        mapped_vertices.append(
+            [
+                matrix[0][0] * x + matrix[0][1] * y,
+                matrix[1][0] * x + matrix[1][1] * y,
+            ]
+        )
+    result_params = result.get("params") or {}
+    old_vertices = result_params.get("vertices")
+    result_params["vertices"] = mapped_vertices
+    result_params["verified_measure"] = abs(determinant)
+    result["params"] = result_params
+
+    existing_ids = set(objects)
+    arrow_ids: list[str] = []
+    for index, endpoint in enumerate(
+        ([matrix[0][0], matrix[1][0]], [matrix[0][1], matrix[1][1]]),
+        start=1,
+    ):
+        existing_arrow_id = next(
+            (
+                object_id
+                for object_id, item in objects.items()
+                if object_id not in arrow_ids
+                and item.get("primitive") == "arrow"
+                and (item.get("params") or {}).get("start") == [0, 0]
+                and (item.get("params") or {}).get("end") == endpoint
+            ),
+            "",
+        )
+        if existing_arrow_id:
+            arrow_ids.append(existing_arrow_id)
+            continue
+        base = f"verified_basis_{index}"
+        arrow_id = base
+        suffix = 2
+        while arrow_id in existing_ids:
+            arrow_id = f"{base}_{suffix}"
+            suffix += 1
+        existing_ids.add(arrow_id)
+        arrow_ids.append(arrow_id)
+        arrow = {
+            "id": arrow_id,
+            "primitive": "arrow",
+            "meaning": f"已验证线性映射的第 {index} 个列向量",
+            "label": f"e{index} → ({endpoint[0]:g}, {endpoint[1]:g})",
+            "color": "yellow" if index == 1 else "green",
+            "params": {"start": [0, 0], "end": endpoint},
+        }
+        plan["visual_objects"].append(arrow)
+        objects[arrow_id] = arrow
+    transform_actions = transform_scene.get("actions") or []
+    transform_actions.insert(
+        0,
+        {
+            "op": "create",
+            "targets": arrow_ids,
+            "result": "",
+            "meaning": "先显示由已验证矩阵列决定的两个基向量",
+        },
+    )
+    transform_scene["actions"] = transform_actions
+
+    # A scalar conclusion that merely repeats the measured polygon is not a
+    # second visual proof. Remove that decorative bar and let the renderer
+    # compute and display the polygon's coordinate area at the measure action.
+    redundant_ids = {
+        object_id
+        for object_id, item in objects.items()
+        if object_id not in {source_id, result_id, *arrow_ids}
+        and item.get("primitive") == "quantity_bar"
+        and finite_number((item.get("params") or {}).get("value")) is not None
+        and math.isclose(
+            float((item.get("params") or {}).get("value")),
+            abs(determinant),
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        )
+    }
+    if redundant_ids:
+        plan["visual_objects"] = [
+            item
+            for item in plan.get("visual_objects") or []
+            if str(item.get("id")) not in redundant_ids
+        ]
+        for scene in plan.get("scenes") or []:
+            if not isinstance(scene, dict):
+                continue
+            kept_actions = []
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                action["targets"] = [
+                    item for item in action.get("targets") or [] if str(item) not in redundant_ids
+                ]
+                if action.get("targets") or action.get("result"):
+                    kept_actions.append(action)
+            scene["actions"] = kept_actions
+
+    adjustments = plan.setdefault("math_grounding_adjustments", [])
+    if old_vertices != mapped_vertices:
+        adjustments.append(f"{result_id} 顶点已由已验证 2×2 线性映射重新计算")
+    adjustments.append("基向量端点已由已验证矩阵列生成")
+    if redundant_ids:
+        adjustments.append("删除了与确定性面积测量重复的装饰性数量条")
+    plan["grounded_from_math_execution"] = True
+    return _normalize_plan(plan)
+
+
 def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] | None:
     """Keep valid graphical objects while discarding an unsafe directing story.
 
@@ -1689,9 +2025,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         return value if 1 < value <= 64 else 0
 
     answer = _strip_decorations(str(ctx.state.get("solution_answer") or "已验证结论"))
-    answer_numbers = [
-        float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer)
-    ]
+    answer_numbers = [float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer)]
     answer_object_id: str | None = None
     answer_value: float | None = answer_numbers[-1] if answer_numbers else None
     if answer_value is not None:
@@ -1711,8 +2045,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             # only when it denotes one numeric value; structured objects can
             # also ground the answer explicitly through params.value.
             if (
-                len(label_numbers) == 1
-                and label_numbers[0] == answer_value
+                len(label_numbers) == 1 and label_numbers[0] == answer_value
             ) or param_value == answer_value:
                 answer_object_id = object_id
                 break
@@ -1735,17 +2068,14 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         for action in scene.get("actions") or []:
             if not isinstance(action, dict):
                 continue
-            targets = [
-                item for item in action.get("targets") or [] if item in object_by_id
-            ]
+            targets = [item for item in action.get("targets") or [] if item in object_by_id]
             result = str(action.get("result") or "")
             if action.get("op") == "compare" and len(targets) >= 2:
                 comparison = {
                     "op": "compare",
                     "targets": targets,
                     "result": "",
-                    "meaning": action.get("meaning")
-                    or "把已验证数量放在同一参照下直接比较",
+                    "meaning": action.get("meaning") or "把已验证数量放在同一参照下直接比较",
                 }
                 if comparison not in preserved_comparisons:
                     preserved_comparisons.append(comparison)
@@ -1755,12 +2085,14 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 and result in object_by_id
                 and result not in targets
             ):
-                transitions.append({
-                    "op": action["op"],
-                    "targets": targets,
-                    "result": result,
-                    "meaning": action.get("meaning") or "显示来源对象如何产生结果对象",
-                })
+                transitions.append(
+                    {
+                        "op": action["op"],
+                        "targets": targets,
+                        "result": result,
+                        "meaning": action.get("meaning") or "显示来源对象如何产生结果对象",
+                    }
+                )
 
     repeated_ids = [item for item in object_ids if repeated_count(item)]
     if not transitions:
@@ -1772,18 +2104,19 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             )
         else:
             non_axes = [
-                item for item in object_ids
-                if object_by_id[item].get("primitive") != "axes"
+                item for item in object_ids if object_by_id[item].get("primitive") != "axes"
             ]
             if len(non_axes) < 2:
                 return None
             source_id, result_id = non_axes[0], non_axes[-1]
-        transitions = [{
-            "op": "transform",
-            "targets": [source_id],
-            "result": result_id,
-            "meaning": "让来源图形逐步变为已验证关系中的结果图形",
-        }]
+        transitions = [
+            {
+                "op": "transform",
+                "targets": [source_id],
+                "result": result_id,
+                "meaning": "让来源图形逐步变为已验证关系中的结果图形",
+            }
+        ]
 
     if answer_object_id is not None and transitions[-1]["result"] != answer_object_id:
         previous_result = str(transitions[-1]["result"])
@@ -1857,7 +2190,8 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     result_count = repeated_count(result_id)
     companion_id = next(
         (
-            item for item in repeated_ids
+            item
+            for item in repeated_ids
             if item not in {*source_ids, result_id}
             and source_count > 0
             and repeated_count(item) + result_count == source_count
@@ -1868,10 +2202,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         verify_ids.append(companion_id)
     elif comparison_ids:
         verify_ids.append(comparison_ids[-1])
-    verify_creates = [
-        item for item in verify_ids
-        if item not in setup_ids and item != result_id
-    ]
+    verify_creates = [item for item in verify_ids if item not in setup_ids and item != result_id]
     steps = ctx.state.get("solution_steps") or []
     verified_line = "观察图形对象如何在共同参照中建立已验证关系。"
     if steps and isinstance(steps[0], dict):
@@ -1880,8 +2211,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             str(step.get("description") or step.get("result") or verified_line)
         )[:80]
     ledger = [
-        f"{item.get('color') or 'blue'} {item['id']} = {item['meaning']}"
-        for item in objects[:4]
+        f"{item.get('color') or 'blue'} {item['id']} = {item['meaning']}" for item in objects[:4]
     ]
     plan = {
         "visual_thesis": "让题目中的数学对象在共同参照中逐步出现，并由图形关系核对已验证结论",
@@ -1914,10 +2244,14 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             {
                 "role": "transform",
                 "anchor_zone": "A1-F6",
-                "key_objects": ", ".join(dict.fromkeys([
-                    *source_ids,
-                    *(str(item["result"]) for item in transitions),
-                ])),
+                "key_objects": ", ".join(
+                    dict.fromkeys(
+                        [
+                            *source_ids,
+                            *(str(item["result"]) for item in transitions),
+                        ]
+                    )
+                ),
                 "action": "在同一参照中展示来源对象到结果对象的决定性变化。",
                 "invariant": "图形参数来自题目与已验证解答，不改变其数学含义",
                 "attention_target": "来源集合中实际发生变化并产生结果的单位",
@@ -2018,6 +2352,7 @@ def _validate_plan(
     visual_objects = plan.get("visual_objects") or []
     object_ids: set[str] = set()
     object_primitives: dict[str, str] = {}
+    objects_by_id: dict[str, dict[str, Any]] = {}
     if len(visual_objects) < 2:
         errors.append("visual_objects 至少需要 2 个承载数学意义的非文字图形对象")
     for index, item in enumerate(visual_objects, start=1):
@@ -2034,6 +2369,7 @@ def _validate_plan(
         else:
             object_ids.add(object_id)
             object_primitives[object_id] = primitive
+            objects_by_id[object_id] = item
         if primitive not in _VISUAL_PRIMITIVES:
             errors.append(
                 f"visual_objects[{index}].primitive='{primitive}' 不在可组合图形原语集合中"
@@ -2043,9 +2379,7 @@ def _validate_plan(
         if primitive == "function_curve":
             params = item.get("params") or {}
             if not str(params.get("expression") or "").strip():
-                errors.append(
-                    f"visual_objects[{index}] 的 function_curve 缺少 params.expression"
-                )
+                errors.append(f"visual_objects[{index}] 的 function_curve 缺少 params.expression")
 
     scenes = plan.get("scenes") or []
     transform_ops: set[str] = set()
@@ -2108,19 +2442,24 @@ def _validate_plan(
                 )
             if op in {"transform", "partition", "map"} and result in targets:
                 errors.append(
-                    f"场景 {index} action {action_index} 的 result 与来源相同，"
-                    "没有可辨认的终态"
+                    f"场景 {index} action {action_index} 的 result 与来源相同，没有可辨认的终态"
                 )
             resolved_targets = [
-                target
-                for target in targets
-                if target in visible_ids or target in mapped_aliases
+                target for target in targets if target in visible_ids or target in mapped_aliases
             ]
             if op == "create":
                 visible_ids.update(targets)
             elif op in {
-                "transform", "move", "highlight", "partition", "merge",
-                "compare", "map", "measure", "verify", "remove",
+                "transform",
+                "move",
+                "highlight",
+                "partition",
+                "merge",
+                "compare",
+                "map",
+                "measure",
+                "verify",
+                "remove",
             }:
                 missing_targets = [
                     target
@@ -2157,18 +2496,15 @@ def _validate_plan(
             created_relationship_ids = {
                 target
                 for target in created_ids
-                if object_primitives.get(str(target))
-                in {"line", "arrow", "function_curve"}
+                if object_primitives.get(str(target)) in {"line", "arrow", "function_curve"}
             }
             created_coordinate_ids = {
                 target
                 for target in created_ids
-                if object_primitives.get(str(target))
-                in {"line", "arrow", "function_curve", "dot"}
+                if object_primitives.get(str(target)) in {"line", "arrow", "function_curve", "dot"}
             }
             has_coordinate_reference = any(
-                object_primitives.get(object_id) == "axes"
-                for object_id in visible_at_scene_start
+                object_primitives.get(object_id) == "axes" for object_id in visible_at_scene_start
             )
             focused_related = any(
                 isinstance(action, dict)
@@ -2209,6 +2545,50 @@ def _validate_plan(
                 causal_transition_count += 1
         if role == "verify" and not (action_ops & _VERIFY_VISUAL_ACTIONS):
             errors.append("verify 场景必须通过 compare/measure/verify 图形动作核对结论")
+        if role == "verify":
+            created_in_verify = {
+                str(target)
+                for action in actions
+                if isinstance(action, dict) and action.get("op") == "create"
+                for target in action.get("targets") or []
+            }
+            numeric_conclusions = {
+                object_id
+                for object_id in created_in_verify
+                if object_primitives.get(object_id) in {"quantity_bar", "relation_node", "dot"}
+                and (
+                    str((objects_by_id[object_id].get("label") or "")).strip()
+                    or any(
+                        key in (objects_by_id[object_id].get("params") or {})
+                        for key in ("value", "count", "x", "y", "positions")
+                    )
+                )
+            }
+            verification_targets = {
+                str(target)
+                for action in actions
+                if isinstance(action, dict) and action.get("op") in _VERIFY_VISUAL_ACTIONS
+                for target in action.get("targets") or []
+            }
+            evidence_actions = [
+                action
+                for action in actions
+                if isinstance(action, dict)
+                and action.get("op") in {"measure", "compare"}
+                and any(
+                    str(target) not in numeric_conclusions for target in action.get("targets") or []
+                )
+            ]
+            if numeric_conclusions and not numeric_conclusions.issubset(verification_targets):
+                errors.append(
+                    "verify 场景新建了数值结论对象，但最终核对未同时包含该对象："
+                    + ",".join(sorted(numeric_conclusions - verification_targets))
+                )
+            if numeric_conclusions and not evidence_actions:
+                errors.append(
+                    "verify 场景的新数值结论缺少 measure/compare 图形证据；"
+                    "不能只创建数值标签后宣告成立"
+                )
         duration = float(scene.get("duration_s") or 0)
         if duration < 2 or duration > 20:
             errors.append(f"场景 {index} duration_s={duration:g}，应在 2-20 秒之间")
@@ -2227,9 +2607,7 @@ def _validate_plan(
     ):
         errors.append("transform 场景序列必须包含会改变非文字图形状态的结构化动作")
     if has_transform_scene and causal_transition_count == 0:
-        errors.append(
-            "transform 场景只有对象罗列，没有对已出现对象执行可见的因果变化"
-        )
+        errors.append("transform 场景只有对象罗列，没有对已出现对象执行可见的因果变化")
 
     # Scenes are temporal beats, so reusing a zone later is valid.  Collision
     # checks belong to per-frame code/video validation, not cross-beat plans.
@@ -2314,9 +2692,7 @@ class VisualPlanTool(ITool):
                     f"- {str(item)[:240]}" for item in key_points[:10]
                 )
             math_evidence = (
-                ctx.state.get("verify_math_evidence")
-                or ctx.state.get("solve_math_evidence")
-                or {}
+                ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence") or {}
             )
             if isinstance(math_evidence, dict) and math_evidence.get("success"):
                 compact_evidence = {
@@ -2392,6 +2768,7 @@ class VisualPlanTool(ITool):
                 artifacts=[_raw_plan_artifact(done, ctx)],
                 error="parse_failed",
             )
+        plan = ground_visual_plan_from_math_execution(plan, ctx)
         errors = _validate_plan(plan, grade)
         if errors:
             ctx.state["visual_plan_last_violations"] = errors
@@ -2441,13 +2818,12 @@ class VisualPlanTool(ITool):
             audit_warning = audit_warning or "视觉计划独立审计格式无效"
         else:
             consistent, audit_issues, checked_claims, corrected_plan = audit
-            blocking = [
-                issue for issue in audit_issues if _machine_checkable_blocking_issue(issue)
-            ]
+            blocking = [issue for issue in audit_issues if _machine_checkable_blocking_issue(issue)]
             if not consistent and blocking:
                 corrected_errors: list[str] = []
                 if corrected_plan is not None:
                     corrected_plan = _normalize_plan(corrected_plan)
+                    corrected_plan = ground_visual_plan_from_math_execution(corrected_plan, ctx)
                     corrected_errors = _validate_plan(corrected_plan, grade)
                 if corrected_plan is not None and not corrected_errors:
                     plan = corrected_plan
@@ -2466,9 +2842,7 @@ class VisualPlanTool(ITool):
                         artifacts=[_raw_plan_artifact(done, ctx)],
                         error="plan_math_inconsistent",
                     )
-            ignored_audit_opinions = [
-                issue for issue in audit_issues if issue not in blocking
-            ]
+            ignored_audit_opinions = [issue for issue in audit_issues if issue not in blocking]
             if ignored_audit_opinions:
                 plan["audit_advisory_issues"] = ignored_audit_opinions[:3]
             plan["audit_checked_claims"] = checked_claims

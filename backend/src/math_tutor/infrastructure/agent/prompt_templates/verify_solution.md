@@ -40,7 +40,8 @@
 `solve` 需要 `variable` 或 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`；
 后序操作引用前序结果写成 `$操作id`，列表或多变量解可用 `$操作id[0]`、
 `$操作id[0].变量名` 安全取值；`substitute` 使用 `substitutions` 对象。提交前逐项检查必填参数，
-不能依赖修复轮次补全。
+不能依赖修复轮次补全。矩阵是具体复合值，不要在 `symbols` 中声明 `domain=matrix`；
+`determinant` 的 `expression` 直接使用二维 JSON 数组，例如 `[[2,1],[3,4]]`。
 
 ## 模式 B：executable
 

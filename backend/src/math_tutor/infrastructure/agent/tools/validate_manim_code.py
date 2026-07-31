@@ -1135,6 +1135,96 @@ def _check_animation_api_misuse(tree: ast.AST) -> list[str]:
                 "禁止直接赋值 Text.text 更新字幕；请创建新的 Text 并 Transform 到新对象"
             )
             break
+
+    # Rebinding a presentation variable to a helper that adds a new mobject
+    # leaves the previous object on screen.  This common pattern renders
+    # successfully but produces two or more captions at the same anchor.
+    assignments_by_name: dict[str, list[int]] = {}
+    fadeout_lines_by_name: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            value_name = _call_name(node.value.func).lower()
+            for target in node.targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                target_name = target.id
+                if (
+                    re.search(r"caption|subtitle", target_name, re.IGNORECASE)
+                    and re.search(r"caption|subtitle", value_name, re.IGNORECASE)
+                ):
+                    assignments_by_name.setdefault(target_name, []).append(
+                        int(getattr(node, "lineno", 0))
+                    )
+        if not isinstance(node, ast.Call) or _call_name(node.func) != "FadeOut":
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Name):
+                fadeout_lines_by_name.setdefault(arg.id, []).append(
+                    int(getattr(node, "lineno", 0))
+                )
+    for name, lines in assignments_by_name.items():
+        ordered = sorted(lines)
+        for previous, current in zip(ordered, ordered[1:]):
+            cleared = any(
+                previous < line < current
+                for line in fadeout_lines_by_name.get(name, [])
+            )
+            if not cleared:
+                issues.append(
+                    f"字幕变量 {name} 在第 {current} 行重新创建前未 FadeOut 旧对象；"
+                    "旧字幕会留在场上形成双字幕或叠字"
+                )
+                break
+
+    # Two persistent Text objects anchored to the same screen edge are a
+    # deterministic collision even when their glyph widths differ.  Require
+    # the earlier object to leave before the later one is introduced.
+    text_assignments: dict[str, int] = {}
+    edge_anchors: dict[str, tuple[str, int]] = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and _call_name(node.value.func) in {"Text", "Paragraph", "MathTex", "Tex"}
+        ):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    text_assignments[target.id] = int(getattr(node, "lineno", 0))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "to_edge"
+            and isinstance(node.func.value, ast.Name)
+            and node.args
+        ):
+            edge = ast.unparse(node.args[0]) if hasattr(ast, "unparse") else ""
+            edge_anchors[node.func.value.id] = (
+                edge,
+                int(getattr(node, "lineno", 0)),
+            )
+    anchored = sorted(
+        (
+            line,
+            name,
+            edge,
+        )
+        for name, (edge, line) in edge_anchors.items()
+        if name in text_assignments
+    )
+    for index, (first_line, first_name, edge) in enumerate(anchored):
+        for second_line, second_name, second_edge in anchored[index + 1 :]:
+            if edge != second_edge:
+                continue
+            cleared = any(
+                first_line < line < second_line
+                for line in fadeout_lines_by_name.get(first_name, [])
+            )
+            if not cleared:
+                issues.append(
+                    f"{first_name} 与 {second_name} 都固定在 {edge}，且前者未先退出；"
+                    "后出现的文字会与旧文字重叠"
+                )
+                break
     return list(dict.fromkeys(issues))
 
 

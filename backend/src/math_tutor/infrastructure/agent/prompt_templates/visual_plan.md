@@ -74,7 +74,9 @@
 - `transform/partition/map` 必须填写与来源不同的 `result`；被操作的来源对象必须已经在更早动作中
   `create`，不能引用尚未出现的对象。只把若干数量图形依次 `create` 到画面上属于罗列，不是核心变化。
 - verify beat 只能核对已经可见的对象；若需要新的结论对象，先显式 `create`，再执行
-  `verify/measure/compare`。
+  `verify/measure/compare`。如果新建了带数值的结论对象，必须先对来源图形执行
+  `measure` 或 `compare`，最终 `verify` 同时包含来源图形与数值结论对象；不能只显示
+  “面积=5”“数量=12”之类标签后宣告成立。
 - `result` 永远是一个对象 id 字符串，不能是数组。若两个来源分别变成两个结果，拆成两个 action；
   不允许写缺少 `result` 的 `transform/partition/map`。
 - 重复成员统一用 `params.count`，每个成员附加相同数量标记统一用 `params.count_per_unit`；不要写

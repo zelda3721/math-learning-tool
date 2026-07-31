@@ -189,13 +189,172 @@ def _derive_technical_issues(metrics: dict[str, Any]) -> tuple[list[str], list[s
     if side_border and max(side_border) > 0.35:
         critical.append("主视觉大面积触碰左右安全边界，疑似越界或裁切")
     if caption_zone and max(caption_zone) > 0.25:
-        critical.append("底部字幕安全带过密，存在字幕裁切、叠字或图形侵入")
+        # A legitimate two-line final answer can occupy this much of the
+        # bottom band. Density alone cannot prove overlap; lifecycle/static
+        # checks and the vision reviewer decide whether glyphs collide.
+        warnings.append("底部安全带内容较密，需由成片审查确认是否叠字或图形侵入")
     differences = metrics.get("adjacent_frame_difference") or []
     if differences and max(differences) < 0.006:
         critical.append("采样帧几乎无变化，疑似静态幻灯片")
+    elif len(differences) >= 6:
+        active_fraction = sum(float(value) >= 0.006 for value in differences) / len(differences)
+        metrics["active_transition_fraction"] = round(active_fraction, 3)
+        if duration >= 12 and active_fraction < 0.25:
+            critical.append(
+                "有效画面变化覆盖不足：少于 25% 的相邻采样区间出现可辨认变化，"
+                "疑似长时间静止或只更新文字"
+            )
+        elif duration >= 12 and active_fraction < 0.4:
+            warnings.append("有效画面变化偏少：少于 40% 的相邻采样区间出现可辨认变化")
     if metrics.get("has_audio") is False:
         warnings.append("视频无音轨；当前仍依赖画面和屏幕文字完成教学")
     return critical, warnings
+
+
+def _deterministic_visual_math_integrity(plan: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Recheck machine-verifiable geometry independently of the vision model."""
+    issues: list[str] = []
+    checked_claims: list[str] = []
+    objects = {
+        str(item.get("id")): item
+        for item in plan.get("visual_objects") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+
+    def finite_number(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    def polygon_area(vertices: Any) -> float | None:
+        if (
+            not isinstance(vertices, list)
+            or len(vertices) < 3
+            or not all(isinstance(point, list) and len(point) >= 2 for point in vertices)
+        ):
+            return None
+        points: list[tuple[float, float]] = []
+        for point in vertices:
+            x = finite_number(point[0])
+            y = finite_number(point[1])
+            if x is None or y is None:
+                return None
+            points.append((x, y))
+        double_area = sum(
+            x * points[(index + 1) % len(points)][1] - points[(index + 1) % len(points)][0] * y
+            for index, (x, y) in enumerate(points)
+        )
+        return abs(double_area) / 2
+
+    def vertices_match(expected: list[list[float]], actual: Any) -> bool:
+        if not isinstance(actual, list) or len(expected) != len(actual):
+            return False
+        for expected_point, actual_point in zip(expected, actual):
+            if not isinstance(actual_point, list) or len(actual_point) < 2:
+                return False
+            actual_x = finite_number(actual_point[0])
+            actual_y = finite_number(actual_point[1])
+            if actual_x is None or actual_y is None:
+                return False
+            if not (
+                math.isclose(expected_point[0], actual_x, rel_tol=1e-9, abs_tol=1e-9)
+                and math.isclose(expected_point[1], actual_y, rel_tol=1e-9, abs_tol=1e-9)
+            ):
+                return False
+        return True
+
+    for object_id, item in objects.items():
+        if item.get("primitive") != "polygon":
+            continue
+        params = item.get("params") or {}
+        expected_measure = finite_number(params.get("verified_measure"))
+        if expected_measure is None:
+            continue
+        actual_measure = polygon_area(params.get("vertices"))
+        if actual_measure is None:
+            issues.append(f"{object_id} 声明了 verified_measure，但顶点不可计算")
+        elif not math.isclose(actual_measure, abs(expected_measure), rel_tol=1e-9, abs_tol=1e-9):
+            issues.append(
+                f"{object_id} 的坐标面积 {actual_measure:g} 与已验证测量 "
+                f"{abs(expected_measure):g} 不一致"
+            )
+        else:
+            checked_claims.append(f"{object_id} 的坐标面积 = {actual_measure:g}")
+
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    matrix: list[list[float]] | None = None
+    if isinstance(request, dict):
+        candidates = []
+        for operation in request.get("operations") or []:
+            if not isinstance(operation, dict):
+                continue
+            expression = operation.get("expression")
+            if (
+                str(operation.get("op") or "").lower() == "determinant"
+                and isinstance(expression, list)
+                and len(expression) == 2
+                and all(isinstance(row, list) and len(row) == 2 for row in expression)
+            ):
+                values = [finite_number(value) for row in expression for value in row]
+                if all(value is not None for value in values):
+                    a, b, c, d = (float(value) for value in values if value is not None)
+                    candidates.append([[a, b], [c, d]])
+        if len(candidates) == 1:
+            matrix = candidates[0]
+
+    if matrix is not None:
+        for scene in plan.get("scenes") or []:
+            if not isinstance(scene, dict):
+                continue
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict) or action.get("op") != "transform":
+                    continue
+                source_id = next(
+                    (
+                        str(item)
+                        for item in action.get("targets") or []
+                        if (objects.get(str(item)) or {}).get("primitive") == "polygon"
+                    ),
+                    "",
+                )
+                result_id = str(action.get("result") or "")
+                source = objects.get(source_id) or {}
+                result = objects.get(result_id) or {}
+                if result.get("primitive") != "polygon":
+                    continue
+                source_vertices = (source.get("params") or {}).get("vertices")
+                result_vertices = (result.get("params") or {}).get("vertices")
+                if not isinstance(source_vertices, list):
+                    continue
+                expected_vertices = []
+                for point in source_vertices:
+                    if not isinstance(point, list) or len(point) < 2:
+                        expected_vertices = []
+                        break
+                    x = finite_number(point[0])
+                    y = finite_number(point[1])
+                    if x is None or y is None:
+                        expected_vertices = []
+                        break
+                    expected_vertices.append(
+                        [
+                            matrix[0][0] * x + matrix[0][1] * y,
+                            matrix[1][0] * x + matrix[1][1] * y,
+                        ]
+                    )
+                if not vertices_match(expected_vertices, result_vertices):
+                    issues.append(f"{source_id} → {result_id} 的顶点不符合已验证线性映射")
+                else:
+                    checked_claims.append(f"{source_id} → {result_id} 的全部顶点符合已验证线性映射")
+
+    return {
+        "passed": not issues,
+        "checked_claims": checked_claims,
+        "issues": issues,
+        "grounding_adjustments": plan.get("math_grounding_adjustments") or [],
+    }
 
 
 async def _extract_frame(video_path: Path, time_s: float, out_path: Path) -> bool:
@@ -327,6 +486,83 @@ def _core_visual_gate_issue(b_scores: dict[str, Any]) -> str | None:
     return None
 
 
+def _repair_scope(payload: dict[str, Any]) -> str:
+    """Choose the smallest safe repair unit from rendered evidence.
+
+    Layout/readability defects can be patched in the existing source.  A
+    broken visual argument must revise the SceneSpec because moving glyphs
+    cannot manufacture missing mathematical evidence.
+    """
+    scores = payload.get("b_scores") or {}
+
+    def score(name: str) -> int:
+        try:
+            return int(scores.get(name))
+        except (TypeError, ValueError):
+            return 0
+
+    semantic_blacklist = {
+        "PPT 翻页",
+        "静态幻灯片",
+        "文字搬运",
+        "纯文字",
+        "符号悬空",
+    }
+    hits = {str(item).strip() for item in payload.get("blacklist_hits") or []}
+    issues = "；".join(str(item) for item in payload.get("issues") or [])
+    semantic_issue_terms = (
+        "脱节",
+        "偏离视觉计划",
+        "核心变化",
+        "没有图形",
+        "无图形",
+        "论证缺失",
+        "无法核对",
+        "数学错误",
+        "结论错误",
+        "不一致",
+    )
+    if (
+        hits & semantic_blacklist
+        or any(score(name) < 2 for name in ("b1", "b3", "b4", "b5", "b6"))
+        or any(term in issues for term in semantic_issue_terms)
+    ):
+        return "plan"
+    return "code"
+
+
+def _build_repair_directive(payload: dict[str, Any], frame_offsets: list[float]) -> dict[str, Any]:
+    """Normalize stochastic review prose into a controller-ready brief."""
+    issues = [str(item).strip() for item in payload.get("issues") or [] if str(item).strip()]
+    suggestions = [
+        str(item).strip() for item in payload.get("fix_suggestion") or [] if str(item).strip()
+    ]
+    highlights = [
+        str(item).strip() for item in payload.get("highlights") or [] if str(item).strip()
+    ]
+    explicit_times: list[float] = []
+    for text in [*issues, *suggestions]:
+        explicit_times.extend(
+            float(value) for value in re.findall(r"(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|秒)", text)
+        )
+    if explicit_times:
+        time_range = [
+            round(max(0.0, min(explicit_times) - 1.0), 2),
+            round(max(explicit_times) + 1.0, 2),
+        ]
+    elif frame_offsets:
+        time_range = [round(frame_offsets[0], 2), round(frame_offsets[-1], 2)]
+    else:
+        time_range = []
+    return {
+        "scope": _repair_scope(payload),
+        "time_range_s": time_range,
+        "change": suggestions[0] if suggestions else (issues[0] if issues else ""),
+        "evidence": issues[:5],
+        "preserve": highlights[:3],
+    }
+
+
 class InspectVideoTool(ITool):
     def __init__(
         self,
@@ -429,6 +665,20 @@ class InspectVideoTool(ITool):
             if plan_contract_issues:
                 technical_critical.append(
                     "视觉动作因果契约失效：" + "；".join(plan_contract_issues[:3])
+                )
+            math_integrity = (
+                _deterministic_visual_math_integrity(plan, ctx)
+                if isinstance(plan, dict)
+                else {
+                    "passed": False,
+                    "checked_claims": [],
+                    "issues": ["视觉计划缺失"],
+                    "grounding_adjustments": [],
+                }
+            )
+            if not math_integrity["passed"]:
+                technical_critical.append(
+                    "确定性视觉数学一致性失败：" + "；".join(math_integrity["issues"][:3])
                 )
 
             essence = (
@@ -536,6 +786,8 @@ class InspectVideoTool(ITool):
         payload["technical_metrics"] = technical_metrics
         payload["technical_critical_issues"] = technical_critical
         payload["technical_warnings"] = technical_warnings
+        payload["sample_timestamps_s"] = [round(value, 2) for value in frame_offsets]
+        payload["deterministic_math_integrity"] = math_integrity
 
         # Derive a final verdict from rubric scores rather than trusting the
         # model's own "整体质量" label, which has been observed to be lenient.
@@ -552,9 +804,17 @@ class InspectVideoTool(ITool):
         forced_reason = ""
         b_scores = payload.get("b_scores") or {}
         if all(key in b_scores for key in ("b1", "b2", "b3", "b4", "b5", "b6")):
-            computed_total = sum(int(b_scores[key]) for key in (
-                "b1", "b2", "b3", "b4", "b5", "b6",
-            ))
+            computed_total = sum(
+                int(b_scores[key])
+                for key in (
+                    "b1",
+                    "b2",
+                    "b3",
+                    "b4",
+                    "b5",
+                    "b6",
+                )
+            )
             if b_total != computed_total:
                 payload["reported_b_total"] = payload.get("b_total")
                 payload["b_total"] = f"{computed_total}/12"
@@ -661,6 +921,7 @@ class InspectVideoTool(ITool):
             payload["overall_quality"] = "bad"
             overall = "bad"
             payload.setdefault("forced_reason", forced_reason)
+        payload["repair_directive"] = _build_repair_directive(payload, frame_offsets)
 
         # Bump replan counter when verdict is bad — agent loop uses this to
         # decide whether the next iteration should re-plan (change pattern)
@@ -695,10 +956,19 @@ class InspectVideoTool(ITool):
             # them as error_hint without extra wiring.
             fix = payload.get("fix_suggestion") or []
             extra_lines = [f"建议：{x}" for x in fix[:1]] if fix else []
+            repair = payload.get("repair_directive") or {}
+            repair_prefix = (
+                f"修复层级={repair.get('scope')}; "
+                f"时间={repair.get('time_range_s')}; "
+                f"必须修改={repair.get('change')}"
+            )
             ctx.state["last_visual_issues"] = "；".join(
-                [str(x) for x in technical_critical[:3]]
-                + [str(x) for x in issues[:5]]
-                + extra_lines
+                [repair_prefix]
+                + (
+                    [str(x) for x in technical_critical[:3]]
+                    + [str(x) for x in issues[:5]]
+                    + extra_lines
+                )
             )
         elif technical_critical:
             ctx.state["last_visual_issues"] = "；".join(technical_critical[:5])
@@ -707,6 +977,8 @@ class InspectVideoTool(ITool):
 
         b_summary = f" B={b_total}/12" if b_total is not None else ""
         bl_summary = f" 黑名单 {len(blacklist)} 条" if blacklist else ""
+        review_index = int(ctx.state.get("watch_review_index") or 0) + 1
+        ctx.state["watch_review_index"] = review_index
 
         return ToolResult(
             success=True,
@@ -718,12 +990,13 @@ class InspectVideoTool(ITool):
             artifacts=[
                 ArtifactSpec(
                     kind="quality_report",
-                    filename=f"quality-turn{ctx.turn_index:02d}.json",
+                    filename=(f"quality-turn{ctx.turn_index:02d}-pass{review_index:02d}.json"),
                     content=json.dumps(payload, ensure_ascii=False, indent=2),
                     meta={
                         "overall_quality": overall,
                         "b_total": b_total,
                         "math_consistency": b5,
+                        "deterministic_math_pass": bool(math_integrity.get("passed")),
                         "essence_delivery": b6,
                         "technical_pass": not technical_critical,
                         "width": technical_metrics.get("width"),

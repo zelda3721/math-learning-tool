@@ -32,7 +32,9 @@ from math_tutor.infrastructure.agent.tools.inspect_video import (
     InspectVideoTool,
     _core_visual_gate_issue,
     _derive_technical_issues,
+    _deterministic_visual_math_integrity,
     _parse_rate,
+    _repair_scope,
 )
 from math_tutor.infrastructure.agent.tools.run_manim import _compact_manim_error
 from math_tutor.infrastructure.agent.tools.solve_problem import (
@@ -67,6 +69,7 @@ from math_tutor.infrastructure.agent.tools.visual_plan import (
     _parse_plan_audit,
     _validate_plan,
     build_grounded_math_visual_plan,
+    ground_visual_plan_from_math_execution,
 )
 from math_tutor.infrastructure.agent.tools.watch_video import WatchVideoTool
 from math_tutor.infrastructure.agent.wiki_ingester import (
@@ -217,10 +220,7 @@ def test_visual_plan_requires_executable_graphics_and_mutating_actions() -> None
             "meaning": "draw attention without changing the state",
         }
     ]
-    assert any(
-        "transform 场景序列必须包含" in issue
-        for issue in _validate_plan(plan, "advanced")
-    )
+    assert any("transform 场景序列必须包含" in issue for issue in _validate_plan(plan, "advanced"))
 
 
 def test_visual_plan_rejects_listing_disguised_as_partition_and_map() -> None:
@@ -249,9 +249,7 @@ def test_visual_plan_normalizes_domain_quantity_aliases() -> None:
     plan["visual_objects"][0].update(
         {"primitive": "line", "params": {"count_per_head": 2, "total": 70}}
     )
-    plan["visual_objects"][1].update(
-        {"primitive": "circle", "params": {"total": 24}}
-    )
+    plan["visual_objects"][1].update({"primitive": "circle", "params": {"total": 24}})
     normalized = _normalize_plan(plan)
     first_params = normalized["visual_objects"][0]["params"]
     second_params = normalized["visual_objects"][1]["params"]
@@ -379,8 +377,7 @@ def test_visual_plan_materializes_declared_verify_targets() -> None:
     assert actions[0]["targets"] == ["left_result", "right_result"]
     assert actions[1]["op"] == "verify"
     assert not any(
-        "在对象出现前执行 verify" in issue
-        for issue in _validate_plan(normalized, "middle")
+        "在对象出现前执行 verify" in issue for issue in _validate_plan(normalized, "middle")
     )
 
 
@@ -428,9 +425,7 @@ def test_visual_plan_accepts_relation_reveal_as_causal_transform() -> None:
 
     normalized = _normalize_plan(plan)
 
-    auxiliary = next(
-        item for item in normalized["visual_objects"] if item["id"] == "auxiliary"
-    )
+    auxiliary = next(item for item in normalized["visual_objects"] if item["id"] == "auxiliary")
     assert auxiliary["params"]["points"] == [[2, -2], [2, 5]]
     assert _validate_plan(normalized, "advanced") == []
 
@@ -499,9 +494,7 @@ def test_visual_plan_accepts_focused_coordinate_overlay_and_parses_dot_pair() ->
     ]
 
     normalized = _normalize_plan(plan)
-    point = next(
-        item for item in normalized["visual_objects"] if item["id"] == "computed_point"
-    )
+    point = next(item for item in normalized["visual_objects"] if item["id"] == "computed_point")
 
     assert point["params"]["x"] == 1
     assert point["params"]["y"] == 0
@@ -551,9 +544,7 @@ def test_visual_plan_accepts_relation_line_with_new_focused_point() -> None:
     ]
 
     normalized = _normalize_plan(plan)
-    line = next(
-        item for item in normalized["visual_objects"] if item["id"] == "constraint_line"
-    )
+    line = next(item for item in normalized["visual_objects"] if item["id"] == "constraint_line")
 
     assert line["params"]["points"] == [[2, -2], [2, 6]]
     assert _validate_plan(normalized, "advanced") == []
@@ -563,44 +554,64 @@ def test_visual_plan_accepts_multi_object_coordinate_relation_reveal() -> None:
     plan = _open_world_plan()
     plan["visual_objects"] = [
         {
-            "id": "axes", "primitive": "axes", "meaning": "coordinate reference",
-            "label": "", "color": "grey",
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "",
+            "color": "grey",
             "params": {"x_range": [-2, 4], "y_range": [-2, 4]},
         },
         {
-            "id": "curve", "primitive": "function_curve", "meaning": "known graph",
-            "label": "f", "color": "blue", "params": {"expression": "x**2 - 1"},
+            "id": "curve",
+            "primitive": "function_curve",
+            "meaning": "known graph",
+            "label": "f",
+            "color": "blue",
+            "params": {"expression": "x**2 - 1"},
         },
         {
-            "id": "point", "primitive": "dot", "meaning": "computed coordinate",
-            "label": "P", "color": "green", "params": {"x": 0, "y": -1},
+            "id": "point",
+            "primitive": "dot",
+            "meaning": "computed coordinate",
+            "label": "P",
+            "color": "green",
+            "params": {"x": 0, "y": -1},
         },
         {
-            "id": "vertical", "primitive": "line", "meaning": "vertical constraint",
-            "label": "x=0", "color": "red",
+            "id": "vertical",
+            "primitive": "line",
+            "meaning": "vertical constraint",
+            "label": "x=0",
+            "color": "red",
             "params": {"start": [0, -2], "end": [0, 4]},
         },
         {
-            "id": "horizontal", "primitive": "line", "meaning": "horizontal constraint",
-            "label": "y=-1", "color": "yellow",
+            "id": "horizontal",
+            "primitive": "line",
+            "meaning": "horizontal constraint",
+            "label": "y=-1",
+            "color": "yellow",
             "params": {"start": [-2, -1], "end": [4, -1]},
         },
     ]
     plan["scenes"][0]["actions"] = [
         {
-            "op": "create", "targets": ["axes", "curve"],
+            "op": "create",
+            "targets": ["axes", "curve"],
             "meaning": "establish the shared graph",
         }
     ]
     plan["scenes"][1]["actions"] = [
         {
-            "op": "create", "targets": ["point", "vertical", "horizontal"],
+            "op": "create",
+            "targets": ["point", "vertical", "horizontal"],
             "meaning": "reveal constraints and their common point",
         }
     ]
     plan["scenes"][2]["actions"] = [
         {
-            "op": "verify", "targets": ["point", "horizontal"],
+            "op": "verify",
+            "targets": ["point", "horizontal"],
             "meaning": "verify the common coordinate",
         }
     ]
@@ -686,12 +697,8 @@ def test_visual_plan_repairs_self_transform_with_delayed_relation_reveal() -> No
 
 def test_visual_plan_lowers_bounded_aggregate_bars_for_addressable_actions() -> None:
     plan = _open_world_plan()
-    plan["visual_objects"][0].update(
-        {"primitive": "quantity_bar", "params": {"count": 24}}
-    )
-    plan["visual_objects"][2].update(
-        {"primitive": "quantity_bar", "params": {"count": 12}}
-    )
+    plan["visual_objects"][0].update({"primitive": "quantity_bar", "params": {"count": 24}})
+    plan["visual_objects"][2].update({"primitive": "quantity_bar", "params": {"count": 12}})
     plan["scenes"][1]["actions"] = [
         {
             "op": "partition",
@@ -700,9 +707,7 @@ def test_visual_plan_lowers_bounded_aggregate_bars_for_addressable_actions() -> 
             "meaning": "group addressable members",
         }
     ]
-    objects = {
-        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
-    }
+    objects = {item["id"]: item for item in _normalize_plan(plan)["visual_objects"]}
     assert objects["state"]["primitive"] == "unit_grid"
     assert objects["final_state"]["primitive"] == "unit_grid"
     assert objects["reference"]["primitive"] == "line"
@@ -710,9 +715,7 @@ def test_visual_plan_lowers_bounded_aggregate_bars_for_addressable_actions() -> 
 
 def test_visual_plan_lowers_bounded_value_bar_for_mapping() -> None:
     plan = _open_world_plan()
-    plan["visual_objects"][2].update(
-        {"primitive": "quantity_bar", "params": {"value": 12}}
-    )
+    plan["visual_objects"][2].update({"primitive": "quantity_bar", "params": {"value": 12}})
     plan["scenes"][1]["actions"] = [
         {
             "op": "map",
@@ -722,9 +725,7 @@ def test_visual_plan_lowers_bounded_value_bar_for_mapping() -> None:
         }
     ]
 
-    objects = {
-        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
-    }
+    objects = {item["id"]: item for item in _normalize_plan(plan)["visual_objects"]}
 
     assert objects["final_state"]["primitive"] == "unit_grid"
     assert objects["final_state"]["params"]["count"] == 12
@@ -732,15 +733,9 @@ def test_visual_plan_lowers_bounded_value_bar_for_mapping() -> None:
 
 def test_visual_plan_lowers_exact_multi_source_map_to_partition() -> None:
     plan = _open_world_plan()
-    plan["visual_objects"][0].update(
-        {"primitive": "unit_grid", "params": {"count": 24}}
-    )
-    plan["visual_objects"][1].update(
-        {"primitive": "line", "params": {"count": 2}}
-    )
-    plan["visual_objects"][2].update(
-        {"primitive": "unit_grid", "params": {"count": 12}}
-    )
+    plan["visual_objects"][0].update({"primitive": "unit_grid", "params": {"count": 24}})
+    plan["visual_objects"][1].update({"primitive": "line", "params": {"count": 2}})
+    plan["visual_objects"][2].update({"primitive": "unit_grid", "params": {"count": 12}})
     plan["scenes"][1]["actions"] = [
         {
             "op": "map",
@@ -759,12 +754,8 @@ def test_visual_plan_lowers_exact_multi_source_map_to_partition() -> None:
 
 def test_visual_plan_uses_value_when_addressable_count_is_placeholder_one() -> None:
     plan = _open_world_plan()
-    plan["visual_objects"][0].update(
-        {"primitive": "rectangle", "params": {"count": 1, "value": 8}}
-    )
-    plan["visual_objects"][2].update(
-        {"primitive": "rectangle", "params": {"count": 1, "value": 4}}
-    )
+    plan["visual_objects"][0].update({"primitive": "rectangle", "params": {"count": 1, "value": 8}})
+    plan["visual_objects"][2].update({"primitive": "rectangle", "params": {"count": 1, "value": 4}})
     plan["scenes"][1]["actions"] = [
         {
             "op": "partition",
@@ -773,9 +764,7 @@ def test_visual_plan_uses_value_when_addressable_count_is_placeholder_one() -> N
             "meaning": "divide addressable units equally",
         }
     ]
-    objects = {
-        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
-    }
+    objects = {item["id"]: item for item in _normalize_plan(plan)["visual_objects"]}
     assert objects["state"]["params"]["count"] == 8
     assert objects["final_state"]["params"]["count"] == 4
 
@@ -797,9 +786,7 @@ def test_visual_plan_normalizes_total_units_for_partition_result() -> None:
         }
     ]
 
-    objects = {
-        item["id"]: item for item in _normalize_plan(plan)["visual_objects"]
-    }
+    objects = {item["id"]: item for item in _normalize_plan(plan)["visual_objects"]}
 
     assert objects["final_state"]["primitive"] == "line"
     assert objects["final_state"]["params"]["count"] == 12
@@ -846,9 +833,7 @@ def test_visual_plan_audit_parser_requires_machine_checkable_verdict() -> None:
 
 
 def test_visual_plan_audit_blocks_only_falsifiable_math_conflicts() -> None:
-    assert _machine_checkable_blocking_issue(
-        "BLOCKING: count; observed=10; expected=20"
-    )
+    assert _machine_checkable_blocking_issue("BLOCKING: count; observed=10; expected=20")
     assert _machine_checkable_blocking_issue(
         "BLOCKING: arithmetic; observed=24 ÷ 3 = 12; expected=24 ÷ 3 = 8"
     )
@@ -1058,10 +1043,7 @@ class SolutionScene(Scene):
         self.play(Create(axes), Create(gap))
         self.play(tracker.animate.set_value(2))
 """
-    assert (
-        _check_graphical_reasoning_contract(tracker_driven_transform, _open_world_plan())
-        == []
-    )
+    assert _check_graphical_reasoning_contract(tracker_driven_transform, _open_world_plan()) == []
 
 
 def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> None:
@@ -1170,9 +1152,7 @@ def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
     assert "sin(x)/x" in str(plan["visual_objects"])
     assert "tan" not in str(plan["visual_objects"])
     point = next(
-        item
-        for item in plan["visual_objects"]
-        if item["id"] == "grounded_result_intersection"
+        item for item in plan["visual_objects"] if item["id"] == "grounded_result_intersection"
     )
     assert point["params"]["open"] is True
     code = build_verified_fallback_code(ctx)
@@ -1195,9 +1175,7 @@ def test_grounded_math_plan_visualizes_any_univariate_solve_as_zero_crossing() -
                     "variable": "x",
                 }
             ],
-            "claims": [
-                {"relation": "equal", "left": "$solve_eq", "right": "[3]"}
-            ],
+            "claims": [{"relation": "equal", "left": "$solve_eq", "right": "[3]"}],
         },
         "verify_math_evidence": {
             "success": True,
@@ -1211,12 +1189,8 @@ def test_grounded_math_plan_visualizes_any_univariate_solve_as_zero_crossing() -
 
     assert plan is not None
     assert plan["grounded_from_math_execution"] is True
-    curve = next(
-        item for item in plan["visual_objects"] if item["id"] == "grounded_solve_curve"
-    )
-    roots = next(
-        item for item in plan["visual_objects"] if item["id"] == "grounded_solve_roots"
-    )
+    curve = next(item for item in plan["visual_objects"] if item["id"] == "grounded_solve_curve")
+    roots = next(item for item in plan["visual_objects"] if item["id"] == "grounded_solve_roots")
     assert curve["params"]["expression"] == "2**x - 8"
     assert roots["params"]["positions"] == [[3.0, 0]]
     assert _validate_plan(plan, "advanced") == []
@@ -1225,6 +1199,298 @@ def test_grounded_math_plan_visualizes_any_univariate_solve_as_zero_crossing() -
     assert "2**x - 8" in code
     assert "grounded_solve_roots" in code
     ast.parse(code)
+
+
+def test_grounded_math_plan_does_not_mistake_intermediate_solve_for_final_roots() -> None:
+    state = {
+        "solution_verified": True,
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "original",
+                    "op": "evaluate",
+                    "expression": "x**2 - 4*x + 3",
+                    "variable": "x",
+                },
+                {
+                    "id": "derivative",
+                    "op": "differentiate",
+                    "expression": "$original",
+                    "variable": "x",
+                },
+                {
+                    "id": "critical",
+                    "op": "solve",
+                    "expression": "$derivative",
+                    "variable": "x",
+                },
+                {
+                    "id": "value",
+                    "op": "substitute",
+                    "expression": "$original",
+                    "substitutions": {"x": "$critical[0]"},
+                },
+            ],
+            "claims": [{"relation": "equal", "left": "$value", "right": "-1"}],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [
+                {"id": "original", "result": "x**2 - 4*x + 3"},
+                {"id": "derivative", "result": "2*x - 4"},
+                {"id": "critical", "result": ["2"]},
+                {"id": "value", "result": "-1"},
+            ],
+        },
+    }
+    ctx = ToolContext("s", 3, "advanced", "opaque problem", state)
+
+    plan = build_grounded_math_visual_plan(ctx)
+
+    assert plan is not None
+    assert "grounded_solve_curve" not in str(plan)
+    assert "x**2 - 4*x + 3" in str(plan)
+    point = next(
+        item for item in plan["visual_objects"] if item["id"] == "grounded_result_intersection"
+    )
+    assert point["params"]["x"] == 2.0
+    assert point["params"]["y"] == -1.0
+    assert _validate_plan(plan, "advanced") == []
+
+
+def test_verified_matrix_contract_repairs_polygon_geometry_without_question_type() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "source",
+            "primitive": "polygon",
+            "meaning": "source coordinate region",
+            "label": "source",
+            "color": "blue",
+            "params": {"vertices": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        },
+        {
+            "id": "result",
+            "primitive": "polygon",
+            "meaning": "mapped coordinate region",
+            "label": "result",
+            "color": "red",
+            "params": {"vertices": [[0, 0], [2, 3], [3, 4], [1, 1]]},
+        },
+        {
+            "id": "answer_bar",
+            "primitive": "quantity_bar",
+            "meaning": "decorative duplicate of the measured result",
+            "label": "area 5",
+            "color": "green",
+            "params": {"value": 5},
+        },
+    ]
+    plan["scenes"][0]["actions"][0]["targets"] = ["source", "answer_bar"]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["source"],
+            "result": "result",
+            "meaning": "apply the verified linear map",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "measure",
+            "targets": ["result"],
+            "result": "",
+            "meaning": "measure the mapped coordinate area",
+        },
+        {
+            "op": "verify",
+            "targets": ["result", "answer_bar"],
+            "result": "",
+            "meaning": "verify the measured result",
+        },
+    ]
+    state = {
+        "verify_math_request": {
+            "operations": [
+                {
+                    "id": "d",
+                    "op": "determinant",
+                    "expression": [[2, 1], [3, 4]],
+                }
+            ],
+            "claims": [{"relation": "equal", "left": "$d", "right": "5"}],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "d", "op": "determinant", "result": "5"}],
+        },
+    }
+    ctx = ToolContext("s", 3, "advanced", "opaque unseen prompt", state)
+
+    grounded = ground_visual_plan_from_math_execution(_normalize_plan(plan), ctx)
+
+    result = next(item for item in grounded["visual_objects"] if item["id"] == "result")
+    assert result["params"]["vertices"] == [
+        [0.0, 0.0],
+        [2.0, 3.0],
+        [3.0, 7.0],
+        [1.0, 4.0],
+    ]
+    assert result["params"]["verified_measure"] == 5.0
+    assert "answer_bar" not in {item["id"] for item in grounded["visual_objects"]}
+    arrows = [item for item in grounded["visual_objects"] if item["primitive"] == "arrow"]
+    assert [item["params"]["end"] for item in arrows] == [[2.0, 3.0], [1.0, 4.0]]
+    assert _validate_plan(grounded, "advanced") == []
+
+
+def test_quality_review_rechecks_verified_geometry_instead_of_trusting_frames() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "source",
+            "primitive": "polygon",
+            "meaning": "source coordinate region",
+            "label": "source",
+            "color": "blue",
+            "params": {"vertices": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        },
+        {
+            "id": "result",
+            "primitive": "polygon",
+            "meaning": "incorrect mapped region",
+            "label": "result",
+            "color": "red",
+            "params": {
+                "vertices": [[0, 0], [2, 3], [3, 4], [1, 1]],
+                "verified_measure": 5,
+            },
+        },
+    ]
+    plan["scenes"][0]["actions"][0]["targets"] = ["source"]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["source"],
+            "result": "result",
+            "meaning": "apply a verified map",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "measure",
+            "targets": ["result"],
+            "result": "",
+            "meaning": "measure the result",
+        }
+    ]
+    ctx = ToolContext(
+        "s",
+        5,
+        "advanced",
+        "opaque prompt",
+        {
+            "verify_math_request": {
+                "operations": [
+                    {
+                        "id": "d",
+                        "op": "determinant",
+                        "expression": [[2, 1], [3, 4]],
+                    }
+                ]
+            }
+        },
+    )
+
+    integrity = _deterministic_visual_math_integrity(plan, ctx)
+
+    assert integrity["passed"] is False
+    assert any("坐标面积" in issue for issue in integrity["issues"])
+    assert any("顶点不符合" in issue for issue in integrity["issues"])
+
+
+def test_visual_plan_closes_vector_anchored_polygon_and_links_verification() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "source",
+            "primitive": "polygon",
+            "meaning": "source region",
+            "label": "source",
+            "color": "blue",
+            "params": {"vertices": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        },
+        {
+            "id": "result",
+            "primitive": "polygon",
+            "meaning": "vector-anchored result region",
+            "label": "result",
+            "color": "red",
+            "params": {"vertices": [[0, 0], [2, 3], [3, 4], [1, 4]]},
+        },
+        {
+            "id": "first_vector",
+            "primitive": "arrow",
+            "meaning": "first transformed basis",
+            "label": "v1",
+            "color": "green",
+            "params": {"start": [0, 0], "end": [2, 3]},
+        },
+        {
+            "id": "second_vector",
+            "primitive": "arrow",
+            "meaning": "second transformed basis",
+            "label": "v2",
+            "color": "green",
+            "params": {"start": [0, 0], "end": [1, 4]},
+        },
+        {
+            "id": "value",
+            "primitive": "quantity_bar",
+            "meaning": "verified scalar result",
+            "label": "5",
+            "color": "yellow",
+            "params": {"value": 5},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {"op": "create", "targets": ["source"], "result": "", "meaning": "source"},
+        {
+            "op": "create",
+            "targets": ["first_vector", "second_vector"],
+            "result": "",
+            "meaning": "vectors",
+        },
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["source"],
+            "result": "result",
+            "meaning": "apply vector-defined transform",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {"op": "measure", "targets": ["result"], "result": "", "meaning": "measure"},
+        {"op": "create", "targets": ["value"], "result": "", "meaning": "result value"},
+        {"op": "verify", "targets": ["value"], "result": "", "meaning": "verify"},
+    ]
+
+    normalized = _normalize_plan(plan)
+
+    result = next(item for item in normalized["visual_objects"] if item["id"] == "result")
+    assert result["params"]["vertices"] == [
+        [0.0, 0.0],
+        [2.0, 3.0],
+        [3.0, 7.0],
+        [1.0, 4.0],
+    ]
+    verify = normalized["scenes"][-1]["actions"][-1]
+    assert verify["targets"] == ["value", "result"]
+    assert _validate_plan(normalized, "advanced") == []
 
 
 def test_direct_video_salvages_graphics_when_local_model_omits_actions() -> None:
@@ -1327,14 +1593,10 @@ def test_direct_video_safe_plan_preserves_multi_step_causal_chain() -> None:
     assert result.success is True
     actions = ctx.state["visual_plan"]["scenes"][1]["actions"]
     successors = [
-        action["result"]
-        for action in actions
-        if action["op"] in {"transform", "partition", "map"}
+        action["result"] for action in actions if action["op"] in {"transform", "partition", "map"}
     ]
     assert successors == ["intermediate", "final_state"]
-    assert ctx.state["visual_plan"]["scenes"][2]["actions"][-1]["targets"] == [
-        "final_state"
-    ]
+    assert ctx.state["visual_plan"]["scenes"][2]["actions"][-1]["targets"] == ["final_state"]
 
 
 def test_direct_video_safe_plan_grounds_final_transition_in_verified_answer() -> None:
@@ -1493,24 +1755,14 @@ def test_direct_video_rebuilds_missing_answer_object_from_verified_equalities() 
         "transform",
         "partition",
     ]
-    comparisons = [
-        action
-        for action in plan["scenes"][1]["actions"]
-        if action["op"] == "compare"
-    ]
+    comparisons = [action for action in plan["scenes"][1]["actions"] if action["op"] == "compare"]
     assert len(comparisons) == 1
     compared_labels = {
-        next(
-            item["label"]
-            for item in plan["visual_objects"]
-            if item["id"] == target
-        )
+        next(item["label"] for item in plan["visual_objects"] if item["id"] == target)
         for target in comparisons[0]["targets"]
     }
     assert compared_labels == {"13", "5"}
-    answer_id = next(
-        item["id"] for item in plan["visual_objects"] if item["label"] == "4"
-    )
+    answer_id = next(item["id"] for item in plan["visual_objects"] if item["label"] == "4")
     assert structural[-1]["result"] == answer_id
     assert plan["scenes"][2]["actions"][-1]["targets"][0] == answer_id
 
@@ -1584,12 +1836,15 @@ def test_solution_contract_rejects_visible_scratchpad_self_correction() -> None:
     }
     issues = _solution_contract_issues(payload)
     assert any("等等" in issue for issue in issues)
-    assert _solution_contract_issues(
-        {
-            "answer": "4秒",
-            "steps": [{"result": "代回全部条件后均成立"}],
-        }
-    ) == []
+    assert (
+        _solution_contract_issues(
+            {
+                "answer": "4秒",
+                "steps": [{"result": "代回全部条件后均成立"}],
+            }
+        )
+        == []
+    )
 
 
 def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> None:
@@ -1599,17 +1854,13 @@ def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> N
         "explanation": "由已知关系",
         "result": "588 立方厘米",
     }
-    issues = _solution_contract_issues(
-        {"answer": "1254 立方厘米", "steps": [step, dict(step)]}
-    )
+    issues = _solution_contract_issues({"answer": "1254 立方厘米", "steps": [step, dict(step)]})
     assert any("重复" in issue for issue in issues)
     assert any("answer=1254" in issue and "last_result=588" in issue for issue in issues)
 
 
 def test_solution_contract_rejects_false_arithmetic_and_unproved_answer_values() -> None:
-    assert _invalid_literal_equalities(r"$24 \div 2 = 14$（只）") == [
-        "24 / 2 = 14"
-    ]
+    assert _invalid_literal_equalities(r"$24 \div 2 = 14$（只）") == ["24 / 2 = 14"]
     assert _invalid_literal_equalities(r"$24 \div 2 = 12$（只）") == []
     issues = _solution_contract_issues(
         {
@@ -1628,9 +1879,7 @@ def test_literal_arithmetic_checker_does_not_slice_symbolic_function_context() -
     assert _invalid_literal_equalities(r"\lim_{x\to 0} \frac{\sin(x)}{x} = 1") == []
     assert _invalid_literal_equalities("f(0) = 1") == []
     assert _invalid_literal_equalities("2 + 3 = 6") == ["2 + 3 = 6"]
-    assert _invalid_literal_equalities(
-        "f(2) = 2^2 - 4 * 2 + 3 = 4 - 8 + 3 = -1"
-    ) == []
+    assert _invalid_literal_equalities("f(2) = 2^2 - 4 * 2 + 3 = 4 - 8 + 3 = -1") == []
     assert _invalid_literal_equalities("2^3 = 9") == ["2**3 = 9"]
 
 
@@ -1784,10 +2033,7 @@ def test_tuple_false_verifier_uses_normalized_counterexample_channel() -> None:
     )
     assert passed is False
     assert message == "verify 返回 False: finite sample is not a limit"
-    assert (
-        _classify_verification_failure(message, expected_pass=True)
-        == "unconfirmed_assertion"
-    )
+    assert _classify_verification_failure(message, expected_pass=True) == "unconfirmed_assertion"
 
 
 def test_compile_stage_owns_semantic_audit_without_exposing_validator() -> None:
@@ -1830,8 +2076,8 @@ def test_video_review_uses_dense_temporal_sampling_by_default() -> None:
     assert tool._frame_count == 12
 
 
-def test_video_probe_rejects_overfilled_caption_safe_zone() -> None:
-    critical, _ = _derive_technical_issues(
+def test_video_probe_warns_on_dense_caption_zone_without_guessing_overlap() -> None:
+    critical, warnings = _derive_technical_issues(
         {
             "width": 1280,
             "height": 720,
@@ -1843,7 +2089,8 @@ def test_video_probe_rejects_overfilled_caption_safe_zone() -> None:
             "adjacent_frame_difference": [0.02] * 3,
         }
     )
-    assert any("字幕安全带过密" in issue for issue in critical)
+    assert not any("底部安全带" in issue for issue in critical)
+    assert any("底部安全带" in warning for warning in warnings)
 
 
 def test_static_evidence_gate_follows_free_form_countability_contract() -> None:
@@ -1856,9 +2103,10 @@ for row in range(10):
 """
     issues = _check_visual_evidence_contract(code, plan)
     assert any("单位可逐项计数" in issue for issue in issues)
-    assert _check_visual_evidence_contract(
-        code.replace("stroke_width=0", "stroke_width=1"), plan
-    ) == []
+    assert (
+        _check_visual_evidence_contract(code.replace("stroke_width=0", "stroke_width=1"), plan)
+        == []
+    )
 
 
 def test_static_evidence_gate_rejects_identical_live_label_anchors() -> None:
@@ -1873,16 +2121,14 @@ self.play(FadeIn(new_label))
     assert any("确定性标签重叠" in issue for issue in issues)
     fixed = code.replace(
         'new_label = Text("new")',
-        "self.play(FadeOut(old_label))\nnew_label = Text(\"new\")",
+        'self.play(FadeOut(old_label))\nnew_label = Text("new")',
     )
     assert _check_visual_evidence_contract(fixed, {}) == []
     nearby = code.replace("buff=0.2", "buff=0.5", 1).replace(
         "new_label.next_to(grid, UP, buff=0.2)",
         "new_label.next_to(grid, UP)",
     )
-    assert any(
-        "相邻标签带" in issue for issue in _check_visual_evidence_contract(nearby, {})
-    )
+    assert any("相邻标签带" in issue for issue in _check_visual_evidence_contract(nearby, {}))
 
 
 def test_static_gate_requires_faithful_visible_problem_opening() -> None:
@@ -1948,7 +2194,7 @@ class SolutionScene(Scene):
 
 
 def test_video_probe_rejects_blank_opening_and_border_clipping() -> None:
-    critical, _ = _derive_technical_issues(
+    critical, warnings = _derive_technical_issues(
         {
             "width": 1280,
             "height": 720,
@@ -1965,7 +2211,7 @@ def test_video_probe_rejects_blank_opening_and_border_clipping() -> None:
     assert any("开场" in issue for issue in critical)
     assert any("顶部" in issue for issue in critical)
     assert any("左右" in issue for issue in critical)
-    assert any("字幕安全带" in issue for issue in critical)
+    assert any("底部安全带" in warning for warning in warnings)
 
 
 def test_teaching_lines_become_a_content_agnostic_caption_timeline() -> None:
@@ -2139,8 +2385,7 @@ volume_bar.set_height(target_h)"""
     assert "if caption.width > 11.5:" in sanitized_layout
     assert "volume_bar.stretch_to_fit_height(target_h)" in sanitized_layout
     inline_caption = (
-        "Transform(caption, Text('next', font_size=24)"
-        ".scale_to_fit_width(11.5).center())"
+        "Transform(caption, Text('next', font_size=24).scale_to_fit_width(11.5).center())"
     )
     sanitized_caption = _sanitize_code(inline_caption)
     assert ".scale_to_fit_width" not in sanitized_caption
@@ -2166,12 +2411,8 @@ volume_bar.set_height(target_h)"""
     parallel_animations = _sanitize_code(
         "self.play(left.animate.scale(1.05), right.animate.scale(1.05))"
     )
-    assert parallel_animations == (
-        "self.play(left.animate.scale(1.05), right.animate.scale(1.05))"
-    )
-    legacy_play = _sanitize_code(
-        "self.play(removed.set_color, GREY, FadeOut(label))"
-    )
+    assert parallel_animations == ("self.play(left.animate.scale(1.05), right.animate.scale(1.05))")
+    legacy_play = _sanitize_code("self.play(removed.set_color, GREY, FadeOut(label))")
     assert legacy_play == "self.play(removed.animate.set_color(GREY), FadeOut(label))"
     anchored_caption = _sanitize_code(
         "self.play(Transform(caption, Text(TEACHING_LINES[2], font_size=24)))"
@@ -2250,12 +2491,8 @@ volume_bar.set_height(target_h)"""
     safe_append = _sanitize_code("body.move_to(np.append(position, 0))")
     assert "if len(position) == 2 else position" in safe_append
     assert "list(balls).index(ball)" in _sanitize_code("balls.get_index(ball)")
-    assert "get_part_by_class" not in _sanitize_code(
-        "feet = animal.get_part_by_class(Line)"
-    )
-    used_family = _sanitize_code(
-        "feet = animal.get_part_by_class(Line)\nself.play(FadeOut(feet))"
-    )
+    assert "get_part_by_class" not in _sanitize_code("feet = animal.get_part_by_class(Line)")
+    used_family = _sanitize_code("feet = animal.get_part_by_class(Line)\nself.play(FadeOut(feet))")
     assert "animal.get_family()" in used_family
     assert "isinstance(part, Line)" in used_family
     broken_caption = (
@@ -2265,9 +2502,7 @@ volume_bar.set_height(target_h)"""
     repaired_caption = _sanitize_code(broken_caption)
     assert ".get_center().move_to(" not in repaired_caption
     assert repaired_caption == _sanitize_code(repaired_caption)
-    ambiguous_colors = _sanitize_code(
-        'label = Text("24 and 2", t2c={"24": RED, "2": ORANGE})'
-    )
+    ambiguous_colors = _sanitize_code('label = Text("24 and 2", t2c={"24": RED, "2": ORANGE})')
     assert '"24": RED' in ambiguous_colors
     assert '"2": ORANGE' not in ambiguous_colors
     assert "buff=max(0.3, 0.2)" in _sanitize_code(
@@ -2395,9 +2630,9 @@ class SolutionScene(Scene):
         "当前未知问题",
     )
     assert "problem_card = Text(PROBLEM_TEXT" in missing_problem_card
-    assert missing_problem_card.index("self.play(Write(problem_card))") < missing_problem_card.index(
-        "self.play(Write(title))"
-    )
+    assert missing_problem_card.index(
+        "self.play(Write(problem_card))"
+    ) < missing_problem_card.index("self.play(Write(title))")
 
 
 def test_static_gate_rejects_display_text_as_category_state() -> None:
@@ -2543,12 +2778,15 @@ def test_static_gate_rejects_noop_or_unplayed_animation_patterns() -> None:
     assert any("generate_target" in issue for issue in issues)
     fade_tree = ast.parse("self.play(FadeOut(Text('new object'))) ")
     assert any("未在场" in issue for issue in _check_animation_api_misuse(fade_tree))
-    duplicate_tree = ast.parse(
-        "self.play(Transform(item, target), item.animate.set_fill(RED))"
+    duplicate_tree = ast.parse("self.play(Transform(item, target), item.animate.set_fill(RED))")
+    assert any(
+        "重复驱动对象 item" in issue for issue in _check_animation_api_misuse(duplicate_tree)
     )
-    assert any("重复驱动对象 item" in issue for issue in _check_animation_api_misuse(duplicate_tree))
     mutated_target_tree = ast.parse("self.play(Transform(item, item.add(label)))")
-    assert any("动画前直接修改了源对象 item" in issue for issue in _check_animation_api_misuse(mutated_target_tree))
+    assert any(
+        "动画前直接修改了源对象 item" in issue
+        for issue in _check_animation_api_misuse(mutated_target_tree)
+    )
     legacy_tree = ast.parse("self.play(item.set_color, RED)")
     assert any("旧式方法参数" in issue for issue in _check_animation_api_misuse(legacy_tree))
     drifting_caption = ast.parse(
@@ -2994,9 +3232,7 @@ def test_review_repair_uses_visual_fallback_instead_of_restoring_text_only_video
             "latest_video_path": "text-only.mp4",
         },
     )
-    result = asyncio.run(
-        tool.execute({"review_repair": True, "model_codegen": True}, ctx)
-    )
+    result = asyncio.run(tool.execute({"review_repair": True, "model_codegen": True}, ctx))
     assert result.success is True
     assert result.data is not None and result.data["delivery_fallback"] is True
     assert result.data["video_path"] == "visual-fallback.mp4"
@@ -3116,6 +3352,69 @@ def test_watch_patches_existing_candidate_without_replanning() -> None:
     assert inspector.calls == 2
 
 
+def test_watch_revises_scenespec_once_for_semantic_visual_failure() -> None:
+    class Inspector:
+        calls = 0
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            quality = "bad" if self.calls == 1 else "good"
+            ctx.state["last_visual_failed"] = quality == "bad"
+            return ToolResult(
+                success=True,
+                summary=quality,
+                data={
+                    "overall_quality": quality,
+                    "blacklist_hits": [],
+                    "repair_directive": {"scope": "plan" if quality == "bad" else "code"},
+                },
+            )
+
+    class Director:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            assert args == {"review_repair": True}
+            assert ctx.state["force_visual_replan"] is True
+            ctx.state["visual_plan"] = _open_world_plan("revised causal argument")
+            ctx.state.pop("force_visual_replan", None)
+            return ToolResult(success=True, summary="revised")
+
+    class Compiler:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            assert args == {"review_repair": True, "deterministic_ir": True}
+            ctx.state["latest_video_path"] = "replanned.mp4"
+            ctx.state["latest_video_url"] = "/replanned.mp4"
+            return ToolResult(success=True, summary="compiled")
+
+    inspector, director, compiler = Inspector(), Director(), Compiler()
+    tool = WatchVideoTool(inspector, compiler, director)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="advanced",
+        problem="opaque",
+        state={
+            "latest_manim_code": "old",
+            "latest_video_path": "old.mp4",
+            "latest_video_url": "/old.mp4",
+        },
+    )
+
+    result = asyncio.run(tool.execute({}, ctx))
+
+    assert result.success is True
+    assert result.data is not None and result.data["replanned"] is True
+    assert director.calls == 1
+    assert compiler.calls == 1
+    assert inspector.calls == 2
+
+
 def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails() -> None:
     class Inspector:
         parameters: dict[str, Any] = {"type": "object", "properties": {}}
@@ -3230,61 +3529,175 @@ def test_watch_treats_static_slideshow_as_meaningless_visual() -> None:
 
 
 def test_core_visual_gate_rejects_formula_cards_even_with_high_total_score() -> None:
-    assert _core_visual_gate_issue({"b3": 1, "b4": 2}) == (
-        "B3 < 2：关闭文字后无法看懂核心数学变化"
-    )
+    assert _core_visual_gate_issue({"b3": 1, "b4": 2}) == ("B3 < 2：关闭文字后无法看懂核心数学变化")
     assert _core_visual_gate_issue({"b3": 2, "b4": 1}) == (
         "B4 < 2：核心关系或变化没有被图形显式揭示"
     )
     assert _core_visual_gate_issue({"b3": 2, "b4": 2}) is None
 
 
+def test_quality_review_routes_semantic_failure_to_scenespec_repair() -> None:
+    assert (
+        _repair_scope(
+            {
+                "b_scores": {
+                    "b1": 0,
+                    "b2": 1,
+                    "b3": 0,
+                    "b4": 1,
+                    "b5": 1,
+                    "b6": 0,
+                },
+                "blacklist_hits": ["文字搬运"],
+                "issues": ["视觉计划与视频内容脱节"],
+            }
+        )
+        == "plan"
+    )
+    assert (
+        _repair_scope(
+            {
+                "b_scores": {
+                    "b1": 2,
+                    "b2": 2,
+                    "b3": 2,
+                    "b4": 2,
+                    "b5": 2,
+                    "b6": 2,
+                },
+                "blacklist_hits": [],
+                "issues": ["24 秒顶部公式重叠"],
+            }
+        )
+        == "code"
+    )
+
+
+def test_technical_review_rejects_long_video_with_sparse_visible_change() -> None:
+    metrics = {
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "duration_s": 31,
+        "visible_fraction_by_frame": [0.1] * 12,
+        "adjacent_frame_difference": [
+            0.0,
+            0.013,
+            0.004,
+            0.0019,
+            0.0059,
+            0.0097,
+            0.0035,
+            0.0033,
+            0.0019,
+            0.0015,
+            0.0,
+        ],
+    }
+
+    critical, _ = _derive_technical_issues(metrics)
+
+    assert any("有效画面变化覆盖不足" in issue for issue in critical)
+    assert metrics["active_transition_fraction"] < 0.25
+
+
+def test_static_validation_rejects_recreated_caption_and_shared_text_edge() -> None:
+    tree = ast.parse(
+        """
+from manim import *
+class SolutionScene(Scene):
+    def construct(self):
+        problem = Text("problem")
+        problem.to_edge(UP)
+        self.play(Write(problem))
+        self.play(FadeOut(problem))
+        formula = Text("formula")
+        formula.to_edge(UP)
+        caption = self._create_caption("first")
+        caption = self._create_caption("second")
+        check = Text("check")
+        check.to_edge(UP)
+    def _create_caption(self, text):
+        caption = Text(text)
+        self.play(FadeIn(caption))
+        return caption
+"""
+    )
+
+    issues = _check_animation_api_misuse(tree)
+
+    assert any("双字幕" in issue for issue in issues)
+    assert any("formula 与 check" in issue for issue in issues)
+
+
 def test_visual_ir_fallback_compiles_generic_repetition_partition_and_map() -> None:
     plan = _open_world_plan()
     plan["visual_objects"] = [
         {
-            "id": "all_units", "primitive": "dot", "meaning": "all units",
-            "label": "35 units", "color": "blue", "params": {"count": 35, "columns": 7},
+            "id": "all_units",
+            "primitive": "dot",
+            "meaning": "all units",
+            "label": "35 units",
+            "color": "blue",
+            "params": {"count": 35, "columns": 7},
         },
         {
-            "id": "baseline", "primitive": "line", "meaning": "two marks per unit",
-            "label": "2 per unit", "color": "blue", "params": {"count_per_unit": 2},
+            "id": "baseline",
+            "primitive": "line",
+            "meaning": "two marks per unit",
+            "label": "2 per unit",
+            "color": "blue",
+            "params": {"count_per_unit": 2},
         },
         {
-            "id": "difference", "primitive": "line", "meaning": "difference tokens",
-            "label": "24 tokens", "color": "red", "params": {"count": 24},
+            "id": "difference",
+            "primitive": "line",
+            "meaning": "difference tokens",
+            "label": "24 tokens",
+            "color": "red",
+            "params": {"count": 24},
         },
         {
-            "id": "groups", "primitive": "circle", "meaning": "paired groups",
-            "label": "12 groups", "color": "green", "params": {"count": 12},
+            "id": "groups",
+            "primitive": "circle",
+            "meaning": "paired groups",
+            "label": "12 groups",
+            "color": "green",
+            "params": {"count": 12},
         },
     ]
     plan["scenes"] = [
         {
-            "role": "setup", "teaching_line": "establish every unit",
+            "role": "setup",
+            "teaching_line": "establish every unit",
             "actions": [{"op": "create", "targets": ["all_units", "baseline"]}],
         },
         {
-            "role": "transform", "teaching_line": "pair the differences",
+            "role": "transform",
+            "teaching_line": "pair the differences",
             "actions": [
                 {"op": "create", "targets": ["difference"]},
                 {"op": "partition", "targets": ["difference"], "result": "groups"},
             ],
         },
         {
-            "role": "verify", "teaching_line": "map groups to the original units",
+            "role": "verify",
+            "teaching_line": "map groups to the original units",
             "actions": [{"op": "map", "targets": ["groups"], "result": "all_units"}],
         },
     ]
     ctx = ToolContext(
-        session_id="s", turn_index=4, grade="middle", problem="opaque",
+        session_id="s",
+        turn_index=4,
+        grade="middle",
+        problem="opaque",
         state={"solution_answer": "verified", "visual_plan": plan},
     )
     code = build_verified_fallback_code(ctx)
     compile(code, "<fallback>", "exec")
     assert "def repeated_body" in code
     assert 'self.repeat_units[spec["id"]] = body' in code
-    assert "params.get(\"count_per_unit\")" in code
+    assert 'params.get("count_per_unit")' in code
     assert "source_units[index * ratio:(index + 1) * ratio]" in code
     assert "pair_count = min(len(source_units), len(result_units))" in code
     assert "layout_animations = self.relayout(visible, [result_id])" in code
@@ -3344,9 +3757,7 @@ def test_visual_ir_compiles_safe_function_curve_instead_of_generic_line() -> Non
         {
             "role": "transform",
             "teaching_line": "show the local tangent",
-            "actions": [
-                {"op": "transform", "targets": ["curve"], "result": "tangent"}
-            ],
+            "actions": [{"op": "transform", "targets": ["curve"], "result": "tangent"}],
         },
         {
             "role": "verify",
@@ -3355,9 +3766,7 @@ def test_visual_ir_compiles_safe_function_curve_instead_of_generic_line() -> Non
         },
     ]
     normalized = _normalize_plan(plan)
-    curve = next(
-        item for item in normalized["visual_objects"] if item["id"] == "curve"
-    )
+    curve = next(item for item in normalized["visual_objects"] if item["id"] == "curve")
     assert curve["primitive"] == "function_curve"
     assert curve["params"]["expression"] == "sin(x)"
     plan_issues = _validate_plan(normalized, "advanced")
@@ -3438,7 +3847,7 @@ def test_visual_ir_places_any_explicit_xy_dot_on_axes() -> None:
     code = build_verified_fallback_code(ctx)
 
     assert 'all(key in params for key in ("x", "y"))' in code
-    assert 'self.primary_axes.c2p(point_x, point_y),' in code
+    assert "self.primary_axes.c2p(point_x, point_y)," in code
 
 
 def test_visual_ir_projects_one_unbound_dot_to_unique_curve_constraint() -> None:
@@ -3573,7 +3982,7 @@ def test_visual_ir_keeps_vertical_point_segments_in_coordinate_space() -> None:
 
     code = build_verified_fallback_code(ctx)
 
-    assert "else:\n                    self.coordinate_segments[spec[\"id\"]]" in code
+    assert 'else:\n                    self.coordinate_segments[spec["id"]]' in code
     assert "self.primary_axes.c2p(*start)" in code
 
 
@@ -3649,13 +4058,9 @@ def test_visual_ir_renders_all_coordinate_positions_and_compares_y_values() -> N
 
 def test_visual_plan_recovers_json_damaged_latex_before_plain_text_lowering() -> None:
     plan = _open_world_plan()
-    plan["scenes"][0]["teaching_line"] = (
-        "转化为 " + "\x0crac{" + "\text" + "{cos}(x)}{1}"
-    )
+    plan["scenes"][0]["teaching_line"] = "转化为 " + "\x0crac{" + "\text" + "{cos}(x)}{1}"
     normalized = _normalize_plan(plan)
-    assert normalized["scenes"][0]["teaching_line"] == (
-        r"转化为 \frac{\text{cos}(x)}{1}"
-    )
+    assert normalized["scenes"][0]["teaching_line"] == (r"转化为 \frac{\text{cos}(x)}{1}")
     ctx = ToolContext(
         session_id="s",
         turn_index=4,

@@ -79,6 +79,62 @@ def test_math_runtime_supports_open_capabilities_without_question_routing() -> N
     assert result.all_claims_passed is True
 
 
+def test_math_runtime_normalizes_common_safe_matrix_protocol_variants() -> None:
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"A": {"domain": "matrix"}},
+            "operations": [
+                {
+                    "id": "matrix_value",
+                    "op": "evaluate",
+                    "expression": "Matrix([[2, 1], [3, 4]])",
+                },
+                {
+                    "id": "det_value",
+                    "op": "determinant",
+                    "expression": "$matrix_value",
+                },
+            ],
+            "claims": [
+                {"relation": "equal", "left": "$det_value", "right": 5},
+                {"relation": "greater", "left": "$det_value", "right": 0},
+            ],
+        }
+    )
+
+    assert result.success is True
+    assert result.all_claims_passed is True
+    assert result.operations[0]["result"] == [["2", "1"], ["3", "4"]]
+
+
+def test_math_runtime_applies_unambiguous_substitutions_on_evaluate() -> None:
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {
+                "a": {"domain": "real"},
+                "b": {"domain": "real"},
+                "c": {"domain": "real"},
+                "d": {"domain": "real"},
+            },
+            "operations": [
+                {
+                    "id": "det_value",
+                    "op": "evaluate",
+                    "expression": "a*d - b*c",
+                    "substitutions": {"a": 2, "b": 1, "c": 3, "d": 4},
+                }
+            ],
+            "claims": [{"relation": "equal", "left": "$det_value", "right": 5}],
+        }
+    )
+
+    assert result.success is True
+    assert result.all_claims_passed is True
+    assert result.operations[0]["result"] == "5"
+
+
 def test_math_runtime_rejects_arbitrary_python_and_reports_false_claims() -> None:
     unsafe = execute_math_request(
         {

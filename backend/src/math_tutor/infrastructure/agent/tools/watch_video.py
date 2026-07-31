@@ -1,4 +1,5 @@
 """Final watch stage with one bounded, evidence-directed revision."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -51,9 +52,7 @@ class WatchVideoTool(ITool):
             fallback_delivery = bool(ctx.state.get("delivery_fallback"))
             return ToolResult(
                 success=True,
-                summary=(
-                    "可播放保底成片首审通过：" if fallback_delivery else "成片首审通过："
-                )
+                summary=("可播放保底成片首审通过：" if fallback_delivery else "成片首审通过：")
                 + first.summary,
                 data={
                     **(first.data or {}),
@@ -74,14 +73,41 @@ class WatchVideoTool(ITool):
                 internal_repair_count=0,
             )
 
-        # The first SceneSpec remains the semantic contract. Frame evidence is
-        # applied to the existing Manim source as a local code repair; replacing
-        # the whole plan here made the same compiler limitation recur with a new
-        # stochastic plan and looked like progress while discarding good work.
-        replanned = False
-        ctx.state.pop("force_visual_replan", None)
+        # Use the smallest repair unit that can address the observed failure.
+        # Layout, clipping and pacing stay local to the existing source.  When
+        # the rendered evidence says the visual thesis itself is absent or
+        # mathematically inconsistent, keeping the same SceneSpec would only
+        # rearrange a broken argument, so revise that contract exactly once.
+        directive = (first.data or {}).get("repair_directive") or {}
+        replanned = str(directive.get("scope") or "code") == "plan"
+        if replanned:
+            ctx.state["force_visual_replan"] = True
+            directed = await self._director.execute({"review_repair": True}, ctx)
+            artifacts.extend(directed.artifacts)
+            if not directed.success:
+                return self._deliver_degraded(
+                    "成片语义失败，重新导演未能形成有效 SceneSpec",
+                    first,
+                    artifacts,
+                    first_snapshot,
+                    ctx,
+                    replanned=True,
+                    internal_repair_count=1,
+                    extra={
+                        "repair_plan_failed": True,
+                        "repair_error": directed.error,
+                    },
+                )
+        else:
+            ctx.state.pop("force_visual_replan", None)
 
-        compiled = await self._compiler.execute({"review_repair": True}, ctx)
+        compile_args = {"review_repair": True}
+        if replanned:
+            # A semantic repair replaces the SceneSpec. Keep the next hop
+            # deterministic so review cannot regress into a fresh, unrelated
+            # model-written program with a new set of runtime failure modes.
+            compile_args["deterministic_ir"] = True
+        compiled = await self._compiler.execute(compile_args, ctx)
         artifacts.extend(compiled.artifacts)
         if not compiled.success:
             return self._deliver_degraded(
@@ -143,8 +169,7 @@ class WatchVideoTool(ITool):
         return ToolResult(
             success=True,
             summary=(
-                "成片复审通过：已根据首审证据完成一次"
-                + ("重新导演" if replanned else "局部修复")
+                "成片复审通过：已根据首审证据完成一次" + ("重新导演" if replanned else "局部修复")
             ),
             data={
                 **(second.data or {}),
@@ -170,8 +195,7 @@ class WatchVideoTool(ITool):
         data = result.data or {}
         hits = " ".join(str(item) for item in (data.get("blacklist_hits") or []))
         return any(
-            marker in hits
-            for marker in ("PPT", "文字搬运", "纯文字", "静态幻灯片", "静态展示")
+            marker in hits for marker in ("PPT", "文字搬运", "纯文字", "静态幻灯片", "静态展示")
         )
 
     @staticmethod
