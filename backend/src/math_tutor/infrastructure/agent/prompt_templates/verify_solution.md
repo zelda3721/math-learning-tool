@@ -34,10 +34,13 @@
 表达式使用 Python/SymPy 语法，按需增加 `variables`、`point`、`direction`、`order`、`bounds`
 或 `substitutions`。claims 必须把从题面独立计算出的结果与候选答案比较，不能直接 evaluate
 候选答案本身。若 Math IR 无法充分验证，选择下面的模式，而不是在 math_ir 中写 engine=none。
+只把真正的未知量声明为 symbols；题目给定常数直接写入表达式，不能声明为未赋值符号。
 
 必填参数：`differentiate/integrate` 需要 `variable`；`limit` 需要 `variable` 和 `point`；
-`solve` 需要 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`；后序操作引用前序
-结果必须写成 `$操作id`（例如 `"expression":"$derivative"`）。提交前逐项检查必填参数，不能依赖修复轮次补全。
+`solve` 需要 `variable` 或 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`；
+后序操作引用前序结果写成 `$操作id`，列表或多变量解可用 `$操作id[0]`、
+`$操作id[0].变量名` 安全取值；`substitute` 使用 `substitutions` 对象。提交前逐项检查必填参数，
+不能依赖修复轮次补全。
 
 ## 模式 B：executable
 

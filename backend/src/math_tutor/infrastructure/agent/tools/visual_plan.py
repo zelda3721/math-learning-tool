@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from typing import Any
 
@@ -62,6 +63,9 @@ _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan"
 _BACKTICKS = "`'\"‘’“”"
 _ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
 _SINGLE_ANCHOR_RE = re.compile(r"\b([A-Fa-f][1-6])\b")
+_COORDINATE_PAIR_RE = re.compile(
+    r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)\s*[)）]"
+)
 _WHY_SIGNAL_WORDS = (
     "为什么",
     "因为",
@@ -365,7 +369,42 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 if per_unit_key is not None:
                     params["count_per_unit"] = params[per_unit_key]
             primitive = item["primitive"]
+            if (
+                primitive == "quantity_bar"
+                and isinstance(params.get("start"), list)
+                and isinstance(params.get("end"), list)
+            ):
+                # A planner may name a coordinate-height indicator a "bar".
+                # Its two coordinate endpoints are stronger evidence than the
+                # loose primitive name, so render the exact segment instead
+                # of an unrelated aggregate-value rectangle.
+                item["primitive"] = "line"
+                primitive = "line"
+                params["points"] = [params["start"], params["end"]]
+            if primitive == "dot" and not all(key in params for key in ("x", "y")):
+                coordinate = _COORDINATE_PAIR_RE.search(
+                    f"{item['meaning']} {item['label']}"
+                )
+                if coordinate is not None:
+                    params["x"] = float(coordinate.group(1))
+                    params["y"] = float(coordinate.group(2))
             function_name = str(params.get("func") or "").strip().lower()
+            if (
+                primitive == "line"
+                and "points" not in params
+                and isinstance(params.get("start"), list)
+                and isinstance(params.get("end"), list)
+            ):
+                params["points"] = [params["start"], params["end"]]
+            elif (
+                primitive == "line"
+                and "points" not in params
+                and all(key in params for key in ("x1", "y1", "x2", "y2"))
+            ):
+                params["points"] = [
+                    [params["x1"], params["y1"]],
+                    [params["x2"], params["y2"]],
+                ]
             if primitive == "line" and function_name == "linear":
                 params.setdefault("slope", 1)
                 params.setdefault("intercept", 0)
@@ -490,6 +529,17 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                     if action["op"] not in {"transform", "partition", "map"}:
                         action["result"] = ""
                     action["meaning"] = _strip_decorations(action.get("meaning") or "")
+                    if (
+                        action["op"] in {"transform", "partition", "map"}
+                        and action["result"] in action["targets"]
+                    ):
+                        # A successor action cannot replace an object with
+                        # itself. Preserve the intended attention cue locally
+                        # and let the role-level repair below supply any
+                        # delayed relation reveal; never animate a fake state
+                        # change or spend another whole-plan generation.
+                        action["op"] = "highlight"
+                        action["result"] = ""
                     # Some planners express exact grouping as a multi-source
                     # map: total units + units per group -> group count. When
                     # the declared counts close exactly, lower it to the
@@ -534,6 +584,90 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                         normalized_actions.append(action)
                 actions = normalized_actions
             scene["actions"] = actions if isinstance(actions, list) else []
+
+            # ``highlight`` and ``verify`` can describe the same visible act:
+            # focus the student's attention on already-grounded evidence and
+            # use it to check the conclusion.  The scene role supplies the
+            # missing intent, so lower one final highlight to ``verify`` when
+            # the planner otherwise produced no verification operation.  This
+            # is a Visual-IR repair, independent of the mathematical topic.
+            if scene["role"] == "verify" and not any(
+                isinstance(action, dict)
+                and action.get("op") in _VERIFY_VISUAL_ACTIONS
+                for action in scene["actions"]
+            ):
+                highlight = next(
+                    (
+                        action
+                        for action in reversed(scene["actions"])
+                        if isinstance(action, dict)
+                        and action.get("op") == "highlight"
+                        and action.get("targets")
+                    ),
+                    None,
+                )
+                if highlight is not None:
+                    highlight["op"] = "verify"
+
+        # Local planners sometimes put the only new relationship graphic in
+        # the verify beat, after a transform beat made solely of self-
+        # transforms/highlights. Promote that already-declared relationship
+        # into the transform beat. This repairs temporal ordering only: no
+        # mathematical object, value, or problem type is invented.
+        primitive_by_id = {
+            str(item.get("id")): str(item.get("primitive") or "")
+            for item in visual_objects
+            if isinstance(item, dict) and item.get("id")
+        }
+        verify_scenes = [
+            scene
+            for scene in scenes
+            if isinstance(scene, dict) and scene.get("role") == "verify"
+        ]
+        for scene in scenes:
+            if not isinstance(scene, dict) or scene.get("role") != "transform":
+                continue
+            actions = scene.get("actions") or []
+            if any(
+                isinstance(action, dict)
+                and action.get("op") in _MUTATING_VISUAL_ACTIONS
+                for action in actions
+            ):
+                continue
+            promoted: list[dict[str, Any]] = []
+            for verify_scene in verify_scenes:
+                remaining: list[dict[str, Any]] = []
+                for action in verify_scene.get("actions") or []:
+                    targets = action.get("targets") or [] if isinstance(action, dict) else []
+                    is_relationship_create = (
+                        isinstance(action, dict)
+                        and action.get("op") == "create"
+                        and any(
+                            primitive_by_id.get(str(target))
+                            in {"line", "arrow", "function_curve"}
+                            for target in targets
+                        )
+                    )
+                    if is_relationship_create:
+                        promoted.append(action)
+                    else:
+                        remaining.append(action)
+                verify_scene["actions"] = remaining
+            if promoted:
+                first_focus = next(
+                    (
+                        index
+                        for index, action in enumerate(actions)
+                        if isinstance(action, dict)
+                        and action.get("op") in {"highlight", "measure", "compare"}
+                    ),
+                    len(actions),
+                )
+                scene["actions"] = [
+                    *actions[:first_focus],
+                    *promoted,
+                    *actions[first_focus:],
+                ]
 
         # Some models correctly introduce successor graphics in a transform
         # beat but encode them as independent ``create`` actions.  Recover an
@@ -1114,10 +1248,14 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     if not evidence.get("success") or evidence.get("all_claims_passed") is not True:
         return None
 
-    evidence_by_id = {
-        str(item.get("id")): str(item.get("result") or "")
+    raw_evidence_by_id = {
+        str(item.get("id")): item.get("result")
         for item in evidence.get("operations") or []
         if isinstance(item, dict) and item.get("id")
+    }
+    evidence_by_id = {
+        operation_id: str(result or "")
+        for operation_id, result in raw_evidence_by_id.items()
     }
     resolved_results: dict[str, str] = {}
     candidate: tuple[str, str, float, float] | None = None
@@ -1132,6 +1270,171 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
         if operation_id and result:
             resolved_results[operation_id] = result
         variable = str(operation.get("variable") or "x").strip()
+        if str(operation.get("op") or "").lower() == "solve" and expression:
+            raw_roots = raw_evidence_by_id.get(operation_id)
+            roots = raw_roots if isinstance(raw_roots, list) else []
+            try:
+                root_values = sorted({float(root) for root in roots})
+            except (TypeError, ValueError):
+                root_values = []
+            if root_values and len(root_values) <= 8 and all(
+                math.isfinite(root) and abs(root) < 1e6 for root in root_values
+            ):
+                margin = max(2.2, (root_values[-1] - root_values[0]) * 0.35 + 1.4)
+                x_start = root_values[0] - margin
+                x_end = root_values[-1] + margin
+                probe_values = []
+                for root in root_values:
+                    for offset in (-1.0, 0.0, 1.0):
+                        try:
+                            value = evaluate_real_expression_at(
+                                expression,
+                                variable=variable,
+                                point=root + offset,
+                            )
+                        except (TypeError, ValueError):
+                            value = None
+                        if value is not None:
+                            probe_values.append(value)
+                y_radius = max(
+                    3.0,
+                    min(12.0, max((abs(value) for value in probe_values), default=2) * 1.25 + 1),
+                )
+                try:
+                    sample_real_expression(
+                        expression,
+                        variable=variable,
+                        start=x_start,
+                        end=x_end,
+                        y_min=-y_radius,
+                        y_max=y_radius,
+                    )
+                except (TypeError, ValueError):
+                    continue
+                root_label = ", ".join(f"{value:g}" for value in root_values)
+                guide_ids = [f"grounded_root_guide_{index}" for index in range(len(root_values))]
+                plan = {
+                    "visual_thesis": (
+                        "把一元方程移到同一侧形成函数曲线，"
+                        "用曲线与 x 轴的交点直接定位全部实根。"
+                    ),
+                    "essence_rationale": (
+                        "方程成立等价于同侧表达式的函数值为零；"
+                        "学生看到曲线穿过 x 轴的位置，就能从坐标而非文字读取解。"
+                    ),
+                    "symbol_ledger": [
+                        "蓝色曲线 = Math IR 中被求解的同侧表达式",
+                        "绿色圆点 = 确定性求解得到的全部实根",
+                        "黄色竖线 = 根到 x 轴交点的坐标投影",
+                    ],
+                    "visual_objects": [
+                        {
+                            "id": "grounded_solve_axes",
+                            "primitive": "axes",
+                            "meaning": "方程零点所在的共同坐标参照",
+                            "label": "",
+                            "color": "gray",
+                            "params": {
+                                "x_range": [x_start, x_end],
+                                "y_range": [-y_radius, y_radius],
+                            },
+                        },
+                        {
+                            "id": "grounded_solve_curve",
+                            "primitive": "function_curve",
+                            "meaning": "Math IR 中被求解的同侧表达式",
+                            "label": f"g({variable})",
+                            "color": "blue",
+                            "params": {
+                                "expression": expression,
+                                "variable": variable,
+                                "x_range": [x_start, x_end],
+                            },
+                        },
+                        {
+                            "id": "grounded_solve_roots",
+                            "primitive": "dot",
+                            "meaning": "确定性求解得到的全部实根",
+                            "label": f"{variable} = {root_label}",
+                            "color": "green",
+                            "params": {
+                                "positions": [[root, 0] for root in root_values],
+                            },
+                        },
+                        *[
+                            {
+                                "id": guide_id,
+                                "primitive": "line",
+                                "meaning": "实根在 x 轴上的坐标投影",
+                                "label": "",
+                                "color": "yellow",
+                                "params": {
+                                    "start": [root, -0.9],
+                                    "end": [root, 0.9],
+                                },
+                            }
+                            for guide_id, root in zip(guide_ids, root_values)
+                        ],
+                    ],
+                    "scenes": [
+                        {
+                            "role": "setup",
+                            "anchor_zone": "A1-F6",
+                            "key_objects": "坐标系与同侧表达式曲线",
+                            "action": "建立坐标参照并绘制待求零点的函数。",
+                            "invariant": "曲线表达式来自已验证 Math IR",
+                            "attention_target": "曲线相对 x 轴的位置",
+                            "exit_condition": "曲线及 x 轴清楚可见",
+                            "teaching_line": "把方程移到同一侧，解就是这条曲线的零点。",
+                            "duration_s": 5,
+                            "actions": [{
+                                "op": "create",
+                                "targets": ["grounded_solve_axes", "grounded_solve_curve"],
+                                "result": "",
+                                "meaning": "显示确定性方程对应的函数曲线",
+                            }],
+                        },
+                        {
+                            "role": "transform",
+                            "anchor_zone": "A1-F6",
+                            "key_objects": "根的投影线与交点",
+                            "action": "从每个已验证根投影到曲线与 x 轴的交点。",
+                            "invariant": "每个标记位置的函数值都为零",
+                            "attention_target": "曲线穿过 x 轴的位置",
+                            "exit_condition": "全部实根均被图形标出",
+                            "teaching_line": "曲线与 x 轴相交的位置给出全部实数解。",
+                            "duration_s": 7,
+                            "actions": [{
+                                "op": "create",
+                                "targets": [*guide_ids, "grounded_solve_roots"],
+                                "result": "",
+                                "meaning": "把确定性求得的根落到 x 轴交点",
+                            }],
+                        },
+                        {
+                            "role": "verify",
+                            "anchor_zone": "A1-F6",
+                            "key_objects": "曲线与全部根标记",
+                            "action": "框选曲线和 x 轴交点核对全部实根。",
+                            "invariant": "根值来自独立 Math IR 验算",
+                            "attention_target": f"{variable} = {root_label}",
+                            "exit_condition": "每个根都与零点位置一致",
+                            "teaching_line": f"交点横坐标为 {root_label}，代回后函数值为零。",
+                            "duration_s": 5,
+                            "actions": [{
+                                "op": "verify",
+                                "targets": ["grounded_solve_roots"],
+                                "result": "",
+                                "meaning": "核对曲线零点与确定性解集",
+                            }],
+                        },
+                    ],
+                    "forbidden": ["用答案文字代替零点", "省略多根中的任意一个"],
+                    "grounded_from_math_execution": True,
+                }
+                normalized = _normalize_plan(plan)
+                if not _validate_plan(normalized, ctx.grade):
+                    return normalized
         point = operation.get("point")
         if not expression or point is None or not result:
             continue
@@ -1714,6 +2017,7 @@ def _validate_plan(
 
     visual_objects = plan.get("visual_objects") or []
     object_ids: set[str] = set()
+    object_primitives: dict[str, str] = {}
     if len(visual_objects) < 2:
         errors.append("visual_objects 至少需要 2 个承载数学意义的非文字图形对象")
     for index, item in enumerate(visual_objects, start=1):
@@ -1729,6 +2033,7 @@ def _validate_plan(
             errors.append(f"visual object id 重复：{object_id}")
         else:
             object_ids.add(object_id)
+            object_primitives[object_id] = primitive
         if primitive not in _VISUAL_PRIMITIVES:
             errors.append(
                 f"visual_objects[{index}].primitive='{primitive}' 不在可组合图形原语集合中"
@@ -1748,6 +2053,7 @@ def _validate_plan(
     visible_ids: set[str] = set()
     mapped_aliases: dict[str, str] = {}
     causal_transition_count = 0
+    has_relation_reveal = False
     if len(scenes) < 3:
         errors.append(f"场景数 {len(scenes)} < 3")
     if "transform" not in [s.get("role", "") for s in scenes if isinstance(s, dict)]:
@@ -1775,6 +2081,7 @@ def _validate_plan(
         if not actions:
             errors.append(f"场景 {index} actions 为空，只有文字导演描述而无可执行图形动作")
         action_ops: set[str] = set()
+        visible_at_scene_start = set(visible_ids)
         for action_index, action in enumerate(actions, start=1):
             if not isinstance(action, dict):
                 errors.append(f"场景 {index} action {action_index} 不是对象")
@@ -1841,6 +2148,65 @@ def _validate_plan(
                 errors.append(f"场景 {index} action {action_index} 缺少数学语义 meaning")
         if role == "transform":
             transform_ops.update(action_ops)
+            created_ids = {
+                str(target)
+                for action in actions
+                if isinstance(action, dict) and action.get("op") == "create"
+                for target in action.get("targets") or []
+            }
+            created_relationship_ids = {
+                target
+                for target in created_ids
+                if object_primitives.get(str(target))
+                in {"line", "arrow", "function_curve"}
+            }
+            created_coordinate_ids = {
+                target
+                for target in created_ids
+                if object_primitives.get(str(target))
+                in {"line", "arrow", "function_curve", "dot"}
+            }
+            has_coordinate_reference = any(
+                object_primitives.get(object_id) == "axes"
+                for object_id in visible_at_scene_start
+            )
+            focused_related = any(
+                isinstance(action, dict)
+                and action.get("op") in {"highlight", "measure", "compare", "verify"}
+                and any(
+                    str(target) in visible_at_scene_start | created_ids
+                    for target in action.get("targets") or []
+                )
+                for action in actions
+            )
+            if (
+                created_relationship_ids
+                and (
+                    focused_related
+                    or (
+                        has_coordinate_reference
+                        and len(created_coordinate_ids) >= 2
+                        and any(
+                            object_primitives.get(object_id) in {"line", "arrow"}
+                            for object_id in created_coordinate_ids
+                        )
+                    )
+                )
+                and (
+                    has_coordinate_reference
+                    or any(
+                        object_primitives.get(object_id) in {"line", "arrow"}
+                        for object_id in created_relationship_ids
+                    )
+                )
+            ):
+                # Revealing an auxiliary/projection/constraint line against
+                # an existing object is itself a causal graphical step.  It
+                # is not a static list, even though no object identity is
+                # replaced.  This covers coordinate and geometric arguments
+                # without knowing their problem type.
+                has_relation_reveal = True
+                causal_transition_count += 1
         if role == "verify" and not (action_ops & _VERIFY_VISUAL_ACTIONS):
             errors.append("verify 场景必须通过 compare/measure/verify 图形动作核对结论")
         duration = float(scene.get("duration_s") or 0)
@@ -1854,7 +2220,11 @@ def _validate_plan(
     # beat performs the structural mutation and the next reveals projections
     # or verification marks. Require a real mutation across that sequence,
     # instead of forcing every beat labelled transform to mutate again.
-    if has_transform_scene and not (transform_ops & _MUTATING_VISUAL_ACTIONS):
+    if (
+        has_transform_scene
+        and not (transform_ops & _MUTATING_VISUAL_ACTIONS)
+        and not has_relation_reveal
+    ):
         errors.append("transform 场景序列必须包含会改变非文字图形状态的结构化动作")
     if has_transform_scene and causal_transition_count == 0:
         errors.append(

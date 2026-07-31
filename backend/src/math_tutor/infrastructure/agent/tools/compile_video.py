@@ -501,6 +501,12 @@ class SolutionScene(Scene):
                     self.coordinate_domains[spec["id"]] = (x1, x2)
                     path_specs.append(spec)
                     self.coordinate_ids.add(spec["id"])
+                else:
+                    self.coordinate_segments[spec["id"]] = (
+                        (x1, y1),
+                        (x2, y2),
+                    )
+                    self.coordinate_ids.add(spec["id"])
             elif "slope" in params and "intercept" in params:
                 self.coordinate_models[spec["id"]] = (
                     self.number(params.get("slope"), 1),
@@ -544,9 +550,51 @@ class SolutionScene(Scene):
                 self.scan_target_x = (b2 - b1) / (m1 - m2)
                 self.scan_target_y = m1 * self.scan_target_x + b1
         self.scan_tracker = ValueTracker(start)
+        vertical_x_values = {
+            round(segment[0][0], 9)
+            for segment in self.coordinate_segments.values()
+            if abs(segment[0][0] - segment[1][0]) < 1e-6
+        }
+        curve_specs = [
+            spec for spec in VISUAL_OBJECTS
+            if spec["primitive"] == "function_curve"
+        ]
+        unbound_dots = [
+            spec for spec in VISUAL_OBJECTS
+            if spec["primitive"] == "dot"
+            and not all(key in (spec.get("params") or {}) for key in ("x", "y"))
+        ]
+        if (
+            len(vertical_x_values) == 1
+            and len(curve_specs) == 1
+            and len(unbound_dots) == 1
+        ):
+            projection_x = next(iter(vertical_x_values))
+            sampled_points = [
+                point
+                for segment in (curve_specs[0].get("params") or {}).get(
+                    "sampled_segments", []
+                )
+                if isinstance(segment, list)
+                for point in segment
+                if isinstance(point, list) and len(point) >= 2
+            ]
+            if sampled_points:
+                nearest = min(
+                    sampled_points,
+                    key=lambda point: abs(self.number(point[0], 0) - projection_x),
+                )
+                dot_params = unbound_dots[0].setdefault("params", {})
+                dot_params["x"] = projection_x
+                dot_params["y"] = self.number(nearest[1], 0)
+                self.coordinate_ids.add(unbound_dots[0]["id"])
         for spec in VISUAL_OBJECTS:
+            params = spec.get("params") or {}
             if spec["primitive"] == "dot" and (
-                "交点" in spec.get("meaning", "") or "intersection" in spec["id"].lower()
+                all(key in params for key in ("x", "y"))
+                or isinstance(params.get("positions"), list)
+                or "交点" in spec.get("meaning", "")
+                or "intersection" in spec["id"].lower()
             ):
                 self.coordinate_ids.add(spec["id"])
 
@@ -561,20 +609,38 @@ class SolutionScene(Scene):
         elif primitive == "dot":
             if spec["id"] in self.coordinate_ids and hasattr(self, "primary_axes"):
                 params = spec.get("params") or {}
-                point_x = self.number(params.get("x"), self.scan_target_x)
-                point_y = self.number(params.get("y"), self.scan_target_y)
-                if params.get("open"):
-                    body = Circle(
-                        radius=0.16,
-                        color=color,
-                        fill_opacity=0,
-                        stroke_width=5,
-                    ).move_to(self.primary_axes.c2p(point_x, point_y))
+                positions = [
+                    position
+                    for position in params.get("positions") or []
+                    if isinstance(position, list) and len(position) >= 2
+                ]
+                if positions:
+                    body = VGroup(*[
+                        Dot(
+                            self.primary_axes.c2p(
+                                self.number(position[0], 0),
+                                self.number(position[1], 0),
+                            ),
+                            radius=0.16,
+                            color=color,
+                        )
+                        for position in positions
+                    ])
                 else:
-                    body = Dot(
-                        self.primary_axes.c2p(point_x, point_y),
-                        radius=0.16, color=color,
-                    )
+                    point_x = self.number(params.get("x"), self.scan_target_x)
+                    point_y = self.number(params.get("y"), self.scan_target_y)
+                    if params.get("open"):
+                        body = Circle(
+                            radius=0.16,
+                            color=color,
+                            fill_opacity=0,
+                            stroke_width=5,
+                        ).move_to(self.primary_axes.c2p(point_x, point_y))
+                    else:
+                        body = Dot(
+                            self.primary_axes.c2p(point_x, point_y),
+                            radius=0.16, color=color,
+                        )
             else:
                 body = Dot(radius=0.16, color=color)
         elif primitive == "circle":
@@ -1348,8 +1414,20 @@ class SolutionScene(Scene):
                 compare_badge = None
                 first_params = self.specs[targets[0]].get("params") or {}
                 second_params = self.specs[targets[1]].get("params") or {}
-                first_raw = first_params.get("value", first_params.get("count"))
-                second_raw = second_params.get("value", second_params.get("count"))
+                def comparison_value(params):
+                    if params.get("y") is not None:
+                        return params.get("y")
+                    positions = params.get("positions") or []
+                    y_values = [
+                        position[1]
+                        for position in positions
+                        if isinstance(position, list) and len(position) >= 2
+                    ]
+                    if y_values and all(value == y_values[0] for value in y_values):
+                        return y_values[0]
+                    return params.get("value", params.get("count"))
+                first_raw = comparison_value(first_params)
+                second_raw = comparison_value(second_params)
                 if first_raw is not None and second_raw is not None:
                     first_value = self.number(first_raw, 0)
                     second_value = self.number(second_raw, 0)
@@ -1357,8 +1435,9 @@ class SolutionScene(Scene):
                     smaller = min(first_value, second_value)
                     difference = greater - smaller
                     self.last_comparison_difference = difference
+                    smaller_text = f"({smaller:g})" if smaller < 0 else f"{smaller:g}"
                     compare_badge = Text(
-                        f"{greater:g} − {smaller:g} = {difference:g}",
+                        f"{greater:g} − {smaller_text} = {difference:g}",
                         font_size=22, color=YELLOW,
                     )
                     compare_badge.next_to(VGroup(*selected[:2]), DOWN, buff=0.22)
