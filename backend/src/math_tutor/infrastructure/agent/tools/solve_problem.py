@@ -42,18 +42,25 @@ _DRAFT_CORRECTION_MARKERS = (
 _GRADE_GUIDANCE: dict[str, str] = {
     "elementary_lower": (
         "使用该年龄已经掌握的语言和运算；每一步只引入一个新关系，解释所有符号。"
+        "解题步骤必须用算术推理（画一画、分组、逐个数），禁止引入未知数、方程和"
+        "任何字母符号；「确定性计算」的机器验算不受此限制，但解题叙述面向学生。"
     ),
     "elementary_upper": (
         "选择该年龄能解释且步骤最少的有效推理；先说明关系，再执行运算，避免无解释的符号跳步。"
+        "应用题用算术推理讲解（画图、分组、假设调整、凑整），解题步骤不出现未知数与"
+        "方程记号——那是初中内容；「确定性计算」的机器验算可以用方程，但解题叙述不能。"
     ),
     "middle": (
         "允许标准代数和几何语言；明确变量定义、等价变形的依据和适用条件。"
+        "方程变形应按「天平两侧同步操作」的等量思想叙述，方便后续用图形表达。"
     ),
     "high": (
         "给出关键推理依据、定义域与边界；区分等价推导、充分条件和必要条件。"
+        "涉及函数与变化的推理优先用图像语言（交点、斜率、面积）组织，再给代数细节。"
     ),
     "advanced": (
         "明确使用的定义、定理、假设和边界情况；优先可验证且逻辑闭合的推导。"
+        "有几何意义的对象（矩阵、变换、内积、特征向量等）先给几何解释，再做代数计算。"
     ),
 }
 
@@ -97,7 +104,64 @@ def _parse_solution(done: Any) -> dict[str, Any] | None:
     return None
 
 
+_QUANTITY_STORY_RELATIONS = {"take_away", "add_to", "compare_more", "compare_fewer"}
+
+
+def _parse_quantity_story(done: Any) -> dict[str, Any] | None:
+    """Parse the optional 数量故事 section into a raw (LLM-trusted) story.
+
+    The story's relation kind is the model's semantic judgment; its numbers
+    are cross-checked against executed Math IR evidence by the visual-plan
+    builder before any deterministic plan is generated from it.
+    """
+    for source in (
+        getattr(done, "text", "") or "",
+        getattr(done, "reasoning", "") or "",
+    ):
+        section = md.find_section(source, "数量故事", level=2) or md.find_section(
+            source, "数量故事"
+        )
+        if section is None:
+            continue
+        fields = md.get_kv_dict(section)
+        if not fields:
+            continue
+        applicable = str(
+            fields.get("适用") or fields.get("applicable") or ""
+        ).strip().lower()
+        if applicable not in {"是", "yes", "true"}:
+            return None
+        relation = str(fields.get("关系") or fields.get("relation") or "").strip().lower()
+        if relation not in _QUANTITY_STORY_RELATIONS:
+            return None
+
+        def integer_field(*names: str) -> int | None:
+            for name in names:
+                raw = fields.get(name)
+                if raw is None:
+                    continue
+                match = re.search(r"-?\d+", str(raw))
+                if match:
+                    return int(match.group(0))
+            return None
+
+        first = integer_field("量1", "量一")
+        second = integer_field("量2", "量二")
+        result = integer_field("结果量", "结果")
+        if first is None or second is None or result is None:
+            return None
+        return {
+            "relation": relation,
+            "entity": str(fields.get("实体") or fields.get("entity") or "").strip()[:12],
+            "first": first,
+            "second": second,
+            "result": result,
+        }
+    return None
+
+
 def _execute_declared_math(done: Any) -> tuple[dict[str, Any] | None, MathExecutionResult]:
+    section_found = False
     for source in (
         getattr(done, "text", "") or "",
         getattr(done, "reasoning", "") or "",
@@ -107,9 +171,22 @@ def _execute_declared_math(done: Any) -> tuple[dict[str, Any] | None, MathExecut
         )
         if section is None:
             continue
+        section_found = True
         request = md.parse_json_anywhere(section)
         if isinstance(request, dict):
             return request, execute_math_request(request)
+    if section_found:
+        # A malformed block needs actionable repair feedback, not a
+        # missing-section complaint: the dominant failure is unquoted
+        # algebraic expressions, which are invalid JSON.
+        return None, MathExecutionResult(
+            False,
+            errors=[
+                "确定性计算 section 存在但 JSON 无法解析。常见原因：expression 写成了"
+                "未加引号的代数式。所有 expression 必须是 JSON 字符串；方程组用字符串"
+                '数组，如 ["x + y - 35", "2*x + 4*y - 94"] 并配 "variables": ["x", "y"]'
+            ],
+        )
     return None, MathExecutionResult(False, errors=["缺少 ## 确定性计算 JSON 请求"])
 
 
@@ -472,6 +549,34 @@ class SolveProblemTool(ITool):
                 internal_repair_count = 1
             else:
                 contract_issues = repaired_issues
+        math_downgrade_artifacts: list[ArtifactSpec] = []
+        if contract_issues:
+            solution_issues_now = _solution_contract_issues(payload)
+            if not solution_issues_now:
+                # Every remaining issue concerns the deterministic-computation
+                # artifact, not the solution itself.  The documented principle
+                # is to abstain rather than fabricate: keep the solution, mark
+                # the math evidence inapplicable, and let the independent
+                # verify stage own correctness.  This is IR-format resilience,
+                # not a problem-type branch.
+                downgrade_reason = "；".join(str(item) for item in contract_issues)[:300]
+                logger.warning(
+                    "solve math evidence downgraded to logical verification: %s",
+                    downgrade_reason,
+                )
+                math_request = math_request or {}
+                math_execution = MathExecutionResult(
+                    True,
+                    applicable=False,
+                    reason="确定性计算未能执行，已降级为逻辑验证：" + downgrade_reason,
+                )
+                ctx.state["math_evidence_downgraded"] = downgrade_reason
+                math_downgrade_artifacts = [_raw_solution_artifact(done, ctx, "initial")]
+                if repaired_done is not None and repaired_done is not done:
+                    math_downgrade_artifacts.append(
+                        _raw_solution_artifact(repaired_done, ctx, "repair")
+                    )
+                contract_issues = []
         if contract_issues:
             ctx.state["last_solve_contract_issues"] = contract_issues
             raw_artifacts = [_raw_solution_artifact(done, ctx, "initial")]
@@ -514,6 +619,13 @@ class SolveProblemTool(ITool):
         ctx.state["solve_math_request"] = math_request or {}
         ctx.state["solve_math_evidence"] = math_execution.to_dict()
         ctx.state["solution_verified"] = False
+        if not math_downgrade_artifacts:
+            ctx.state.pop("math_evidence_downgraded", None)
+        quantity_story = _parse_quantity_story(done)
+        if quantity_story is not None:
+            ctx.state["quantity_story"] = quantity_story
+        else:
+            ctx.state.pop("quantity_story", None)
         ctx.state.pop("last_solve_contract_issues", None)
         ctx.state.pop("last_verify_failure", None)
         for key in (
@@ -541,7 +653,8 @@ class SolveProblemTool(ITool):
                     "applicable": math_execution.applicable,
                     "all_claims_passed": math_execution.all_claims_passed,
                 },
-            )
+            ),
+            *math_downgrade_artifacts,
         ]
         if internal_repair_count:
             report = {

@@ -12,6 +12,9 @@ class VideoResult:
     success: bool
     video_path: str = ""
     error_message: str = ""
+    # Render-time beat manifest emitted by instrumented scenes (timestamps and
+    # per-group expected unit counts); None when the scene did not emit one.
+    beat_manifest: dict | None = None
 
 
 class IVideoGenerator(ABC):

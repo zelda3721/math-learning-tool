@@ -216,8 +216,19 @@ def _eval_direction_expr(expr: str) -> tuple[float, float] | None:
     if not expr:
         return None
 
+    # Parse bracketed coordinates on the FULL argument first: the common form
+    # move_to([x, y, 0]) contains commas, so a naive comma-split would truncate
+    # it to "[x" and silently hide the placement from overlap detection.
+    nm = re.search(r"\[\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*\]", expr)
+    if nm is None:
+        nm = re.search(r"\(\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*\)", expr)
+    if nm is not None:
+        try:
+            return float(nm.group(1)), float(nm.group(2))
+        except ValueError:
+            return None
+
     # Drop trailing args like ", buff=..."  — only the first positional matters
-    # Nope: callers pass us only the first positional. Just be defensive.
     expr = expr.split(",")[0].strip()
 
     if expr in _DIRECTION_VEC:
@@ -250,16 +261,6 @@ def _eval_direction_expr(expr: str) -> tuple[float, float] | None:
 
     if matched_any:
         return (x_total, y_total)
-
-    # np.array([x, y, 0]) or [x, y, 0] or (x, y, 0)
-    nm = re.search(r"\[\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*\]", expr)
-    if nm is None:
-        nm = re.search(r"\(\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*,\s*([\-\d.eE+]+)\s*\)", expr)
-    if nm is not None:
-        try:
-            return float(nm.group(1)), float(nm.group(2))
-        except ValueError:
-            return None
 
     return None
 

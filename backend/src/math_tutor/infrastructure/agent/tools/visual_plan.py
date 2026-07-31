@@ -56,9 +56,29 @@ _VISUAL_ACTIONS = {
     "measure",
     "verify",
     "remove",
+    # Quantity verbs (Visual IR v2): parameter-enforced operations whose
+    # lowering must preserve unit-object continuity and conservation.
+    "take_from",
+    "combine",
+    "count",
+    "recount_verify",
+    "replicate",
 }
-_MUTATING_VISUAL_ACTIONS = {"transform", "move", "partition", "merge", "map"}
-_VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify"}
+_QUANTITY_ACTIONS = {"take_from", "combine", "count", "recount_verify", "replicate"}
+_MUTATING_VISUAL_ACTIONS = {
+    "transform",
+    "move",
+    "partition",
+    "merge",
+    "map",
+    "take_from",
+    "combine",
+    "replicate",
+}
+_VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify", "recount_verify"}
+_TAKE_FROM_STYLES = {"cross_out", "fade", "fly"}
+# Typed axis destination for coordinate-scan moves, e.g. "x=2.5".
+_AXIS_DESTINATION_RE = re.compile(r"^x\s*=\s*[-+]?\d+(?:\.\d+)?$")
 _SECTION_ALIASES = ("视觉计划", "视觉规划", "Visual Plan", "visual_plan", "计划")
 _BACKTICKS = "`'\"‘’“”"
 _ZONE_LIKE_RE = re.compile(r"[A-Fa-f][1-6]\s*[-–—~～to至]\s*[A-Fa-f][1-6]")
@@ -156,6 +176,11 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                                 "type": "array",
                                 "items": {
                                     "type": "object",
+                                    # Flat nullable fields instead of a per-op
+                                    # discriminated union: local constrained
+                                    # decoders compile flat grammars reliably;
+                                    # per-op presence is enforced by
+                                    # _validate_plan with targeted messages.
                                     "properties": {
                                         "op": {
                                             "type": "string",
@@ -167,8 +192,30 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                                         },
                                         "result": {"type": "string"},
                                         "meaning": {"type": "string"},
+                                        "source": {"type": ["string", "null"]},
+                                        "destination": {"type": ["string", "null"]},
+                                        "count": {"type": ["integer", "null"]},
+                                        "style": {"type": ["string", "null"]},
+                                        "parts": {
+                                            "type": ["array", "null"],
+                                            "items": {"type": "integer"},
+                                        },
+                                        "expect": {"type": ["integer", "null"]},
+                                        "expect_total": {"type": ["integer", "null"]},
                                     },
-                                    "required": ["op", "targets", "result", "meaning"],
+                                    "required": [
+                                        "op",
+                                        "targets",
+                                        "result",
+                                        "meaning",
+                                        "source",
+                                        "destination",
+                                        "count",
+                                        "style",
+                                        "parts",
+                                        "expect",
+                                        "expect_total",
+                                    ],
                                     "additionalProperties": False,
                                 },
                             },
@@ -1166,28 +1213,40 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
     def number_label(value: float) -> str:
         return f"{value:g}"
 
-    values: list[float] = []
-    for left, _, right, output, _ in equations:
-        for value in (left, right, output):
-            if value not in values:
-                values.append(value)
-    object_ids = {value: f"verified_value_{index}" for index, value in enumerate(values)}
-    objects = []
-    for value in values:
-        count = int(round(abs(value))) if abs(value - round(value)) <= 1e-8 else 0
+    def small_natural(value: float) -> int | None:
+        if abs(value - round(value)) <= 1e-8 and 1 <= round(value) <= 24:
+            return int(round(value))
+        return None
+
+    # value → object id currently holding that quantity on screen. Quantity
+    # verbs mutate a group in place (5-grid minus 2 units IS the 3), so an
+    # output value aliases to the mutated object instead of a fresh object.
+    alias: dict[float, str] = {}
+    objects: list[dict[str, Any]] = []
+    setup_ids: list[str] = []
+    actions: list[dict[str, Any]] = []
+    recount_groups: list[str] = []
+    recount_total: int | None = None
+    object_sequence = 0
+    box_sequence = 0
+
+    def ensure_value_object(value: float, *, in_setup: bool) -> str:
+        nonlocal object_sequence
+        if value in alias:
+            return alias[value]
+        count = small_natural(value)
         params: dict[str, Any] = {"value": value}
         primitive = "quantity_bar"
-        if 1 < count <= 64:
+        if count is not None and count > 1:
             primitive = "unit_grid"
             params.update(
-                {
-                    "count": count,
-                    "columns": min(8, max(2, int(count**0.5 + 0.999))),
-                }
+                {"count": count, "columns": min(8, max(2, int(count**0.5 + 0.999)))}
             )
+        object_id = f"verified_value_{object_sequence}"
+        object_sequence += 1
         objects.append(
             {
-                "id": object_ids[value],
+                "id": object_id,
                 "primitive": primitive,
                 "meaning": f"已验证运算链中的数量 {number_label(value)}",
                 "label": number_label(value),
@@ -1195,42 +1254,162 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "params": params,
             }
         )
+        alias[value] = object_id
+        if in_setup:
+            setup_ids.append(object_id)
+        return object_id
 
-    produced: set[str] = set()
-    setup_ids: list[str] = []
-    actions: list[dict[str, Any]] = []
-    for left, operator, right, output, step_text in equations:
-        source_id = object_ids[left]
-        operand_id = object_ids[right]
-        result_id = object_ids[output]
-        for object_id in (source_id, operand_id):
-            if object_id not in produced and object_id not in setup_ids:
-                setup_ids.append(object_id)
-        if operator == "-" and abs(abs(left - right) - output) <= 1e-8:
-            actions.append(
-                {
-                    "op": "compare",
-                    "targets": [source_id, operand_id],
-                    "result": "",
-                    "meaning": f"直接显示 {number_label(left)} 与 {number_label(right)} 的差",
-                }
-            )
-        action_op = "partition" if operator in {"÷", "/"} else "transform"
-        actions.append(
+    def make_box(label: str, color: str) -> str:
+        nonlocal box_sequence
+        object_id = f"quantity_box_{box_sequence}"
+        box_sequence += 1
+        objects.append(
             {
-                "op": action_op,
-                "targets": [source_id],
-                "result": result_id,
-                "meaning": step_text
-                or (
-                    f"{number_label(left)} {operator} {number_label(right)}"
-                    f" = {number_label(output)}"
-                ),
+                "id": object_id,
+                "primitive": "rectangle",
+                "meaning": f"承接单位迁移的容器：{label}",
+                "label": label,
+                "color": color,
+                "params": {},
             }
         )
-        produced.add(result_id)
+        return object_id
 
-    final_id = object_ids[answer_value]
+    for left, operator, right, output, step_text in equations:
+        left_count = small_natural(left)
+        right_count = small_natural(right)
+        output_count = small_natural(output) if output > 0 else None
+        meaning = step_text or (
+            f"{number_label(left)} {operator} {number_label(right)}"
+            f" = {number_label(output)}"
+        )
+        if operator == "-" and left_count and right_count and left_count - right_count >= 0:
+            # Take-away subtraction disappears in place: the same units dim
+            # and get crossed inside the whole, so the total stays readable
+            # as "remaining + crossed" while the count shrinks.
+            source_id = ensure_value_object(left, in_setup=True)
+            box_id = make_box("划去", "gray")
+            actions.append(
+                {
+                    "op": "take_from",
+                    "targets": [source_id],
+                    "result": "",
+                    "source": source_id,
+                    "destination": box_id,
+                    "count": right_count,
+                    "style": "cross_out",
+                    "meaning": meaning,
+                }
+            )
+            actions.append(
+                {
+                    "op": "count",
+                    "targets": [source_id],
+                    "result": "",
+                    "expect": left_count - right_count,
+                    "meaning": f"逐个数出剩余 {number_label(output)}",
+                }
+            )
+            alias[output] = source_id
+            recount_groups = [source_id, box_id]
+            recount_total = left_count
+        elif operator == "+" and left_count and right_count:
+            source_id = ensure_value_object(left, in_setup=True)
+            operand_id = ensure_value_object(right, in_setup=True)
+            sum_box_id = make_box("合并", "green")
+            actions.append(
+                {
+                    "op": "create",
+                    "targets": [sum_box_id],
+                    "result": "",
+                    "meaning": "建立承接合并单位的容器",
+                }
+            )
+            actions.append(
+                {
+                    "op": "combine",
+                    "targets": [source_id, operand_id],
+                    "result": sum_box_id,
+                    "meaning": meaning,
+                }
+            )
+            actions.append(
+                {
+                    "op": "count",
+                    "targets": [sum_box_id],
+                    "result": "",
+                    "expect": left_count + right_count,
+                    "meaning": f"逐个数出合计 {number_label(output)}",
+                }
+            )
+            alias[output] = sum_box_id
+            recount_groups = [sum_box_id]
+            recount_total = left_count + right_count
+        elif (
+            operator in {"×", "x", "X", "*"}
+            and left_count
+            and right_count
+            and left_count * right_count <= 64
+        ):
+            # Multiplication as visible stamping: one row of `right` units is
+            # replicated `left` times; every new row is born on screen.
+            row_id = ensure_value_object(right, in_setup=True)
+            product_box_id = make_box("乘积", "green")
+            total = left_count * right_count
+            actions.append(
+                {
+                    "op": "create",
+                    "targets": [product_box_id],
+                    "result": "",
+                    "meaning": "建立承接乘积行列的容器",
+                }
+            )
+            actions.append(
+                {
+                    "op": "replicate",
+                    "targets": [row_id],
+                    "result": product_box_id,
+                    "source": row_id,
+                    "count": left_count,
+                    "meaning": meaning,
+                }
+            )
+            if total <= 12:
+                actions.append(
+                    {
+                        "op": "count",
+                        "targets": [product_box_id],
+                        "result": "",
+                        "expect": total,
+                        "meaning": f"逐个数出乘积 {number_label(output)}",
+                    }
+                )
+                recount_groups = [product_box_id]
+                recount_total = total
+            else:
+                recount_groups = []
+                recount_total = None
+            alias[output] = product_box_id
+        else:
+            # Non-countable steps and division keep the legacy grid
+            # regrouping, which preserves a visible row/group structure.
+            source_id = ensure_value_object(left, in_setup=True)
+            ensure_value_object(right, in_setup=True)
+            result_id = ensure_value_object(output, in_setup=False)
+            action_op = "partition" if operator in {"÷", "/"} else "transform"
+            actions.append(
+                {
+                    "op": action_op,
+                    "targets": [source_id],
+                    "result": result_id,
+                    "meaning": meaning,
+                }
+            )
+            alias[output] = result_id
+            recount_groups = []
+            recount_total = None
+
+    final_id = alias[answer_value]
     return {
         "grounding_source": "verified_solution_arithmetic",
         "visual_thesis": "让已验证运算链中的每个数量状态连续变化并最终落到答案",
@@ -1266,9 +1445,9 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             {
                 "role": "transform",
                 "anchor_zone": "A1-F6",
-                "key_objects": ", ".join(object_ids.values()),
+                "key_objects": ", ".join(item["id"] for item in objects),
                 "action": "逐步执行已验证等式对应的图形变化。",
-                "invariant": "每个终态等于对应等式的结果",
+                "invariant": "单位总量守恒：迁移只改变分组，不改变单位个数",
                 "attention_target": "数量在每一步如何改变",
                 "exit_condition": "最终答案数量由连续变化得到",
                 "teaching_line": "依次执行相同的运算，观察数量怎样到达答案。",
@@ -1278,25 +1457,423 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             {
                 "role": "verify",
                 "anchor_zone": "A1-F6",
-                "key_objects": final_id,
-                "action": "框选最终数量并核对答案。",
+                "key_objects": ", ".join(recount_groups) if recount_groups else final_id,
+                "action": "分组重新计数并核对答案。",
                 "invariant": "最终数量满足已验证答案",
-                "attention_target": "最终答案对象",
+                "attention_target": "各组计数与合计算式",
                 "exit_condition": "答案对象清楚可见并可计数",
                 "teaching_line": f"最后核对：{answer_text}",
                 "duration_s": 4,
                 "actions": [
-                    {
-                        "op": "verify",
-                        "targets": [final_id],
-                        "result": "",
-                        "meaning": "核对已验证答案",
-                    }
+                    (
+                        {
+                            "op": "recount_verify",
+                            "targets": recount_groups,
+                            "result": "",
+                            "expect_total": recount_total,
+                            "meaning": "把各组重新数一遍，合计必须回到原总量",
+                        }
+                        if recount_groups and recount_total is not None
+                        else {
+                            "op": "verify",
+                            "targets": [final_id],
+                            "result": "",
+                            "meaning": "核对已验证答案",
+                        }
+                    )
                 ],
             },
         ],
         "forbidden": ["只显示文字等式", "跳过中间数量状态"],
     }
+
+
+def _math_evidence_numbers(ctx: ToolContext) -> set[float]:
+    """All numeric literals appearing in executed Math IR requests/results."""
+    numbers: set[float] = set()
+    for key in ("solve_math_request", "verify_math_request"):
+        request = ctx.state.get(key)
+        if not isinstance(request, dict):
+            continue
+        for operation in request.get("operations") or []:
+            if not isinstance(operation, dict):
+                continue
+            for match in re.findall(
+                r"-?\d+(?:\.\d+)?", str(operation.get("expression") or "")
+            ):
+                numbers.add(float(match))
+            substitutions = operation.get("substitutions")
+            if isinstance(substitutions, dict):
+                for value in substitutions.values():
+                    try:
+                        numbers.add(float(value))
+                    except (TypeError, ValueError):
+                        continue
+    for key in ("solve_math_evidence", "verify_math_evidence"):
+        evidence = ctx.state.get(key)
+        if not isinstance(evidence, dict):
+            continue
+        for operation in evidence.get("operations") or []:
+            if isinstance(operation, dict):
+                for match in re.findall(
+                    r"-?\d+(?:\.\d+)?", str(operation.get("result") or "")
+                ):
+                    numbers.add(float(match))
+    return numbers
+
+
+_QUANTITY_STORY_RELATIONS = {"take_away", "add_to", "compare_more", "compare_fewer"}
+
+
+def build_quantity_story_visual_plan(
+    ctx: ToolContext, *, variant: str = "primary"
+) -> dict[str, Any] | None:
+    """Deterministically lower a verified small-natural quantity story.
+
+    Activation is an observable structure predicate, not a problem-type
+    label: a story extracted at solve time whose relation is in the closed
+    relation set, whose values are small naturals reproduced exactly by the
+    executed Math IR, and whose result covers the verified answer.  Anything
+    else abstains and the open-world director takes over.
+    """
+    story = ctx.state.get("quantity_story")
+    if not isinstance(story, dict):
+        return None
+    relation = str(story.get("relation") or "").strip().lower()
+    if relation not in _QUANTITY_STORY_RELATIONS:
+        return None
+    entity = str(story.get("entity") or "").strip() or "单位"
+    try:
+        first = int(story.get("first"))
+        second = int(story.get("second"))
+        result = int(story.get("result"))
+    except (TypeError, ValueError):
+        return None
+    if relation == "take_away":
+        consistent = first - second == result and second >= 1 and result >= 0
+    elif relation == "add_to":
+        consistent = first + second == result and first >= 1 and second >= 1
+    elif relation == "compare_more":
+        consistent = first - second == result and result >= 1
+    else:  # compare_fewer
+        consistent = second - first == result and result >= 1
+    if not consistent:
+        return None
+    if any(value < 0 or value > 24 for value in (first, second, result)):
+        return None
+
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
+    if (
+        not isinstance(evidence, dict)
+        or not evidence.get("success")
+        or evidence.get("all_claims_passed") is not True
+    ):
+        return None
+    reproduced = _math_evidence_numbers(ctx)
+    if not {float(first), float(second), float(result)}.issubset(reproduced):
+        return None
+    answer_numbers = [
+        float(item)
+        for item in re.findall(
+            r"-?\d+(?:\.\d+)?", str(ctx.state.get("solution_answer") or "")
+        )
+    ]
+    if float(result) not in answer_numbers:
+        return None
+
+    def columns_for(count: int) -> int:
+        return min(8, max(2, int(count**0.5 + 0.999)))
+
+    # Default representation for take-away: units disappear IN PLACE (dimmed
+    # and crossed inside the whole), so 5 stays visible as "3 remaining + 2
+    # crossed". The repair variant switches to physical migration.
+    style = "fly" if variant == "repair" else "cross_out"
+    pace = 1.35 if variant == "repair" else 1.0
+
+    def duration(base: float) -> float:
+        return max(2.0, min(20.0, round(base * pace, 1)))
+
+    def unit_grid(object_id: str, count: int, meaning: str, label: str, color: str):
+        return {
+            "id": object_id,
+            "primitive": "unit_grid",
+            "meaning": meaning,
+            "label": label,
+            "color": color,
+            "params": {"count": count, "columns": columns_for(count)},
+        }
+
+    def box(object_id: str, meaning: str, label: str, color: str):
+        return {
+            "id": object_id,
+            "primitive": "rectangle",
+            "meaning": meaning,
+            "label": label,
+            "color": color,
+            "params": {},
+        }
+
+    def action(op: str, targets: list[str], **fields: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {"op": op, "targets": targets, "result": ""}
+        payload.update(fields)
+        payload.setdefault("meaning", op)
+        return payload
+
+    if relation == "take_away":
+        objects = [
+            unit_grid("story_total", first, f"最初的 {entity}", entity, "blue"),
+            box("story_removed", f"被拿走的 {entity} 的容器", "拿走", "gray"),
+        ]
+        scenes = [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_total",
+                "action": f"摆出全部 {entity} 并逐个数一遍",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": f"{entity} 的总数",
+                "exit_condition": "总数已被逐个数出",
+                "teaching_line": f"先把 {entity} 一个一个数清楚。",
+                "duration_s": duration(5),
+                "actions": [
+                    action("create", ["story_total"], meaning=f"建立全部 {entity}"),
+                    action("count", ["story_total"], expect=first, meaning="逐个数出总数"),
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_total, story_removed",
+                "action": f"在总数里逐个划去 {second} 个{entity}，整体保持可见",
+                "invariant": "单位总数守恒：划掉的与剩下的合计不变",
+                "attention_target": "逐个消失的单位与完好的剩余部分",
+                "exit_condition": "划掉部分被圈出标注，剩余部分完好",
+                "teaching_line": f"在 {first} 个的基础上消失 {second} 个，剩下的就是答案。",
+                "duration_s": duration(8),
+                "actions": [
+                    action(
+                        "take_from",
+                        ["story_total"],
+                        source="story_total",
+                        destination="story_removed",
+                        count=second,
+                        style=style,
+                        meaning=f"在原地逐个划去 {second} 个{entity}",
+                    ),
+                    action(
+                        "count",
+                        ["story_total"],
+                        expect=result,
+                        meaning="逐个数出剩余数量",
+                    ),
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_total, story_removed",
+                "action": "分组重新计数，剩下的加上拿走的必须回到总数",
+                "invariant": "剩余数 + 拿走数 = 总数",
+                "attention_target": "两组的计数与合计算式",
+                "exit_condition": "合计算式与总数一致",
+                "teaching_line": "剩下的加上拿走的，应当还是原来的总数。",
+                "duration_s": duration(5),
+                "actions": [
+                    action(
+                        "recount_verify",
+                        ["story_total", "story_removed"],
+                        expect_total=first,
+                        meaning="重新数两组并合计核对",
+                    ),
+                ],
+            },
+        ]
+        thesis = f"在 {first} 个{entity}的整体中逐个划去 {second} 个，剩余数量由重新计数得到"
+        rationale = (
+            f"因为学生看到 {second} 个{entity}在原地逐个消失（变灰划掉），"
+            "整体仍然保持为剩下的加上划掉的，重新计数就回到总数，减法的意义直接来自画面。"
+        )
+        ledger = [f"蓝色单位 = 剩下的{entity}", "灰色划掉部分 = 消失的部分"]
+    elif relation == "add_to":
+        objects = [
+            unit_grid("story_first", first, f"第一组 {entity}", entity, "blue"),
+            unit_grid("story_second", second, f"第二组 {entity}", entity, "yellow"),
+            box("story_sum", f"合并后的 {entity} 的容器", "合并", "green"),
+        ]
+        scenes = [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_first, story_second",
+                "action": "分别摆出两组并逐个数一遍",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": "两组各自的数量",
+                "exit_condition": "两组数量都被数出",
+                "teaching_line": "先分别数清每一组。",
+                "duration_s": duration(5),
+                "actions": [
+                    action(
+                        "create",
+                        ["story_first", "story_second"],
+                        meaning="建立两组已知数量",
+                    ),
+                    action("count", ["story_first"], expect=first, meaning="数出第一组"),
+                    action("count", ["story_second"], expect=second, meaning="数出第二组"),
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_first, story_second, story_sum",
+                "action": "两组单位逐个滑入同一容器合并",
+                "invariant": "单位总数守恒：合并只改变分组",
+                "attention_target": "单位逐个进入容器的过程",
+                "exit_condition": "全部单位进入容器",
+                "teaching_line": "把两组合到一起，每个单位都还在。",
+                "duration_s": duration(7),
+                "actions": [
+                    action("create", ["story_sum"], meaning="建立合并容器"),
+                    action(
+                        "combine",
+                        ["story_first", "story_second"],
+                        result="story_sum",
+                        meaning="两组单位滑入同一容器",
+                    ),
+                    action("count", ["story_sum"], expect=result, meaning="逐个数出合计"),
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_sum",
+                "action": "重新计数合并后的全部单位",
+                "invariant": "合计等于两组之和",
+                "attention_target": "合并容器的计数",
+                "exit_condition": "合计算式成立",
+                "teaching_line": "再数一遍，合计没有多也没有少。",
+                "duration_s": duration(5),
+                "actions": [
+                    action(
+                        "recount_verify",
+                        ["story_sum"],
+                        expect_total=result,
+                        meaning="重新数合并结果核对",
+                    ),
+                ],
+            },
+        ]
+        thesis = f"两组{entity}逐个进入同一容器，总数由重新计数得到"
+        rationale = (
+            "因为每个单位滑入容器的过程都可见，合并前后单位一个不多一个不少，"
+            "学生看到加法就是把两组数量放到一起再数一遍。"
+        )
+        ledger = ["蓝色/黄色单位 = 两组来源", "绿色容器 = 合并后的总量"]
+    else:
+        bigger, smaller = (first, second) if first >= second else (second, first)
+        objects = [
+            unit_grid("story_bigger", bigger, f"较多的一组 {entity}", entity, "blue"),
+            unit_grid("story_smaller", smaller, f"较少的一组 {entity}", entity, "yellow"),
+            box("story_difference", "相差部分的容器", "相差", "green"),
+        ]
+        scenes = [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_bigger, story_smaller",
+                "action": "上下摆出两组并各自数一遍",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": "两组的数量差异",
+                "exit_condition": "两组数量都被数出",
+                "teaching_line": "先分别数清两组各有多少。",
+                "duration_s": duration(5),
+                "actions": [
+                    action(
+                        "create",
+                        ["story_bigger", "story_smaller"],
+                        meaning="建立参与比较的两组",
+                    ),
+                    action("count", ["story_bigger"], expect=bigger, meaning="数出较多的一组"),
+                    action("count", ["story_smaller"], expect=smaller, meaning="数出较少的一组"),
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_bigger, story_difference",
+                "action": "把较多一组中超出的部分逐个移进相差区，剩下的与较少一组一样多",
+                "invariant": "移出后较多组剩余数量等于较少组数量",
+                "attention_target": "被移出的相差部分",
+                "exit_condition": "两组对齐，相差部分单独可数",
+                "teaching_line": "多出来的部分移出去，剩下的和另一组一样多。",
+                "duration_s": duration(8),
+                "actions": [
+                    action(
+                        "take_from",
+                        ["story_bigger"],
+                        source="story_bigger",
+                        destination="story_difference",
+                        count=result,
+                        # Comparison keeps physical extraction: the surplus
+                        # becomes its own countable group beside the pair.
+                        style="fly" if variant != "repair" else "cross_out",
+                        meaning="逐个移出超出较少组的部分",
+                    ),
+                    action(
+                        "count",
+                        ["story_bigger"],
+                        expect=smaller,
+                        meaning="剩余与较少组一样多",
+                    ),
+                    action(
+                        "count",
+                        ["story_difference"],
+                        expect=result,
+                        meaning="逐个数出相差数量",
+                    ),
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "story_bigger, story_difference",
+                "action": "剩余部分加上相差部分必须回到较多一组的总数",
+                "invariant": "较少组数量 + 相差 = 较多组数量",
+                "attention_target": "两组计数与合计算式",
+                "exit_condition": "合计算式与较多组总数一致",
+                "teaching_line": "少的加上相差的，应当等于多的。",
+                "duration_s": duration(5),
+                "actions": [
+                    action(
+                        "recount_verify",
+                        ["story_bigger", "story_difference"],
+                        expect_total=bigger,
+                        meaning="重新数剩余与相差并合计核对",
+                    ),
+                ],
+            },
+        ]
+        thesis = f"把较多一组中超出的 {result} 个{entity}移出后两组对齐，相差由计数得到"
+        rationale = (
+            "因为学生看到两组先各自数清，再把超出的部分逐个移出直到两组一样多，"
+            "相差的意义就是画面里那几个被移出的单位。"
+        )
+        ledger = ["蓝色/黄色单位 = 参与比较的两组", "绿色容器 = 相差部分"]
+
+    plan = {
+        "plan_version": 2,
+        "grounding_source": "quantity_story",
+        "visual_thesis": thesis,
+        "essence_rationale": rationale,
+        "symbol_ledger": ledger,
+        "visual_objects": objects,
+        "scenes": scenes,
+        "forbidden": ["只显示文字等式", "数量变化不经过单位迁移"],
+    }
+    errors = _validate_plan(plan, ctx.grade)
+    if errors:
+        logger.warning("quantity story plan failed validation: %s", errors[:3])
+        return None
+    return plan
 
 
 def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
@@ -1308,6 +1885,12 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     neighborhood focus and reference value are all copied from deterministic
     evidence, so a malformed director response cannot invent new mathematics.
     """
+    if str(ctx.grade or "").startswith("elementary"):
+        # Abstraction ceiling by audience, not by problem type: coordinate
+        # curves and zero-crossings exceed the elementary level. Quantity
+        # graphics (story/arithmetic-chain builders) or the grade-guided
+        # director own this audience.
+        return None
     request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
     evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
     if not isinstance(request, dict) or not isinstance(evidence, dict):
@@ -1999,6 +2582,22 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         verified_candidate = _verified_arithmetic_candidate(ctx)
         if verified_candidate is not None:
             candidate = verified_candidate
+    if (
+        isinstance(candidate, dict)
+        and candidate.get("grounding_source") == "verified_solution_arithmetic"
+    ):
+        # The verified-arithmetic chain is already a complete canonical plan
+        # authored in quantity verbs; deconstructing it into generic
+        # transitions would strip take_from/count parameters and reintroduce
+        # the destroy-and-redraw representation. Validate and use it as-is.
+        arithmetic_errors = _validate_plan(candidate, ctx.grade)
+        if not arithmetic_errors:
+            return candidate
+        logger.warning(
+            "verified arithmetic plan failed validation, falling back to "
+            "generic salvage: %s",
+            arithmetic_errors[:3],
+        )
     normalized = _normalize_plan(candidate)
     objects = [
         item
@@ -2301,6 +2900,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
 
 def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
     """Install an accepted plan and invalidate artifacts derived from an older plan."""
+    plan.setdefault("plan_version", 2)
     ctx.state["visual_plan_last_violations"] = []
     ctx.state["visual_plan"] = plan
     ctx.state["visual_thesis"] = plan["visual_thesis"]
@@ -2330,6 +2930,62 @@ def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
         ctx.state.pop(key, None)
 
 
+def _declared_count(item: dict[str, Any] | None) -> int | None:
+    """Unit count declared by a count-bearing object (unit_grid etc.)."""
+    if not isinstance(item, dict):
+        return None
+    params = item.get("params") or {}
+    raw = params.get("count")
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        return int(round(float(raw)))
+    except (TypeError, ValueError):
+        return None
+
+
+_MEMBER_SERIES_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*?)_(\d+)$")
+
+
+_MEMBER_UNIT_PRIMITIVES = {"dot", "circle", "rectangle", "line", "arrow", "polygon"}
+
+
+def _member_series_violations(visual_objects: list[Any]) -> list[str]:
+    """Steer per-member declarations (apple_1..apple_5) toward count groups.
+
+    Individually declared members disconnect the unit machinery (repeat_units,
+    take_from ledger), so quantity verbs cannot engage.  Only interchangeable
+    units count as a series: same primitive with no distinguishing params.
+    Distinct quantities that happen to share an id prefix (verified_value_0,
+    verified_value_1 with different counts) are legitimate.
+    """
+    series: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in visual_objects:
+        if not isinstance(item, dict):
+            continue
+        primitive = str(item.get("primitive") or "")
+        if primitive not in _MEMBER_UNIT_PRIMITIVES:
+            continue
+        match = _MEMBER_SERIES_RE.fullmatch(str(item.get("id") or ""))
+        if match:
+            series.setdefault((match.group(1), primitive), []).append(item)
+    violations: list[str] = []
+    for (prefix, _primitive), members in series.items():
+        if len(members) < 3:
+            continue
+        first_params = json.dumps(members[0].get("params") or {}, sort_keys=True)
+        if all(
+            json.dumps(item.get("params") or {}, sort_keys=True) == first_params
+            for item in members[1:]
+        ):
+            violations.append(
+                f"成员逐个声明：{prefix}_* 共 {len(members)} 个同质对象应改为一个带 "
+                f"params.count={len(members)} 的计数组对象（如 unit_grid），"
+                "数量动词才能逐单位执行"
+            )
+    return violations
+
+
 def _validate_plan(
     plan: dict[str, Any],
     grade: str,
@@ -2355,6 +3011,7 @@ def _validate_plan(
     objects_by_id: dict[str, dict[str, Any]] = {}
     if len(visual_objects) < 2:
         errors.append("visual_objects 至少需要 2 个承载数学意义的非文字图形对象")
+    errors.extend(_member_series_violations(visual_objects))
     for index, item in enumerate(visual_objects, start=1):
         if not isinstance(item, dict):
             errors.append(f"visual_objects[{index}] 不是对象")
@@ -2388,6 +3045,15 @@ def _validate_plan(
     mapped_aliases: dict[str, str] = {}
     causal_transition_count = 0
     has_relation_reveal = False
+    # Running unit ledger: initialized from declared counts at create time and
+    # updated by quantity verbs, so conservation is checked against the actual
+    # on-screen state, not the static declaration.
+    unit_ledger: dict[str, int] = {}
+
+    def ledger_value(object_id: str) -> int | None:
+        if object_id in unit_ledger:
+            return unit_ledger[object_id]
+        return _declared_count(objects_by_id.get(object_id))
     if len(scenes) < 3:
         errors.append(f"场景数 {len(scenes)} < 3")
     if "transform" not in [s.get("role", "") for s in scenes if isinstance(s, dict)]:
@@ -2444,6 +3110,167 @@ def _validate_plan(
                 errors.append(
                     f"场景 {index} action {action_index} 的 result 与来源相同，没有可辨认的终态"
                 )
+            if op == "transform":
+                # Conservation must not be bypassable through the legacy verb:
+                # an additive count change (5-grid → 3-grid) destroys unit
+                # continuity and must use take_from/combine. Multiplicative
+                # regrouping (3 → 12, 6 → 2) keeps a visible row/group
+                # structure, so grid-to-grid transform remains legal there.
+                source_counts = [
+                    _declared_count(objects_by_id.get(str(target))) for target in targets
+                ]
+                result_count = _declared_count(objects_by_id.get(result))
+                if (
+                    result_count is not None
+                    and result_count > 0
+                    and source_counts
+                    and all(value is not None for value in source_counts)
+                ):
+                    combined = sum(value for value in source_counts if value is not None)
+                    multiplicative = combined > 0 and (
+                        combined % result_count == 0 or result_count % combined == 0
+                    )
+                    if combined != result_count and not multiplicative:
+                        errors.append(
+                            f"场景 {index} action {action_index} 用 transform 改变单位数量"
+                            f"（{source_counts} → {result_count}）；加减类数量变化必须用 "
+                            "take_from/combine 表达，保持单位对象连续可追踪"
+                        )
+            if op == "take_from":
+                source = str(action.get("source") or "").strip()
+                destination = str(action.get("destination") or "").strip()
+                take_count = action.get("count")
+                style = str(action.get("style") or "").strip()
+                if not source or source not in object_ids:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 take_from 缺少已声明的 source 组"
+                    )
+                if not destination or destination not in object_ids:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 take_from 缺少已声明的 "
+                        "destination 容器对象（不接受自由 zone 字符串）"
+                    )
+                elif destination == source:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 take_from 目的地与来源相同"
+                    )
+                if not isinstance(take_count, int) or take_count < 1:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 take_from 缺少正整数 count"
+                    )
+                else:
+                    source_count = ledger_value(source)
+                    if source_count is not None and take_count > source_count:
+                        errors.append(
+                            f"场景 {index} action {action_index} 守恒违例：take_from 数量 "
+                            f"{take_count} 超过 source 当前数量 {source_count}"
+                        )
+                    if source_count is not None:
+                        unit_ledger[source] = source_count - min(take_count, source_count)
+                        unit_ledger[destination] = (
+                            (ledger_value(destination) or 0) + min(take_count, source_count)
+                        )
+                if style and style not in _TAKE_FROM_STYLES:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 take_from style='{style}' "
+                        f"不在 {sorted(_TAKE_FROM_STYLES)} 中"
+                    )
+            elif op == "combine":
+                if len(targets) < 2:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 combine 需要至少 2 个来源组"
+                    )
+                if not result:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 combine 缺少 result 合并目标"
+                    )
+                else:
+                    source_counts = [ledger_value(str(target)) for target in targets]
+                    if all(value is not None for value in source_counts):
+                        combined = sum(value for value in source_counts if value is not None)
+                        declared_result = _declared_count(objects_by_id.get(result))
+                        if declared_result is not None and declared_result != combined:
+                            errors.append(
+                                f"场景 {index} action {action_index} 守恒违例：combine 来源"
+                                f"数量和 {source_counts} ≠ result 声明数量 {declared_result}"
+                            )
+                        unit_ledger[result] = combined
+                        for target in targets:
+                            unit_ledger[str(target)] = 0
+            elif op == "replicate":
+                times = action.get("count")
+                replicate_source = str(action.get("source") or "").strip() or (
+                    str(targets[0]) if targets else ""
+                )
+                if not result:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 replicate 缺少 result 容器"
+                    )
+                if not isinstance(times, int) or times < 1:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 replicate 缺少正整数 count（份数）"
+                    )
+                elif replicate_source in object_ids:
+                    per_row = ledger_value(replicate_source)
+                    if per_row is not None:
+                        replicated_total = per_row * times
+                        if replicated_total > 64:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 replicate 总量 "
+                                f"{replicated_total} 超过 64，应改用 quantity_bar 测量表达"
+                            )
+                        declared_result = _declared_count(objects_by_id.get(result))
+                        if declared_result is not None and declared_result != replicated_total:
+                            errors.append(
+                                f"场景 {index} action {action_index} 守恒违例：replicate "
+                                f"{per_row}×{times}={replicated_total} ≠ result 声明数量 "
+                                f"{declared_result}"
+                            )
+                        if result:
+                            unit_ledger[result] = replicated_total
+                            unit_ledger[replicate_source] = 0
+            elif op == "count":
+                expect = action.get("expect")
+                if not isinstance(expect, int) or expect < 0:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 count 缺少非负整数 expect"
+                    )
+                elif targets:
+                    target_count = ledger_value(str(targets[0]))
+                    if target_count is not None and expect != target_count:
+                        errors.append(
+                            f"场景 {index} action {action_index} 的 count expect={expect} "
+                            f"与对象当前数量 {target_count} 不一致"
+                        )
+            elif op == "recount_verify":
+                expect_total = action.get("expect_total")
+                if not isinstance(expect_total, int) or expect_total < 0:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 recount_verify 缺少非负整数 "
+                        "expect_total"
+                    )
+                else:
+                    group_counts = [ledger_value(str(target)) for target in targets]
+                    if (
+                        group_counts
+                        and all(value is not None for value in group_counts)
+                        and sum(value for value in group_counts if value is not None)
+                        != expect_total
+                    ):
+                        errors.append(
+                            f"场景 {index} action {action_index} 守恒违例：recount_verify 各组"
+                            f"数量和 {group_counts} ≠ expect_total={expect_total}"
+                        )
+            elif op == "move":
+                destination = str(action.get("destination") or "").strip()
+                if not (
+                    destination in object_ids
+                    or _AXIS_DESTINATION_RE.fullmatch(destination) is not None
+                ):
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 move 缺少 destination"
+                        "（已声明对象 id 或 x=<数值>）；没有目的地的移动不构成可执行语义"
+                    )
             resolved_targets = [
                 target for target in targets if target in visible_ids or target in mapped_aliases
             ]
@@ -2460,10 +3287,23 @@ def _validate_plan(
                 "measure",
                 "verify",
                 "remove",
+                "take_from",
+                "combine",
+                "count",
+                "recount_verify",
+                "replicate",
             }:
+                required_visible = list(targets)
+                if op == "take_from":
+                    # The destination container may be materialized by the
+                    # lowering itself (cross_out wraps the removed units in
+                    # place), so only the source must already be on screen.
+                    source_ref = str(action.get("source") or "").strip()
+                    if source_ref and source_ref in object_ids:
+                        required_visible.append(source_ref)
                 missing_targets = [
                     target
-                    for target in targets
+                    for target in dict.fromkeys(required_visible)
                     if target not in visible_ids and target not in mapped_aliases
                 ]
                 if missing_targets:
@@ -2471,6 +3311,12 @@ def _validate_plan(
                         f"场景 {index} action {action_index} 在对象出现前执行 {op}："
                         + ",".join(missing_targets)
                     )
+                if op == "take_from":
+                    destination_ref = str(action.get("destination") or "").strip()
+                    if destination_ref in object_ids:
+                        visible_ids.add(destination_ref)
+                if op in {"combine", "replicate"} and result in object_ids:
+                    visible_ids.add(result)
                 if op in _MUTATING_VISUAL_ACTIONS and resolved_targets:
                     causal_transition_count += 1
                 if op in {"transform", "partition", "map"} and result:

@@ -13,6 +13,7 @@ from ....application.interfaces import ITool, ToolContext, ToolResult
 from .visual_plan import (
     VisualPlanTool,
     build_grounded_math_visual_plan,
+    build_quantity_story_visual_plan,
     build_safe_visual_plan,
     store_visual_plan,
 )
@@ -70,18 +71,35 @@ class DirectVideoTool(ITool):
         # A rendered semantic failure is evidence that the current contract
         # needs revision.  Do not immediately reconstruct the same deterministic
         # baseline; let the open-world planner consume the frame feedback once.
-        # Normal cold starts still prefer grounded Math IR for reliability.
+        # Normal cold starts prefer deterministic authorship: a verified
+        # quantity story first (the simplest arithmetic deserves the most
+        # reliable visual path), then curve/root-grounded Math IR.
         force_replan = bool(
             args.get("review_repair") or ctx.state.get("force_visual_replan")
         )
-        grounded_plan = None if force_replan else build_grounded_math_visual_plan(ctx)
+        grounded_plan = None
+        if not force_replan:
+            grounded_plan = build_quantity_story_visual_plan(ctx) or (
+                build_grounded_math_visual_plan(ctx)
+            )
+        else:
+            previous_plan = ctx.state.get("visual_plan")
+            if (
+                isinstance(previous_plan, dict)
+                and previous_plan.get("grounding_source") == "quantity_story"
+            ):
+                # Parametric repair: a review failure of a deterministic story
+                # plan reruns the same story with different pacing/style
+                # instead of regressing to a stochastic full replan.
+                grounded_plan = build_quantity_story_visual_plan(ctx, variant="repair")
         if grounded_plan is not None:
             store_visual_plan(ctx, grounded_plan)
             return ToolResult(
                 success=True,
                 summary=(
-                    "已从独立 Math IR 证据直接构造可执行图形计划；"
-                    "无需模型猜测表达式或重写视觉计划"
+                    "已从独立数学证据直接构造可执行图形计划（"
+                    + str(grounded_plan.get("grounding_source") or "math_ir")
+                    + "）；无需模型猜测表达式或重写视觉计划"
                 ),
                 data=grounded_plan,
             )
