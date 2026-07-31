@@ -67,7 +67,14 @@ class DirectVideoTool(ITool):
         return self._planner.parameters
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        grounded_plan = build_grounded_math_visual_plan(ctx)
+        # A rendered semantic failure is evidence that the current contract
+        # needs revision.  Do not immediately reconstruct the same deterministic
+        # baseline; let the open-world planner consume the frame feedback once.
+        # Normal cold starts still prefer grounded Math IR for reliability.
+        force_replan = bool(
+            args.get("review_repair") or ctx.state.get("force_visual_replan")
+        )
+        grounded_plan = None if force_replan else build_grounded_math_visual_plan(ctx)
         if grounded_plan is not None:
             store_visual_plan(ctx, grounded_plan)
             return ToolResult(

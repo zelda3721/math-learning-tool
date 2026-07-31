@@ -4,6 +4,7 @@ Static/semantic validation and Manim execution are compiler internals, not
 agent planning stages.  A first production draft receives at most one
 evidence-directed repair before the high-level stage returns.
 """
+
 from __future__ import annotations
 
 import json
@@ -146,8 +147,7 @@ def _safe_ir_value(value: Any, depth: int = 0) -> Any:
         return [_safe_ir_value(item, depth + 1) for item in value[:64]]
     if isinstance(value, dict):
         return {
-            str(key)[:40]: _safe_ir_value(item, depth + 1)
-            for key, item in list(value.items())[:24]
+            str(key)[:40]: _safe_ir_value(item, depth + 1) for key, item in list(value.items())[:24]
         }
     return str(value)[:120]
 
@@ -183,9 +183,7 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
                 "id": object_id,
                 "primitive": primitive,
                 "meaning": _wrap_fallback_text(meaning, width=18, max_lines=2),
-                "label": _wrap_fallback_text(
-                    raw_label, width=14, max_lines=2
-                ),
+                "label": _wrap_fallback_text(raw_label, width=14, max_lines=2),
                 "color": str(raw.get("color") or "blue").strip().lower()[:24],
                 "params": _safe_ir_value(raw.get("params") or {}),
             }
@@ -193,9 +191,7 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
     if len(objects) < 2:
         return None
 
-    axes_object = next(
-        (item for item in objects if item.get("primitive") == "axes"), None
-    )
+    axes_object = next((item for item in objects if item.get("primitive") == "axes"), None)
     if axes_object is not None:
         axis_params = axes_object.get("params") or {}
         x_range = axis_params.get("x_range") or [-3, 3]
@@ -239,9 +235,7 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
                 continue
             op = str(raw_action.get("op") or "").strip().lower()
             targets = [
-                str(item)
-                for item in (raw_action.get("targets") or [])
-                if str(item) in object_ids
+                str(item) for item in (raw_action.get("targets") or []) if str(item) in object_ids
             ]
             result = str(raw_action.get("result") or "")
             if op not in _FALLBACK_IR_ACTIONS or not targets:
@@ -275,11 +269,9 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
     return {"objects": objects, "scenes": scenes}
 
 
-def _build_visual_ir_fallback_code(
-    *, problem: str, answer: str, visual_ir: dict[str, Any]
-) -> str:
+def _build_visual_ir_fallback_code(*, problem: str, answer: str, visual_ir: dict[str, Any]) -> str:
     """Compile generic Visual IR into conservative, deterministic Manim code."""
-    template = r'''from manim import *
+    template = r"""from manim import *
 import math
 
 PROBLEM_TEXT = __PROBLEM_JSON__
@@ -313,6 +305,14 @@ class SolutionScene(Scene):
 
     def color(self, value):
         return self.COLOR_MAP.get(str(value).lower(), BLUE)
+
+    def geometry_point(self, point):
+        center_x, center_y = self.geometry_center
+        return [
+            (self.number(point[0], 0) - center_x) * self.geometry_scale,
+            (self.number(point[1], 0) - center_y) * self.geometry_scale,
+            0,
+        ]
 
     def labeled(self, body, spec):
         label_text = str(spec.get("label") or "").strip()
@@ -442,6 +442,7 @@ class SolutionScene(Scene):
         self.mapping_badges = {}
         self.mapping_evidence = {}
         self.comparison_badges = {}
+        self.measurement_badges = {}
         self.deferred_creates = set()
         self.last_comparison_difference = None
         self.relation_values = []
@@ -471,6 +472,104 @@ class SolutionScene(Scene):
         self.coordinate_domains = {}
         self.coordinate_segments = {}
         self.height_models = {}
+        self.geometry_plane_spec = next(
+            (
+                spec
+                for spec in VISUAL_OBJECTS
+                if spec.get("primitive") == "unit_grid"
+                and isinstance((spec.get("params") or {}).get("x_range"), list)
+                and isinstance((spec.get("params") or {}).get("y_range"), list)
+            ),
+            None,
+        )
+        self.geometry_scale = 1.0
+        self.geometry_center = (0.0, 0.0)
+        self.geometry_background = None
+        coordinate_points = []
+        for spec in VISUAL_OBJECTS:
+            primitive = spec.get("primitive")
+            params = spec.get("params") or {}
+            if primitive == "polygon":
+                coordinate_points.extend(
+                    point
+                    for point in params.get("vertices") or []
+                    if isinstance(point, list) and len(point) >= 2
+                )
+            if primitive in {"line", "arrow"}:
+                coordinate_points.extend(
+                    point
+                    for point in (params.get("start"), params.get("end"))
+                    if isinstance(point, list) and len(point) >= 2
+                )
+        if self.geometry_plane_spec is not None:
+            plane_params = self.geometry_plane_spec.get("params") or {}
+            x_range = plane_params.get("x_range") or [-3, 3]
+            y_range = plane_params.get("y_range") or [-2, 2]
+            if len(x_range) >= 2 and len(y_range) >= 2:
+                x_start = self.number(x_range[0], -3)
+                x_end = self.number(x_range[1], 3)
+                y_start = self.number(y_range[0], -2)
+                y_end = self.number(y_range[1], 2)
+                coordinate_points.extend(
+                    [[x_start, y_start], [x_end, y_end]]
+                )
+        if coordinate_points:
+            x_values = [self.number(point[0], 0) for point in coordinate_points]
+            y_values = [self.number(point[1], 0) for point in coordinate_points]
+            x_start, x_end = min(x_values), max(x_values)
+            y_start, y_end = min(y_values), max(y_values)
+            x_span = max(x_end - x_start, 1.0)
+            y_span = max(y_end - y_start, 1.0)
+            x_margin = max(0.45, x_span * 0.08)
+            y_margin = max(0.45, y_span * 0.08)
+            x_start -= x_margin
+            x_end += x_margin
+            y_start -= y_margin
+            y_end += y_margin
+            self.geometry_scale = min(
+                6.4 / (x_end - x_start),
+                4.25 / (y_end - y_start),
+            )
+            self.geometry_center = (
+                (x_start + x_end) / 2,
+                (y_start + y_end) / 2,
+            )
+            for spec in VISUAL_OBJECTS:
+                primitive = spec.get("primitive")
+                params = spec.get("params") or {}
+                has_vertices = (
+                    primitive == "polygon"
+                    and isinstance(params.get("vertices"), list)
+                    and len(params.get("vertices")) >= 3
+                )
+                has_segment = (
+                    primitive in {"line", "arrow"}
+                    and isinstance(params.get("start"), list)
+                    and isinstance(params.get("end"), list)
+                )
+                if has_vertices or has_segment:
+                    self.coordinate_ids.add(spec["id"])
+            if self.geometry_plane_spec is not None:
+                self.coordinate_ids.add(self.geometry_plane_spec["id"])
+            elif any(
+                spec.get("primitive") == "polygon"
+                for spec in VISUAL_OBJECTS
+            ):
+                self.geometry_background = NumberPlane(
+                    x_range=[x_start, x_end, 1],
+                    y_range=[y_start, y_end, 1],
+                    x_length=(x_end - x_start) * self.geometry_scale,
+                    y_length=(y_end - y_start) * self.geometry_scale,
+                    background_line_style={
+                        "stroke_color": GREY_D,
+                        "stroke_width": 1,
+                        "stroke_opacity": 0.28,
+                    },
+                    axis_config={
+                        "stroke_color": GREY_B,
+                        "stroke_width": 1.8,
+                    },
+                )
         axes_specs = [spec for spec in VISUAL_OBJECTS if spec["primitive"] == "axes"]
         self.axes_spec = axes_specs[0] if axes_specs else None
         if self.axes_spec is None:
@@ -651,7 +750,24 @@ class SolutionScene(Scene):
                 fill_color=color, fill_opacity=0.16,
             )
         elif primitive == "line":
-            if spec["id"] in self.coordinate_segments and hasattr(self, "primary_axes"):
+            if (
+                spec["id"] in self.coordinate_ids
+                and isinstance(params.get("start"), list)
+                and isinstance(params.get("end"), list)
+                and not hasattr(self, "primary_axes")
+            ):
+                line_type = (
+                    DashedLine
+                    if str(params.get("style") or "").lower() == "dashed"
+                    else Line
+                )
+                body = line_type(
+                    self.geometry_point(params["start"]),
+                    self.geometry_point(params["end"]),
+                    color=color,
+                    stroke_width=4,
+                )
+            elif spec["id"] in self.coordinate_segments and hasattr(self, "primary_axes"):
                 start, end = self.coordinate_segments[spec["id"]]
                 line_type = (
                     DashedLine
@@ -711,7 +827,19 @@ class SolutionScene(Scene):
                     paths.add(path)
                 body = paths
         elif primitive == "arrow":
-            body = Arrow(LEFT * 1.15, RIGHT * 1.15, color=color, buff=0.04)
+            if (
+                spec["id"] in self.coordinate_ids
+                and isinstance(params.get("start"), list)
+                and isinstance(params.get("end"), list)
+            ):
+                body = Arrow(
+                    self.geometry_point(params["start"]),
+                    self.geometry_point(params["end"]),
+                    color=color,
+                    buff=0.02,
+                )
+            else:
+                body = Arrow(LEFT * 1.15, RIGHT * 1.15, color=color, buff=0.04)
         elif primitive == "quantity_bar":
             value = abs(self.number(params.get("value", params.get("count", 1)), 1, 0, 1000))
             units = min(max(int(round(value)), 1), 16)
@@ -735,16 +863,50 @@ class SolutionScene(Scene):
             amount.move_to(shell)
             body = VGroup(shell, ticks, amount)
         elif primitive == "unit_grid":
-            count = int(self.number(params.get("count", 12), 12, 1, 64))
-            columns = int(self.number(params.get("columns", math.ceil(math.sqrt(count))), 4, 1, 8))
-            cells = VGroup(*[
-                Square(side_length=0.34, color=color, fill_color=color, fill_opacity=0.24)
-                for _ in range(count)
-            ])
-            rows = math.ceil(count / columns)
-            cells.arrange_in_grid(rows=rows, cols=columns, buff=0.055)
-            body = cells
-            self.repeat_units[spec["id"]] = body
+            x_range = params.get("x_range")
+            y_range = params.get("y_range")
+            if (
+                isinstance(x_range, list) and len(x_range) >= 2
+                and isinstance(y_range, list) and len(y_range) >= 2
+            ):
+                x_start = self.number(x_range[0], -3)
+                x_end = self.number(x_range[1], 3)
+                y_start = self.number(y_range[0], -2)
+                y_end = self.number(y_range[1], 2)
+                body = NumberPlane(
+                    x_range=[x_start, x_end, 1],
+                    y_range=[y_start, y_end, 1],
+                    x_length=(x_end - x_start) * self.geometry_scale,
+                    y_length=(y_end - y_start) * self.geometry_scale,
+                    background_line_style={
+                        "stroke_color": color,
+                        "stroke_width": 1.25,
+                        "stroke_opacity": 0.38,
+                    },
+                    axis_config={
+                        "stroke_color": GREY_B,
+                        "stroke_width": 2,
+                    },
+                )
+            else:
+                count = int(self.number(params.get("count", 12), 12, 1, 64))
+                columns = int(self.number(
+                    params.get("columns", math.ceil(math.sqrt(count))),
+                    4, 1, 8,
+                ))
+                cells = VGroup(*[
+                    Square(
+                        side_length=0.34,
+                        color=color,
+                        fill_color=color,
+                        fill_opacity=0.24,
+                    )
+                    for _ in range(count)
+                ])
+                rows = math.ceil(count / columns)
+                cells.arrange_in_grid(rows=rows, cols=columns, buff=0.055)
+                body = cells
+                self.repeat_units[spec["id"]] = body
         elif primitive == "number_line":
             start = self.number(params.get("min", params.get("start", 0)), 0, -100, 100)
             end = self.number(params.get("max", params.get("end", 10)), 10, -100, 100)
@@ -812,11 +974,26 @@ class SolutionScene(Scene):
                 y_mark.next_to(body.c2p(0, self.scan_target_y), LEFT, buff=0.1)
                 body.add(x_mark, y_mark)
         elif primitive == "polygon":
-            sides = int(self.number(params.get("sides", 3), 3, 3, 8))
-            vertices = [
-                [0.9 * math.cos(TAU * i / sides), 0.9 * math.sin(TAU * i / sides), 0]
-                for i in range(sides)
+            raw_vertices = [
+                point
+                for point in params.get("vertices") or []
+                if isinstance(point, list) and len(point) >= 2
             ]
+            if len(raw_vertices) >= 3:
+                vertices = [
+                    self.geometry_point(point)
+                    for point in raw_vertices[:24]
+                ]
+            else:
+                sides = int(self.number(params.get("sides", 3), 3, 3, 8))
+                vertices = [
+                    [
+                        0.9 * math.cos(TAU * i / sides),
+                        0.9 * math.sin(TAU * i / sides),
+                        0,
+                    ]
+                    for i in range(sides)
+                ]
             body = Polygon(*vertices, color=color, fill_color=color, fill_opacity=0.18)
         else:
             node_label = Text(str(spec.get("label") or spec.get("meaning") or "关系"), font_size=23)
@@ -831,7 +1008,7 @@ class SolutionScene(Scene):
         self.object_bodies[spec["id"]] = body
         if spec["id"] in self.coordinate_ids:
             label_text = str(spec.get("label") or "").strip()
-            if label_text and primitive in {"line", "function_curve", "dot"}:
+            if label_text and primitive in {"line", "function_curve", "dot", "polygon"}:
                 label = Text(label_text, font_size=20, color=color)
                 if primitive == "function_curve":
                     curve_count = sum(
@@ -842,6 +1019,8 @@ class SolutionScene(Scene):
                     label.next_to(anchor, UP, buff=0.16)
                 elif primitive == "line":
                     label.next_to(body.get_right(), UP, buff=0.16)
+                elif primitive == "polygon":
+                    label.next_to(body, DOWN, buff=0.16)
                 else:
                     label.next_to(body, UR, buff=0.18)
                 label.shift_onto_screen(buff=0.25)
@@ -1390,12 +1569,51 @@ class SolutionScene(Scene):
                 center = sum((item.get_center() for item in selected), ORIGIN) / len(selected)
                 self.play(*[item.animate.move_to(center) for item in selected])
         elif op == "measure":
-            selected = [self.objects[item] for item in targets if item in visible]
+            selected_ids = [item for item in targets if item in visible]
+            selected = [self.objects[item] for item in selected_ids]
             if selected:
                 brace = Brace(VGroup(*selected), DOWN, color=YELLOW)
+                new_badges = []
+                for item in selected_ids:
+                    spec = self.specs[item]
+                    if spec.get("primitive") != "polygon":
+                        continue
+                    params = spec.get("params") or {}
+                    value = params.get("verified_measure")
+                    vertices = params.get("vertices") or []
+                    if value is None and len(vertices) >= 3:
+                        coordinate_area = 0.0
+                        valid_vertices = True
+                        for index, point in enumerate(vertices):
+                            next_point = vertices[(index + 1) % len(vertices)]
+                            if not (
+                                isinstance(point, list)
+                                and len(point) >= 2
+                                and isinstance(next_point, list)
+                                and len(next_point) >= 2
+                            ):
+                                valid_vertices = False
+                                break
+                            coordinate_area += (
+                                self.number(point[0], 0) * self.number(next_point[1], 0)
+                                - self.number(next_point[0], 0) * self.number(point[1], 0)
+                            )
+                        if valid_vertices:
+                            value = abs(coordinate_area) / 2
+                    if value is None:
+                        continue
+                    badge = Text(
+                        f"面积 = {self.number(value, 0):g}",
+                        font_size=28,
+                        color=GREEN,
+                    )
+                    badge.to_corner(UR, buff=0.5).shift(DOWN * 0.7)
+                    self.measurement_badges[item] = badge
+                    new_badges.append(badge)
                 self.play(
                     GrowFromCenter(brace),
                     *[Indicate(item, color=YELLOW) for item in selected],
+                    *[FadeIn(badge, shift=UP * 0.08) for badge in new_badges],
                 )
                 self.play(FadeOut(brace))
         elif op == "compare":
@@ -1478,6 +1696,9 @@ class SolutionScene(Scene):
                     badge = self.mapping_badges.get(item)
                     if badge is not None:
                         framed.append(badge)
+                    badge = self.measurement_badges.get(item)
+                    if badge is not None:
+                        framed.append(badge)
                 frames = VGroup(*[
                     SurroundingRectangle(item, color=GREEN, buff=0.16)
                     for item in framed
@@ -1532,6 +1753,8 @@ class SolutionScene(Scene):
 
         self.prepare_coordinate_system()
         self.objects = {spec["id"]: self.make_visual(spec) for spec in VISUAL_OBJECTS}
+        if self.geometry_background is not None:
+            self.play(FadeIn(self.geometry_background), run_time=0.6)
         visible = []
         caption = None
         for scene in VISUAL_SCENES:
@@ -1572,16 +1795,12 @@ class SolutionScene(Scene):
         if shown:
             self.play(*[Indicate(item, color=GREEN, scale_factor=1.03) for item in shown])
         self.wait(3)
-'''
+"""
     return (
         template.replace("__PROBLEM_JSON__", json.dumps(problem, ensure_ascii=False))
         .replace("__ANSWER_JSON__", json.dumps(answer, ensure_ascii=False))
-        .replace(
-            "__OBJECTS_JSON__", repr(visual_ir["objects"])
-        )
-        .replace(
-            "__SCENES_JSON__", repr(visual_ir["scenes"])
-        )
+        .replace("__OBJECTS_JSON__", repr(visual_ir["objects"]))
+        .replace("__SCENES_JSON__", repr(visual_ir["scenes"]))
     )
 
 
@@ -1609,10 +1828,7 @@ def build_verified_fallback_code(ctx: ToolContext) -> str:
     raw_steps = ctx.state.get("solution_steps") or []
     if len(raw_steps) > 6:
         raw_steps = [*raw_steps[:5], raw_steps[-1]]
-    models = [
-        _fallback_relation_model(raw, index)
-        for index, raw in enumerate(raw_steps, start=1)
-    ]
+    models = [_fallback_relation_model(raw, index) for index, raw in enumerate(raw_steps, start=1)]
     if not models:
         models = [
             {
@@ -1624,7 +1840,7 @@ def build_verified_fallback_code(ctx: ToolContext) -> str:
             }
         ]
 
-    return f'''from manim import *
+    return f"""from manim import *
 
 PROBLEM_TEXT = {json.dumps(problem, ensure_ascii=False)}
 STEP_MODELS = {json.dumps(models, ensure_ascii=False, indent=4)}
@@ -1754,7 +1970,7 @@ class SolutionScene(Scene):
         self.play(FadeOut(step_title), FadeOut(board), FadeOut(progress), FadeOut(title))
         self.play(FadeIn(answer), FadeIn(verified))
         self.wait(3)
-'''
+"""
 
 
 class CompileVideoTool(ITool):
@@ -1799,7 +2015,7 @@ class CompileVideoTool(ITool):
                 "deterministic_ir": {
                     "type": "boolean",
                     "description": "仅在计划完全落入通用 IR 能力范围时使用确定性编译器",
-                }
+                },
             },
             "required": [],
         }
@@ -1826,19 +2042,17 @@ class CompileVideoTool(ITool):
             )
         visual_plan = ctx.state.get("visual_plan")
         compile_strategy = (
-            str(visual_plan.get("compile_strategy") or "")
-            if isinstance(visual_plan, dict)
-            else ""
+            str(visual_plan.get("compile_strategy") or "") if isinstance(visual_plan, dict) else ""
         )
         deterministic_ir = _fallback_visual_ir(visual_plan)
         if (
             visual_plan
-            and not review_repair
             and deterministic_ir is not None
             and (
                 bool(args.get("deterministic_ir"))
                 or (
-                    not args.get("model_codegen")
+                    not review_repair
+                    and not args.get("model_codegen")
                     and compile_strategy != "model_codegen"
                 )
             )

@@ -30,6 +30,10 @@ _FUNCTIONS: dict[str, Any] = {
     "log": sp.log,
     "Max": sp.Max,
     "Min": sp.Min,
+    # Safe data constructor only.  It receives already-whitelisted scalar/list
+    # arguments and enables common local-model output such as
+    # ``Matrix([[1, 2], [3, 4]])`` without exposing arbitrary SymPy globals.
+    "Matrix": sp.Matrix,
     "Rational": sp.Rational,
     "sin": sp.sin,
     "sqrt": sp.sqrt,
@@ -307,7 +311,32 @@ def _execute_operation(
     expression = _resolve(operation.get("expression"), parser, outputs)
     variable_name = str(operation.get("variable") or "").strip()
     variable = symbols.get(variable_name)
+
+    def apply_substitutions(value: Any) -> Any:
+        substitutions = operation.get("substitutions")
+        if substitutions is None and "substitution" in operation:
+            if variable is None:
+                raise ValueError(
+                    "scalar substitution requires a declared variable"
+                )
+            substitutions = {variable_name: operation.get("substitution")}
+        substitutions = substitutions or {}
+        if not isinstance(substitutions, dict):
+            raise ValueError("substitutions must be an object")
+        pairs = {}
+        for name, raw in substitutions.items():
+            symbol = symbols.get(str(name))
+            if symbol is None:
+                raise ValueError(f"undeclared substitution symbol: {name}")
+            pairs[symbol] = _resolve(raw, parser, outputs)
+        return sp.simplify(value.subs(pairs))
+
     if op in {"evaluate", "simplify"}:
+        # Local models frequently attach ``substitutions`` to evaluate rather
+        # than emitting a separate substitute operation.  The intent is
+        # unambiguous and remains inside the same safe symbolic capability.
+        if operation.get("substitutions") is not None:
+            return apply_substitutions(expression)
         return _simplify_composite(expression)
     if op == "expand":
         return sp.expand(expression)
@@ -344,23 +373,7 @@ def _execute_operation(
             return sp.solve(subject, resolved[0], dict=False)
         return sp.solve(equations, resolved, dict=True)
     if op == "substitute":
-        substitutions = operation.get("substitutions")
-        if substitutions is None and "substitution" in operation:
-            if variable is None:
-                raise ValueError(
-                    "scalar substitution requires a declared variable"
-                )
-            substitutions = {variable_name: operation.get("substitution")}
-        substitutions = substitutions or {}
-        if not isinstance(substitutions, dict):
-            raise ValueError("substitutions must be an object")
-        pairs = {}
-        for name, raw in substitutions.items():
-            symbol = symbols.get(str(name))
-            if symbol is None:
-                raise ValueError(f"undeclared substitution symbol: {name}")
-            pairs[symbol] = _resolve(raw, parser, outputs)
-        return sp.simplify(expression.subs(pairs))
+        return apply_substitutions(expression)
     if op == "determinant":
         return sp.Matrix(expression).det()
     if op == "summation":
@@ -463,6 +476,12 @@ def execute_math_request(request: Any) -> MathExecutionResult:
                 if isinstance(spec, dict)
                 else str(spec)
             )
+            # Matrices are concrete composite values, not scalar symbols with
+            # assumptions.  Ignore this harmless model-authored declaration;
+            # a later use of the bare name still fails as undeclared unless an
+            # earlier operation actually constructed that matrix.
+            if domain == "matrix":
+                continue
             assumptions = _DOMAINS.get(domain)
             if assumptions is None:
                 raise ValueError(f"unsupported symbol domain: {domain}")
