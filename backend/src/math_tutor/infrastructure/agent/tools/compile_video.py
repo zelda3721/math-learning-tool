@@ -276,6 +276,10 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
                     extracted[field] = value
             actions.append(extracted)
         if actions:
+            try:
+                duration_s = max(0.0, min(20.0, float(raw_scene.get("duration_s") or 0)))
+            except (TypeError, ValueError):
+                duration_s = 0.0
             scenes.append(
                 {
                     "role": str(raw_scene.get("role") or "").lower(),
@@ -284,6 +288,7 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
                         width=30,
                         max_lines=2,
                     ),
+                    "duration_s": duration_s,
                     "actions": actions,
                 }
             )
@@ -1108,6 +1113,7 @@ class SolutionScene(Scene):
                 opacity = float(live[0].get_stroke_opacity())
             except Exception:
                 opacity = 1.0
+            spec = self.specs.get(object_id) or {}
             groups[object_id] = {
                 "count": len(live),
                 "bbox": [
@@ -1118,6 +1124,7 @@ class SolutionScene(Scene):
                 ],
                 "color": color_hex,
                 "opacity": round(opacity, 2),
+                "label": str(spec.get("label") or spec.get("meaning") or "")[:24],
             }
         self.beat_manifest.append({
             "beat_index": beat_index,
@@ -2211,6 +2218,7 @@ class SolutionScene(Scene):
         caption = None
         self.beat_manifest = []
         for beat_index, scene in enumerate(VISUAL_SCENES):
+            beat_start_time = float(self.renderer.time)
             caption = self.show_caption(caption, scene.get("teaching_line"))
             actions = scene.get("actions", [])
             for index, action in enumerate(actions):
@@ -2230,7 +2238,12 @@ class SolutionScene(Scene):
                     self.deferred_creates.update(action.get("targets") or [])
                     continue
                 self.execute_action(action, visible)
-            self.wait(0.7)
+            # Honor the plan's pacing budget: animations that finished early
+            # get observation time instead of rushing to the next beat. This
+            # is what makes key states pause long enough to read.
+            elapsed = float(self.renderer.time) - beat_start_time
+            planned = self.number(scene.get("duration_s"), 0.0, 0.0, 20.0)
+            self.wait(min(8.0, max(0.7, planned - elapsed)))
             self.record_beat(beat_index, scene)
 
         if caption is not None:
@@ -2238,7 +2251,6 @@ class SolutionScene(Scene):
         self.emit_beat_manifest()
         answer = self.fit(Text(ANSWER_TEXT, font_size=34, color=GREEN), 10.6, 1.0)
         answer.to_edge(DOWN, buff=0.3)
-        self.play(FadeIn(answer))
         shown_ids = [
             item for item in visible
             if not (
@@ -2247,6 +2259,26 @@ class SolutionScene(Scene):
             )
         ]
         shown = [self.objects[item] for item in shown_ids]
+        # The answer band must be clear: if any visible content (objects or
+        # their badges) dips into it, lift everything above the band first.
+        lift_targets = list(shown)
+        for registry in (
+            self.count_badges, self.mapping_badges,
+            self.comparison_badges, self.measurement_badges,
+        ):
+            lift_targets.extend(registry.values())
+        answer_top = answer.get_top()[1] + 0.2
+        lowest = min(
+            (item.get_bottom()[1] for item in lift_targets if item.width > 0),
+            default=answer_top,
+        )
+        if lowest < answer_top:
+            lift = min(1.6, answer_top - lowest)
+            self.play(
+                *[item.animate.shift(UP * lift) for item in lift_targets],
+                run_time=0.5,
+            )
+        self.play(FadeIn(answer))
         if shown:
             self.play(*[Indicate(item, color=GREEN, scale_factor=1.03) for item in shown])
         self.wait(3)
