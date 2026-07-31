@@ -132,7 +132,21 @@ _FALLBACK_IR_ACTIONS = {
     "measure",
     "verify",
     "remove",
+    "take_from",
+    "combine",
+    "count",
+    "recount_verify",
+    "replicate",
 }
+# Quantity-verb parameters that must survive IR extraction for the template.
+_FALLBACK_IR_ACTION_FIELDS = (
+    "source",
+    "destination",
+    "count",
+    "style",
+    "expect",
+    "expect_total",
+)
 
 
 def _safe_ir_value(value: Any, depth: int = 0) -> Any:
@@ -240,18 +254,27 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
             result = str(raw_action.get("result") or "")
             if op not in _FALLBACK_IR_ACTIONS or not targets:
                 continue
-            actions.append(
-                {
-                    "op": op,
-                    "targets": targets,
-                    "result": result if result in object_ids else "",
-                    "meaning": _wrap_fallback_text(
-                        raw_action.get("meaning") or raw_scene.get("action") or op,
-                        width=24,
-                        max_lines=2,
-                    ),
-                }
-            )
+            extracted = {
+                "op": op,
+                "targets": targets,
+                "result": result if result in object_ids else "",
+                "meaning": _wrap_fallback_text(
+                    raw_action.get("meaning") or raw_scene.get("action") or op,
+                    width=24,
+                    max_lines=2,
+                ),
+            }
+            for field in _FALLBACK_IR_ACTION_FIELDS:
+                value = raw_action.get(field)
+                if isinstance(value, str):
+                    value = value.strip()[:64]
+                elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                    value = int(value)
+                else:
+                    value = None
+                if value not in (None, ""):
+                    extracted[field] = value
+            actions.append(extracted)
         if actions:
             scenes.append(
                 {
@@ -443,6 +466,8 @@ class SolutionScene(Scene):
         self.mapping_evidence = {}
         self.comparison_badges = {}
         self.measurement_badges = {}
+        self.unit_ledger = {}
+        self.count_badges = {}
         self.deferred_creates = set()
         self.last_comparison_difference = None
         self.relation_values = []
@@ -1062,6 +1087,182 @@ class SolutionScene(Scene):
                 item.move_to(position)
         return animations
 
+    def record_beat(self, beat_index, scene):
+        # Render-time beat manifest: actual timestamps and the per-group unit
+        # state the frame SHOULD show at this moment. Consumed by the review
+        # stage for deterministic count verification. Coordinates are scene
+        # units; the consumer converts to pixels via frame_width/height.
+        groups = {}
+        for object_id, units in self.unit_ledger.items():
+            live = [unit for unit in units if unit.width > 0]
+            if not live:
+                continue
+            box = VGroup(*live)
+            color_hex = ""
+            opacity = 1.0
+            try:
+                color_hex = str(live[0].get_color().to_hex())
+            except Exception:
+                color_hex = ""
+            try:
+                opacity = float(live[0].get_stroke_opacity())
+            except Exception:
+                opacity = 1.0
+            groups[object_id] = {
+                "count": len(live),
+                "bbox": [
+                    round(float(box.get_left()[0]), 3),
+                    round(float(box.get_bottom()[1]), 3),
+                    round(float(box.get_right()[0]), 3),
+                    round(float(box.get_top()[1]), 3),
+                ],
+                "color": color_hex,
+                "opacity": round(opacity, 2),
+            }
+        self.beat_manifest.append({
+            "beat_index": beat_index,
+            "role": str(scene.get("role") or ""),
+            "end_time": round(float(self.renderer.time), 3),
+            "groups": groups,
+        })
+
+    def emit_beat_manifest(self):
+        import json as json_module
+        payload = {
+            "frame_width": float(config.frame_width),
+            "frame_height": float(config.frame_height),
+            "beats": self.beat_manifest,
+        }
+        try:
+            print("BEAT_MANIFEST_JSON:" + json_module.dumps(payload))
+        except Exception:
+            pass
+
+    def register_badge(self, registry, key, badge):
+        # Overwriting a badge slot must clear the old mobject from the scene;
+        # a stale formula left behind overlaps the new one at the same anchor.
+        old = registry.pop(key, None)
+        if old is not None:
+            old.clear_updaters()
+            self.remove(old)
+        registry[key] = badge
+
+    def ledger_units(self, object_id):
+        # A group's units are the same mobjects for the whole video: they can
+        # move, recolor or get crossed out, but are never destroyed/redrawn.
+        # The ledger tracks which units currently belong to which group.
+        if object_id not in self.unit_ledger:
+            units = self.repeat_units.get(object_id)
+            self.unit_ledger[object_id] = list(units) if units is not None else []
+        return self.unit_ledger[object_id]
+
+    def reparent_unit(self, source_id, unit):
+        holder = self.repeat_units.get(source_id)
+        if holder is not None and unit in holder.submobjects:
+            holder.remove(unit)
+            self.add(unit)
+        ledger = self.unit_ledger.get(source_id)
+        if ledger is not None and unit in ledger:
+            ledger.remove(unit)
+
+    def container_body(self, object_id):
+        container = self.objects.get(object_id)
+        if container is None:
+            return None
+        if isinstance(container, VGroup) and len(container.submobjects) >= 1:
+            return container.submobjects[0]
+        return container
+
+    def container_slots(self, object_id, total):
+        body = self.container_body(object_id)
+        if body is None or total < 1:
+            return []
+        columns = max(1, min(4, int(math.ceil(math.sqrt(total)))))
+        rows = max(1, int(math.ceil(total / columns)))
+        usable_width = body.width * 0.82
+        usable_height = body.height * 0.78
+        cell_width = usable_width / columns
+        cell_height = usable_height / rows
+        center = body.get_center()
+        slots = []
+        for index in range(total):
+            row = index // columns
+            column = index % columns
+            slots.append([
+                center[0] - usable_width / 2 + cell_width * (column + 0.5),
+                center[1] + usable_height / 2 - cell_height * (row + 0.5),
+                0,
+            ])
+        return slots
+
+    def unit_arrival_scale(self, unit, object_id, total):
+        slots = self.container_slots(object_id, total)
+        if not slots or unit.width <= 0:
+            return 1.0
+        body = self.container_body(object_id)
+        cell_width = body.width * 0.82 / max(1, min(4, int(math.ceil(math.sqrt(total)))))
+        return min(1.0, cell_width * 0.8 / unit.width)
+
+    def animate_count(self, object_id, expect=None):
+        # Numerals are born from counting the graphics: units light up one by
+        # one with an incrementing counter, then the total anchors to the
+        # group with a brace. A number the video never counted or measured
+        # must not appear on screen.
+        units = self.ledger_units(object_id)
+        if not units:
+            return
+        total = len(units)
+        group = VGroup(*units)
+        # Text digits only: DecimalNumber/Integer require a LaTeX toolchain,
+        # which this pipeline deliberately avoids.
+        counter = None
+        step_time = 0.32 if total <= 8 else max(0.1, 2.4 / total)
+        for index, unit in enumerate(units, start=1):
+            fresh = Text(str(index), font_size=36, color=YELLOW)
+            fresh.next_to(group, UP, buff=0.26)
+            fresh.shift_onto_screen(buff=0.3)
+            if counter is not None:
+                self.remove(counter)
+            counter = fresh
+            self.add(counter)
+            self.play(Indicate(unit, scale_factor=1.22), run_time=step_time)
+        if counter is not None:
+            self.remove(counter)
+
+        def overlaps(first, second):
+            return (
+                first.get_left()[0] < second.get_right()[0]
+                and second.get_left()[0] < first.get_right()[0]
+                and first.get_bottom()[1] < second.get_top()[1]
+                and second.get_bottom()[1] < first.get_top()[1]
+            )
+
+        # Anchor above the units by default; a cross_out subgroup lives inside
+        # another group's area, so if the badge would stack on another badge
+        # or a label, walk through alternative sides. Its own predecessor is
+        # about to be replaced and must not count as an obstacle. The badge
+        # enters as ONE mobject so register_badge replacement can remove it.
+        obstacles = [
+            existing
+            for key, existing in self.count_badges.items()
+            if key != object_id
+        ]
+        obstacles.extend(
+            label for label in self.object_labels.values() if label is not None
+        )
+        badge = None
+        for direction in (UP, RIGHT, LEFT, DOWN):
+            brace = Brace(group, direction, buff=0.12)
+            value = Text(str(total), font_size=30, color=YELLOW)
+            value.next_to(brace, direction, buff=0.08)
+            candidate = VGroup(brace, value)
+            candidate.shift_onto_screen(buff=0.3)
+            badge = candidate
+            if not any(overlaps(candidate, obstacle) for obstacle in obstacles):
+                break
+        self.register_badge(self.count_badges, object_id, badge)
+        self.play(GrowFromCenter(badge), run_time=0.5)
+
     def show_caption(self, old_caption, text):
         caption = Text(str(text or "观察图形关系的变化"), font_size=23, color=WHITE)
         self.fit(caption, 11.0, 0.9)
@@ -1192,7 +1393,7 @@ class SolutionScene(Scene):
                                 host, DOWN, buff=0.22,
                             )
                         )
-                        self.mapping_badges[result_id] = formula
+                        self.register_badge(self.mapping_badges, result_id, formula)
                         self.play(FadeIn(formula, shift=UP * 0.08))
                     self.mapped_into[source_id] = (result_id, pair_count)
                     return
@@ -1277,7 +1478,7 @@ class SolutionScene(Scene):
                     ).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
                     formulas.next_to(self.objects[result_id], DOWN, buff=0.42)
                     formulas.shift_onto_screen(buff=0.35)
-                    self.mapping_badges[result_id] = formulas
+                    self.register_badge(self.mapping_badges, result_id, formulas)
                     self.play(FadeIn(formulas, shift=LEFT * 0.12))
                 elif extra_per_unit > 0:
                     source_total = pair_count * extra_per_unit
@@ -1294,7 +1495,7 @@ class SolutionScene(Scene):
                     ).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
                     formulas.next_to(self.objects[result_id], DOWN, buff=0.42)
                     formulas.shift_onto_screen(buff=0.35)
-                    self.mapping_badges[result_id] = formulas
+                    self.register_badge(self.mapping_badges, result_id, formulas)
                     self.play(FadeIn(formulas, shift=LEFT * 0.12))
                 self.mapped_into[source_id] = (result_id, pair_count)
                 visible.remove(source_id)
@@ -1429,7 +1630,7 @@ class SolutionScene(Scene):
                             host, DOWN, buff=0.22,
                         )
                     )
-                    self.mapping_badges[result_id] = formula
+                    self.register_badge(self.mapping_badges, result_id, formula)
                     self.play(FadeIn(formula, shift=UP * 0.08))
                 self.mapped_into[source_id] = (result_id, pair_count)
                 return
@@ -1454,17 +1655,259 @@ class SolutionScene(Scene):
                 self.play(*[FadeOut(self.objects[item]) for item in departing])
                 for item in departing:
                     visible.remove(item)
+        elif op == "take_from":
+            source_id = str(action.get("source") or (targets[0] if targets else ""))
+            destination_id = str(action.get("destination") or "")
+            take_count = int(self.number(action.get("count"), 0, 0, 64))
+            style = str(action.get("style") or "fly")
+            source_units = self.ledger_units(source_id)
+            if (
+                style != "cross_out"
+                and destination_id
+                and destination_id in self.objects
+                and destination_id not in visible
+            ):
+                animations = self.relayout(visible, [destination_id])
+                animations.append(self.animate_create(destination_id))
+                self.play(*animations)
+                visible.append(destination_id)
+            destination_body = self.container_body(destination_id)
+            if take_count >= 1 and source_units and destination_body is not None:
+                take_count = min(take_count, len(source_units))
+                taken = list(source_units[-take_count:])
+                self.play(
+                    *[Indicate(unit, color=YELLOW, scale_factor=1.3) for unit in taken],
+                    run_time=0.7,
+                )
+                arrived = self.unit_ledger.setdefault(destination_id, [])
+                final_total = len(arrived) + take_count
+                slots = self.container_slots(destination_id, final_total)
+                step_time = 0.45 if take_count <= 8 else max(0.15, 3.0 / take_count)
+                for offset, unit in enumerate(taken):
+                    self.reparent_unit(source_id, unit)
+                    if style == "cross_out":
+                        # In-place disappearance: the unit stays where it was,
+                        # dimmed and crossed. The whole is still visible as
+                        # "remaining + crossed", which IS the subtraction.
+                        mark = Line(
+                            unit.get_corner(UL), unit.get_corner(DR),
+                            color=GREY, stroke_width=5,
+                        )
+                        self.play(
+                            Create(mark),
+                            unit.animate.set_opacity(0.35),
+                            run_time=step_time,
+                        )
+                        unit.add(mark)
+                    else:
+                        slot_index = len(arrived)
+                        slot = (
+                            slots[slot_index]
+                            if slot_index < len(slots)
+                            else destination_body.get_center()
+                        )
+                        scale = self.unit_arrival_scale(unit, destination_id, final_total)
+                        self.play(
+                            unit.animate.move_to(slot).scale(scale),
+                            run_time=step_time,
+                        )
+                    arrived.append(unit)
+                if style == "cross_out" and taken:
+                    # Materialize the destination as an outline that wraps the
+                    # crossed units in place, labelling the removed part
+                    # without moving anything out of the whole.
+                    container = self.objects.get(destination_id)
+                    if container is not None:
+                        taken_group = VGroup(*taken)
+                        destination_body.set_fill(opacity=0)
+                        destination_body.stretch_to_fit_width(taken_group.width + 0.5)
+                        destination_body.stretch_to_fit_height(taken_group.height + 0.5)
+                        destination_body.move_to(taken_group.get_center())
+                        if (
+                            isinstance(container, VGroup)
+                            and len(container.submobjects) > 1
+                        ):
+                            # Sideways label: the band below is occupied by
+                            # the source group's own label.
+                            label = container.submobjects[1]
+                            label.next_to(destination_body, RIGHT, buff=0.18)
+                            label.shift_onto_screen(buff=0.3)
+                        source_label = self.object_labels.get(source_id)
+                        if source_label is not None and (
+                            source_label.get_top()[1] > destination_body.get_bottom()[1]
+                            and source_label.get_bottom()[1]
+                            < destination_body.get_top()[1]
+                        ):
+                            # The wrapped outline swallowed the source label;
+                            # push it below the outline.
+                            self.play(
+                                source_label.animate.next_to(
+                                    destination_body, DOWN, buff=0.16
+                                ),
+                                run_time=0.3,
+                            )
+                        if destination_id not in visible:
+                            self.play(FadeIn(container), run_time=0.5)
+                            visible.append(destination_id)
+            elif source_units:
+                self.play(*[Indicate(unit, color=YELLOW) for unit in source_units[:8]])
+        elif op == "combine" and targets and result_id in self.objects:
+            if result_id not in visible:
+                animations = self.relayout(visible, [result_id])
+                animations.append(self.animate_create(result_id))
+                self.play(*animations)
+                visible.append(result_id)
+            arrivals = []
+            for source_id in targets:
+                arrivals.extend(
+                    (str(source_id), unit)
+                    for unit in list(self.ledger_units(str(source_id)))
+                )
+            destination_body = self.container_body(result_id)
+            if arrivals and destination_body is not None:
+                existing = self.unit_ledger.setdefault(result_id, [])
+                final_total = len(existing) + len(arrivals)
+                slots = self.container_slots(result_id, final_total)
+                moves = []
+                for source_id, unit in arrivals:
+                    self.reparent_unit(source_id, unit)
+                    slot_index = len(existing)
+                    slot = (
+                        slots[slot_index]
+                        if slot_index < len(slots)
+                        else destination_body.get_center()
+                    )
+                    scale = self.unit_arrival_scale(unit, result_id, final_total)
+                    moves.append(unit.animate.move_to(slot).scale(scale))
+                    existing.append(unit)
+                self.play(
+                    LaggedStart(*moves, lag_ratio=min(0.12, 2.0 / max(len(moves), 1)))
+                )
+        elif op == "replicate" and targets and result_id in self.objects:
+            source_id = str(action.get("source") or (targets[0] if targets else ""))
+            times = int(self.number(action.get("count"), 0, 0, 24))
+            source_units = self.ledger_units(source_id)
+            if source_units and times >= 1:
+                if result_id not in visible:
+                    animations = self.relayout(visible, [result_id])
+                    animations.append(self.animate_create(result_id))
+                    self.play(*animations)
+                    visible.append(result_id)
+                destination_body = self.container_body(result_id)
+                per_row = len(source_units)
+                usable_width = destination_body.width * 0.85
+                usable_height = destination_body.height * 0.8
+                cell_width = usable_width / max(per_row, 1)
+                cell_height = usable_height / max(times, 1)
+                origin = destination_body.get_center()
+                left = origin[0] - usable_width / 2
+                top = origin[1] + usable_height / 2
+                result_ledger = self.unit_ledger.setdefault(result_id, [])
+                row_counter = None
+                for row in range(times):
+                    if row == 0:
+                        row_units = list(source_units)
+                        for unit in row_units:
+                            self.reparent_unit(source_id, unit)
+                    else:
+                        # Multiplication stamps visible copies of the SAME row:
+                        # each new row is born on screen from the original.
+                        row_units = [unit.copy() for unit in source_units]
+                        for unit in row_units:
+                            self.add(unit)
+                    moves = []
+                    for column, unit in enumerate(row_units):
+                        slot = [
+                            left + cell_width * (column + 0.5),
+                            top - cell_height * (row + 0.5),
+                            0,
+                        ]
+                        scale = min(1.0, cell_width * 0.8 / max(unit.width, 1e-6))
+                        moves.append(unit.animate.move_to(slot).scale(scale))
+                        result_ledger.append(unit)
+                    fresh = Text(f"{row + 1} 份", font_size=30, color=YELLOW)
+                    fresh.next_to(destination_body, UP, buff=0.2)
+                    fresh.shift_onto_screen(buff=0.3)
+                    if row_counter is not None:
+                        self.remove(row_counter)
+                    row_counter = fresh
+                    self.add(row_counter)
+                    self.play(
+                        LaggedStart(*moves, lag_ratio=min(0.15, 1.0 / max(per_row, 1))),
+                        run_time=0.55,
+                    )
+                if row_counter is not None:
+                    self.remove(row_counter)
+                formula = Text(
+                    f"{times} × {per_row} = {times * per_row}",
+                    font_size=26,
+                    color=GREEN,
+                )
+                formula.next_to(destination_body, DOWN, buff=0.22)
+                formula.shift_onto_screen(buff=0.3)
+                self.register_badge(self.mapping_badges, result_id, formula)
+                self.play(FadeIn(formula, shift=UP * 0.08))
+        elif op == "count":
+            for item in targets:
+                if str(item) in visible or self.ledger_units(str(item)):
+                    self.animate_count(str(item))
+                    break
+        elif op == "recount_verify":
+            group_ids = [str(item) for item in targets if self.ledger_units(str(item))]
+            expect_total = int(self.number(action.get("expect_total"), -1, -1, 4096))
+            if group_ids:
+                for item in group_ids:
+                    if item not in self.count_badges:
+                        self.animate_count(item)
+                counts = [len(self.ledger_units(item)) for item in group_ids]
+                total = sum(counts)
+                passed = expect_total < 0 or total == expect_total
+                verdict_color = GREEN if passed else RED
+                equation = Text(
+                    " + ".join(str(value) for value in counts) + " = " + str(total),
+                    font_size=34,
+                    color=verdict_color,
+                )
+                equation.to_edge(DOWN, buff=1.05)
+                check = Text("✓" if passed else "✗", font_size=40, color=verdict_color)
+                check.next_to(equation, RIGHT, buff=0.2)
+                frames = VGroup(*[
+                    SurroundingRectangle(
+                        VGroup(*self.ledger_units(item)), color=verdict_color, buff=0.15,
+                    )
+                    for item in group_ids
+                ])
+                self.play(
+                    LaggedStart(*[Create(frame) for frame in frames], lag_ratio=0.12),
+                    FadeIn(equation),
+                    FadeIn(check),
+                )
+                self.wait(0.6)
+                self.play(FadeOut(frames))
         elif op == "move":
             moving = [self.objects[item] for item in targets if item in visible]
+            destination_raw = str(action.get("destination") or "").strip()
+            axis_value = None
+            if "=" in destination_raw and destination_raw.replace(" ", "").lower().startswith("x="):
+                axis_value = self.number(destination_raw.split("=", 1)[1], None, -1000, 1000)
             coordinate_heights = [item for item in targets if item in self.height_models]
             if coordinate_heights and self.scan_tracker is not None:
                 self.play(
-                    self.scan_tracker.animate.set_value(self.scan_target_x),
+                    self.scan_tracker.animate.set_value(
+                        axis_value if axis_value is not None else self.scan_target_x
+                    ),
                     run_time=3,
                     rate_func=linear,
                 )
+            elif moving and destination_raw in self.objects:
+                destination_body = self.container_body(destination_raw)
+                self.play(
+                    *[item.animate.next_to(destination_body, UP, buff=0.3) for item in moving]
+                )
             elif moving:
-                self.play(*[item.animate.shift(UP * 0.35) for item in moving])
+                # No executable destination: emphasize instead of faking a
+                # displacement — a token shift reads as "nothing happened".
+                self.play(*[Indicate(item, color=YELLOW) for item in moving])
         elif op == "partition":
             selected = [self.objects[item] for item in targets if item in visible]
             source_id = next((item for item in targets if item in visible), None)
@@ -1527,7 +1970,7 @@ class SolutionScene(Scene):
                             host, DOWN, buff=0.22,
                         )
                     )
-                    self.mapping_badges[result_id] = formula
+                    self.register_badge(self.mapping_badges, result_id, formula)
                     self.play(FadeIn(formula, shift=UP * 0.08))
                 visible.remove(source_id)
                 visible.append(result_id)
@@ -1608,7 +2051,7 @@ class SolutionScene(Scene):
                         color=GREEN,
                     )
                     badge.to_corner(UR, buff=0.5).shift(DOWN * 0.7)
-                    self.measurement_badges[item] = badge
+                    self.register_badge(self.measurement_badges, item, badge)
                     new_badges.append(badge)
                 self.play(
                     GrowFromCenter(brace),
@@ -1671,7 +2114,7 @@ class SolutionScene(Scene):
                 )
                 self.play(FadeOut(connector))
                 if compare_badge is not None:
-                    self.comparison_badges[frozenset(targets[:2])] = compare_badge
+                    self.register_badge(self.comparison_badges, frozenset(targets[:2]), compare_badge)
             elif selected:
                 self.play(Indicate(selected[0], color=YELLOW))
         elif op == "verify":
@@ -1681,6 +2124,15 @@ class SolutionScene(Scene):
                 if not (
                     item in self.attached_ids
                     and self.attachment_hosts.get(item) in selected_ids
+                )
+            ]
+            # An empty labeled container carries no evidence: framing it with
+            # a green check would verify nothing (the incident pattern).
+            selected_ids = [
+                item for item in selected_ids
+                if not (
+                    self.specs.get(item, {}).get("primitive") == "rectangle"
+                    and not self.ledger_units(item)
                 )
             ]
             selected = [self.objects[item] for item in selected_ids]
@@ -1757,7 +2209,8 @@ class SolutionScene(Scene):
             self.play(FadeIn(self.geometry_background), run_time=0.6)
         visible = []
         caption = None
-        for scene in VISUAL_SCENES:
+        self.beat_manifest = []
+        for beat_index, scene in enumerate(VISUAL_SCENES):
             caption = self.show_caption(caption, scene.get("teaching_line"))
             actions = scene.get("actions", [])
             for index, action in enumerate(actions):
@@ -1778,9 +2231,11 @@ class SolutionScene(Scene):
                     continue
                 self.execute_action(action, visible)
             self.wait(0.7)
+            self.record_beat(beat_index, scene)
 
         if caption is not None:
             self.play(FadeOut(caption))
+        self.emit_beat_manifest()
         answer = self.fit(Text(ANSWER_TEXT, font_size=34, color=GREEN), 10.6, 1.0)
         answer.to_edge(DOWN, buff=0.3)
         self.play(FadeIn(answer))
@@ -2002,7 +2457,7 @@ class CompileVideoTool(ITool):
             "properties": {
                 "review_repair": {
                     "type": "boolean",
-                    "description": "是否由成片审查触发；该模式不再进行内部二次修复",
+                    "description": "是否由成片审查触发；该模式同样允许一次证据定向内部修复",
                 },
                 "visual_fallback_only": {
                     "type": "boolean",
@@ -2025,6 +2480,8 @@ class CompileVideoTool(ITool):
         artifacts: list[ArtifactSpec] = []
         steps: list[dict[str, Any]] = []
         repair_count = 0
+        # Soft-pass notes describe the previous compile's candidate only.
+        ctx.state.pop("contract_soft_pass_issues", None)
         if args.get("visual_fallback_only"):
             rejected = ToolResult(
                 success=False,
@@ -2063,16 +2520,9 @@ class CompileVideoTool(ITool):
         artifacts.extend(generated.artifacts)
         steps.append(self._step("write", generated))
         if not generated.success:
-            if review_repair:
-                return await self._fallback_or_failed(
-                    "成片修复写码失败",
-                    generated,
-                    steps,
-                    artifacts,
-                    repair_count,
-                    ctx,
-                    review_repair=review_repair,
-                )
+            # A review-triggered recompile deserves the same single
+            # evidence-directed repair as a cold compile: an API slip in the
+            # repair draft must not immediately discard the whole attempt.
             repair_count += 1
             ctx.state["last_generation_error"] = generated.error or generated.summary
             generated = await self._writer.execute({}, ctx)
@@ -2092,48 +2542,52 @@ class CompileVideoTool(ITool):
         validated = await self._validator.execute({}, ctx)
         steps.append(self._step("validate", validated))
         if not validated.success:
-            if review_repair or repair_count >= 1:
-                return await self._fallback_or_failed(
-                    "代码门禁未通过",
-                    validated,
-                    steps,
-                    artifacts,
-                    repair_count,
-                    ctx,
-                    review_repair=review_repair,
-                )
-            repair_count += 1
-            generated = await self._writer.execute({}, ctx)
-            artifacts.extend(generated.artifacts)
-            steps.append(self._step("repair", generated))
-            if not generated.success:
-                return await self._fallback_or_failed(
-                    "证据定向修复失败",
-                    generated,
-                    steps,
-                    artifacts,
-                    repair_count,
-                    ctx,
-                    review_repair=review_repair,
-                )
-            validated = await self._validator.execute({}, ctx)
-            steps.append(self._step("revalidate", validated))
-            if not validated.success:
-                return await self._fallback_or_failed(
-                    "修复后代码门禁仍未通过",
-                    validated,
-                    steps,
-                    artifacts,
-                    repair_count,
-                    ctx,
-                    review_repair=review_repair,
-                )
+            if repair_count >= 1:
+                if not self._contract_soft_pass(validated, ctx, steps):
+                    return await self._fallback_or_failed(
+                        "代码门禁未通过",
+                        validated,
+                        steps,
+                        artifacts,
+                        repair_count,
+                        ctx,
+                        review_repair=review_repair,
+                    )
+            else:
+                repair_count += 1
+                generated = await self._writer.execute({}, ctx)
+                artifacts.extend(generated.artifacts)
+                steps.append(self._step("repair", generated))
+                if not generated.success:
+                    return await self._fallback_or_failed(
+                        "证据定向修复失败",
+                        generated,
+                        steps,
+                        artifacts,
+                        repair_count,
+                        ctx,
+                        review_repair=review_repair,
+                    )
+                validated = await self._validator.execute({}, ctx)
+                steps.append(self._step("revalidate", validated))
+                if not validated.success and not self._contract_soft_pass(
+                    validated, ctx, steps
+                ):
+                    return await self._fallback_or_failed(
+                        "修复后代码门禁仍未通过",
+                        validated,
+                        steps,
+                        artifacts,
+                        repair_count,
+                        ctx,
+                        review_repair=review_repair,
+                    )
 
         rendered = await self._renderer.execute({}, ctx)
         artifacts.extend(rendered.artifacts)
         steps.append(self._step("render", rendered))
         if not rendered.success:
-            if review_repair or repair_count >= 1:
+            if repair_count >= 1:
                 return await self._fallback_or_failed(
                     "渲染未通过",
                     rendered,
@@ -2159,7 +2613,9 @@ class CompileVideoTool(ITool):
                 )
             validated = await self._validator.execute({}, ctx)
             steps.append(self._step("repair_validate", validated))
-            if not validated.success:
+            if not validated.success and not self._contract_soft_pass(
+                validated, ctx, steps
+            ):
                 return await self._fallback_or_failed(
                     "渲染修复未通过代码门禁",
                     validated,
@@ -2186,6 +2642,7 @@ class CompileVideoTool(ITool):
         ctx.state["compile_internal_repairs"] = (
             int(ctx.state.get("compile_internal_repairs") or 0) + repair_count
         )
+        ctx.state["last_compiler"] = "model"
         # A normal model-authored render replaces any earlier delivery fallback.
         # Keep the quality warning until Watch has reviewed this new candidate.
         ctx.state.pop("delivery_fallback", None)
@@ -2250,6 +2707,7 @@ class CompileVideoTool(ITool):
                 artifacts,
                 0,
             )
+        ctx.state["last_compiler"] = "visual_ir"
         report = {
             "stage": self.name,
             "success": True,
@@ -2287,6 +2745,50 @@ class CompileVideoTool(ITool):
             "summary": result.summary,
             "error": result.error,
         }
+
+    @staticmethod
+    def _contract_soft_pass(
+        validated: ToolResult, ctx: ToolContext, steps: list[dict[str, Any]]
+    ) -> bool:
+        """Render despite a failed validation when only contract heuristics remain.
+
+        Visual-evidence / graphical-reasoning / semantic-audit checks compare
+        source text against the SceneSpec — proxies with real false positives
+        that historically diverted most model code into the template fallback.
+        The rendered-frame review is the authoritative judge of graphical
+        reasoning, so let it decide.  Crash-class gates (syntax, structure,
+        missing problem opening) still block unconditionally.
+        """
+        data = validated.data or {}
+        if not data.get("syntax_ok"):
+            return False
+        if data.get("structure_issues") or data.get("problem_opening_issues"):
+            return False
+        remaining = (
+            list(data.get("visual_evidence_issues") or [])
+            + list(data.get("graphical_reasoning_issues") or [])
+            + list(data.get("semantic_audit_issues") or [])
+        )
+        if not remaining:
+            return False
+        ctx.state["contract_soft_pass_issues"] = [str(item) for item in remaining[:6]]
+        # The stale validator hints are superseded by the soft pass; leaving
+        # them in state would hijack a later review repair's error context.
+        ctx.state.pop("last_validation_issues", None)
+        if ctx.state.get("last_error_source") == "validate":
+            ctx.state.pop("last_error_source", None)
+        steps.append(
+            {
+                "name": "contract_soft_pass",
+                "success": True,
+                "summary": (
+                    "仅剩契约类校验问题，放行渲染交由成片审查裁决："
+                    + "；".join(str(item) for item in remaining[:2])
+                ),
+                "error": None,
+            }
+        )
+        return True
 
     def _failed(
         self,
@@ -2364,6 +2866,7 @@ class CompileVideoTool(ITool):
                 artifacts,
                 repair_count,
             )
+        ctx.state["last_compiler"] = "visual_ir"
 
         report = {
             "stage": self.name,

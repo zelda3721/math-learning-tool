@@ -35,6 +35,23 @@
 - 有许多同类成员时，计划必须说明它们如何按安全画幅分行、分组或变成可逐项计数的紧凑
   tile；禁止把循环成员排成超出画幅的一条长线。视觉计划中的真实数学数值不是 Manim 坐标。
 
+## 表示法优先级（几何优先，按结构不按题型）
+
+为每个数学结构选择其**最低抽象层级**的可视表示；代数记号只能作为几何演示的注释，
+不得作为主要论证：
+
+- 可数数量及其变化 → 单位图形 + 数量动词（take_from/combine/count/recount_verify）。
+- 相等关系与方程 → **天平隐喻**：等式两侧作为天平两盘同时可见，任何变形必须
+  同步作用于两侧，天平的平衡状态全程可见；不允许只写符号变形序列。
+- 函数与连续变化 → 坐标系、曲线、扫描线与投影。
+- 线性变换/矩阵 → 被变换的几何对象（网格、基向量、多边形）先行，数值矩阵仅作注释。
+- 比例/分数 → 分割的条、圆或网格，份数逐一可辨。
+
+**年级抽象上限**：小学（elementary_*）计划中不得出现未知数符号、方程记号或
+"解方程"话术——用算术推理与单位图形表达（如假设调整：先全部按一种摆出，再逐个
+替换并观察差值变化）；初中及以上才允许方程（配天平表达）与函数图像；任何年级都
+不允许纯代数推导流作为画面主体。
+
 ## 时间与空间契约
 
 把视频拆成至少 3 个连续 beat。允许不同 beat 重用同一屏幕区域；只有同一时刻仍在
@@ -68,7 +85,17 @@
 - 函数图像必须用 `function_curve`，并填写 Python/SymPy 语法的 `params.expression`、
   `params.variable` 和可选 `params.x_range`；不能把非线性函数伪装成 `line`。
 - `actions.op` 只能使用：`create | transform | move | highlight | partition | merge | compare |
-  map | measure | verify | remove`。
+  map | measure | verify | remove | take_from | combine | count | recount_verify`。
+- **数量动词（离散数量变化必须使用，参数强制）**：数量的增减不能用 transform 换对象表达，
+  必须让同一批单位对象发生可见迁移：
+  - `take_from`：需要 `source`（计数组 id）、`destination`（已声明容器对象 id，不接受
+    自由 zone 字符串）、`count`（正整数）、可选 `style`（`fly|cross_out|fade`）。
+  - `combine`：`targets` 为 ≥2 个来源组，`result` 为承接容器；单位滑入合并。
+  - `count`：`targets[0]` 为要数的组，`expect` 为期望数量；数字必须由逐个计数产生。
+  - `recount_verify`：`targets` 为参与合计的组，`expect_total` 为守恒总量；验证即分组
+    重数并拼出算式。
+  - 未使用的参数字段一律填 `null`。`move` 必须携带 `destination`（对象 id 或 `x=数值`）。
+  - 守恒硬约束：每个数量动词的收支必须平衡（源减 k、目的地增 k），校验器逐动词核对。
 - `targets` 和 `result` 必须精确引用完整的 `visual_objects.id`，不能写 `axes.origin`、
   `curve.point` 之类未声明的子属性。每个动作必须写 `meaning`，说明屏幕动作代表哪个数学关系。
 - `transform/partition/map` 必须填写与来源不同的 `result`；被操作的来源对象必须已经在更早动作中

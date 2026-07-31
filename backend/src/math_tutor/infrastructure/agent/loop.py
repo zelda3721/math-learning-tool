@@ -296,6 +296,42 @@ class AgentLoop:
                         selected, stage_attempts[selected]
                     )
                     if budget_error:
+                        # Exhausted budgets must not discard a playable video:
+                        # deliver the best candidate with a quality warning
+                        # instead of ending the session empty-handed.
+                        best = state.get("best_visual_candidate") or {}
+                        salvage_path = state.get("latest_video_path") or best.get(
+                            "video_path"
+                        )
+                        salvage_url = state.get("latest_video_url") or best.get(
+                            "video_url"
+                        )
+                        if salvage_path:
+                            logger.warning(
+                                "session %s stage budget exhausted at %s; "
+                                "delivering best playable candidate",
+                                session_id,
+                                selected,
+                            )
+                            state["quality_degraded"] = True
+                            yield DoneEvent(
+                                status="ok",
+                                text=(
+                                    f"答案：{state.get('solution_answer') or '已验证'}。"
+                                    f"{budget_error} 已交付当前最佳可播放候选视频，"
+                                    "质量提示请查看 Watch 阶段。"
+                                ),
+                                final_video_url=salvage_url,
+                                final_video_path=salvage_path,
+                            )
+                            await self._store.update_session(
+                                session_id,
+                                status="done",
+                                error=f"stage_budget_exhausted:{selected}",
+                                final_video_path=salvage_path,
+                            )
+                            self._maybe_schedule_wiki_ingest(session_id, success=False)
+                            return
                         logger.warning(
                             "session %s stopped by stage budget: %s attempts=%d",
                             session_id,

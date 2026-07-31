@@ -6,6 +6,7 @@ Implements IVideoGenerator interface.
 """
 
 import hashlib
+import json
 import logging
 import re
 import subprocess
@@ -66,7 +67,11 @@ class ManimExecutor(IVideoGenerator):
             cached_video = self._lookup_cached_video(cache_key)
             if cached_video is not None:
                 logger.info("Manim render cache hit: %s", cache_key)
-                return VideoResult(success=True, video_path=str(cached_video))
+                return VideoResult(
+                    success=True,
+                    video_path=str(cached_video),
+                    beat_manifest=self._load_cached_manifest(cache_key),
+                )
             # A content-stable filename lets Manim reuse its own partial movie
             # cache when identical code is retried.
             script_path = temp_dir / f"manim_script_{cache_key}.py"
@@ -126,6 +131,7 @@ class ManimExecutor(IVideoGenerator):
                 # Try to parse path from stdout/stderr first
                 output_log = process.stdout + "\n" + process.stderr
                 video_path = self._parse_video_path_from_log(output_log)
+                beat_manifest = self._parse_beat_manifest(output_log)
 
                 if not video_path:
                     logger.warning("Could not parse video path from logs, falling back to search")
@@ -134,7 +140,13 @@ class ManimExecutor(IVideoGenerator):
                 if video_path:
                     logger.info(f"Video generated: {video_path}")
                     self._remember_cached_video(cache_key, video_path)
-                    return VideoResult(success=True, video_path=str(video_path))
+                    if beat_manifest is not None:
+                        self._remember_cached_manifest(cache_key, beat_manifest)
+                    return VideoResult(
+                        success=True,
+                        video_path=str(video_path),
+                        beat_manifest=beat_manifest,
+                    )
 
                 return VideoResult(
                     success=False,
@@ -187,6 +199,43 @@ class ManimExecutor(IVideoGenerator):
             marker.write_text(str(video_path.resolve()), encoding="utf-8")
         except OSError:
             logger.warning("Could not persist render cache marker %s", marker)
+
+    @staticmethod
+    def _parse_beat_manifest(output_log: str) -> dict | None:
+        """Parse the instrumented scene's render-time beat manifest."""
+        for line in reversed(output_log.splitlines()):
+            stripped = line.strip()
+            marker = "BEAT_MANIFEST_JSON:"
+            position = stripped.find(marker)
+            if position < 0:
+                continue
+            try:
+                payload = json.loads(stripped[position + len(marker):])
+            except (ValueError, TypeError):
+                return None
+            return payload if isinstance(payload, dict) else None
+        return None
+
+    def _manifest_marker(self, cache_key: str) -> Path:
+        return self.output_dir / ".render_cache" / f"{cache_key}.manifest.json"
+
+    def _remember_cached_manifest(self, cache_key: str, manifest: dict) -> None:
+        marker = self._manifest_marker(cache_key)
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            logger.warning("Could not persist beat manifest %s", marker)
+
+    def _load_cached_manifest(self, cache_key: str) -> dict | None:
+        marker = self._manifest_marker(cache_key)
+        if not marker.exists():
+            return None
+        try:
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except (OSError, ValueError):
+            return None
 
     def _get_quality_flag(self) -> str:
         """Get manim quality flag"""

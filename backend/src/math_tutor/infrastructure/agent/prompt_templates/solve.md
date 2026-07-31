@@ -53,9 +53,41 @@ import、任意 Python、数值采样代替全局证明、以及把待证答案�
 确实不能由这些确定性运算充分检查，仍必须输出：
 `{"engine":"none","reason":"为什么只能进行逻辑证明"}`。
 
+**JSON 格式硬规则**：所有 `expression` 必须是**带引号的 JSON 字符串**（裸代数式是非法
+JSON）。多元方程组用字符串数组 + `variables`，解的分量用 `$操作id[0].变量名` 逐个核对：
+
+```json
+{
+  "engine": "sympy",
+  "symbols": {"x": {"domain": "nonnegative"}, "y": {"domain": "nonnegative"}},
+  "operations": [
+    {"id": "solve_system", "op": "solve",
+     "expression": ["x + y - 35", "2*x + 4*y - 94"], "variables": ["x", "y"]}
+  ],
+  "claims": [
+    {"id": "x_value", "relation": "equal", "left": "$solve_system[0].x", "right": "23"},
+    {"id": "y_value", "relation": "equal", "left": "$solve_system[0].y", "right": "12"}
+  ]
+}
+```
+
 必填参数：`differentiate/integrate` 需要 `variable`；`limit` 需要 `variable` 和 `point`；
 `solve` 需要 `variable` 或 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`。
 `substitute` 使用 `substitutions` 对象。提交前逐项检查。
+
+## 数量故事
+
+若本题的核心是**一次小自然数的数量变化或比较**（数值都是 1-24 的整数），输出下面的字段，
+供视觉阶段把运算演成单位迁移动画；否则只写 `- 适用: 否`。关系语义：
+take_away（量1 拿走 量2 剩 结果量）、add_to（量1 与 量2 合并成 结果量）、
+compare_more / compare_fewer（量1 与 量2 比较，相差 结果量）。
+
+- 适用: <是|否>
+- 实体: <被数的对象名，如 苹果>
+- 关系: <take_away | add_to | compare_more | compare_fewer>
+- 量1: <整数>
+- 量2: <整数>
+- 结果量: <整数>
 
 ## 解题
 

@@ -307,12 +307,15 @@ def next_scope(
 # Strategy-level failures: the visual approach is fundamentally wrong, so
 # block-scope patches just shuffle deck chairs. Need a fresh take (global)
 # and likely a visual_plan replan.
+# 静态幻灯片 is deliberately NOT here: a static video means the code lacks
+# animation, not that the SceneSpec is wrong — regenerating the plan (and its
+# deterministic template) reproduces the same static footage, while a global
+# code rewrite over the same plan can add the missing motion.
 _STRATEGY_BLACKLIST = (
     "ppt 翻页",
     "公式墙",
     "文字搬运",
     "抽象越级",
-    "静态幻灯片",  # entire video is essentially static — deep approach issue
 )
 
 # Layout/style failures: the approach is OK but specific placement / colors /

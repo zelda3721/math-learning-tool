@@ -4,6 +4,7 @@ import ast
 import asyncio
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from math_tutor.application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
@@ -30,9 +31,10 @@ from math_tutor.infrastructure.agent.tools.compile_video import (
 )
 from math_tutor.infrastructure.agent.tools.inspect_video import (
     InspectVideoTool,
-    _core_visual_gate_issue,
     _derive_technical_issues,
     _deterministic_visual_math_integrity,
+    _finalize_review,
+    _no_visual_argument,
     _parse_rate,
     _repair_scope,
 )
@@ -1745,23 +1747,27 @@ def test_direct_video_rebuilds_missing_answer_object_from_verified_equalities() 
     assert result.success is True
     plan = ctx.state["visual_plan"]
     labels = {item["label"]: item for item in plan["visual_objects"]}
-    assert {"13", "5", "8", "2", "4"}.issubset(labels)
+    # Quantity-verb emission: "13 - 5" is an in-place take_from (5 units get
+    # crossed inside the whole; 8 is the mutated state of the source group,
+    # not a fresh object), then "8 ÷ 2" keeps the legacy partition regrouping.
+    assert {"13", "2", "4"}.issubset(labels)
+    assert any(label.startswith("划去") for label in labels)
+    take_actions = [
+        action for action in plan["scenes"][1]["actions"] if action["op"] == "take_from"
+    ]
+    assert len(take_actions) == 1
+    assert take_actions[0]["count"] == 5
+    assert take_actions[0]["destination"].startswith("quantity_box")
+    count_actions = [
+        action for action in plan["scenes"][1]["actions"] if action["op"] == "count"
+    ]
+    assert count_actions and count_actions[0]["expect"] == 8
     structural = [
         action
         for action in plan["scenes"][1]["actions"]
         if action["op"] in {"transform", "partition", "map"}
     ]
-    assert [structural[0]["op"], structural[-1]["op"]] == [
-        "transform",
-        "partition",
-    ]
-    comparisons = [action for action in plan["scenes"][1]["actions"] if action["op"] == "compare"]
-    assert len(comparisons) == 1
-    compared_labels = {
-        next(item["label"] for item in plan["visual_objects"] if item["id"] == target)
-        for target in comparisons[0]["targets"]
-    }
-    assert compared_labels == {"13", "5"}
+    assert structural[-1]["op"] == "partition"
     answer_id = next(item["id"] for item in plan["visual_objects"] if item["label"] == "4")
     assert structural[-1]["result"] == answer_id
     assert plan["scenes"][2]["actions"][-1]["targets"][0] == answer_id
@@ -3415,7 +3421,7 @@ def test_watch_revises_scenespec_once_for_semantic_visual_failure() -> None:
     assert inspector.calls == 2
 
 
-def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails() -> None:
+def test_watch_video_delivers_best_playable_candidate_when_quality_gate_fails() -> None:
     class Inspector:
         parameters: dict[str, Any] = {"type": "object", "properties": {}}
 
@@ -3454,11 +3460,42 @@ def test_watch_video_does_not_deliver_playable_candidate_when_quality_gate_fails
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success is False
+    # A watchable-but-imperfect candidate is delivered with an explicit
+    # warning; the session must not end empty-handed.
+    assert result.success is True
     assert result.data is not None and result.data["quality_degraded"] is True
     assert result.data["video_path"] == "playable.mp4"
-    assert ctx.state["last_visual_failed"] is True
-    assert "未交付" in result.summary
+    assert result.data["delivery_warning"]
+    assert ctx.state["last_visual_failed"] is False
+    assert ctx.state["quality_degraded"] is True
+    assert "已交付" in result.summary
+
+
+def test_watch_video_fails_only_when_no_playable_candidate_exists() -> None:
+    class Inspector:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=False, summary="no frames", error="video_not_found")
+
+    class Compiler:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=False, summary="unused", error="unused")
+
+    class Director:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=True, summary="unused")
+
+    tool = WatchVideoTool(Inspector(), Compiler(), Director())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={},
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is False
 
 
 def test_watch_rejects_second_text_only_candidate_without_meaningless_fallback() -> None:
@@ -3513,27 +3550,25 @@ def test_watch_rejects_second_text_only_candidate_without_meaningless_fallback()
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success is False
+    # The second text-only candidate still fails review, so the best playable
+    # candidate is delivered with a degraded-quality warning.
+    assert result.success is True
     assert result.data is not None and result.data["quality_degraded"] is True
+    assert "已交付" in result.summary
     assert compiler.calls == [{"review_repair": True}]
     assert inspector.calls == 2
 
 
-def test_watch_treats_static_slideshow_as_meaningless_visual() -> None:
-    result = ToolResult(
-        success=True,
-        summary="bad",
-        data={"overall_quality": "bad", "blacklist_hits": ["静态幻灯片"]},
-    )
-    assert WatchVideoTool._meaningless_visual(result) is True
-
-
-def test_core_visual_gate_rejects_formula_cards_even_with_high_total_score() -> None:
-    assert _core_visual_gate_issue({"b3": 1, "b4": 2}) == ("B3 < 2：关闭文字后无法看懂核心数学变化")
-    assert _core_visual_gate_issue({"b3": 2, "b4": 1}) == (
-        "B4 < 2：核心关系或变化没有被图形显式揭示"
-    )
-    assert _core_visual_gate_issue({"b3": 2, "b4": 2}) is None
+def test_no_visual_argument_flags_only_videos_without_any_graphics() -> None:
+    # B6=0 means the video never shows why the answer holds — hard fail.
+    assert _no_visual_argument({"b3": 2, "b4": 2, "b6": 0}) is not None
+    # No text-independence AND no visible relation change — hard fail.
+    assert _no_visual_argument({"b3": 0, "b4": 0, "b6": 1}) is not None
+    # Partial scores are review feedback, not automatic failures.
+    assert _no_visual_argument({"b3": 1, "b4": 2, "b6": 1}) is None
+    assert _no_visual_argument({"b3": 2, "b4": 1, "b6": 2}) is None
+    # Missing core scores cannot be waved through.
+    assert _no_visual_argument({}) is not None
 
 
 def test_quality_review_routes_semantic_failure_to_scenespec_repair() -> None:
@@ -4071,3 +4106,1660 @@ def test_visual_plan_recovers_json_damaged_latex_before_plain_text_lowering() ->
     code = build_verified_fallback_code(ctx)
     assert "转化为 cos(x)/1" in code
     assert "转化为 rac" not in code
+
+
+# ---------------------------------------------------------------------------
+# Graduated review verdict (_finalize_review)
+# ---------------------------------------------------------------------------
+
+
+def _review_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "overall_quality": "bad",
+        "b_total": "7/12",
+        "b_scores": {"b1": 1, "b2": 1, "b3": 1, "b4": 2, "b5": 1, "b6": 1},
+        "blacklist_hits": [],
+        "layout_fatal": [],
+        "issues": [],
+        "highlights": [],
+        "fix_suggestion": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_finalize_review_delivers_acceptable_band_instead_of_forcing_bad() -> None:
+    payload = _review_payload()
+    state: dict[str, Any] = {"latest_video_path": "v.mp4"}
+    overall, b_total = _finalize_review(payload, {}, [], state, "v.mp4", [1.0, 5.0])
+    assert overall == "acceptable"
+    assert b_total == 7
+    assert state["last_visual_failed"] is False
+    assert payload["reported_overall_quality"] == "bad"
+
+
+def test_finalize_review_promotes_strong_rubric_to_good() -> None:
+    payload = _review_payload(
+        overall_quality="acceptable",
+        b_total="10/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 1},
+    )
+    state: dict[str, Any] = {}
+    overall, _ = _finalize_review(payload, {}, [], state, "v.mp4", [])
+    assert overall == "good"
+
+
+def test_finalize_review_caps_partially_verifiable_math_at_acceptable() -> None:
+    payload = _review_payload(
+        overall_quality="good",
+        b_total="10/12",
+        b_scores={"b1": 2, "b2": 2, "b3": 2, "b4": 2, "b5": 1, "b6": 1},
+    )
+    overall, _ = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall == "acceptable"
+
+
+def test_finalize_review_low_total_and_contradiction_force_bad() -> None:
+    low = _review_payload(b_total="4/12", b_scores={"b1": 0, "b2": 1, "b3": 1, "b4": 1, "b5": 1, "b6": 1})
+    assert _finalize_review(low, {}, [], {}, "v.mp4", [])[0] == "bad"
+    contradiction = _review_payload(
+        b_scores={"b1": 2, "b2": 2, "b3": 2, "b4": 2, "b5": 0, "b6": 2},
+        b_total="10/12",
+    )
+    assert _finalize_review(contradiction, {}, [], {}, "v.mp4", [])[0] == "bad"
+
+
+def test_finalize_review_layout_fatal_field_forces_bad_but_minor_issue_does_not() -> None:
+    fatal = _review_payload(layout_fatal=["12.5s D3 公式与曲线重叠，无法辨认"])
+    state: dict[str, Any] = {}
+    assert _finalize_review(fatal, {}, [], state, "v.mp4", [])[0] == "bad"
+    # A minor wording like 轻微重叠 in issues is feedback, not a hard failure.
+    minor = _review_payload(issues=["8s 底部字幕与图形轻微重叠，但可读"])
+    assert _finalize_review(minor, {}, [], {}, "v.mp4", [])[0] == "acceptable"
+    # Explicit unreadability in issues still fails via the fallback scan.
+    unreadable = _review_payload(issues=["10s 顶部公式严重重叠，无法辨认"])
+    assert _finalize_review(unreadable, {}, [], {}, "v.mp4", [])[0] == "bad"
+
+
+def test_finalize_review_downgrades_static_blacklist_without_measured_support() -> None:
+    payload = _review_payload(
+        b_total="9/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+        blacklist_hits=["静态幻灯片"],
+    )
+    metrics = {"active_transition_fraction": 0.55}
+    overall, _ = _finalize_review(payload, metrics, [], {}, "v.mp4", [])
+    assert overall == "good"
+    assert payload["blacklist_hits"] == []
+    assert payload["blacklist_downgraded"] == ["静态幻灯片"]
+    assert any("降级" in str(item) for item in payload["issues"])
+
+
+def test_finalize_review_confirms_static_blacklist_with_measured_support() -> None:
+    payload = _review_payload(
+        b_total="9/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+        blacklist_hits=["静态幻灯片"],
+    )
+    metrics = {"active_transition_fraction": 0.2}
+    overall, _ = _finalize_review(payload, metrics, [], {}, "v.mp4", [])
+    assert overall == "bad"
+    assert payload["blacklist_hits"] == ["静态幻灯片"]
+
+
+def test_finalize_review_downgrades_text_only_blacklist_contradicted_by_rubric() -> None:
+    # b3=2 means the reviewer itself says graphics carry the argument, so a
+    # 文字搬运 claim is inconsistent and must not sink the video.
+    payload = _review_payload(
+        b_total="9/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+        blacklist_hits=["文字搬运"],
+    )
+    overall, _ = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall == "good"
+    assert payload["blacklist_hits"] == []
+
+
+def test_finalize_review_keeps_best_candidate_for_degraded_delivery() -> None:
+    state: dict[str, Any] = {
+        "latest_manim_code": "code-a",
+        "latest_video_path": "a.mp4",
+        "latest_video_url": "/a.mp4",
+    }
+    payload = _review_payload()
+    _finalize_review(payload, {}, [], state, "a.mp4", [])
+    best = state["best_visual_candidate"]
+    assert best["video_path"] == "a.mp4"
+    assert best["score"] == 7
+    # A later worse review must not overwrite the stored candidate.
+    worse = _review_payload(
+        b_total="3/12",
+        b_scores={"b1": 0, "b2": 0, "b3": 1, "b4": 1, "b5": 1, "b6": 0},
+    )
+    state["latest_video_path"] = "b.mp4"
+    _finalize_review(worse, {}, [], state, "b.mp4", [])
+    assert state["best_visual_candidate"]["video_path"] == "a.mp4"
+
+
+def test_finalize_review_routes_no_visual_argument_to_replan() -> None:
+    payload = _review_payload(
+        b_total="5/12",
+        b_scores={"b1": 1, "b2": 1, "b3": 1, "b4": 1, "b5": 1, "b6": 0},
+    )
+    state: dict[str, Any] = {}
+    overall, _ = _finalize_review(payload, {}, [], state, "v.mp4", [])
+    assert overall == "bad"
+    assert payload["repair_directive"]["scope"] == "plan"
+    assert state["force_visual_replan"] is True
+
+
+def test_finalize_review_routes_layout_failure_to_code_repair() -> None:
+    payload = _review_payload(layout_fatal=["3s A1 标题被裁切"])
+    state: dict[str, Any] = {}
+    overall, _ = _finalize_review(payload, {}, [], state, "v.mp4", [])
+    assert overall == "bad"
+    assert payload["repair_directive"]["scope"] == "code"
+    assert "force_visual_replan" not in state
+
+
+def test_finalize_review_treats_plan_contract_issue_as_warning_only() -> None:
+    # Plan schema violations no longer poison the video verdict: a payload
+    # with a healthy rubric stays deliverable even when the stored plan would
+    # fail its own contract re-validation.
+    payload = _review_payload(
+        b_total="9/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+    )
+    overall, _ = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall == "good"
+
+
+# ---------------------------------------------------------------------------
+# Compile: review repair budget and contract soft pass
+# ---------------------------------------------------------------------------
+
+
+def test_review_repair_gets_one_internal_repair_attempt() -> None:
+    class Writer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            if self.calls == 1:
+                return ToolResult(success=False, summary="typo draft", error="bad line")
+            ctx.state["latest_manim_code"] = "repaired code"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(success=True, summary="valid")
+
+    class Renderer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            ctx.state["latest_video_path"] = "repaired.mp4"
+            ctx.state["latest_video_url"] = "/repaired.mp4"
+            return ToolResult(success=True, summary="rendered")
+
+    writer = Writer()
+    tool = CompileVideoTool(writer, Validator(), Renderer())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=6,
+        grade="middle",
+        problem="opaque",
+        state={"solution_verified": True, "visual_plan": _open_world_plan()},
+    )
+    result = asyncio.run(tool.execute({"review_repair": True, "model_codegen": True}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data.get("delivery_fallback") is not True
+    assert result.data["internal_repair_count"] == 1
+    assert writer.calls == 2
+    assert ctx.state["last_compiler"] == "model"
+
+
+def test_contract_only_validation_failure_soft_passes_to_render() -> None:
+    class Writer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            ctx.state["latest_manim_code"] = "model code"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            return ToolResult(
+                success=False,
+                summary="校验未通过：契约",
+                error="validation_failed",
+                data={
+                    "syntax_ok": True,
+                    "structure_issues": [],
+                    "problem_opening_issues": [],
+                    "visual_evidence_issues": [],
+                    "graphical_reasoning_issues": ["未见 transform 证据"],
+                    "semantic_audit_issues": [],
+                },
+            )
+
+    class Renderer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["latest_video_path"] = "soft.mp4"
+            ctx.state["latest_video_url"] = "/soft.mp4"
+            return ToolResult(success=True, summary="rendered")
+
+    validator, renderer = Validator(), Renderer()
+    tool = CompileVideoTool(Writer(), validator, renderer)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=6,
+        grade="middle",
+        problem="opaque",
+        state={"solution_verified": True, "visual_plan": _open_world_plan()},
+    )
+    result = asyncio.run(tool.execute({"model_codegen": True}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    # The video rendered from model code instead of diverting to the
+    # template fallback; the reviewer decides whether the reasoning holds.
+    assert result.data.get("delivery_fallback") is not True
+    assert result.data["video_path"] == "soft.mp4"
+    assert renderer.calls == 1
+    assert validator.calls == 2
+    assert ctx.state["contract_soft_pass_issues"] == ["未见 transform 证据"]
+
+
+def test_syntax_class_validation_failure_still_falls_back() -> None:
+    class Writer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            ctx.state["latest_manim_code"] = "broken code"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return ToolResult(
+                success=False,
+                summary="校验未通过：语法错误",
+                error="validation_failed",
+                data={
+                    "syntax_ok": False,
+                    "structure_issues": [],
+                    "problem_opening_issues": [],
+                    "visual_evidence_issues": [],
+                    "graphical_reasoning_issues": [],
+                    "semantic_audit_issues": [],
+                },
+            )
+
+    class Renderer:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            assert ctx.state.get("delivery_fallback") is True
+            ctx.state["latest_video_path"] = "fallback.mp4"
+            ctx.state["latest_video_url"] = "/fallback.mp4"
+            return ToolResult(success=True, summary="fallback rendered")
+
+    tool = CompileVideoTool(Writer(), Validator(), Renderer())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=6,
+        grade="middle",
+        problem="一个此前未见的问题",
+        state={
+            "solution_verified": True,
+            "solution_steps": [
+                {"description": "建立关系", "operation": "7 + 5 = 12", "result": "12"}
+            ],
+            "solution_answer": "12",
+            "visual_plan": _open_world_plan(),
+        },
+    )
+    result = asyncio.run(tool.execute({"model_codegen": True}, ctx))
+    assert result.success is True
+    assert result.data is not None and result.data["delivery_fallback"] is True
+
+
+# ---------------------------------------------------------------------------
+# Watch: alternate compiler on replanned repair
+# ---------------------------------------------------------------------------
+
+
+def test_watch_replan_repair_switches_compiler_after_template_failure() -> None:
+    class Inspector:
+        calls = 0
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            quality = "bad" if self.calls == 1 else "good"
+            ctx.state["last_visual_failed"] = quality == "bad"
+            return ToolResult(
+                success=True,
+                summary=quality,
+                data={
+                    "overall_quality": quality,
+                    "blacklist_hits": [],
+                    "repair_directive": {"scope": "plan" if quality == "bad" else "code"},
+                },
+            )
+
+    class Director:
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            ctx.state["visual_plan"] = _open_world_plan("revised argument")
+            return ToolResult(success=True, summary="revised")
+
+    class Compiler:
+        received: dict[str, Any] = {}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.received = args
+            ctx.state["latest_video_path"] = "second.mp4"
+            ctx.state["latest_video_url"] = "/second.mp4"
+            return ToolResult(success=True, summary="compiled")
+
+    compiler = Compiler()
+    tool = WatchVideoTool(Inspector(), compiler, Director())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=5,
+        grade="middle",
+        problem="opaque",
+        state={
+            "latest_video_path": "template.mp4",
+            # The failing video came from the deterministic template.
+            "last_compiler": "visual_ir",
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    # Same-template recompilation would reproduce the same footage, so the
+    # repair must go through the model compiler instead.
+    assert compiler.received == {"review_repair": True, "model_codegen": True}
+
+
+# ---------------------------------------------------------------------------
+# Loop: budget exhaustion salvages the playable candidate
+# ---------------------------------------------------------------------------
+
+
+def test_stage_budget_exhaustion_delivers_playable_candidate() -> None:
+    class NeverCalledLLM:
+        calls = 0
+
+        def chat_stream(self, *args: Any, **kwargs: Any) -> Any:
+            self.calls += 1
+            raise AssertionError("controller LLM must not run in bounded mode")
+
+    class MemoryStore:
+        def __init__(self) -> None:
+            self.updated: dict[str, Any] = {}
+            self.artifact_id = 0
+
+        async def create_session(self, **kwargs: Any) -> str:
+            return "session"
+
+        async def append_message(self, *args: Any, **kwargs: Any) -> int:
+            return 1
+
+        async def record_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def complete_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def update_session(self, session_id: str, **kwargs: Any) -> None:
+            self.updated = kwargs
+
+        async def save_text_artifact(self, *args: Any, **kwargs: Any) -> tuple[int, str]:
+            self.artifact_id += 1
+            return self.artifact_id, "artifact.json"
+
+        async def add_artifact(self, *args: Any, **kwargs: Any) -> int:
+            self.artifact_id += 1
+            return self.artifact_id
+
+    class StageTool(ITool):
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        @property
+        def description(self) -> str:
+            return self._name
+
+        @property
+        def parameters(self) -> dict[str, Any]:
+            return {"type": "object", "properties": {}, "required": []}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            state = ctx.state
+            if self.name == "solve_problem":
+                state["solution_steps"] = [{"description": "derive"}]
+                state["solution_answer"] = "42"
+                state["solution_verified"] = False
+            elif self.name == "verify_solution":
+                state["solution_verified"] = True
+            elif self.name == "direct_video":
+                state["visual_plan"] = _open_world_plan()
+            elif self.name == "compile_video":
+                state["latest_video_path"] = "candidate.mp4"
+                state["latest_video_url"] = "/candidate.mp4"
+            elif self.name == "watch_video":
+                # A pathological watch stage that fails without delivering.
+                state["last_visual_review"] = {"overall_quality": "bad"}
+                state["last_visual_failed"] = True
+                return ToolResult(success=False, summary="review failed", error="bad")
+            return ToolResult(success=True, summary="ok")
+
+    registry = ToolRegistry()
+    for name in (
+        "solve_problem",
+        "verify_solution",
+        "direct_video",
+        "compile_video",
+        "watch_video",
+    ):
+        registry.register(StageTool(name))
+    store = MemoryStore()
+    loop = AgentLoop(
+        llm=NeverCalledLLM(),  # type: ignore[arg-type]
+        registry=registry,
+        composer=PromptComposer(),
+        store=store,  # type: ignore[arg-type]
+        use_latex=False,
+        max_turns=8,
+        deterministic_workflow=True,
+    )
+
+    async def collect() -> list[Any]:
+        return [event async for event in loop.run(problem="opaque", grade="middle")]
+
+    events = asyncio.run(collect())
+    done = [event for event in events if isinstance(event, DoneEvent)][-1]
+    # The playable candidate must survive budget exhaustion with a warning
+    # instead of the session failing empty-handed.
+    assert done.status == "ok"
+    assert done.final_video_path == "candidate.mp4"
+    assert "最佳可播放候选" in done.text
+    assert store.updated.get("status") == "done"
+    assert "stage_budget_exhausted" in str(store.updated.get("error"))
+
+
+# ---------------------------------------------------------------------------
+# Occupancy: bracket-coordinate placements are visible to overlap detection
+# ---------------------------------------------------------------------------
+
+
+def test_occupancy_parses_bracket_coordinate_move_to() -> None:
+    from math_tutor.infrastructure.agent import occupancy_table as occ
+
+    code = "\n".join(
+        [
+            "label.move_to([2, -1, 0])",
+            "dot.move_to(np.array([1.5, 2.25, 0]))",
+            "tip.move_to((0.5, -0.5, 0))",
+            "title.move_to(UP * 2)",
+        ]
+    )
+    placements = occ.parse_placements_from_code(code)
+    coords = {p.var: (p.x, p.y) for p in placements}
+    assert coords["label"] == (2.0, -1.0)
+    assert coords["dot"] == (1.5, 2.25)
+    assert coords["tip"] == (0.5, -0.5)
+    assert coords["title"] == (0.0, 2.0)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial-review regressions: undefined locals, payload shapes, soft pass
+# ---------------------------------------------------------------------------
+
+
+def test_changed_modules_have_no_undefined_local_names() -> None:
+    """Guard against extract-refactors leaving dangling variable references
+    (a NameError in inspect_video.execute once slipped past every test)."""
+    import builtins as builtins_mod
+
+    from math_tutor.infrastructure.agent.tools import (
+        compile_video as compile_module,
+        inspect_video as inspect_module,
+        watch_video as watch_module,
+    )
+
+    for module in (inspect_module, watch_module, compile_module):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        module_names: set[str] = set(dir(builtins_mod))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                module_names.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        module_names.add(target.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    module_names.add(alias.asname or alias.name.split(".")[0])
+
+        # Only module-level functions and class methods: nested functions may
+        # legitimately close over enclosing-scope names, and their bodies are
+        # already covered by the walk over their enclosing function.
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ] + [
+            node
+            for cls in tree.body
+            if isinstance(cls, ast.ClassDef)
+            for node in cls.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        for func in functions:
+            assigned = {"self", "cls"}
+            for node in ast.walk(func):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    assigned.add(node.id)
+                elif isinstance(node, ast.arg):
+                    assigned.add(node.arg)
+                elif isinstance(node, ast.ExceptHandler) and node.name:
+                    assigned.add(node.name)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    assigned.add(node.name)
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for alias in node.names:
+                        assigned.add(alias.asname or alias.name.split(".")[0])
+                elif isinstance(node, ast.Global):
+                    assigned.update(node.names)
+            used = {
+                node.id
+                for node in ast.walk(func)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            undefined = used - assigned - module_names
+            assert not undefined, (
+                f"{module.__name__}.{func.name} references undefined names: "
+                f"{sorted(undefined)}"
+            )
+
+
+def test_inspect_video_execute_end_to_end_with_stub_vision(tmp_path, monkeypatch) -> None:
+    """Drive the FULL execute path (frames -> VLM -> verdict -> artifact meta)
+    so the ToolResult/ArtifactSpec construction is covered by tests."""
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools import inspect_video as iv
+
+    video = tmp_path / "candidate.mp4"
+    video.write_bytes(b"00")
+    monkeypatch.setattr(iv.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    async def fake_extract(video_path: Any, time_s: float, out_path: Any) -> bool:
+        Path(out_path).write_bytes(b"png")
+        return True
+
+    async def fake_ffprobe(path: Any) -> dict[str, Any]:
+        return {
+            "duration_s": 15.0,
+            "file_size_bytes": 1000,
+            "width": 1280,
+            "height": 720,
+            "fps": 30.0,
+            "has_audio": False,
+        }
+
+    monkeypatch.setattr(iv, "_extract_frame", fake_extract)
+    monkeypatch.setattr(iv, "_ffprobe_metadata", fake_ffprobe)
+    monkeypatch.setattr(
+        iv,
+        "_frame_sequence_metrics",
+        lambda paths: {
+            "visible_fraction_by_frame": [0.1] * 12,
+            "entropy_by_frame": [1.0] * 12,
+            "adjacent_frame_difference": [0.01] * 11,
+            "blank_frame_count": 0,
+            "near_static_transition_count": 0,
+            "top_border_occupancy": [0.0] * 12,
+            "side_border_occupancy": [0.0] * 12,
+            "caption_zone_occupancy": [0.0] * 12,
+        },
+    )
+
+    class StubVision:
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            class Done:
+                text = "\n".join(
+                    [
+                        "## 视觉评审",
+                        "",
+                        "**整体质量**: acceptable",
+                        "**B 段总分**: 8/12",
+                        "**布局硬伤**: 无",
+                        "**命中黑名单**: 无",
+                        "",
+                        "### B 段打分",
+                        "- B1 视觉论证连贯性: 1",
+                        "- B2 动画语义: 1",
+                        "- B3 文字依赖度: 1",
+                        "- B4 关系变化可见: 2",
+                        "- B5 数学契约一致性: 2",
+                        "- B6 本质可见性: 1",
+                        "",
+                        "### 问题",
+                        "- 5s F6 底部字幕稍显拥挤",
+                        "",
+                        "### 帧描述",
+                        "- 第 1 帧 @ 1.20s: 题目卡完整可读",
+                    ]
+                )
+                reasoning = ""
+
+            return Done()
+
+    tool = InspectVideoTool(StubVision(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=7,
+        grade="middle",
+        problem="求最小值",
+        state={
+            "latest_video_path": str(video),
+            "visual_plan": _open_world_plan(),
+            "solution_answer": "-1",
+        },
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    assert result.data["overall_quality"] == "acceptable"
+    assert ctx.state["last_visual_failed"] is False
+    meta = result.artifacts[0].meta
+    assert meta["overall_quality"] == "acceptable"
+    assert meta["math_consistency"] == 2
+    assert meta["essence_delivery"] == 1
+    assert meta["technical_pass"] is True
+
+
+def test_finalize_review_coerces_string_fields_from_json_fallback() -> None:
+    # A raw-JSON review may carry string fields; "无" must not become a fake
+    # blacklist hit or layout failure by character iteration.
+    payload = _review_payload(
+        blacklist_hits="无",
+        layout_fatal="未发现",
+        issues="5s 底部字幕稍显拥挤",
+        b_scores={"b1": "1", "b2": "1分", "b3": "1", "b4": "2", "b5": "2", "b6": "1"},
+        b_total="8/12",
+    )
+    overall, b_total = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall == "acceptable"
+    assert b_total == 8
+    assert payload["blacklist_hits"] == []
+    assert payload["layout_fatal"] == []
+    assert payload["issues"] == ["5s 底部字幕稍显拥挤"]
+
+
+def test_finalize_review_drops_unparseable_scores_to_missing_gate() -> None:
+    payload = _review_payload(
+        overall_quality="good", b_scores="not a dict", b_total="8/12"
+    )
+    overall, _ = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall == "bad"
+    assert payload["forced_reason"] == "视觉评审缺少完整 B 段评分"
+    # A formatting hiccup must not discard the SceneSpec.
+    assert payload["repair_directive"]["scope"] == "code"
+
+
+def test_finalize_review_excludes_no_visual_argument_from_best_candidate() -> None:
+    state: dict[str, Any] = {"latest_video_path": "text.mp4"}
+    payload = _review_payload(
+        b_total="7/12",
+        b_scores={"b1": 2, "b2": 2, "b3": 0, "b4": 0, "b5": 2, "b6": 1},
+    )
+    overall, _ = _finalize_review(payload, {}, [], state, "text.mp4", [])
+    assert overall == "bad"
+    assert "best_visual_candidate" not in state
+
+
+def test_render_repair_revalidation_also_soft_passes_contract_issues() -> None:
+    class Writer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            ctx.state["latest_manim_code"] = f"code v{self.calls}"
+            return ToolResult(success=True, summary="written")
+
+    class Validator:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            if self.calls == 1:
+                return ToolResult(success=True, summary="valid")
+            return ToolResult(
+                success=False,
+                summary="校验未通过：契约",
+                error="validation_failed",
+                data={
+                    "syntax_ok": True,
+                    "structure_issues": [],
+                    "problem_opening_issues": [],
+                    "visual_evidence_issues": ["契约证据存疑"],
+                    "graphical_reasoning_issues": [],
+                    "semantic_audit_issues": [],
+                },
+            )
+
+    class Renderer:
+        calls = 0
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            self.calls += 1
+            if self.calls == 1:
+                return ToolResult(success=False, summary="runtime failed", error="bad api")
+            ctx.state["latest_video_path"] = "second.mp4"
+            ctx.state["latest_video_url"] = "/second.mp4"
+            return ToolResult(success=True, summary="rendered")
+
+    writer, validator, renderer = Writer(), Validator(), Renderer()
+    tool = CompileVideoTool(writer, validator, renderer)  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=6,
+        grade="middle",
+        problem="opaque",
+        state={"solution_verified": True, "visual_plan": _open_world_plan()},
+    )
+    result = asyncio.run(tool.execute({"model_codegen": True}, ctx))
+    assert result.success is True
+    assert result.data is not None
+    # The repaired code rendered instead of diverting to the template.
+    assert result.data.get("delivery_fallback") is not True
+    assert result.data["video_path"] == "second.mp4"
+    assert ctx.state["contract_soft_pass_issues"] == ["契约证据存疑"]
+
+
+# ---------------------------------------------------------------------------
+# P1: quantity verbs — validator, builders, deterministic story plans
+# ---------------------------------------------------------------------------
+
+
+def _quantity_plan_base() -> dict[str, Any]:
+    return {
+        "plan_version": 2,
+        "visual_thesis": "让单位真实迁移并由计数得到答案",
+        "essence_rationale": "因为学生看到单位逐个离开并重新计数，减法的意义直接来自画面变化。",
+        "symbol_ledger": ["蓝色单位 = 剩余", "灰色容器 = 拿走"],
+        "visual_objects": [
+            {
+                "id": "total_group",
+                "primitive": "unit_grid",
+                "meaning": "全部单位",
+                "label": "苹果",
+                "color": "blue",
+                "params": {"count": 5, "columns": 3},
+            },
+            {
+                "id": "removed_box",
+                "primitive": "rectangle",
+                "meaning": "被拿走的单位",
+                "label": "拿走",
+                "color": "gray",
+                "params": {},
+            },
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "total_group",
+                "action": "建立全部单位",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": "总数",
+                "exit_condition": "总数可见",
+                "teaching_line": "先数清总数。",
+                "duration_s": 4,
+                "actions": [
+                    {"op": "create", "targets": ["total_group"], "result": "", "meaning": "建立"},
+                    {
+                        "op": "count",
+                        "targets": ["total_group"],
+                        "result": "",
+                        "expect": 5,
+                        "meaning": "数总数",
+                    },
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "total_group, removed_box",
+                "action": "移走部分单位",
+                "invariant": "总量守恒",
+                "attention_target": "被移走的单位",
+                "exit_condition": "分组清楚",
+                "teaching_line": "拿走的每一个都看得见。",
+                "duration_s": 6,
+                "actions": [
+                    {"op": "create", "targets": ["removed_box"], "result": "", "meaning": "建容器"},
+                    {
+                        "op": "take_from",
+                        "targets": ["total_group"],
+                        "result": "",
+                        "source": "total_group",
+                        "destination": "removed_box",
+                        "count": 2,
+                        "style": "fly",
+                        "meaning": "移走 2 个",
+                    },
+                    {
+                        "op": "count",
+                        "targets": ["total_group"],
+                        "result": "",
+                        "expect": 3,
+                        "meaning": "数剩余",
+                    },
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "total_group, removed_box",
+                "action": "重新计数核对",
+                "invariant": "剩余+拿走=总数",
+                "attention_target": "合计算式",
+                "exit_condition": "算式成立",
+                "teaching_line": "合起来还是原来的总数。",
+                "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "recount_verify",
+                        "targets": ["total_group", "removed_box"],
+                        "result": "",
+                        "expect_total": 5,
+                        "meaning": "重数核对",
+                    },
+                ],
+            },
+        ],
+        "forbidden": ["只显示文字等式", "数量变化不经过单位迁移"],
+    }
+
+
+def test_validator_accepts_ledger_consistent_quantity_plan() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    assert _validate_plan(_quantity_plan_base(), "elementary") == []
+
+
+def test_validator_enforces_take_from_parameters_and_conservation() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    missing_destination = _quantity_plan_base()
+    missing_destination["scenes"][1]["actions"][1].pop("destination")
+    errors = _validate_plan(missing_destination, "elementary")
+    assert any("destination" in item for item in errors)
+
+    over_take = _quantity_plan_base()
+    over_take["scenes"][1]["actions"][1]["count"] = 9
+    errors = _validate_plan(over_take, "elementary")
+    assert any("守恒违例" in item for item in errors)
+
+    # count.expect is checked against the running ledger (5 - 2 = 3), so a
+    # stale expectation equal to the declared count must fail.
+    stale_count = _quantity_plan_base()
+    stale_count["scenes"][1]["actions"][2]["expect"] = 5
+    errors = _validate_plan(stale_count, "elementary")
+    assert any("当前数量" in item for item in errors)
+
+    bad_total = _quantity_plan_base()
+    bad_total["scenes"][2]["actions"][0]["expect_total"] = 6
+    errors = _validate_plan(bad_total, "elementary")
+    assert any("守恒违例" in item for item in errors)
+
+
+def test_validator_requires_move_destination_and_rejects_additive_transform() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    plan = _quantity_plan_base()
+    plan["scenes"][1]["actions"] = [
+        {"op": "move", "targets": ["total_group"], "result": "", "meaning": "移动"},
+    ]
+    errors = _validate_plan(plan, "elementary")
+    assert any("move 缺少 destination" in item for item in errors)
+
+    plan = _quantity_plan_base()
+    plan["visual_objects"].append(
+        {
+            "id": "shrunk_group",
+            "primitive": "unit_grid",
+            "meaning": "变小后的组",
+            "label": "剩余",
+            "color": "green",
+            "params": {"count": 3, "columns": 2},
+        }
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["total_group"],
+            "result": "shrunk_group",
+            "meaning": "5 变 3",
+        },
+    ]
+    errors = _validate_plan(plan, "elementary")
+    assert any("take_from/combine" in item for item in errors)
+
+    # Multiplicative regrouping (6 -> 2) keeps a visible group structure and
+    # stays legal for the P1 division path.
+    plan = _quantity_plan_base()
+    plan["visual_objects"][0]["params"]["count"] = 6
+    plan["visual_objects"].append(
+        {
+            "id": "regrouped",
+            "primitive": "unit_grid",
+            "meaning": "重新分组",
+            "label": "组",
+            "color": "green",
+            "params": {"count": 2, "columns": 2},
+        }
+    )
+    plan["scenes"][0]["actions"][1]["expect"] = 6
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["total_group"],
+            "result": "regrouped",
+            "meaning": "6 分成每组 3 个",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {"op": "verify", "targets": ["regrouped"], "result": "", "meaning": "核对"},
+    ]
+    errors = _validate_plan(plan, "elementary")
+    assert not any("take_from/combine" in item for item in errors)
+
+
+def test_member_series_violation_targets_homogeneous_units_only() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _member_series_violations
+
+    apples = [
+        {"id": f"apple_{i}", "primitive": "circle", "params": {}} for i in range(1, 6)
+    ]
+    violations = _member_series_violations(apples)
+    assert violations and "params.count=5" in violations[0]
+
+    quantities = [
+        {"id": "verified_value_0", "primitive": "circle", "params": {"count": 5}},
+        {"id": "verified_value_1", "primitive": "circle", "params": {"count": 2}},
+        {"id": "verified_value_2", "primitive": "circle", "params": {"count": 3}},
+    ]
+    assert _member_series_violations(quantities) == []
+
+
+def test_arithmetic_candidate_take_away_plan_compiles_through_template() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        _verified_arithmetic_candidate,
+    )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "小明有5个苹果，吃了2个，还剩几个？",
+        {
+            "solution_verified": True,
+            "solution_answer": "3",
+            "solution_steps": [
+                {"description": "减法", "operation": "5 - 2 = 3", "result": "3"},
+            ],
+        },
+    )
+    plan = _verified_arithmetic_candidate(ctx)
+    assert plan is not None
+    assert _validate_plan(plan, "elementary") == []
+    take_actions = [
+        action
+        for scene in plan["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "take_from"
+    ]
+    assert take_actions and take_actions[0]["count"] == 2
+    recounts = [
+        action
+        for scene in plan["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "recount_verify"
+    ]
+    assert recounts and recounts[0]["expect_total"] == 5
+
+    # The deterministic template must compile the quantity verbs end to end.
+    ctx.state["visual_plan"] = plan
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<quantity-template>", "exec")
+    assert "take_from" in code
+    assert "recount_verify" in code
+    assert "animate_count" in code
+    assert "shift(UP * 0.35)" not in code
+
+
+def test_quantity_story_plan_builds_and_abstains_correctly() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        build_quantity_story_visual_plan,
+    )
+
+    def story_ctx(**story_overrides: Any) -> ToolContext:
+        story = {
+            "relation": "take_away",
+            "entity": "苹果",
+            "first": 5,
+            "second": 2,
+            "result": 3,
+        }
+        story.update(story_overrides)
+        return ToolContext(
+            "s",
+            3,
+            "elementary",
+            "小明有5个苹果，吃了2个，还剩几个？",
+            {
+                "solution_verified": True,
+                "solution_answer": "3",
+                "quantity_story": story,
+                "solve_math_request": {
+                    "engine": "sympy",
+                    "operations": [
+                        {"id": "calc", "op": "evaluate", "expression": "5 - 2"}
+                    ],
+                },
+                "solve_math_evidence": {
+                    "success": True,
+                    "all_claims_passed": True,
+                    "operations": [{"id": "calc", "op": "evaluate", "result": "3"}],
+                },
+            },
+        )
+
+    plan = build_quantity_story_visual_plan(story_ctx())
+    assert plan is not None
+    assert plan["grounding_source"] == "quantity_story"
+    assert _validate_plan(plan, "elementary") == []
+    ops = [a["op"] for scene in plan["scenes"] for a in scene["actions"]]
+    assert "take_from" in ops and "count" in ops and "recount_verify" in ops
+
+    # Numbers not reproduced by executed Math IR -> abstain.
+    assert build_quantity_story_visual_plan(story_ctx(first=7, second=4)) is None
+    # Values outside the countable range -> abstain (LLM director path).
+    assert build_quantity_story_visual_plan(story_ctx(first=40, second=37)) is None
+    # Inconsistent arithmetic -> abstain.
+    assert build_quantity_story_visual_plan(story_ctx(result=4)) is None
+
+    comparison = build_quantity_story_visual_plan(
+        story_ctx(relation="compare_more", first=5, second=2, result=3)
+    )
+    assert comparison is not None
+    assert _validate_plan(comparison, "elementary") == []
+    take_actions = [
+        a
+        for scene in comparison["scenes"]
+        for a in scene["actions"]
+        if a["op"] == "take_from"
+    ]
+    # Comparison lowers to align-and-extract: the surplus migrates out, so
+    # the difference is countable units, not a combine animation.
+    assert take_actions and take_actions[0]["count"] == 3
+
+
+def test_direct_video_prefers_quantity_story_plan_over_llm_director() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class NeverCalledPlanner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            raise AssertionError("LLM director must not run when a story plan exists")
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "小明有5个苹果，吃了2个，还剩几个？",
+        {
+            "solution_verified": True,
+            "solution_answer": "3",
+            "quantity_story": {
+                "relation": "take_away",
+                "entity": "苹果",
+                "first": 5,
+                "second": 2,
+                "result": 3,
+            },
+            "solve_math_request": {
+                "engine": "sympy",
+                "operations": [{"id": "calc", "op": "evaluate", "expression": "5 - 2"}],
+            },
+            "solve_math_evidence": {
+                "success": True,
+                "all_claims_passed": True,
+                "operations": [{"id": "calc", "op": "evaluate", "result": "3"}],
+            },
+        },
+    )
+    result = asyncio.run(DirectVideoTool(NeverCalledPlanner()).execute({}, ctx))  # type: ignore[arg-type]
+    assert result.success is True
+    assert ctx.state["visual_plan"]["grounding_source"] == "quantity_story"
+    assert ctx.state["visual_plan"]["plan_version"] == 2
+
+
+def test_parse_quantity_story_from_solve_markdown() -> None:
+    from math_tutor.infrastructure.agent.tools.solve_problem import _parse_quantity_story
+
+    class Done:
+        text = "\n".join(
+            [
+                "## 数量故事",
+                "- 适用: 是",
+                "- 实体: 苹果",
+                "- 关系: take_away",
+                "- 量1: 5",
+                "- 量2: 2",
+                "- 结果量: 3",
+                "",
+                "## 解题",
+                "**策略**: 减法",
+            ]
+        )
+        reasoning = ""
+
+    story = _parse_quantity_story(Done())
+    assert story == {
+        "relation": "take_away",
+        "entity": "苹果",
+        "first": 5,
+        "second": 2,
+        "result": 3,
+    }
+
+    class NotApplicable:
+        text = "## 数量故事\n- 适用: 否\n"
+        reasoning = ""
+
+    assert _parse_quantity_story(NotApplicable()) is None
+
+
+def test_fallback_ir_preserves_quantity_verb_fields() -> None:
+    from math_tutor.infrastructure.agent.tools.compile_video import _fallback_visual_ir
+
+    plan = _quantity_plan_base()
+    ir = _fallback_visual_ir(plan)
+    assert ir is not None
+    take_actions = [
+        action
+        for scene in ir["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "take_from"
+    ]
+    assert take_actions
+    assert take_actions[0]["source"] == "total_group"
+    assert take_actions[0]["destination"] == "removed_box"
+    assert take_actions[0]["count"] == 2
+    recounts = [
+        action
+        for scene in ir["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "recount_verify"
+    ]
+    assert recounts and recounts[0]["expect_total"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Generic IR-format resilience (motivated by a system-of-equations failure)
+# ---------------------------------------------------------------------------
+
+
+def test_math_runtime_solves_equation_systems_with_lenient_ir_shapes() -> None:
+    from math_tutor.infrastructure.agent.math_runtime import execute_math_request
+
+    # Canonical shape: string-array equations + variables + component claims.
+    canonical = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "nonnegative"}, "y": {"domain": "nonnegative"}},
+            "operations": [
+                {
+                    "id": "solve_system",
+                    "op": "solve",
+                    "expression": ["x + y - 35", "2*x + 4*y - 94"],
+                    "variables": ["x", "y"],
+                }
+            ],
+            "claims": [
+                {"id": "x_value", "relation": "equal", "left": "$solve_system[0].x", "right": "23"},
+                {"id": "y_value", "relation": "equal", "left": "$solve_system[0].y", "right": "12"},
+            ],
+        }
+    )
+    assert canonical.success and canonical.all_claims_passed
+
+    # Observed local-model near-miss: Eq(...) & Eq(...) conjunction, the
+    # variable list under the singular key, and a mapping-literal claim.
+    lenient = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"c": {"domain": "nonnegative"}, "r": {"domain": "nonnegative"}},
+            "operations": [
+                {
+                    "id": "setup_equations",
+                    "op": "solve",
+                    "expression": "Eq(c + r, 35) & Eq(2*c + 4*r, 94)",
+                    "variable": ["c", "r"],
+                }
+            ],
+            "claims": [
+                {
+                    "id": "final_answer",
+                    "relation": "equal",
+                    "left": "$setup_equations",
+                    "right": "{c: 23, r: 12}",
+                }
+            ],
+        }
+    )
+    assert lenient.success, lenient.errors
+    assert lenient.all_claims_passed, lenient.claims
+
+
+def test_malformed_math_json_gets_actionable_feedback() -> None:
+    from math_tutor.infrastructure.agent.tools.solve_problem import _execute_declared_math
+
+    class Done:
+        # Unquoted algebraic expressions make the block invalid JSON — the
+        # exact failure observed in the field.
+        text = (
+            "## 确定性计算\n\n```json\n"
+            '{"engine": "sympy", "operations": [{"id": "s", "op": "solve", '
+            '"expression": [2*x + 4*y - 94, x + y - 35]}]}\n```\n\n## 解题\n**策略**: 方程'
+        )
+        reasoning = ""
+
+    request, result = _execute_declared_math(Done())
+    assert request is None
+    assert not result.success
+    assert any("引号" in error for error in result.errors)
+
+
+def test_solve_downgrades_math_evidence_instead_of_failing_session() -> None:
+    from math_tutor.infrastructure.agent.tools.solve_problem import SolveProblemTool
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+
+    bad_math_output = "\n".join(
+        [
+            "## 分析",
+            "**难度**: easy",
+            "**求解目标**: 求数量",
+            "## 确定性计算",
+            "```json",
+            '{"engine": "sympy", "operations": [{"id": "s", "op": "solve", '
+            '"expression": [2*x + 4*y - 94, x + y - 35]}]}',
+            "```",
+            "## 解题",
+            "**策略**: 假设法",
+            "**最终答案**: 鸡 23 只，兔 12 只",
+            "### 第 1 步",
+            "- 描述: 假设全是鸡",
+            "- 运算: 35 * 2 = 70",
+            "- 解释: 每只鸡两只脚",
+            "- 结果: 70",
+            "### 第 2 步",
+            "- 描述: 差值",
+            "- 运算: 94 - 70 = 24",
+            "- 解释: 兔子每只多两只脚",
+            "- 结果: 24",
+            "### 第 3 步",
+            "- 描述: 求兔",
+            "- 运算: 24 / 2 = 12",
+            "- 解释: 每只兔多 2 只脚",
+            "- 结果: 12",
+            "### 第 4 步",
+            "- 描述: 求鸡",
+            "- 运算: 35 - 12 = 23",
+            "- 解释: 头数守恒",
+            "- 结果: 鸡 23 只，兔 12 只",
+        ]
+    )
+
+    class StubLLM:
+        calls = 0
+
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            StubLLM.calls += 1
+
+            class Done:
+                text = bad_math_output
+                reasoning = ""
+                finish_reason = "stop"
+
+            return Done()
+
+    tool = SolveProblemTool(StubLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=1,
+        grade="elementary",
+        problem="鸡兔同笼，35 个头，94 只脚",
+        state={},
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    # The model twice failed to author executable Math IR, but the solution
+    # itself is consistent: the stage must abstain (applicable=false) and keep
+    # the session alive instead of dying at solve.
+    assert result.success is True
+    evidence = ctx.state["solve_math_evidence"]
+    assert evidence["applicable"] is False
+    assert "降级" in evidence["reason"]
+    assert ctx.state["math_evidence_downgraded"]
+    assert ctx.state["solution_answer"].startswith("鸡 23")
+
+
+def test_take_from_cross_out_needs_no_precreated_container() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    plan = _quantity_plan_base()
+    # Remove the explicit create of the container: the cross_out lowering
+    # materializes the outline around the crossed units in place.
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "take_from",
+            "targets": ["total_group"],
+            "result": "",
+            "source": "total_group",
+            "destination": "removed_box",
+            "count": 2,
+            "style": "cross_out",
+            "meaning": "原地划去 2 个",
+        },
+        {
+            "op": "count",
+            "targets": ["total_group"],
+            "result": "",
+            "expect": 3,
+            "meaning": "数剩余",
+        },
+    ]
+    assert _validate_plan(plan, "elementary") == []
+
+
+def test_quantity_story_take_away_defaults_to_in_place_cross_out() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        build_quantity_story_visual_plan,
+    )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "小明有5个苹果，吃了2个，还剩几个？",
+        {
+            "solution_verified": True,
+            "solution_answer": "3",
+            "quantity_story": {
+                "relation": "take_away",
+                "entity": "苹果",
+                "first": 5,
+                "second": 2,
+                "result": 3,
+            },
+            "solve_math_request": {
+                "engine": "sympy",
+                "operations": [{"id": "calc", "op": "evaluate", "expression": "5 - 2"}],
+            },
+            "solve_math_evidence": {
+                "success": True,
+                "all_claims_passed": True,
+                "operations": [{"id": "calc", "op": "evaluate", "result": "3"}],
+            },
+        },
+    )
+    plan = build_quantity_story_visual_plan(ctx)
+    assert plan is not None
+    take = next(
+        action
+        for scene in plan["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "take_from"
+    )
+    assert take["style"] == "cross_out"
+    # The repair variant switches representation so the retry differs.
+    repair = build_quantity_story_visual_plan(ctx, variant="repair")
+    assert repair is not None
+    repair_take = next(
+        action
+        for scene in repair["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "take_from"
+    )
+    assert repair_take["style"] == "fly"
+
+
+def test_grounded_curve_plan_respects_elementary_abstraction_ceiling() -> None:
+    # Representation policy: coordinate curves exceed the elementary level,
+    # regardless of whether the Math IR happens to expose a drawable shape.
+    state = {
+        "solution_verified": True,
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "solve_eq",
+                    "op": "solve",
+                    "expression": "2**x - 8",
+                    "variable": "x",
+                }
+            ],
+            "claims": [{"relation": "equal", "left": "$solve_eq", "right": "[3]"}],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "solve_eq", "result": ["3"]}],
+        },
+    }
+    elementary_ctx = ToolContext("s", 3, "elementary_upper", "解方程", dict(state))
+    middle_ctx = ToolContext("s", 3, "middle", "解方程", dict(state))
+    assert build_grounded_math_visual_plan(elementary_ctx) is None
+    assert build_grounded_math_visual_plan(middle_ctx) is not None
+
+
+# ---------------------------------------------------------------------------
+# P2/P3: replicate verb, beat manifest, deterministic count check
+# ---------------------------------------------------------------------------
+
+
+def test_arithmetic_chain_emits_replicate_for_small_multiplication() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        _verified_arithmetic_candidate,
+    )
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "每盒有4个球，3盒一共有多少个？",
+        {
+            "solution_verified": True,
+            "solution_answer": "12",
+            "solution_steps": [
+                {"description": "乘法", "operation": "3 × 4 = 12", "result": "12"},
+            ],
+        },
+    )
+    plan = _verified_arithmetic_candidate(ctx)
+    assert plan is not None
+    assert _validate_plan(plan, "elementary") == []
+    replicates = [
+        action
+        for scene in plan["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "replicate"
+    ]
+    assert replicates and replicates[0]["count"] == 3
+    ctx.state["visual_plan"] = plan
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<replicate-template>", "exec")
+    assert "record_beat" in code
+    assert "BEAT_MANIFEST_JSON" in code
+
+
+def test_validator_replicate_conservation() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    plan = _quantity_plan_base()
+    plan["visual_objects"][0]["params"]["count"] = 4
+    plan["visual_objects"].append(
+        {
+            "id": "product_box",
+            "primitive": "rectangle",
+            "meaning": "乘积容器",
+            "label": "乘积",
+            "color": "green",
+            "params": {},
+        }
+    )
+    plan["scenes"][0]["actions"][1]["expect"] = 4
+    plan["scenes"][1]["actions"] = [
+        {"op": "create", "targets": ["product_box"], "result": "", "meaning": "建容器"},
+        {
+            "op": "replicate",
+            "targets": ["total_group"],
+            "result": "product_box",
+            "source": "total_group",
+            "count": 3,
+            "meaning": "复制 3 份",
+        },
+        {
+            "op": "count",
+            "targets": ["product_box"],
+            "result": "",
+            "expect": 12,
+            "meaning": "数乘积",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "recount_verify",
+            "targets": ["product_box"],
+            "result": "",
+            "expect_total": 12,
+            "meaning": "重数核对",
+        },
+    ]
+    assert _validate_plan(plan, "elementary") == []
+
+    # Ledger-aware: counting the product as anything but 12 must fail.
+    plan["scenes"][1]["actions"][2]["expect"] = 9
+    errors = _validate_plan(plan, "elementary")
+    assert any("当前数量" in item for item in errors)
+
+
+def test_executor_parses_beat_manifest_marker() -> None:
+    from math_tutor.infrastructure.manim.executor import ManimExecutor
+
+    log = "\n".join(
+        [
+            "Manim Community v0.18",
+            'BEAT_MANIFEST_JSON:{"frame_width": 14.22, "frame_height": 8.0, '
+            '"beats": [{"beat_index": 0, "role": "setup", "end_time": 5.1, '
+            '"groups": {"story_total": {"count": 5, "bbox": [-1, -1, 1, 1], '
+            '"color": "#58C4DD"}}}]}',
+            "File ready at video.mp4",
+        ]
+    )
+    manifest = ManimExecutor._parse_beat_manifest(log)
+    assert manifest is not None
+    assert manifest["beats"][0]["groups"]["story_total"]["count"] == 5
+    assert ManimExecutor._parse_beat_manifest("no marker here") is None
+
+
+def test_count_units_in_image_counts_colored_components() -> None:
+    from PIL import Image, ImageDraw
+
+    from math_tutor.infrastructure.agent.tools.inspect_video import (
+        _count_units_in_image,
+        _manifest_pixel_bbox,
+    )
+
+    image = Image.new("RGB", (200, 120), (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    for index in range(3):
+        x = 20 + index * 60
+        draw.rectangle([x, 40, x + 30, 70], fill=(88, 196, 221))
+    assert _count_units_in_image(image, (0, 0, 200, 120), "#58C4DD") == 3
+    # Unknown color abstains instead of guessing.
+    assert _count_units_in_image(image, (0, 0, 200, 120), "") is None
+
+    # Scene-to-pixel conversion: scene origin maps to image center.
+    bbox = _manifest_pixel_bbox([-7.11, -4.0, 7.11, 4.0], 14.22, 8.0, 200, 120)
+    assert bbox == (0, 0, 200, 120)
+
+
+def test_finalize_review_caps_good_on_self_contradictory_static_denials() -> None:
+    payload = _review_payload(
+        overall_quality="good",
+        b_total="10/12",
+        b_scores={"b1": 2, "b2": 2, "b3": 2, "b4": 2, "b5": 2, "b6": 0},
+    )
+    payload["b_scores"]["b6"] = 2
+    payload["b_total"] = "12/12"
+    payload["frame_descriptions"] = [
+        "第 1 帧 @ 1.0s: 题目 ｜变化: 是",
+        "第 2 帧 @ 3.0s: 相同 ｜变化: 否",
+        "第 3 帧 @ 5.0s: 相同 ｜变化: 否",
+        "第 4 帧 @ 7.0s: 相同 ｜变化: 否",
+        "第 5 帧 @ 9.0s: 相同 ｜变化: 否",
+    ]
+    metrics = {
+        "adjacent_frame_difference": [0.001, 0.001, 0.001, 0.001],
+        "manifest_change_expected_flags": [True, True, True, True],
+    }
+    overall, _ = _finalize_review(payload, metrics, [], {}, "v.mp4", [1, 3, 5, 7, 9])
+    assert overall == "acceptable"
+    assert "score_inconsistency" in payload
+
+    # Without manifest-expected changes the same denials stay "good" (a
+    # legitimate hold during narration must not be punished).
+    payload2 = _review_payload(
+        overall_quality="good",
+        b_total="12/12",
+        b_scores={"b1": 2, "b2": 2, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+    )
+    payload2["frame_descriptions"] = list(payload["frame_descriptions"])
+    metrics2 = {
+        "adjacent_frame_difference": [0.001, 0.001, 0.001, 0.001],
+        "manifest_change_expected_flags": [False, False, False, False],
+    }
+    overall2, _ = _finalize_review(payload2, metrics2, [], {}, "v.mp4", [1, 3, 5, 7, 9])
+    assert overall2 == "good"
+
+
+def test_phrasing_critique_is_not_a_machine_checkable_blocker() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _machine_checkable_blocking_issue,
+    )
+
+    # The exact field failure: a direction-wording critique must not veto.
+    assert not _machine_checkable_blocking_issue(
+        "步骤3中的文字描述与运算结果矛盾：运算显示每只兔子比鸡多2只脚（4-2=2），"
+        "但文字描述为“每只兔子少算2只脚”，逻辑方向错误且表述不准确。"
+    )
+    # A genuine numeric contradiction with the convention still blocks.
+    assert _machine_checkable_blocking_issue(
+        "BLOCKING: 步骤2 结果错误 observed=25 expected=24"
+    )

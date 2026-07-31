@@ -121,6 +121,11 @@ class RunManimTool(ITool):
         ctx.state["latest_video_path"] = video_path
         ctx.state["latest_video_url"] = video_url
         ctx.state["last_run_error"] = None
+        beat_manifest = getattr(result, "beat_manifest", None)
+        if isinstance(beat_manifest, dict) and beat_manifest.get("beats"):
+            ctx.state["beat_manifest"] = beat_manifest
+        else:
+            ctx.state.pop("beat_manifest", None)
         ctx.state.pop("fix_attempt_count", None)
         ctx.state.pop("last_visual_review", None)
         ctx.state.pop("last_visual_failed", None)

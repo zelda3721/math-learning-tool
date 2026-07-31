@@ -27,6 +27,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..math_runtime import execute_math_request
 from ..prompt_library import PromptLibrary
+from .visual_plan import _machine_checkable_blocking_issue
 
 logger = logging.getLogger(__name__)
 
@@ -740,6 +741,30 @@ class VerifySolutionTool(ITool):
                     )
             else:
                 consistent, consistency_issues, checked_claims = audit
+                if not consistent:
+                    # Only machine-checkable numeric contradictions may veto a
+                    # verified answer. Phrasing/direction critiques ("undercounted
+                    # by 2 feet" vs "2 more feet" describe the same relation) are
+                    # advisory: the audit is an LLM and its literal reading of
+                    # direction words has produced false vetoes.
+                    blocking_issues = [
+                        issue
+                        for issue in consistency_issues
+                        if _machine_checkable_blocking_issue(str(issue))
+                    ]
+                    if not blocking_issues:
+                        consistent = True
+                        consistency_audit_warning = (
+                            consistency_audit_warning
+                            or (
+                                "一致性审计提出非阻断的表述建议，已记录不阻断："
+                                + str(consistency_issues[0])[:120]
+                                if consistency_issues
+                                else "一致性审计判定失败但未给出可复核的数值矛盾"
+                            )
+                        )
+                    else:
+                        consistency_issues = blocking_issues
                 if consistent and initial_failure_kind == "unconfirmed_assertion":
                     passed = True
                     message = "独立一致性审计通过；已忽略与自身预期冲突的验证器断言"

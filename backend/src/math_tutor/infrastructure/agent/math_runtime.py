@@ -126,6 +126,13 @@ class _ExpressionParser:
             value = self._visit(node.operand)
             return value if isinstance(node.op, ast.UAdd) else -value
         if isinstance(node, ast.BinOp):
+            if isinstance(node.op, ast.BitAnd):
+                # ``Eq(a, b) & Eq(c, d)`` is a common local-model spelling of
+                # an equation system; flatten the conjunction into a list.
+                parts: list[Any] = []
+                for side in (self._visit(node.left), self._visit(node.right)):
+                    parts.extend(side if isinstance(side, list) else [side])
+                return parts
             left, right = self._visit(node.left), self._visit(node.right)
             if isinstance(node.op, ast.Add):
                 return left + right
@@ -140,6 +147,19 @@ class _ExpressionParser:
             raise ValueError("unsupported arithmetic operator")
         if isinstance(node, (ast.List, ast.Tuple)):
             return [self._visit(item) for item in node.elts]
+        if isinstance(node, ast.Dict):
+            # Mapping literals such as ``{x: 23, y: 12}`` appear in claims
+            # about multi-variable solve results.
+            mapping: dict[Any, Any] = {}
+            for key_node, value_node in zip(node.keys, node.values):
+                if key_node is None:
+                    raise ValueError("unsupported dict expansion")
+                if isinstance(key_node, ast.Constant) and isinstance(key_node.value, str):
+                    key: Any = sp.Symbol(key_node.value)
+                else:
+                    key = self._visit(key_node)
+                mapping[key] = self._visit(value_node)
+            return mapping
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             function = _FUNCTIONS.get(node.func.id)
             if function is None or node.keywords:
@@ -308,8 +328,13 @@ def _execute_operation(
         "diff": "differentiate",
         "subs": "substitute",
     }.get(op, op)
+    raw_variable = operation.get("variable")
+    if isinstance(raw_variable, list) and not operation.get("variables"):
+        # Local models sometimes put the variable list under the singular key.
+        operation = {**operation, "variables": raw_variable, "variable": ""}
+        raw_variable = ""
     expression = _resolve(operation.get("expression"), parser, outputs)
-    variable_name = str(operation.get("variable") or "").strip()
+    variable_name = str(raw_variable or "").strip()
     variable = symbols.get(variable_name)
 
     def apply_substitutions(value: Any) -> Any:
@@ -406,6 +431,20 @@ def _check_claim(
     left = _resolve(claim.get("left"), parser, outputs)
     right = _resolve(claim.get("right", 0), parser, outputs)
     def values_equal(first: Any, second: Any) -> bool:
+        # A one-solution solution set equals its element: ``solve`` returns
+        # ``[{x: 23, y: 12}]`` while claims naturally state the mapping.
+        if (
+            isinstance(first, (list, tuple))
+            and len(first) == 1
+            and not isinstance(second, (list, tuple))
+        ):
+            return values_equal(first[0], second)
+        if (
+            isinstance(second, (list, tuple))
+            and len(second) == 1
+            and not isinstance(first, (list, tuple))
+        ):
+            return values_equal(first, second[0])
         if isinstance(first, sp.MatrixBase) or isinstance(second, sp.MatrixBase):
             if not isinstance(first, sp.MatrixBase) or not isinstance(second, sp.MatrixBase):
                 return False
