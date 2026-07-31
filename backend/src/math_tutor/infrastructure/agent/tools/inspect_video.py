@@ -133,12 +133,21 @@ def _frame_sequence_metrics(frame_paths: list[Path]) -> dict[str, Any]:
             caption_zone_occupancy.append(region_fraction(caption_indices))
 
     differences: list[float] = []
+    changed_fractions: list[float] = []
     for previous, current in zip(frames, frames[1:]):
-        differences.append(ImageStat.Stat(ImageChops.difference(previous, current)).mean[0] / 255.0)
+        delta = ImageChops.difference(previous, current)
+        differences.append(ImageStat.Stat(delta).mean[0] / 255.0)
+        # Mean intensity misses THIN moving objects (a scan line sweeping a
+        # curve barely moves the mean). Fraction of meaningfully-changed
+        # pixels sees them.
+        histogram = delta.histogram()
+        total_pixels = float(sum(histogram)) or 1.0
+        changed_fractions.append(sum(histogram[12:]) / total_pixels)
     return {
         "visible_fraction_by_frame": [round(value, 4) for value in visible_fractions],
         "entropy_by_frame": [round(value, 3) for value in entropies],
         "adjacent_frame_difference": [round(value, 4) for value in differences],
+        "changed_pixel_fraction": [round(value, 4) for value in changed_fractions],
         "blank_frame_count": sum(value < 0.002 for value in visible_fractions),
         "near_static_transition_count": sum(value < 0.006 for value in differences),
         "top_border_occupancy": [round(value, 4) for value in top_border_occupancy],
@@ -194,10 +203,24 @@ def _derive_technical_issues(metrics: dict[str, Any]) -> tuple[list[str], list[s
         # checks and the vision reviewer decide whether glyphs collide.
         warnings.append("底部安全带内容较密，需由成片审查确认是否叠字或图形侵入")
     differences = metrics.get("adjacent_frame_difference") or []
-    if differences and max(differences) < 0.006:
+    changed_fractions = metrics.get("changed_pixel_fraction") or []
+
+    def interval_active(index: int) -> bool:
+        # Either signal counts: mean intensity (broad motion) OR fraction of
+        # changed pixels (thin objects like scan lines and sliding dots).
+        by_mean = float(differences[index]) >= 0.006
+        by_pixels = (
+            index < len(changed_fractions)
+            and float(changed_fractions[index]) >= 0.02
+        )
+        return by_mean or by_pixels
+
+    if differences and not any(interval_active(i) for i in range(len(differences))):
         critical.append("采样帧几乎无变化，疑似静态幻灯片")
     elif len(differences) >= 6:
-        active_fraction = sum(float(value) >= 0.006 for value in differences) / len(differences)
+        active_fraction = sum(
+            interval_active(i) for i in range(len(differences))
+        ) / len(differences)
         metrics["active_transition_fraction"] = round(active_fraction, 3)
         if duration >= 12 and active_fraction < 0.25:
             critical.append(
@@ -467,7 +490,9 @@ async def _manifest_count_check(
                     bbox = info.get("bbox")
                     if not isinstance(bbox, list) or len(bbox) != 4 or expected <= 0:
                         continue
-                    if float(info.get("opacity") or 1.0) < 0.9:
+                    dimmed = float(info.get("opacity") or 1.0) < 0.9
+                    label = str(info.get("label") or "").strip()
+                    if dimmed:
                         # Dimmed (crossed-out) units defeat the color mask;
                         # the reviewer's targeted count question covers them.
                         expectations.append(
@@ -476,6 +501,8 @@ async def _manifest_count_check(
                                 "time_s": sample_time,
                                 "group": str(group_id),
                                 "expected": expected,
+                                "label": label,
+                                "dimmed": True,
                             }
                         )
                         continue
@@ -485,6 +512,8 @@ async def _manifest_count_check(
                             "time_s": sample_time,
                             "group": str(group_id),
                             "expected": expected,
+                            "label": label,
+                            "dimmed": False,
                         }
                     )
                     measured = _count_units_in_image(
@@ -841,6 +870,8 @@ def _finalize_review(
 
     # The reviewer sees stills: motion/coverage claims need measured
     # support, and "no graphics" claims must agree with its own rubric.
+    # Unrecognized fragments (comma-split parentheticals and other parser
+    # artifacts) are NOT hits — only known blacklist names can confirm.
     active_fraction = technical_metrics.get("active_transition_fraction")
     confirmed_hits: list[str] = []
     downgraded_hits: list[str] = []
@@ -849,8 +880,10 @@ def _finalize_review(
             confirmed = active_fraction is not None and float(active_fraction) < 0.4
         elif "翻页" in hit or "搬运" in hit or "纯文字" in hit:
             confirmed = int(b3 or 0) <= 1 and int(b4 or 0) <= 1
-        else:
+        elif "公式墙" in hit or "悬空" in hit:
             confirmed = True
+        else:
+            confirmed = False
         (confirmed_hits if confirmed else downgraded_hits).append(hit)
     if downgraded_hits:
         payload["blacklist_downgraded"] = downgraded_hits
@@ -1141,12 +1174,20 @@ class InspectVideoTool(ITool):
                 ]
                 technical_metrics["manifest_change_expected_flags"] = expected_flags
             askable = [item for item in manifest_expectations if item["expected"] <= 6]
-            manifest_section = (
-                "\n".join(
-                    f"- t≈{item['time_s']:.1f}s 组「{item['group']}」应有 "
-                    f"{item['expected']} 个单位——请数一数并报告实际数量"
-                    for item in askable[:6]
+
+            def question_phrase(item: dict[str, Any]) -> str:
+                # The reviewer cannot see internal group ids: describe the
+                # group by its on-screen label and visual state.
+                described = f"「{item['label']}」" if item.get("label") else ""
+                state = "被划掉（变灰）的" if item.get("dimmed") else "完好（未被划掉）的"
+                return (
+                    f"- t≈{item['time_s']:.1f}s：{described}{state}单位应有 "
+                    f"{item['expected']} 个（内部组名 {item['group']}）——请只数"
+                    f"{state}单位并报告实际数量"
                 )
+
+            manifest_section = (
+                "\n".join(question_phrase(item) for item in askable[:6])
                 or "（无定点核数任务）"
             )
             # Plan-contract defects belong to the planning stage.  The rendered

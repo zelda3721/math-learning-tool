@@ -5763,3 +5763,196 @@ def test_phrasing_critique_is_not_a_machine_checkable_blocker() -> None:
     assert _machine_checkable_blocking_issue(
         "BLOCKING: 步骤2 结果错误 observed=25 expected=24"
     )
+
+
+# ---------------------------------------------------------------------------
+# Post-field-test fixes: blacklist fragments, thin motion, balance policy,
+# limit-approach beats, plan parse retry, pacing passthrough
+# ---------------------------------------------------------------------------
+
+
+def test_unrecognized_blacklist_fragment_never_confirms() -> None:
+    # Field failure: the VLM wrote "PPT 翻页 (采样帧 1-2 仅文字变化, 采样帧
+    # 11-12 仅文字变化)" and comma-splitting produced a fragment that matched
+    # no known name yet was treated as a confirmed hit.
+    payload = _review_payload(
+        b_total="11/12",
+        b_scores={"b1": 2, "b2": 1, "b3": 2, "b4": 2, "b5": 2, "b6": 2},
+        blacklist_hits=["采样帧 11-12 仅文字变化)"],
+    )
+    overall, _ = _finalize_review(payload, {}, [], {}, "v.mp4", [])
+    assert overall in {"good", "acceptable"}
+    assert payload["blacklist_hits"] == []
+    assert payload["blacklist_downgraded"] == ["采样帧 11-12 仅文字变化)"]
+
+
+def test_thin_object_motion_counts_as_active_interval() -> None:
+    # A scan line sweeping a curve barely moves the mean-intensity diff but
+    # flips a visible fraction of pixels; the activity gate must see it.
+    metrics = {
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "duration_s": 20,
+        "visible_fraction_by_frame": [0.1] * 12,
+        "adjacent_frame_difference": [0.002] * 11,
+        "changed_pixel_fraction": [0.05] * 11,
+    }
+    critical, _ = _derive_technical_issues(metrics)
+    assert not any("变化覆盖不足" in item for item in critical)
+    assert not any("静态幻灯片" in item for item in critical)
+    assert metrics["active_transition_fraction"] == 1.0
+
+    # Without the pixel signal the same means are static.
+    static_metrics = {
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "duration_s": 20,
+        "visible_fraction_by_frame": [0.1] * 12,
+        "adjacent_frame_difference": [0.002] * 11,
+        "changed_pixel_fraction": [0.001] * 11,
+    }
+    critical, _ = _derive_technical_issues(static_metrics)
+    assert any("静态" in item or "变化覆盖不足" in item for item in critical)
+
+
+def test_middle_grade_linear_equation_abstains_to_balance_director() -> None:
+    def solve_state(expression: str, roots: list[Any]) -> dict[str, Any]:
+        return {
+            "solution_verified": True,
+            "verify_math_request": {
+                "engine": "sympy",
+                "symbols": {"x": {"domain": "real"}},
+                "operations": [
+                    {
+                        "id": "solve_eq",
+                        "op": "solve",
+                        "expression": expression,
+                        "variable": "x",
+                    }
+                ],
+                "claims": [
+                    {"relation": "equal", "left": "$solve_eq", "right": str(roots)}
+                ],
+            },
+            "verify_math_evidence": {
+                "success": True,
+                "all_claims_passed": True,
+                "operations": [
+                    {"id": "solve_eq", "result": [str(r) for r in roots]}
+                ],
+            },
+        }
+
+    # Middle-school linear equation → abstain (director owns it with the
+    # balance metaphor). Same problem at high school keeps the curve.
+    linear = solve_state("2*x + 5 - 13", [4])
+    assert (
+        build_grounded_math_visual_plan(ToolContext("s", 3, "middle", "p", dict(linear)))
+        is None
+    )
+    assert (
+        build_grounded_math_visual_plan(ToolContext("s", 3, "high", "p", dict(linear)))
+        is not None
+    )
+    # A middle-school QUADRATIC (multi-root) keeps the curve representation.
+    quadratic = solve_state("x**2 - 4*x + 3", [1, 3])
+    assert (
+        build_grounded_math_visual_plan(
+            ToolContext("s", 3, "middle", "p", dict(quadratic))
+        )
+        is not None
+    )
+
+
+def test_neighborhood_plan_shows_anchor_points_and_two_sided_approach() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import _validate_plan
+
+    state = {
+        "solution_verified": True,
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "limit_value",
+                    "op": "limit",
+                    "expression": "sin(x)/x",
+                    "variable": "x",
+                    "point": 0,
+                }
+            ],
+            "claims": [],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "limit_value", "result": "1"}],
+        },
+    }
+    ctx = ToolContext("s", 3, "high", "求 sin(x)/x 在 0 处的极限", state)
+    plan = build_grounded_math_visual_plan(ctx)
+    assert plan is not None
+    object_ids = {item["id"] for item in plan["visual_objects"]}
+    # Why-this-curve: sampled anchor dots precede the curve; the approach:
+    # marker points march toward the target from BOTH sides.
+    assert "grounded_anchor_points" in object_ids
+    assert "grounded_approach_left" in object_ids
+    assert "grounded_approach_right" in object_ids
+    assert _validate_plan(plan, "high") == []
+    roles = [scene["role"] for scene in plan["scenes"]]
+    assert roles[0] == "setup" and "transform" in roles and "verify" in roles
+    setup_targets = [
+        target
+        for action in plan["scenes"][0]["actions"]
+        for target in action["targets"]
+    ]
+    assert "grounded_anchor_points" in setup_targets
+    ctx.state["visual_plan"] = plan
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<limit-approach>", "exec")
+
+
+def test_visual_plan_parse_failure_gets_one_compact_retry() -> None:
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.visual_plan import VisualPlanTool
+
+    class TruncatingLLM:
+        calls = 0
+
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            TruncatingLLM.calls += 1
+
+            class Done:
+                text = '{"visual_thesis": "被截断的'
+                reasoning = ""
+                finish_reason = "length"
+
+            return Done()
+
+    TruncatingLLM.calls = 0
+    tool = VisualPlanTool(TruncatingLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "鸡兔同笼",
+        {"solution_verified": True, "solution_answer": "12", "solution_steps": [{}]},
+    )
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is False
+    assert result.error == "parse_failed"
+    # One compact retry happened (two authoring calls, no more).
+    assert TruncatingLLM.calls == 2
+    assert "压缩重试" in result.summary
+
+
+def test_fallback_ir_keeps_duration_budget() -> None:
+    from math_tutor.infrastructure.agent.tools.compile_video import _fallback_visual_ir
+
+    plan = _quantity_plan_base()
+    ir = _fallback_visual_ir(plan)
+    assert ir is not None
+    durations = [scene.get("duration_s") for scene in ir["scenes"]]
+    assert durations[0] == 4.0 and durations[1] == 6.0

@@ -1978,6 +1978,28 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                 and len(root_values) <= 8
                 and all(math.isfinite(root) and abs(root) < 1e6 for root in root_values)
             ):
+                if ctx.grade == "middle" and len(root_values) == 1:
+                    # Representation policy: a single-root (linear-shaped)
+                    # equation at middle-school level reads better as a
+                    # balance argument than as a curve zero-crossing, so the
+                    # open-world director owns it (its prompt mandates the
+                    # balance metaphor). Multi-root equations keep the curve.
+                    try:
+                        probe = [
+                            evaluate_real_expression_at(
+                                expression, variable=variable, point=root_values[0] + dx
+                            )
+                            for dx in (-1.0, 0.0, 1.0)
+                        ]
+                        second_difference = (
+                            None
+                            if any(value is None for value in probe)
+                            else abs(probe[0] - 2 * probe[1] + probe[2])
+                        )
+                    except (TypeError, ValueError):
+                        second_difference = None
+                    if second_difference is not None and second_difference < 1e-8:
+                        return None
                 margin = max(2.2, (root_values[-1] - root_values[0]) * 0.35 + 1.4)
                 x_start = root_values[0] - margin
                 x_end = root_values[-1] + margin
@@ -2187,6 +2209,30 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
         point_value_on_curve is None or abs(point_value_on_curve - result_value) > 1e-8
     )
 
+    def curve_points(offsets: list[float]) -> list[list[float]]:
+        points: list[list[float]] = []
+        for offset in offsets:
+            x = point_value + offset
+            if not (x_start <= x <= x_end):
+                continue
+            try:
+                y = evaluate_real_expression_at(
+                    expression, variable=variable, point=x
+                )
+            except (TypeError, ValueError):
+                continue
+            if y is None or not (y_start <= y <= y_end):
+                continue
+            points.append([round(x, 4), round(float(y), 4)])
+        return points
+
+    # "Why this curve": a few honest sample points come first, then the curve
+    # is drawn through them. "The approach": marker points march toward the
+    # target from BOTH sides, heights visibly converging on the result.
+    anchor_points = curve_points([-1.8, -0.9, 0.9, 1.8])
+    approach_left = curve_points([-0.45, -0.22, -0.09])
+    approach_right = curve_points([0.45, 0.22, 0.09])
+
     expression_label = f"f({variable}) = {expression}"
     result_label = f"y = {result_value:g}"
     return {
@@ -2261,18 +2307,60 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                     "open": open_result_point,
                 },
             },
+            *(
+                [
+                    {
+                        "id": "grounded_anchor_points",
+                        "primitive": "dot",
+                        "meaning": "取几个自变量值算出的真实函数值，解释曲线为何是这个形状",
+                        "label": "",
+                        "color": "blue",
+                        "params": {"positions": anchor_points},
+                    }
+                ]
+                if len(anchor_points) >= 2
+                else []
+            ),
+            *(
+                [
+                    {
+                        "id": "grounded_approach_left",
+                        "primitive": "dot",
+                        "meaning": "自变量从左侧逐步靠近目标时的函数值位置",
+                        "label": "",
+                        "color": "green",
+                        "params": {"positions": approach_left},
+                    }
+                ]
+                if len(approach_left) >= 2
+                else []
+            ),
+            *(
+                [
+                    {
+                        "id": "grounded_approach_right",
+                        "primitive": "dot",
+                        "meaning": "自变量从右侧逐步靠近目标时的函数值位置",
+                        "label": "",
+                        "color": "green",
+                        "params": {"positions": approach_right},
+                    }
+                ]
+                if len(approach_right) >= 2
+                else []
+            ),
         ],
         "scenes": [
             {
                 "role": "setup",
                 "anchor_zone": "B2-E5",
-                "key_objects": "坐标系与原表达式曲线",
-                "action": "建立坐标参照并绘制确定性执行中的原表达式。",
-                "invariant": "表达式、变量和坐标含义保持不变",
-                "attention_target": "蓝色曲线在目标位置附近的走势",
-                "exit_condition": "原表达式及目标位置已经可见",
-                "teaching_line": "先看原表达式在目标位置附近怎样变化。",
-                "duration_s": 5,
+                "key_objects": "坐标系与取值描点",
+                "action": "建立坐标参照，先取几个自变量值算出函数值并描点。",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": "几个描出的取值点的位置走势",
+                "exit_condition": "取值点已经可见，走势初现",
+                "teaching_line": "先取几个值算一算，把结果描成点。",
+                "duration_s": 6,
                 "actions": [
                     {
                         "op": "create",
@@ -2280,25 +2368,74 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                         "result": "",
                         "meaning": "建立统一坐标参照",
                     },
+                    *(
+                        [
+                            {
+                                "op": "create",
+                                "targets": ["grounded_anchor_points"],
+                                "result": "",
+                                "meaning": "描出逐个计算得到的取值点",
+                            }
+                        ]
+                        if len(anchor_points) >= 2
+                        else []
+                    ),
+                ],
+            },
+            {
+                "role": "reveal",
+                "anchor_zone": "B2-E5",
+                "key_objects": "过取值点的表达式曲线",
+                "action": "沿着描出的点连成完整曲线，说明曲线形状的来源。",
+                "invariant": "曲线经过每个已算出的取值点",
+                "attention_target": "曲线如何贯穿已描的点",
+                "exit_condition": "曲线与取值点贴合可见",
+                "teaching_line": "把这些点连起来，就是函数的曲线。",
+                "duration_s": 5,
+                "actions": [
                     {
                         "op": "create",
                         "targets": ["grounded_expression_wide"],
                         "result": "",
-                        "meaning": "绘制确定性表达式",
+                        "meaning": "绘制经过取值点的确定性表达式曲线",
                     },
                 ],
             },
             {
                 "role": "transform",
                 "anchor_zone": "B2-E5",
-                "key_objects": "逐步收紧的表达式曲线",
-                "action": "把完整曲线变为目标点邻域内的曲线片段。",
-                "invariant": "函数表达式不变，只改变观察范围",
-                "attention_target": "绿色局部曲线的高度趋于稳定",
-                "exit_condition": "目标点附近的局部走势被清楚隔离",
-                "teaching_line": "收紧观察范围，只看越来越靠近目标点的部分。",
-                "duration_s": 7,
+                "key_objects": "左右逼近点与逐步收紧的曲线",
+                "action": "从两侧取越来越接近目标的自变量值并描点，再收紧观察范围。",
+                "invariant": "函数表达式不变，只改变观察位置与范围",
+                "attention_target": "两侧逼近点的高度越来越接近结果值",
+                "exit_condition": "两侧逼近点与局部曲线走势清楚可见",
+                "teaching_line": "从左右两侧一步步靠近目标，函数值也一步步靠近同一个高度。",
+                "duration_s": 9,
                 "actions": [
+                    *(
+                        [
+                            {
+                                "op": "create",
+                                "targets": ["grounded_approach_left"],
+                                "result": "",
+                                "meaning": "左侧逐步逼近的取值点",
+                            }
+                        ]
+                        if len(approach_left) >= 2
+                        else []
+                    ),
+                    *(
+                        [
+                            {
+                                "op": "create",
+                                "targets": ["grounded_approach_right"],
+                                "result": "",
+                                "meaning": "右侧逐步逼近的取值点",
+                            }
+                        ]
+                        if len(approach_right) >= 2
+                        else []
+                    ),
                     {
                         "op": "transform",
                         "targets": ["grounded_expression_wide"],
@@ -3578,9 +3715,9 @@ class VisualPlanTool(ITool):
             solution_section=solution_section,
             feedback_section=feedback,
         )
-        try:
-            done = await self._llm.chat_complete(
-                messages=[ChatMessage(role="user", content=prompt)],
+        async def author_plan(request_prompt: str) -> Any:
+            return await self._llm.chat_complete(
+                messages=[ChatMessage(role="user", content=request_prompt)],
                 # Planning is a contract-writing stage. Low variance makes
                 # the first plan internally consistent; diversity belongs in
                 # explicit experiments, not in production retries.
@@ -3588,7 +3725,7 @@ class VisualPlanTool(ITool):
                 # A complete typed artifact is safer than truncation repair.
                 # Compactness is enforced by the prompt; this is only a hard
                 # ceiling for complex open-world geometry.
-                max_tokens=6144,
+                max_tokens=8192,
                 extra_body={
                     "chat_template_kwargs": {"enable_thinking": False},
                     # LM Studio and other modern OpenAI-compatible runtimes
@@ -3598,20 +3735,43 @@ class VisualPlanTool(ITool):
                     "response_format": _VISUAL_PLAN_RESPONSE_FORMAT,
                 },
             )
+
+        try:
+            done = await author_plan(prompt)
         except Exception as exc:
             logger.exception("visual_plan LLM call failed")
             return ToolResult(success=False, summary="视觉规划失败", error=str(exc))
 
         plan = _parse_plan(done)
+        raw_artifacts = [_raw_plan_artifact(done, ctx)]
+        if plan is None:
+            # A truncated/unparseable artifact is a FORMAT failure with a
+            # known cause (an over-long plan hitting the token ceiling). One
+            # compact retry with explicit budget feedback is evidence-driven,
+            # not stochastic re-rolling.
+            compact_prompt = (
+                prompt
+                + "\n\n## 上一次输出失败\n上一份计划因超长被截断或无法解析。"
+                "重新输出完整 JSON，并强制压缩：最多 5 个 visual_objects、"
+                "3-4 个 beat；重复成员一律用 params.count 分组压缩，"
+                "禁止逐个声明成员；每个自然语言字段只写一个短句。"
+            )
+            try:
+                done = await author_plan(compact_prompt)
+                plan = _parse_plan(done)
+                raw_artifacts.append(_raw_plan_artifact(done, ctx))
+            except Exception:
+                logger.exception("visual_plan compact retry failed")
+                plan = None
         if plan is None:
             return ToolResult(
                 success=False,
-                summary="无法解析视觉计划；已保存模型原始输出用于诊断",
+                summary="无法解析视觉计划（含一次压缩重试）；已保存模型原始输出用于诊断",
                 data={
                     "finish_reason": getattr(done, "finish_reason", ""),
                     "visible_chars": len(getattr(done, "text", "") or ""),
                 },
-                artifacts=[_raw_plan_artifact(done, ctx)],
+                artifacts=raw_artifacts,
                 error="parse_failed",
             )
         plan = ground_visual_plan_from_math_execution(plan, ctx)
