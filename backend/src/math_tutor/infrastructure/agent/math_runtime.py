@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +22,7 @@ _FUNCTIONS: dict[str, Any] = {
     "atan": sp.atan,
     "ceiling": sp.ceiling,
     "cos": sp.cos,
+    "diff": sp.diff,
     "Eq": sp.Eq,
     "exp": sp.exp,
     "factorial": sp.factorial,
@@ -51,6 +53,10 @@ _DOMAINS = {
 }
 _MAX_OPERATIONS = 24
 _MAX_EXPRESSION_CHARS = 1200
+_REFERENCE_HEAD_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)(.*)$")
+_REFERENCE_PART_RE = re.compile(
+    r"(?:\[(-?\d+)\]|\.([A-Za-z_][A-Za-z0-9_]*))"
+)
 
 
 @dataclass
@@ -232,13 +238,57 @@ def evaluate_real_expression_at(
     return numeric if math.isfinite(numeric) else None
 
 
+def _resolve_reference(value: str, outputs: dict[str, Any]) -> Any:
+    match = _REFERENCE_HEAD_RE.fullmatch(value)
+    if match is None or match.group(1) not in outputs:
+        raise ValueError(f"unknown operation reference: {value}")
+    current = outputs[match.group(1)]
+    tail = match.group(2)
+    position = 0
+    for part in _REFERENCE_PART_RE.finditer(tail):
+        if part.start() != position:
+            raise ValueError(f"invalid operation reference selector: {value}")
+        position = part.end()
+        raw_index, raw_key = part.groups()
+        if raw_index is not None:
+            if not isinstance(current, (list, tuple, sp.MatrixBase)):
+                raise ValueError(f"reference is not indexable: {value}")
+            index = int(raw_index)
+            try:
+                current = current[index]
+            except IndexError as exc:
+                raise ValueError(f"reference index out of range: {value}") from exc
+            continue
+        if not isinstance(current, dict):
+            raise ValueError(f"reference has no keyed field: {value}")
+        matching_key = next(
+            (key for key in current if str(key) == raw_key),
+            None,
+        )
+        if matching_key is None:
+            raise ValueError(f"unknown reference field: {value}")
+        current = current[matching_key]
+    if position != len(tail):
+        raise ValueError(f"invalid operation reference selector: {value}")
+    return current
+
+
 def _resolve(value: Any, parser: _ExpressionParser, outputs: dict[str, Any]) -> Any:
     if isinstance(value, str) and value.startswith("$"):
-        key = value[1:]
-        if key not in outputs:
-            raise ValueError(f"unknown operation reference: {value}")
-        return outputs[key]
+        return _resolve_reference(value, outputs)
     return parser.parse(value)
+
+
+def _simplify_composite(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_simplify_composite(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_simplify_composite(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _simplify_composite(item) for key, item in value.items()}
+    if isinstance(value, sp.MatrixBase):
+        return value.applyfunc(sp.simplify)
+    return sp.simplify(value)
 
 
 def _execute_operation(
@@ -248,11 +298,17 @@ def _execute_operation(
     outputs: dict[str, Any],
 ) -> Any:
     op = str(operation.get("op") or "").strip().lower()
+    op = {
+        "define": "evaluate",
+        "derivative": "differentiate",
+        "diff": "differentiate",
+        "subs": "substitute",
+    }.get(op, op)
     expression = _resolve(operation.get("expression"), parser, outputs)
     variable_name = str(operation.get("variable") or "").strip()
     variable = symbols.get(variable_name)
     if op in {"evaluate", "simplify"}:
-        return sp.simplify(expression)
+        return _simplify_composite(expression)
     if op == "expand":
         return sp.expand(expression)
     if op == "factor":
@@ -283,9 +339,19 @@ def _execute_operation(
         if not resolved or any(item is None for item in resolved):
             raise ValueError("solve requires declared variables")
         equations = expression if isinstance(expression, list) else [expression]
+        if len(resolved) == 1:
+            subject = equations[0] if len(equations) == 1 else equations
+            return sp.solve(subject, resolved[0], dict=False)
         return sp.solve(equations, resolved, dict=True)
     if op == "substitute":
-        substitutions = operation.get("substitutions") or {}
+        substitutions = operation.get("substitutions")
+        if substitutions is None and "substitution" in operation:
+            if variable is None:
+                raise ValueError(
+                    "scalar substitution requires a declared variable"
+                )
+            substitutions = {variable_name: operation.get("substitution")}
+        substitutions = substitutions or {}
         if not isinstance(substitutions, dict):
             raise ValueError("substitutions must be an object")
         pairs = {}
@@ -326,10 +392,36 @@ def _check_claim(
     relation = str(claim.get("relation") or "equal").strip().lower()
     left = _resolve(claim.get("left"), parser, outputs)
     right = _resolve(claim.get("right", 0), parser, outputs)
+    def values_equal(first: Any, second: Any) -> bool:
+        if isinstance(first, sp.MatrixBase) or isinstance(second, sp.MatrixBase):
+            if not isinstance(first, sp.MatrixBase) or not isinstance(second, sp.MatrixBase):
+                return False
+            return first.shape == second.shape and all(
+                values_equal(a, b) for a, b in zip(first, second)
+            )
+        if isinstance(first, (list, tuple)) or isinstance(second, (list, tuple)):
+            if not isinstance(first, (list, tuple)) or not isinstance(
+                second, (list, tuple)
+            ):
+                return False
+            return len(first) == len(second) and all(
+                values_equal(a, b) for a, b in zip(first, second)
+            )
+        if isinstance(first, dict) or isinstance(second, dict):
+            if not isinstance(first, dict) or not isinstance(second, dict):
+                return False
+            first_keys = {str(key): key for key in first}
+            second_keys = {str(key): key for key in second}
+            return first_keys.keys() == second_keys.keys() and all(
+                values_equal(first[first_keys[key]], second[second_keys[key]])
+                for key in first_keys
+            )
+        return sp.simplify(first - second) == 0
+
     if relation in {"equal", "equivalent"}:
-        passed = sp.simplify(left - right) == 0
+        passed = values_equal(left, right)
     elif relation == "not_equal":
-        passed = sp.simplify(left - right) != 0
+        passed = not values_equal(left, right)
     elif relation == "less":
         passed = bool(sp.ask(sp.Q.negative(left - right)))
     elif relation == "less_equal":

@@ -248,6 +248,7 @@ def _literal_arithmetic_value(expression: str) -> Fraction:
         ast.Sub: lambda left, right: left - right,
         ast.Mult: lambda left, right: left * right,
         ast.Div: lambda left, right: left / right,
+        ast.Pow: lambda left, right: left**right,
     }
 
     def visit(node: ast.AST) -> Fraction:
@@ -275,6 +276,7 @@ def _invalid_literal_equalities(value: Any) -> list[str]:
         .replace("×", "*")
         .replace("÷", "/")
         .replace("−", "-")
+        .replace("^", "**")
         .replace("$", "")
     )
     issues: list[str] = []

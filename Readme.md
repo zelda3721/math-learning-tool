@@ -74,9 +74,13 @@ state/artifact 中，不回灌控制器上下文。
   展开、因式分解、微分、积分、极限、求解、代入、行列式、求和与连乘等可组合操作。
 - 表达式只经过白名单 AST 解析，不执行模型生成的任意 Python。
 - 当验证证据包含可绘制的一元表达式时，系统可直接安全采样函数曲线并构造视觉论证；
-  不可无损降低的内容仍交给开放式视觉导演，而不是增加题型分支。
+  一元方程的精确实根会直接降低为曲线零点与坐标投影（支持多根）；不可无损降低的内容仍
+  交给开放式视觉导演，而不是增加题型分支。
 - 题目卡总是在视频开头出现。坐标对象保持真实数据坐标；空心点、易读刻度和标签分区由
   编译器统一处理，避免公式依赖、双字幕和末段遮挡。
+- Visual IR 会在本地归一化等价但不规范的模型输出：安全 Math IR 简写、坐标点/多点、
+  `start/end` 线段、派生曲线叠加、辅助线揭示和自变换都会局部降低为可执行语义；不会为
+  某道题新增分支，也不会因为轻微 schema 差异重新生成整份计划。
 
 ---
 
@@ -309,6 +313,7 @@ python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
 ```bash
 uv sync --project backend --extra dev
 backend/.venv/bin/pytest -q backend/tests
+cd frontend && npm run build && npm run lint
 ```
 
 前端端到端验收建议至少检查：

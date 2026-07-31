@@ -31,7 +31,9 @@
 ## 确定性计算
 
 把本题可形式化的关键计算编译成一个紧凑 JSON 请求。表达式使用 Python/SymPy 语法，变量必须
-先声明；操作按依赖顺序排列，后续值用 `$操作id` 引用。`claims` 至少独立核对最终答案一次。
+先声明；操作按依赖顺序排列，后续值用 `$操作id` 引用，列表或多变量结果可用
+`$操作id[0]`、`$操作id[0].变量名` 安全取值。`claims` 至少独立核对最终答案一次。
+只把真正的未知量声明为 symbols；题目给定的常数直接写入表达式，不能声明为未赋值符号。
 
 ```json
 {
@@ -52,7 +54,8 @@ import、任意 Python、数值采样代替全局证明、以及把待证答案�
 `{"engine":"none","reason":"为什么只能进行逻辑证明"}`。
 
 必填参数：`differentiate/integrate` 需要 `variable`；`limit` 需要 `variable` 和 `point`；
-`solve` 需要 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`。提交前逐项检查。
+`solve` 需要 `variable` 或 `variables`；`summation/product` 需要 `variable` 和两项 `bounds`。
+`substitute` 使用 `substitutions` 对象。提交前逐项检查。
 
 ## 解题
 

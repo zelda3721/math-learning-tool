@@ -62,11 +62,11 @@ from math_tutor.infrastructure.agent.tools.verify_solution import (
     _safe_exec_verify,
 )
 from math_tutor.infrastructure.agent.tools.visual_plan import (
-    build_grounded_math_visual_plan,
     _machine_checkable_blocking_issue,
     _normalize_plan,
     _parse_plan_audit,
     _validate_plan,
+    build_grounded_math_visual_plan,
 )
 from math_tutor.infrastructure.agent.tools.watch_video import WatchVideoTool
 from math_tutor.infrastructure.agent.wiki_ingester import (
@@ -382,6 +382,306 @@ def test_visual_plan_materializes_declared_verify_targets() -> None:
         "在对象出现前执行 verify" in issue
         for issue in _validate_plan(normalized, "middle")
     )
+
+
+def test_visual_plan_lowers_verify_role_highlight_to_verification() -> None:
+    plan = _open_world_plan()
+    plan["scenes"][-1]["actions"] = [
+        {
+            "op": "highlight",
+            "targets": ["final_state"],
+            "meaning": "use the visible result as the final check",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+    actions = normalized["scenes"][-1]["actions"]
+
+    assert actions[-1]["op"] == "verify"
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_accepts_relation_reveal_as_causal_transform() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"].append(
+        {
+            "id": "auxiliary",
+            "primitive": "line",
+            "meaning": "a new relation to the established state",
+            "label": "relation",
+            "color": "blue",
+            "params": {"start": [2, -2], "end": [2, 5]},
+        }
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["auxiliary"],
+            "meaning": "reveal the relation line against the existing state",
+        },
+        {
+            "op": "highlight",
+            "targets": ["state"],
+            "meaning": "focus the existing state at the new relation",
+        },
+    ]
+
+    normalized = _normalize_plan(plan)
+
+    auxiliary = next(
+        item for item in normalized["visual_objects"] if item["id"] == "auxiliary"
+    )
+    assert auxiliary["params"]["points"] == [[2, -2], [2, 5]]
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_accepts_focused_coordinate_overlay_and_parses_dot_pair() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "shared coordinate reference",
+            "label": "",
+            "color": "grey",
+            "params": {"x_range": [-3, 3], "y_range": [-3, 3]},
+        },
+        {
+            "id": "source_curve",
+            "primitive": "function_curve",
+            "meaning": "established graph",
+            "label": "f",
+            "color": "blue",
+            "params": {"expression": "x**2 - 1"},
+        },
+        {
+            "id": "derived_curve",
+            "primitive": "function_curve",
+            "meaning": "derived graphical relation",
+            "label": "g",
+            "color": "red",
+            "params": {"expression": "2*x"},
+        },
+        {
+            "id": "computed_point",
+            "primitive": "dot",
+            "meaning": "verified coordinate （1，0）",
+            "label": "P",
+            "color": "green",
+            "params": {},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["axes", "source_curve"],
+            "meaning": "establish the shared graph",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["derived_curve", "computed_point"],
+            "meaning": "overlay the derived relation and computed point",
+        },
+        {
+            "op": "highlight",
+            "targets": ["derived_curve"],
+            "meaning": "focus the new relation on the same axes",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["computed_point"],
+            "meaning": "check the computed coordinate",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+    point = next(
+        item for item in normalized["visual_objects"] if item["id"] == "computed_point"
+    )
+
+    assert point["params"]["x"] == 1
+    assert point["params"]["y"] == 0
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_accepts_relation_line_with_new_focused_point() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"].extend(
+        [
+            {
+                "id": "constraint_line",
+                "primitive": "line",
+                "meaning": "coordinate constraint",
+                "label": "c",
+                "color": "red",
+                "params": {"x1": 2, "y1": -2, "x2": 2, "y2": 6},
+            },
+            {
+                "id": "constrained_point",
+                "primitive": "dot",
+                "meaning": "new point on the constraint",
+                "label": "P",
+                "color": "green",
+                "params": {"x": 2, "y": -1},
+            },
+        ]
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["constraint_line", "constrained_point"],
+            "meaning": "add the constraint and its computed point",
+        },
+        {
+            "op": "highlight",
+            "targets": ["constrained_point"],
+            "meaning": "focus the new point fixed by the constraint",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["constrained_point"],
+            "meaning": "check the constrained point",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+    line = next(
+        item for item in normalized["visual_objects"] if item["id"] == "constraint_line"
+    )
+
+    assert line["params"]["points"] == [[2, -2], [2, 6]]
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_accepts_multi_object_coordinate_relation_reveal() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes", "primitive": "axes", "meaning": "coordinate reference",
+            "label": "", "color": "grey",
+            "params": {"x_range": [-2, 4], "y_range": [-2, 4]},
+        },
+        {
+            "id": "curve", "primitive": "function_curve", "meaning": "known graph",
+            "label": "f", "color": "blue", "params": {"expression": "x**2 - 1"},
+        },
+        {
+            "id": "point", "primitive": "dot", "meaning": "computed coordinate",
+            "label": "P", "color": "green", "params": {"x": 0, "y": -1},
+        },
+        {
+            "id": "vertical", "primitive": "line", "meaning": "vertical constraint",
+            "label": "x=0", "color": "red",
+            "params": {"start": [0, -2], "end": [0, 4]},
+        },
+        {
+            "id": "horizontal", "primitive": "line", "meaning": "horizontal constraint",
+            "label": "y=-1", "color": "yellow",
+            "params": {"start": [-2, -1], "end": [4, -1]},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create", "targets": ["axes", "curve"],
+            "meaning": "establish the shared graph",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create", "targets": ["point", "vertical", "horizontal"],
+            "meaning": "reveal constraints and their common point",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify", "targets": ["point", "horizontal"],
+            "meaning": "verify the common coordinate",
+        }
+    ]
+
+    normalized = _normalize_plan(plan)
+
+    assert _validate_plan(normalized, "advanced") == []
+
+
+def test_visual_plan_lowers_coordinate_bar_to_exact_line_segment() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"].append(
+        {
+            "id": "height_indicator",
+            "primitive": "quantity_bar",
+            "meaning": "signed coordinate height",
+            "label": "-1",
+            "color": "purple",
+            "params": {"start": [2, 0], "end": [2, -1], "value": -1},
+        }
+    )
+
+    normalized = _normalize_plan(plan)
+    indicator = next(
+        item for item in normalized["visual_objects"] if item["id"] == "height_indicator"
+    )
+
+    assert indicator["primitive"] == "line"
+    assert indicator["params"]["points"] == [[2, 0], [2, -1]]
+
+
+def test_visual_plan_repairs_self_transform_with_delayed_relation_reveal() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"].append(
+        {
+            "id": "conclusion_line",
+            "primitive": "line",
+            "meaning": "declared conclusion relationship",
+            "label": "result",
+            "color": "yellow",
+            "params": {"start": [-2, -1], "end": [6, -1]},
+        }
+    )
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "transform",
+            "targets": ["state"],
+            "result": "state",
+            "meaning": "planner attempted an in-place semantic rewrite",
+        },
+        {
+            "op": "highlight",
+            "targets": ["state"],
+            "meaning": "focus the established result",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["conclusion_line"],
+            "meaning": "reveal the conclusion relationship",
+        },
+        {
+            "op": "verify",
+            "targets": ["state", "conclusion_line"],
+            "meaning": "check the state against the relationship",
+        },
+    ]
+
+    normalized = _normalize_plan(plan)
+    transform_actions = normalized["scenes"][1]["actions"]
+    verify_actions = normalized["scenes"][2]["actions"]
+
+    assert all(action["result"] != action["targets"][0] for action in transform_actions)
+    assert [action["op"] for action in transform_actions] == [
+        "create",
+        "highlight",
+        "highlight",
+    ]
+    assert [action["op"] for action in verify_actions] == ["verify"]
+    assert _validate_plan(normalized, "advanced") == []
 
 
 def test_visual_plan_lowers_bounded_aggregate_bars_for_addressable_actions() -> None:
@@ -881,6 +1181,52 @@ def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
     ast.parse(code)
 
 
+def test_grounded_math_plan_visualizes_any_univariate_solve_as_zero_crossing() -> None:
+    state = {
+        "solution_verified": True,
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "solve_eq",
+                    "op": "solve",
+                    "expression": "2**x - 8",
+                    "variable": "x",
+                }
+            ],
+            "claims": [
+                {"relation": "equal", "left": "$solve_eq", "right": "[3]"}
+            ],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "solve_eq", "result": ["3"]}],
+        },
+    }
+    ctx = ToolContext("s", 3, "advanced", "solve an equation", state)
+
+    plan = build_grounded_math_visual_plan(ctx)
+
+    assert plan is not None
+    assert plan["grounded_from_math_execution"] is True
+    curve = next(
+        item for item in plan["visual_objects"] if item["id"] == "grounded_solve_curve"
+    )
+    roots = next(
+        item for item in plan["visual_objects"] if item["id"] == "grounded_solve_roots"
+    )
+    assert curve["params"]["expression"] == "2**x - 8"
+    assert roots["params"]["positions"] == [[3.0, 0]]
+    assert _validate_plan(plan, "advanced") == []
+    ctx.state["visual_plan"] = plan
+    code = build_verified_fallback_code(ctx)
+    assert "2**x - 8" in code
+    assert "grounded_solve_roots" in code
+    ast.parse(code)
+
+
 def test_direct_video_salvages_graphics_when_local_model_omits_actions() -> None:
     from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
 
@@ -1282,6 +1628,10 @@ def test_literal_arithmetic_checker_does_not_slice_symbolic_function_context() -
     assert _invalid_literal_equalities(r"\lim_{x\to 0} \frac{\sin(x)}{x} = 1") == []
     assert _invalid_literal_equalities("f(0) = 1") == []
     assert _invalid_literal_equalities("2 + 3 = 6") == ["2 + 3 = 6"]
+    assert _invalid_literal_equalities(
+        "f(2) = 2^2 - 4 * 2 + 3 = 4 - 8 + 3 = -1"
+    ) == []
+    assert _invalid_literal_equalities("2^3 = 9") == ["2**3 = 9"]
 
 
 def test_verifier_schema_alias_repairs_only_unambiguous_role_prefix() -> None:
@@ -3019,7 +3369,7 @@ def test_visual_ir_compiles_safe_function_curve_instead_of_generic_line() -> Non
         turn_index=4,
         grade="advanced",
         problem="opaque",
-        state={"solution_answer": "verified", "visual_plan": normalized},
+        state={"solution_answer": "verified", "visual_plan": _normalize_plan(plan)},
     )
     code = build_verified_fallback_code(ctx)
     compile(code, "<fallback>", "exec")
@@ -3033,6 +3383,268 @@ def test_visual_ir_compiles_safe_function_curve_instead_of_generic_line() -> Non
     assert "label.next_to(body, UR" in code
     assert "if result_id not in self.coordinate_ids:" in code
     assert "body = Line(LEFT * 1.2" in code  # still available for true lines
+
+
+def test_visual_ir_places_any_explicit_xy_dot_on_axes() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "axes",
+            "color": "grey",
+            "params": {"x_range": [-3, 3], "y_range": [-3, 3]},
+        },
+        {
+            "id": "arbitrary_named_point",
+            "primitive": "dot",
+            "meaning": "a mathematically computed point",
+            "label": "P",
+            "color": "yellow",
+            "params": {"x": 2, "y": -1},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["axes", "arbitrary_named_point"],
+            "meaning": "show the computed point on its coordinate reference",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "move",
+            "targets": ["arbitrary_named_point"],
+            "meaning": "make the coordinate relation visible",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["arbitrary_named_point"],
+            "meaning": "verify the point at its declared coordinates",
+        }
+    ]
+    normalized = _normalize_plan(plan)
+
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": normalized},
+    )
+    code = build_verified_fallback_code(ctx)
+
+    assert 'all(key in params for key in ("x", "y"))' in code
+    assert 'self.primary_axes.c2p(point_x, point_y),' in code
+
+
+def test_visual_ir_projects_one_unbound_dot_to_unique_curve_constraint() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "axes",
+            "color": "grey",
+            "params": {"x_range": [-2, 4], "y_range": [-2, 5]},
+        },
+        {
+            "id": "curve",
+            "primitive": "function_curve",
+            "meaning": "a verified function graph",
+            "label": "g",
+            "color": "red",
+            "params": {"expression": "(x - 1)**2", "x_range": [-2, 4]},
+        },
+        {
+            "id": "constraint",
+            "primitive": "line",
+            "meaning": "a vertical constraint",
+            "label": "x=1",
+            "color": "blue",
+            "params": {"start": [1, -2], "end": [1, 5]},
+        },
+        {
+            "id": "computed_point",
+            "primitive": "dot",
+            "meaning": "the point fixed by both graphical constraints",
+            "label": "P",
+            "color": "green",
+            "params": {},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["axes", "curve", "computed_point"],
+            "meaning": "establish the graph and its constrained point",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["constraint"],
+            "meaning": "reveal the unique vertical constraint",
+        },
+        {
+            "op": "highlight",
+            "targets": ["computed_point"],
+            "meaning": "focus the point fixed by the two constraints",
+        },
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["computed_point"],
+            "meaning": "check the point on the curve",
+        }
+    ]
+    normalized = _normalize_plan(plan)
+    assert _validate_plan(normalized, "advanced") == []
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": normalized},
+    )
+
+    code = build_verified_fallback_code(ctx)
+
+    assert "len(vertical_x_values) == 1" in code
+    assert "len(curve_specs) == 1" in code
+    assert 'dot_params["x"] = projection_x' in code
+    assert 'self.coordinate_ids.add(unbound_dots[0]["id"])' in code
+
+
+def test_visual_ir_keeps_vertical_point_segments_in_coordinate_space() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "",
+            "color": "grey",
+            "params": {"x_range": [-2, 4], "y_range": [-2, 5]},
+        },
+        {
+            "id": "vertical_constraint",
+            "primitive": "line",
+            "meaning": "fixed x coordinate",
+            "label": "x=1",
+            "color": "red",
+            "params": {"points": [[1, -2], [1, 5]]},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["axes", "vertical_constraint"],
+            "meaning": "show the coordinate constraint",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "move",
+            "targets": ["vertical_constraint"],
+            "meaning": "focus the coordinate relation",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "verify",
+            "targets": ["vertical_constraint"],
+            "meaning": "check the fixed coordinate",
+        }
+    ]
+    normalized = _normalize_plan(plan)
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": normalized},
+    )
+
+    code = build_verified_fallback_code(ctx)
+
+    assert "else:\n                    self.coordinate_segments[spec[\"id\"]]" in code
+    assert "self.primary_axes.c2p(*start)" in code
+
+
+def test_visual_ir_renders_all_coordinate_positions_and_compares_y_values() -> None:
+    plan = _open_world_plan()
+    plan["visual_objects"] = [
+        {
+            "id": "axes",
+            "primitive": "axes",
+            "meaning": "coordinate reference",
+            "label": "",
+            "color": "grey",
+            "params": {"x_range": [-2, 4], "y_range": [-2, 5]},
+        },
+        {
+            "id": "minimum",
+            "primitive": "dot",
+            "meaning": "computed minimum",
+            "label": "min",
+            "color": "green",
+            "params": {"x": 2, "y": -1},
+        },
+        {
+            "id": "checks",
+            "primitive": "dot",
+            "meaning": "two comparison samples",
+            "label": "checks",
+            "color": "orange",
+            "params": {"count": 2, "positions": [[1, 0], [3, 0]]},
+        },
+    ]
+    plan["scenes"][0]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["axes", "minimum"],
+            "meaning": "establish the coordinate result",
+        }
+    ]
+    plan["scenes"][1]["actions"] = [
+        {
+            "op": "move",
+            "targets": ["minimum"],
+            "meaning": "focus the computed coordinate",
+        }
+    ]
+    plan["scenes"][2]["actions"] = [
+        {
+            "op": "create",
+            "targets": ["checks"],
+            "meaning": "show both comparison samples",
+        },
+        {
+            "op": "compare",
+            "targets": ["minimum", "checks"],
+            "meaning": "compare their y coordinates",
+        },
+    ]
+    normalized = _normalize_plan(plan)
+    ctx = ToolContext(
+        session_id="s",
+        turn_index=4,
+        grade="advanced",
+        problem="opaque",
+        state={"solution_answer": "verified", "visual_plan": normalized},
+    )
+
+    code = build_verified_fallback_code(ctx)
+
+    assert 'for position in params.get("positions") or []' in code
+    assert 'return params.get("y")' in code
+    assert 'smaller_text = f"({smaller:g})" if smaller < 0' in code
 
 
 def test_visual_plan_recovers_json_damaged_latex_before_plain_text_lowering() -> None:

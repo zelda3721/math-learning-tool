@@ -149,6 +149,158 @@ def test_math_runtime_normalizes_bare_prior_operation_references() -> None:
     assert result.all_claims_passed is True
 
 
+def test_math_runtime_supports_composite_values_and_safe_result_selectors() -> None:
+    composite = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {},
+            "operations": [
+                {
+                    "id": "values",
+                    "op": "evaluate",
+                    "expression": ["1 + 1", "3 * 4"],
+                }
+            ],
+            "claims": [],
+        }
+    )
+    assert composite.success is True
+    assert composite.operations[0]["result"] == ["2", "12"]
+
+    selected_root = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "function",
+                    "op": "evaluate",
+                    "expression": "x**2 - 4*x + 3",
+                },
+                {
+                    "id": "derivative",
+                    "op": "differentiate",
+                    "expression": "$function",
+                    "variable": "x",
+                },
+                {
+                    "id": "critical_points",
+                    "op": "solve",
+                    "expression": "$derivative",
+                    "variable": "x",
+                },
+                {
+                    "id": "minimum",
+                    "op": "substitute",
+                    "expression": "$function",
+                    "variable": "x",
+                    "substitution": "$critical_points[0]",
+                },
+            ],
+            "claims": [{"relation": "equal", "left": "$minimum", "right": -1}],
+        }
+    )
+    assert selected_root.success is True
+    assert selected_root.all_claims_passed is True
+    assert selected_root.operations[2]["result"] == ["2"]
+
+
+def test_math_runtime_supports_keyed_selection_for_multivariable_solutions() -> None:
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {
+                "x": {"domain": "real"},
+                "y": {"domain": "real"},
+            },
+            "operations": [
+                {
+                    "id": "solution",
+                    "op": "solve",
+                    "expression": ["x + y - 5", "x - y - 1"],
+                    "variables": ["x", "y"],
+                },
+                {
+                    "id": "selected_x",
+                    "op": "evaluate",
+                    "expression": "$solution[0].x",
+                },
+            ],
+            "claims": [{"relation": "equal", "left": "$selected_x", "right": 3}],
+        }
+    )
+    assert result.success is True
+    assert result.all_claims_passed is True
+
+
+def test_math_runtime_normalizes_safe_sympy_shorthand_without_repair() -> None:
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "defined",
+                    "op": "define",
+                    "expression": "x**2 - 4*x + 3",
+                },
+                {
+                    "id": "root",
+                    "op": "solve",
+                    "expression": "diff(x**2 - 4*x + 3, x)",
+                    "variable": "x",
+                },
+                {
+                    "id": "value",
+                    "op": "subs",
+                    "expression": "$defined",
+                    "substitutions": {"x": "$root[0]"},
+                },
+            ],
+            "claims": [
+                {
+                    "id": "minimum",
+                    "relation": "equal",
+                    "left": "$value",
+                    "right": "-1",
+                }
+            ],
+        }
+    )
+
+    assert result.success is True
+    assert result.all_claims_passed is True
+
+
+def test_math_runtime_compares_composite_solve_results_symbolically() -> None:
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {
+                    "id": "solutions",
+                    "op": "solve",
+                    "expression": "2**x - 8",
+                    "variable": "x",
+                }
+            ],
+            "claims": [
+                {
+                    "id": "solution_set",
+                    "relation": "equal",
+                    "left": "$solutions",
+                    "right": "[3]",
+                }
+            ],
+        }
+    )
+
+    assert result.success is True
+    assert result.all_claims_passed is True
+    assert result.claims[0]["left"] == ["3"]
+
+
 def test_safe_expression_sampler_splits_discontinuities_without_eval() -> None:
     sine_segments = sample_real_expression(
         "sin(x)", start=-2, end=2, y_min=-2, y_max=2
