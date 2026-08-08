@@ -61,6 +61,14 @@ _REFERENCE_HEAD_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)(.*)$")
 _REFERENCE_PART_RE = re.compile(
     r"(?:\[(-?\d+)\]|\.([A-Za-z_][A-Za-z0-9_]*))"
 )
+# A PURE selector ("$id", "$id[0]", "$id[0].x") resolves as a reference.
+# Anything else containing "$id" tokens is a composite expression such as
+# "$initial - $eaten": the tokens are stripped and the parser resolves the
+# bare ids through prior outputs.
+_PURE_REFERENCE_RE = re.compile(
+    r"^\$[A-Za-z_][A-Za-z0-9_]*(?:\[-?\d+\]|\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+_REFERENCE_TOKEN_RE = re.compile(r"\$(?=[A-Za-z_])")
 
 
 @dataclass
@@ -106,7 +114,10 @@ class _ExpressionParser:
             raise ValueError("expression must be a non-empty string or number")
         if len(value) > _MAX_EXPRESSION_CHARS:
             raise ValueError("expression exceeds character budget")
-        return self._visit(ast.parse(value.replace("^", "**"), mode="eval").body)
+        # "$id" reference tokens inside a composite expression become bare
+        # identifiers; Name resolution below looks prior outputs up anyway.
+        normalized = _REFERENCE_TOKEN_RE.sub("", value.replace("^", "**"))
+        return self._visit(ast.parse(normalized, mode="eval").body)
 
     def _visit(self, node: ast.AST) -> Any:
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
@@ -165,6 +176,22 @@ class _ExpressionParser:
             if function is None or node.keywords:
                 raise ValueError(f"unsupported function: {node.func.id}")
             return function(*(self._visit(item) for item in node.args))
+        if isinstance(node, ast.Subscript):
+            container = self._visit(node.value)
+            index_node = node.slice
+            if isinstance(index_node, ast.Constant) and isinstance(index_node.value, int):
+                try:
+                    return container[index_node.value]
+                except (IndexError, KeyError, TypeError) as exc:
+                    raise ValueError(f"invalid subscript on prior result: {exc}")
+            raise ValueError("only constant integer subscripts are supported")
+        if isinstance(node, ast.Attribute):
+            container = self._visit(node.value)
+            if isinstance(container, dict):
+                for key, item in container.items():
+                    if str(key) == node.attr:
+                        return item
+            raise ValueError(f"unknown attribute on prior result: {node.attr}")
         raise ValueError(f"unsupported expression node: {type(node).__name__}")
 
 
@@ -298,8 +325,12 @@ def _resolve_reference(value: str, outputs: dict[str, Any]) -> Any:
 
 
 def _resolve(value: Any, parser: _ExpressionParser, outputs: dict[str, Any]) -> Any:
-    if isinstance(value, str) and value.startswith("$"):
-        return _resolve_reference(value, outputs)
+    if isinstance(value, str) and value.strip().startswith("$"):
+        stripped = value.strip()
+        if _PURE_REFERENCE_RE.fullmatch(stripped):
+            return _resolve_reference(stripped, outputs)
+        # Composite expression built from references ("$a - $b"): not a
+        # selector — hand to the parser, which resolves bare prior-output ids.
     return parser.parse(value)
 
 
