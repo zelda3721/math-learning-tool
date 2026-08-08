@@ -444,3 +444,60 @@ def test_verify_solution_accepts_independent_math_ir_evidence() -> None:
     assert ctx.state["solution_verified"] is True
     assert ctx.state["verify_math_evidence"]["all_claims_passed"] is True
     assert result.artifacts[0].kind == "math_execution"
+
+
+def test_composite_reference_expressions_execute() -> None:
+    """Field failure: "$initial_apples - $eaten_apples" was rejected as an
+    invalid reference selector; reference tokens composed into arithmetic must
+    execute (the prompt itself teaches the $id wire form)."""
+    from math_tutor.infrastructure.agent.math_runtime import execute_math_request
+
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {},
+            "operations": [
+                {"id": "initial_apples", "op": "evaluate", "expression": "5"},
+                {"id": "eaten_apples", "op": "evaluate", "expression": "2"},
+                {
+                    "id": "remaining_apples",
+                    "op": "evaluate",
+                    "expression": "$initial_apples - $eaten_apples",
+                },
+            ],
+            "claims": [
+                {
+                    "id": "check_answer",
+                    "relation": "equal",
+                    "left": "$remaining_apples",
+                    "right": "3",
+                }
+            ],
+        }
+    )
+    assert result.success, result.errors
+    assert result.all_claims_passed, result.claims
+
+
+def test_reference_tokens_mixed_with_literals_and_subscripts() -> None:
+    from math_tutor.infrastructure.agent.math_runtime import execute_math_request
+
+    result = execute_math_request(
+        {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {"id": "roots", "op": "solve", "expression": "x**2 - 4", "variable": "x"},
+                {"id": "shifted", "op": "evaluate", "expression": "$roots[1] + 1"},
+                {"id": "halved", "op": "evaluate", "expression": "10 - $shifted"},
+            ],
+            "claims": [
+                {"id": "a", "relation": "equal", "left": "$shifted", "right": "3"},
+                {"id": "b", "relation": "equal", "left": "$halved", "right": "7"},
+                # Pure selectors keep working through the reference path.
+                {"id": "c", "relation": "equal", "left": "$roots[0]", "right": "-2"},
+            ],
+        }
+    )
+    assert result.success, result.errors
+    assert result.all_claims_passed, result.claims
