@@ -1141,6 +1141,16 @@ class InspectVideoTool(ITool):
                     "代码契约校验软放行，请重点核对图形论证是否真实兑现："
                     + "；".join(str(item) for item in soft_pass_issues[:3])
                 )
+            for downgrade_key, downgrade_hint in (
+                ("verification_downgraded", "独立验证已降级"),
+                ("math_evidence_downgraded", "solve 阶段数学证据已降级"),
+            ):
+                downgrade_note = str(ctx.state.get(downgrade_key) or "").strip()
+                if downgrade_note:
+                    technical_warnings.append(
+                        f"{downgrade_hint}，请对画面中的每个数值与结论做保守核对："
+                        + downgrade_note[:160]
+                    )
 
             # Render-time beat manifest: deterministic per-zone count check
             # (calibration phase: warnings only) plus targeted subitizable

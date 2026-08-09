@@ -1823,7 +1823,9 @@ def test_stage_budget_allows_one_fallback_then_stops_blind_retries() -> None:
     assert "停止继续试错" in message
     assert _stage_budget_error("verify_solution", 0) is None
     assert _stage_budget_error("verify_solution", 1) is None
-    assert _stage_budget_error("verify_solution", 2) is not None
+    # Attempt 3 is the tool's forced-logical escalation; only a 4th pick stops.
+    assert _stage_budget_error("verify_solution", 2) is None
+    assert _stage_budget_error("verify_solution", 3) is not None
     assert _stage_budget_error("compile_video", 0) is None
     assert _stage_budget_error("compile_video", 1) is not None
 
@@ -1853,7 +1855,7 @@ def test_solution_contract_rejects_visible_scratchpad_self_correction() -> None:
     )
 
 
-def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> None:
+def test_solution_contract_flags_duplicate_steps_and_stale_final_number() -> None:
     step = {
         "description": "计算最终量",
         "operation": "14 × 14 × 3",
@@ -1862,10 +1864,13 @@ def test_solution_contract_rejects_duplicate_steps_and_stale_final_number() -> N
     }
     issues = _solution_contract_issues({"answer": "1254 立方厘米", "steps": [step, dict(step)]})
     assert any("重复" in issue for issue in issues)
-    assert any("answer=1254" in issue and "last_result=588" in issue for issue in issues)
+    # Derivation mismatches are advisory (style/quality), never blocking:
+    # independent verification owns math correctness.
+    derivation = [issue for issue in issues if "1254" in issue]
+    assert derivation and all(issue.startswith("建议：") for issue in derivation)
 
 
-def test_solution_contract_rejects_false_arithmetic_and_unproved_answer_values() -> None:
+def test_solution_contract_flags_false_arithmetic_as_blocking() -> None:
     assert _invalid_literal_equalities(r"$24 \div 2 = 14$（只）") == ["24 / 2 = 14"]
     assert _invalid_literal_equalities(r"$24 \div 2 = 12$（只）") == []
     issues = _solution_contract_issues(
@@ -1878,7 +1883,33 @@ def test_solution_contract_rejects_false_arithmetic_and_unproved_answer_values()
             ],
         }
     )
-    assert any("14,21" in issue for issue in issues)
+    derivation = [issue for issue in issues if "14" in issue and "21" in issue]
+    assert derivation and all(issue.startswith("建议：") for issue in derivation)
+    blocking = _solution_contract_issues(
+        {"answer": "12", "steps": [{"operation": "24 ÷ 2 = 14", "result": "14"}]}
+    )
+    assert any("算术矛盾" in issue and not issue.startswith("建议：") for issue in blocking)
+
+
+def test_solution_contract_normalizes_fraction_decimal_and_etc_usage() -> None:
+    # '0.5' in the answer is derivable from a '1/2' step result.
+    issues = _solution_contract_issues(
+        {"answer": "0.5 米", "steps": [{"operation": "1 ÷ 2", "result": "1/2 米"}]}
+    )
+    assert not any("没有被任何步骤结果推导出来" in issue for issue in issues)
+    # Enumerative '等等' (etc.) is legitimate prose, not a draft marker.
+    issues = _solution_contract_issues(
+        {
+            "answer": "4",
+            "steps": [{"result": "4", "description": "三角形、正方形等等图形都适用"}],
+        }
+    )
+    assert not any("等等" in issue for issue in issues)
+    # Self-interruption '等等，' is still flagged (advisory).
+    issues = _solution_contract_issues(
+        {"answer": "4", "steps": [{"result": "等等，我重新算一下，是4"}]}
+    )
+    assert any("等等" in issue for issue in issues)
 
 
 def test_literal_arithmetic_checker_does_not_slice_symbolic_function_context() -> None:
@@ -5956,3 +5987,320 @@ def test_fallback_ir_keeps_duration_budget() -> None:
     assert ir is not None
     durations = [scene.get("duration_s") for scene in ir["scenes"]]
     assert durations[0] == 4.0 and durations[1] == 6.0
+
+
+# ---------------------------------------------------------------------------
+# Verify-stage resilience: format exhaustion degrades instead of dying
+# ---------------------------------------------------------------------------
+
+
+def test_verify_format_exhaustion_degrades_and_saves_raw_output() -> None:
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.verify_solution import VerifySolutionTool
+
+    class GarbageLLM:
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            class Done:
+                text = "完全不含验证 section 的输出"
+                reasoning = ""
+
+            return Done()
+
+    tool = VerifySolutionTool(GarbageLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        2,
+        "elementary_upper",
+        "鸡兔同笼，头35，脚94",
+        {
+            "solution_answer": "鸡 23 只，兔 12 只",
+            "solution_steps": [{"description": "假设法", "operation": "35*2=70", "result": "70"}],
+            "solve_math_evidence": {
+                "success": True,
+                "applicable": True,
+                "all_claims_passed": True,
+            },
+        },
+    )
+
+    first = asyncio.run(tool.execute({}, ctx))
+    assert first.success is False
+    assert any(a.kind == "raw_model_output" for a in first.artifacts)
+
+    second = asyncio.run(tool.execute({}, ctx))
+    assert second.success is False
+    # After two format failures the tool forces logical mode for attempt 3.
+    assert ctx.state.get("force_logical_verification") is True
+
+    third = asyncio.run(tool.execute({}, ctx))
+    # The forced-logical attempt also failed on format: degrade with a
+    # warning backed by solve-side evidence — never die to formatting.
+    assert third.success is True
+    assert third.data["verification_downgraded"] is True
+    assert third.data["solve_evidence_backed"] is True
+    assert ctx.state["solution_verified"] is True
+    assert "verification_downgraded" in ctx.state
+
+
+def test_verify_downgrade_without_solve_evidence_still_delivers_with_warning() -> None:
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.verify_solution import VerifySolutionTool
+
+    class GarbageLLM:
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            class Done:
+                text = "无效输出"
+                reasoning = ""
+
+            return Done()
+
+    tool = VerifySolutionTool(GarbageLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        2,
+        "elementary_upper",
+        "题目",
+        {
+            "solution_answer": "42",
+            "solution_steps": [{"description": "步骤"}],
+            "solve_math_evidence": {"success": True, "applicable": False},
+        },
+    )
+    for _ in range(2):
+        assert asyncio.run(tool.execute({}, ctx)).success is False
+    third = asyncio.run(tool.execute({}, ctx))
+    assert third.success is True
+    assert third.data["solve_evidence_backed"] is False
+    assert "无确定性证据" in ctx.state["verification_downgraded"]
+
+
+# ---------------------------------------------------------------------------
+# Failure-surface audit fixes: parsing tolerance, format retry, re-solve grant
+# ---------------------------------------------------------------------------
+
+
+def test_parse_solution_accepts_heading_synonyms_and_step_shapes() -> None:
+    from math_tutor.infrastructure.agent.tools.solve_problem import _parse_solution
+
+    def done_with(text: str) -> Any:
+        class Done:
+            reasoning = ""
+
+        Done.text = text
+        return Done()
+
+    for heading in ("解题", "解题定稿", "解答", "解题过程"):
+        payload = _parse_solution(
+            done_with(
+                f"## {heading}\n**最终答案**: 4\n### 第 1 步\n- 描述: 求解\n- 结果: 4\n"
+            )
+        )
+        assert payload and payload["steps"], heading
+
+    # Level-4 step headings.
+    payload = _parse_solution(
+        done_with("## 解题\n**最终答案**: 4\n#### 第 1 步\n- 描述: 求解\n- 结果: 4\n")
+    )
+    assert payload and payload["steps"]
+
+    # Bold inline step markers.
+    payload = _parse_solution(
+        done_with(
+            "## 解题\n**最终答案**: 4\n**第1步**：\n- 描述: 求解\n- 结果: 4\n"
+            "**第2步**：\n- 描述: 核对\n- 结果: 成立\n"
+        )
+    )
+    assert payload and len(payload["steps"]) == 2
+
+
+def test_solve_format_failure_gets_one_retry_with_feedback() -> None:
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.solve_problem import SolveProblemTool
+
+    good = "\n".join(
+        [
+            "## 分析",
+            "**难度**: easy",
+            "## 确定性计算",
+            '```json\n{"engine": "none", "reason": "简单算术"}\n```',
+            "## 解题",
+            "**策略**: 直接计算",
+            "**最终答案**: 3",
+            "### 第 1 步",
+            "- 描述: 相减",
+            "- 运算: 5 - 2 = 3",
+            "- 解释: 拿走 2 个",
+            "- 结果: 3",
+        ]
+    )
+
+    class FlakyLLM:
+        calls = 0
+
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            FlakyLLM.calls += 1
+
+            class Done:
+                reasoning = ""
+                finish_reason = "stop"
+
+            # First call: prose without any parseable section; retry: good.
+            Done.text = "这是一段没有结构的说明文字。" if FlakyLLM.calls == 1 else good
+            if FlakyLLM.calls == 2:
+                prompt = kwargs.get("messages")[0].content
+                assert "上次输出格式无法解析" in prompt
+            return Done()
+
+    FlakyLLM.calls = 0
+    tool = SolveProblemTool(FlakyLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext("s", 1, "elementary", "5-2", {})
+    result = asyncio.run(tool.execute({}, ctx))
+    assert result.success is True
+    assert FlakyLLM.calls == 2
+    assert ctx.state["solution_answer"] == "3"
+
+
+def test_loop_grants_one_resolve_after_math_rejection() -> None:
+    class NeverCalledLLM:
+        def chat_stream(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("controller LLM must not run")
+
+    class MemoryStore:
+        def __init__(self) -> None:
+            self.updated: dict[str, Any] = {}
+            self.artifact_id = 0
+
+        async def create_session(self, **kwargs: Any) -> str:
+            return "session"
+
+        async def append_message(self, *args: Any, **kwargs: Any) -> int:
+            return 1
+
+        async def record_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def complete_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def update_session(self, session_id: str, **kwargs: Any) -> None:
+            self.updated = kwargs
+
+        async def save_text_artifact(self, *args: Any, **kwargs: Any) -> tuple[int, str]:
+            self.artifact_id += 1
+            return self.artifact_id, "a.json"
+
+        async def add_artifact(self, *args: Any, **kwargs: Any) -> int:
+            self.artifact_id += 1
+            return self.artifact_id
+
+    class StageTool(ITool):
+        solve_calls = 0
+        verify_calls = 0
+
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        @property
+        def description(self) -> str:
+            return self._name
+
+        @property
+        def parameters(self) -> dict[str, Any]:
+            return {"type": "object", "properties": {}, "required": []}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            state = ctx.state
+            if self.name == "solve_problem":
+                StageTool.solve_calls += 1
+                state["solution_steps"] = [{"description": f"v{StageTool.solve_calls}"}]
+                state["solution_answer"] = str(StageTool.solve_calls)
+                state["solution_verified"] = False
+                state.pop("last_verify_failure", None)
+                return ToolResult(success=True, summary="solved")
+            if self.name == "verify_solution":
+                StageTool.verify_calls += 1
+                if StageTool.verify_calls == 1:
+                    # Mathematical rejection routes back to solve.
+                    state["solution_verified"] = False
+                    state["last_verify_failure"] = "答案与独立验算不符"
+                    return ToolResult(success=False, summary="rejected", error="bad math")
+                state["solution_verified"] = True
+                return ToolResult(success=True, summary="ok")
+            if self.name == "direct_video":
+                state["visual_plan"] = _open_world_plan()
+            elif self.name == "compile_video":
+                state["latest_video_path"] = "v.mp4"
+                state["latest_video_url"] = "/v.mp4"
+            elif self.name == "watch_video":
+                state["last_visual_review"] = {"overall_quality": "good"}
+                state["last_visual_failed"] = False
+            return ToolResult(success=True, summary="ok")
+
+    StageTool.solve_calls = 0
+    StageTool.verify_calls = 0
+    registry = ToolRegistry()
+    for name in (
+        "solve_problem",
+        "verify_solution",
+        "direct_video",
+        "compile_video",
+        "watch_video",
+    ):
+        registry.register(StageTool(name))
+    store = MemoryStore()
+    loop = AgentLoop(
+        llm=NeverCalledLLM(),  # type: ignore[arg-type]
+        registry=registry,
+        composer=PromptComposer(),
+        store=store,  # type: ignore[arg-type]
+        use_latex=False,
+        max_turns=10,
+        deterministic_workflow=True,
+    )
+
+    async def collect() -> list[Any]:
+        return [event async for event in loop.run(problem="p", grade="middle")]
+
+    events = asyncio.run(collect())
+    done = [event for event in events if isinstance(event, DoneEvent)][-1]
+    # The math rejection earned one re-solve; the session completed.
+    assert StageTool.solve_calls == 2
+    assert done.status == "ok"
+    assert store.updated.get("status") == "done"
+
+
+def test_verify_llm_outage_routes_through_degradation_ladder() -> None:
+    from math_tutor.infrastructure.agent.prompt_library import PromptLibrary
+    from math_tutor.infrastructure.agent.tools.verify_solution import VerifySolutionTool
+
+    class DeadLLM:
+        async def chat_complete(self, **kwargs: Any) -> Any:
+            raise ConnectionError("LM Studio unreachable")
+
+    tool = VerifySolutionTool(DeadLLM(), PromptLibrary())  # type: ignore[arg-type]
+    ctx = ToolContext(
+        "s",
+        2,
+        "elementary",
+        "p",
+        {
+            "solution_answer": "3",
+            "solution_steps": [{"description": "d"}],
+            "solve_math_evidence": {
+                "success": True,
+                "applicable": True,
+                "all_claims_passed": True,
+            },
+        },
+    )
+    assert asyncio.run(tool.execute({}, ctx)).success is False
+    assert asyncio.run(tool.execute({}, ctx)).success is False
+    third = asyncio.run(tool.execute({}, ctx))
+    # Persistent outage degrades with solve-evidence backing instead of
+    # exhausting the stage budget into a dead session.
+    assert third.success is True
+    assert third.data["verification_downgraded"] is True

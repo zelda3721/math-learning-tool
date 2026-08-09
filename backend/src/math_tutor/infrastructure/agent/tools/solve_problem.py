@@ -83,6 +83,9 @@ def _raw_solution_artifact(done: Any, ctx: ToolContext, label: str) -> ArtifactS
     )
 
 
+_SOLUTION_HEADING_SYNONYMS = ("解题", "解题定稿", "解答", "解题过程", "解题步骤")
+
+
 def _parse_solution(done: Any) -> dict[str, Any] | None:
     for source in (
         getattr(done, "text", "") or "",
@@ -90,9 +93,13 @@ def _parse_solution(done: Any) -> dict[str, Any] | None:
     ):
         if not source:
             continue
-        section = md.find_section(source, "解题", level=2) or md.find_section(
-            source, "解题"
-        )
+        section = None
+        for title in _SOLUTION_HEADING_SYNONYMS:
+            section = md.find_section(source, title, level=2) or md.find_section(
+                source, title
+            )
+            if section is not None:
+                break
         if section is not None:
             payload = _md_to_solution(section)
             if payload.get("steps"):
@@ -207,25 +214,35 @@ def _md_to_solution(section: str) -> dict[str, Any]:
         "visualization_hint": "",
     }
 
-    # Steps: every `### 第 N 步` (or `### Step N`) sub-section
-    steps: list[dict[str, Any]] = []
-    for i, (heading, body) in enumerate(md.find_subsections(section, level=3), start=1):
-        h_lower = heading.lower()
-        if not (
-            "步" in heading
-            or h_lower.startswith("step")
-            or h_lower.startswith("step ")
-        ):
-            continue
-        kv = md.get_kv_dict(body)
-        # Be tolerant of various key spellings
-        steps.append({
-            "step_number": i,
-            "description": _pick(kv, "描述", "description"),
-            "operation": _pick(kv, "运算", "operation"),
-            "explanation": _pick(kv, "解释", "explanation"),
-            "result": _pick(kv, "结果", "result"),
-        })
+    # Steps: every `### 第 N 步` (or `### Step N`) sub-section.  Local models
+    # also emit level-4 headings or bold inline markers; harvest those shapes
+    # too — tolerance is about heading form only, content is untouched.
+    def harvest(pairs: Any) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        for i, (heading, body) in enumerate(pairs, start=1):
+            h_lower = str(heading).lower()
+            if not ("步" in str(heading) or h_lower.startswith("step")):
+                continue
+            kv = md.get_kv_dict(body)
+            found.append({
+                "step_number": i,
+                "description": _pick(kv, "描述", "description"),
+                "operation": _pick(kv, "运算", "operation"),
+                "explanation": _pick(kv, "解释", "explanation"),
+                "result": _pick(kv, "结果", "result"),
+            })
+        return found
+
+    steps = harvest(md.find_subsections(section, level=3))
+    if not steps:
+        steps = harvest(md.find_subsections(section, level=4))
+    if not steps:
+        bold_marker = re.compile(r"\*\*\s*(第\s*\d+\s*步|Step\s*\d+)\s*\*\*[:：]?")
+        chunks = bold_marker.split(section)
+        if len(chunks) >= 3:
+            steps = harvest(
+                (chunks[i], chunks[i + 1]) for i in range(1, len(chunks) - 1, 2)
+            )
     payload["steps"] = steps
 
     # Optional sections
@@ -252,6 +269,36 @@ def _pick(d: dict[str, str], *keys: str) -> str:
     return ""
 
 
+_ADVISORY_PREFIX = "建议："
+
+
+def _numeric_values(value: Any) -> list[Fraction]:
+    """Numeric tokens as exact values: '0.5' == '1/2', '50%' == 0.5."""
+    text = str(value or "")
+    values: list[Fraction] = []
+    for match in re.finditer(
+        r"(?<![A-Za-z_0-9])(-?\d+(?:\.\d+)?)(?:\s*/\s*(\d+(?:\.\d+)?))?(%?)",
+        text,
+    ):
+        try:
+            number = Fraction(match.group(1))
+            if match.group(2):
+                denominator = Fraction(match.group(2))
+                if denominator == 0:
+                    continue
+                values.append(number / denominator)
+                # The components are also visible numbers on their own.
+                values.append(number)
+                values.append(denominator)
+                continue
+            if match.group(3):
+                values.append(number / 100)
+            values.append(number)
+        except (ValueError, ZeroDivisionError):
+            continue
+    return values
+
+
 def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
     """Reject draft-like self-correction before it reaches verification.
 
@@ -268,11 +315,19 @@ def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
             for field in ("description", "operation", "explanation", "result")
         )
     joined = "\n".join(texts)
-    issues = [
-        f"解答仍包含草稿式自我纠错标记“{marker}”"
-        for marker in _DRAFT_CORRECTION_MARKERS
-        if marker in joined
-    ]
+    issues: list[str] = []
+    for marker in _DRAFT_CORRECTION_MARKERS:
+        if marker == "等等":
+            # "等等" as etc. after an enumeration is legitimate prose; only
+            # the self-interruption form ("……等等，不对") signals a draft.
+            if not re.search(r"(?:^|[。！？；：\n，,])\s*等等\s*[，,！!]", joined):
+                continue
+        elif marker == "此处需":
+            if not re.search(r"此处需(?:重新|补充|修改|核对|再)", joined):
+                continue
+        elif marker not in joined:
+            continue
+        issues.append(f"{_ADVISORY_PREFIX}解答仍包含草稿式自我纠错标记“{marker}”")
     steps = [step for step in (payload.get("steps") or []) if isinstance(step, dict)]
     signatures: set[str] = set()
     for step in steps:
@@ -281,41 +336,34 @@ def _solution_contract_issues(payload: dict[str, Any]) -> list[str]:
             for field in ("description", "operation", "result")
         )
         if signature and signature in signatures:
-            issues.append("解答包含内容完全重复的步骤，仍像未清理的草稿")
+            issues.append(f"{_ADVISORY_PREFIX}解答包含内容完全重复的步骤，仍像未清理的草稿")
             break
         signatures.add(signature)
 
-    def numeric_tokens(value: Any) -> list[str]:
-        return re.findall(r"(?<![A-Za-z_])-?\d+(?:\.\d+)?", str(value or ""))
-
-    answer_numbers = numeric_tokens(payload.get("answer"))
-    result_numbers = {
-        number
-        for step in steps
-        for number in numeric_tokens(step.get("result"))
-    }
-    missing_answer_numbers = sorted(set(answer_numbers) - result_numbers)
-    if answer_numbers and result_numbers and missing_answer_numbers:
+    answer_values = _numeric_values(payload.get("answer"))
+    result_values = [
+        value for step in steps for value in _numeric_values(step.get("result"))
+    ]
+    missing_answer_values = [
+        value
+        for value in dict.fromkeys(answer_values)
+        if all(value != known for known in result_values)
+    ]
+    if answer_values and result_values and missing_answer_values:
+        # Derivation mismatch is a quality signal, not proof of wrong math:
+        # unit conversions, ratios and restated givens legitimately introduce
+        # numbers. Independent verification owns correctness.
         issues.append(
-            "最终答案数值没有被任何步骤结果推导出来："
-            + ",".join(missing_answer_numbers)
-        )
-
-    last_result_numbers = numeric_tokens(steps[-1].get("result")) if steps else []
-    if (
-        len(answer_numbers) == 1
-        and last_result_numbers
-        and answer_numbers[0] not in last_result_numbers
-    ):
-        issues.append(
-            "最终答案中的唯一数值未出现在最后一步结果中："
-            f"answer={answer_numbers[0]}, last_result={','.join(last_result_numbers)}"
+            f"{_ADVISORY_PREFIX}最终答案数值没有被任何步骤结果推导出来："
+            + ",".join(str(value) for value in missing_answer_values[:4])
         )
 
     for step_index, step in enumerate(steps, start=1):
         for equality in _invalid_literal_equalities(step.get("operation")):
             issues.append(f"第{step_index}步包含算术矛盾：{equality}")
-    return issues[:3]
+    blocking = [issue for issue in issues if not issue.startswith(_ADVISORY_PREFIX)]
+    advisory = [issue for issue in issues if issue.startswith(_ADVISORY_PREFIX)]
+    return (blocking + advisory)[:4]
 
 
 def _literal_arithmetic_value(expression: str) -> Fraction:
@@ -466,42 +514,79 @@ class SolveProblemTool(ITool):
             return ToolResult(success=False, summary="解题调用失败", error=str(exc))
 
         payload = _parse_solution(done)
-        if payload is None:
+        raw_format_artifacts = [_raw_solution_artifact(done, ctx, "initial")]
+        steps = (payload or {}).get("steps") or []
+        if payload is None or not steps:
+            # A format failure has a knowable cause; one bounded retry with
+            # the concrete error beats dying on an arbitrary new problem.
+            failure_reason = (
+                "缺少可解析的「## 解题」section" if payload is None else "未解析到任何解题步骤"
+            )
+            format_feedback = (
+                "\n\n## 上次输出格式无法解析\n"
+                f"- 问题：{failure_reason}\n"
+                "- 必须包含精确标题 '## 解题'；每一步用 '### 第 N 步' 三级子标题，"
+                "内含 **描述/运算/解释/结果** 字段。\n"
+            )
+            if str(getattr(done, "finish_reason", "")) == "length":
+                format_feedback += (
+                    "- 上次输出在完成前被截断：请压缩 ## 分析 篇幅，确保 ## 解题 完整输出。\n"
+                )
+            try:
+                retry_done = await self._llm.chat_complete(
+                    messages=[ChatMessage(role="user", content=prompt + format_feedback)],
+                    temperature=0.1,
+                    max_tokens=6144,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                )
+                raw_format_artifacts.append(
+                    _raw_solution_artifact(retry_done, ctx, "format-retry")
+                )
+                retry_payload = _parse_solution(retry_done)
+                if retry_payload and retry_payload.get("steps"):
+                    done = retry_done
+                    payload = retry_payload
+                    steps = payload.get("steps") or []
+            except Exception:
+                logger.exception("solve_problem format retry failed")
+        if payload is None or not steps:
             logger.warning(
-                "solve_problem: no parseable markdown/JSON | finish=%s "
-                "text_len=%d reasoning_len=%d text_head=%r reasoning_head=%r",
+                "solve_problem: no parseable solution after retry | finish=%s "
+                "text_len=%d reasoning_len=%d",
                 getattr(done, "finish_reason", "?"),
                 len(getattr(done, "text", "") or ""),
                 len(getattr(done, "reasoning", "") or ""),
-                (getattr(done, "text", "") or "")[:200],
-                (getattr(done, "reasoning", "") or "")[:200],
             )
             return ToolResult(
                 success=False,
-                summary="无法从模型输出解析「## 解题」section",
-                error="parse_failed",
+                summary=(
+                    "无法从模型输出解析「## 解题」section（含一次格式重试）"
+                    if payload is None
+                    else "解题步骤为空（含一次格式重试）"
+                ),
+                error="parse_failed" if payload is None else "empty_steps",
                 data={
-                    "raw_text": (done.text or "")[:600],
-                    "raw_reasoning": (done.reasoning or "")[:600],
+                    "raw_text": (getattr(done, "text", "") or "")[:600],
+                    "raw_reasoning": (getattr(done, "reasoning", "") or "")[:600],
                     "finish_reason": getattr(done, "finish_reason", None),
                 },
-                artifacts=[_raw_solution_artifact(done, ctx, "initial")],
-            )
-
-        steps = payload.get("steps") or []
-        if not steps:
-            return ToolResult(
-                success=False,
-                summary="解题步骤为空",
-                error="empty_steps",
-                data=payload,
+                artifacts=raw_format_artifacts,
             )
 
         math_request, math_execution = _execute_declared_math(done)
-        contract_issues = [
+        all_contract_issues = [
             *_solution_contract_issues(payload),
             *_math_execution_issues(math_execution),
         ][:4]
+        # Advisory issues (style/derivation hints) never justify a repair
+        # round on their own — record them and proceed; blocking issues are
+        # machine-verified contradictions and get the bounded repair.
+        contract_issues = [
+            issue for issue in all_contract_issues if not issue.startswith(_ADVISORY_PREFIX)
+        ]
+        advisory_issues = [
+            issue for issue in all_contract_issues if issue.startswith(_ADVISORY_PREFIX)
+        ]
         internal_repair_count = 0
         repaired_done = None
         if contract_issues:
@@ -513,8 +598,8 @@ class SolveProblemTool(ITool):
                 prompt
                 + "\n\n## 提交前契约检查未通过\n"
                 + "\n".join(f"- {issue}" for issue in contract_issues)
-                + "\n重新输出完整的 ## 分析 和 ## 解题定稿。只修正上述矛盾，"
-                "再次逐项核对最终答案与最后一步结果。"
+                + "\n重新输出完整的 ## 分析 和 ## 解题（标题必须精确为 '## 解题'）。"
+                "只修正上述矛盾，再次逐项核对最终答案与最后一步结果。"
             )
             try:
                 repaired_done = await self._llm.chat_complete(
@@ -529,29 +614,50 @@ class SolveProblemTool(ITool):
             repaired_payload = _parse_solution(repaired_done) if repaired_done else None
             if repaired_payload and repaired_done:
                 repaired_request, repaired_execution = _execute_declared_math(repaired_done)
-                repaired_issues = [
+                repaired_all = [
                     *_solution_contract_issues(repaired_payload),
                     *_math_execution_issues(repaired_execution),
                 ][:4]
+                repaired_issues = [
+                    issue
+                    for issue in repaired_all
+                    if not issue.startswith(_ADVISORY_PREFIX)
+                ]
+                advisory_issues = [
+                    issue for issue in repaired_all if issue.startswith(_ADVISORY_PREFIX)
+                ]
             else:
                 repaired_request = None
                 repaired_execution = MathExecutionResult(
                     False, errors=["修复输出无法解析"]
                 )
                 repaired_issues = ["修复输出无法解析"]
-            if repaired_payload and not repaired_issues:
+            if repaired_payload and repaired_done is not None:
+                # Adopt the repaired draft whenever it PARSED — even when
+                # issues remain, they describe the repaired artifact, and the
+                # downgrade logic below must judge that artifact, not the
+                # stale original (which may still carry already-fixed
+                # narrative issues and wrongly block the math downgrade).
                 done = repaired_done
                 payload = repaired_payload
                 steps = payload.get("steps") or []
                 math_request = repaired_request
                 math_execution = repaired_execution
-                contract_issues = []
                 internal_repair_count = 1
+                contract_issues = repaired_issues
             else:
                 contract_issues = repaired_issues
         math_downgrade_artifacts: list[ArtifactSpec] = []
+        if advisory_issues:
+            ctx.state["solve_contract_advisories"] = advisory_issues
+        else:
+            ctx.state.pop("solve_contract_advisories", None)
         if contract_issues:
-            solution_issues_now = _solution_contract_issues(payload)
+            solution_issues_now = [
+                issue
+                for issue in _solution_contract_issues(payload)
+                if not issue.startswith(_ADVISORY_PREFIX)
+            ]
             if not solution_issues_now:
                 # Every remaining issue concerns the deterministic-computation
                 # artifact, not the solution itself.  The documented principle
