@@ -6680,3 +6680,22 @@ def test_direct_video_prefers_mix_swap_over_llm_director() -> None:
     result = asyncio.run(DirectVideoTool(NeverCalledPlanner()).execute({}, ctx))  # type: ignore[arg-type]
     assert result.success is True
     assert ctx.state["visual_plan"]["grounding_source"] == "linear_mix_swap"
+
+
+def test_essence_rationale_must_name_the_decisive_relation() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_essence_rationale,
+    )
+
+    # Pure animation description without any reasoning vocabulary fails.
+    errors = _validate_essence_rationale(
+        "画面里先出现五个方块，然后两个方块飞进右边的盒子，最后显示绿色对勾结束。"
+    )
+    assert any("决定性数学关系" in error for error in errors)
+    # Naming the invariant / causal relation passes.
+    assert (
+        _validate_essence_rationale(
+            "因为总量守恒，拿走的与剩下的合起来仍是原总数，学生重新数一遍就能核对答案。"
+        )
+        == []
+    )

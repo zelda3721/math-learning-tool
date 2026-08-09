@@ -1175,6 +1175,14 @@ def _validate_essence_rationale(text: str) -> list[str]:
         errors.append("essence_rationale 至少 20 字，需解释画面为何能证明或解释结论")
     if len(value) > 400:
         errors.append("essence_rationale 超过 400 字，请聚焦一个核心数学关系")
+    # The rationale must explain WHY the answer holds — an invariant, a
+    # conservation, a correspondence — not merely describe the animation.
+    # The signal list is reasoning vocabulary, not problem-type vocabulary.
+    if value and not any(word in value for word in _WHY_SIGNAL_WORDS):
+        errors.append(
+            "essence_rationale 未指出决定性数学关系（守恒/不变量/对应/因为…所以）；"
+            "它必须回答“学生看什么就能明白答案为什么成立”，不能只描述动画内容"
+        )
     return errors
 
 
