@@ -1,6 +1,6 @@
 services:
   backend:
-    build: ./backend
+    build: ./services/video-engine
     ports:
       - "8000:8000"
     environment:
@@ -65,7 +65,7 @@ services:
       retries: 3
 
   frontend:
-    build: ./frontend
+    build: ./apps/web
     ports:
       - "3000:80"
     depends_on:
