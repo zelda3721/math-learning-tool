@@ -6403,3 +6403,153 @@ def test_minimal_narrative_plan_always_validates() -> None:
     )
     plan2 = build_minimal_narrative_plan(ctx2)
     assert plan2 is not None and _validate_plan(plan2, "high") == []
+
+
+# ---------------------------------------------------------------------------
+# Review timeout resilience and verify selector near-misses
+# ---------------------------------------------------------------------------
+
+
+def test_watch_timeout_delivers_degraded_instead_of_stranding_session() -> None:
+    class NeverCalledLLM:
+        def chat_stream(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("controller LLM must not run")
+
+    class MemoryStore:
+        def __init__(self) -> None:
+            self.updated: dict[str, Any] = {}
+            self.artifact_id = 0
+
+        async def create_session(self, **kwargs: Any) -> str:
+            return "session"
+
+        async def append_message(self, *args: Any, **kwargs: Any) -> int:
+            return 1
+
+        async def record_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def complete_tool_call(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        async def update_session(self, session_id: str, **kwargs: Any) -> None:
+            self.updated = kwargs
+
+        async def save_text_artifact(self, *args: Any, **kwargs: Any) -> tuple[int, str]:
+            self.artifact_id += 1
+            return self.artifact_id, "a.json"
+
+        async def add_artifact(self, *args: Any, **kwargs: Any) -> int:
+            self.artifact_id += 1
+            return self.artifact_id
+
+    class StageTool(ITool):
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        @property
+        def description(self) -> str:
+            return self._name
+
+        @property
+        def parameters(self) -> dict[str, Any]:
+            return {"type": "object", "properties": {}, "required": []}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            state = ctx.state
+            if self.name == "solve_problem":
+                state["solution_steps"] = [{"description": "d"}]
+                state["solution_answer"] = "3"
+                state["solution_verified"] = False
+            elif self.name == "verify_solution":
+                state["solution_verified"] = True
+            elif self.name == "direct_video":
+                state["visual_plan"] = _open_world_plan()
+            elif self.name == "compile_video":
+                state["latest_video_path"] = "v.mp4"
+                state["latest_video_url"] = "/v.mp4"
+            elif self.name == "watch_video":
+                # Simulate a mid-repair kill: the plan replan already cleared
+                # the delivered candidate, then the composite hangs.
+                state.pop("latest_video_path", None)
+                state.pop("latest_video_url", None)
+                state["best_visual_candidate"] = {
+                    "video_path": "best.mp4",
+                    "video_url": "/best.mp4",
+                    "code": "code",
+                    "score": 8,
+                }
+                await asyncio.sleep(30)
+            return ToolResult(success=True, summary="ok")
+
+    registry = ToolRegistry()
+    for name in (
+        "solve_problem",
+        "verify_solution",
+        "direct_video",
+        "compile_video",
+        "watch_video",
+    ):
+        registry.register(StageTool(name))
+    store = MemoryStore()
+    loop = AgentLoop(
+        llm=NeverCalledLLM(),  # type: ignore[arg-type]
+        registry=registry,
+        composer=PromptComposer(),
+        store=store,  # type: ignore[arg-type]
+        use_latex=False,
+        max_turns=8,
+        deterministic_workflow=True,
+        tool_timeout_s=0.05,
+    )
+
+    async def collect() -> list[Any]:
+        return [event async for event in loop.run(problem="p", grade="middle")]
+
+    events = asyncio.run(collect())
+    done = [event for event in events if isinstance(event, DoneEvent)][-1]
+    # The timed-out review restores the best candidate and completes the
+    # session as a degraded delivery instead of dying at a later budget.
+    assert done.status == "ok"
+    assert done.final_video_path == "best.mp4"
+    assert store.updated.get("status") == "done"
+
+
+def test_math_runtime_accepts_string_key_and_field_selector_shapes() -> None:
+    from math_tutor.infrastructure.agent.math_runtime import execute_math_request
+
+    base_ops = [
+        {
+            "id": "solve_system",
+            "op": "solve",
+            "expression": ["chicken + rabbit - 35", "2*chicken + 4*rabbit - 94"],
+            "variables": ["chicken", "rabbit"],
+        }
+    ]
+    symbols = {
+        "chicken": {"domain": "nonnegative"},
+        "rabbit": {"domain": "nonnegative"},
+    }
+    # Field shapes from the chicken-rabbit verify attempts: string subscript
+    # and direct field access without [0].
+    for left in (
+        "$solve_system[0]['chicken']",
+        "$solve_system['chicken']",
+        "$solve_system.chicken",
+        "$solve_system[0].chicken",
+    ):
+        result = execute_math_request(
+            {
+                "engine": "sympy",
+                "symbols": symbols,
+                "operations": base_ops,
+                "claims": [
+                    {"id": "c", "relation": "equal", "left": left, "right": "23"}
+                ],
+            }
+        )
+        assert result.success and result.all_claims_passed, (left, result.errors, result.claims)

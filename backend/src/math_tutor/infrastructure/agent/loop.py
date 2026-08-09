@@ -780,13 +780,58 @@ class AgentLoop:
                 tc.arguments,
             )
             safe_args = {}
+        # Composite stages legitimately chain several model calls, renders
+        # and (for watch) two vision reviews of 8-12 images on local
+        # hardware; a flat per-tool cap starves them while staying right for
+        # single-call tools.
+        timeout_multiplier = {
+            "solve_problem": 2.0,
+            "verify_solution": 2.0,
+            "direct_video": 2.0,
+            "compile_video": 2.5,
+            "watch_video": 4.0,
+        }.get(tc.name, 1.0)
         try:
             result = await asyncio.wait_for(
                 tool.execute(safe_args, ctx),
-                timeout=self._tool_timeout,
+                timeout=self._tool_timeout * timeout_multiplier,
             )
         except asyncio.TimeoutError:
             duration_ms = int((time.monotonic() - start) * 1000)
+            if tc.name == "watch_video":
+                # A review timeout must not strand the session: the composite
+                # may have been killed mid-repair with the previous candidate
+                # already invalidated. Restore the best playable candidate
+                # and deliver it as a degraded review outcome.
+                best = state.get("best_visual_candidate") or {}
+                if not state.get("latest_video_path") and best.get("video_path"):
+                    state["latest_video_path"] = best.get("video_path")
+                    state["latest_video_url"] = best.get("video_url")
+                    state["latest_manim_code"] = best.get("code") or ""
+                if state.get("latest_video_path"):
+                    state["last_visual_review"] = {
+                        "overall_quality": "acceptable",
+                        "timeout_degraded": True,
+                        "issues": ["成片审查超时，未能完成完整评审"],
+                    }
+                    state["last_visual_failed"] = False
+                    state["quality_degraded"] = True
+                    state["delivery_warning"] = "成片审查超时；已按降级质量交付当前候选视频"
+                    state.pop("force_visual_replan", None)
+                    return _ToolOutcome(
+                        tc=tc,
+                        result=ToolResult(
+                            success=True,
+                            summary="成片审查超时；已交付当前最佳候选并标记质量降级",
+                            data={
+                                "overall_quality": "acceptable",
+                                "timeout_degraded": True,
+                                "video_path": state.get("latest_video_path"),
+                                "video_url": state.get("latest_video_url"),
+                            },
+                        ),
+                        duration_ms=duration_ms,
+                    )
             return _ToolOutcome(
                 tc=tc,
                 result=ToolResult(
