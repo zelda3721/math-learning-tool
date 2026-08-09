@@ -137,6 +137,7 @@ _FALLBACK_IR_ACTIONS = {
     "count",
     "recount_verify",
     "replicate",
+    "swap_units",
 }
 # Quantity-verb parameters that must survive IR extraction for the template.
 _FALLBACK_IR_ACTION_FIELDS = (
@@ -1790,6 +1791,93 @@ class SolutionScene(Scene):
                 self.play(
                     LaggedStart(*moves, lag_ratio=min(0.12, 2.0 / max(len(moves), 1)))
                 )
+        elif op == "swap_units":
+            source_id = str(action.get("source") or (targets[0] if targets else ""))
+            swap_count = int(self.number(action.get("count"), 0, 0, 64))
+            marks_after = int(self.number(action.get("expect"), 0, 0, 6))
+            target_total = int(self.number(action.get("expect_total"), -1, -1, 4096))
+            units = self.ledger_units(source_id)
+            marker_id = next(
+                (m for m, h in self.attachment_hosts.items() if h == source_id), None
+            )
+            marks_before = 0
+            if marker_id is not None:
+                marks_before = int(self.number(
+                    (self.specs.get(marker_id, {}).get("params") or {}).get("count_per_unit"),
+                    0, 0, 6,
+                ))
+            if units and swap_count >= 1:
+                swap_count = min(swap_count, len(units))
+                delta = marks_after - marks_before
+                running = len(units) * marks_before
+                swapped_color = GREEN
+                counter = None
+
+                def show_running(value, color=YELLOW):
+                    nonlocal counter
+                    fresh = Text(f"总数: {value}", font_size=32, color=color)
+                    fresh.to_corner(UR, buff=0.4)
+                    if counter is not None:
+                        self.remove(counter)
+                    counter = fresh
+                    self.add(counter)
+
+                show_running(running)
+                self.wait(0.6)
+                step_time = 0.5 if swap_count <= 8 else max(0.16, 4.5 / swap_count)
+                for offset in range(swap_count):
+                    unit = units[-1 - offset]
+                    center = unit.get_center()
+                    new_marks = VGroup()
+                    for index in range(max(delta, 0)):
+                        # Continue the existing mark row rightward so the
+                        # original a marks keep their positions.
+                        mark_offset = (
+                            marks_before + index - (marks_before - 1) / 2
+                        ) * 0.075
+                        new_marks.add(Line(
+                            center + [mark_offset, -0.08, 0],
+                            center + [mark_offset, -0.27, 0],
+                            color=swapped_color, stroke_width=2.5,
+                        ))
+                    running += delta
+                    show_running(running)
+                    animations = [unit.animate.set_color(swapped_color)]
+                    if len(new_marks):
+                        animations.append(
+                            LaggedStart(*[GrowFromCenter(m) for m in new_marks],
+                                        lag_ratio=0.1)
+                        )
+                    self.play(*animations, run_time=step_time)
+                    for mark in new_marks:
+                        unit.add(mark)
+                reached = target_total < 0 or running == target_total
+                show_running(running, GREEN if reached else RED)
+                self.wait(0.8)
+                # Group braces: swapped tail vs untouched head.
+                remaining_units = units[: len(units) - swap_count]
+                swapped_units = units[len(units) - swap_count:]
+                badges = []
+                if remaining_units:
+                    brace_a = Brace(VGroup(*remaining_units), LEFT, buff=0.15)
+                    label_a = Text(str(len(remaining_units)), font_size=28, color=BLUE)
+                    label_a.next_to(brace_a, LEFT, buff=0.08)
+                    badge_a = VGroup(brace_a, label_a)
+                    badge_a.shift_onto_screen(buff=0.3)
+                    self.register_badge(self.count_badges, source_id, badge_a)
+                    badges.append(badge_a)
+                if swapped_units:
+                    brace_b = Brace(VGroup(*swapped_units), RIGHT, buff=0.15)
+                    label_b = Text(str(len(swapped_units)), font_size=28, color=swapped_color)
+                    label_b.next_to(brace_b, RIGHT, buff=0.08)
+                    badge_b = VGroup(brace_b, label_b)
+                    badge_b.shift_onto_screen(buff=0.3)
+                    self.register_badge(
+                        self.count_badges, source_id + "__swapped", badge_b
+                    )
+                    badges.append(badge_b)
+                if badges:
+                    self.play(*[GrowFromCenter(b) for b in badges], run_time=0.6)
         elif op == "replicate" and targets and result_id in self.objects:
             source_id = str(action.get("source") or (targets[0] if targets else ""))
             times = int(self.number(action.get("count"), 0, 0, 24))

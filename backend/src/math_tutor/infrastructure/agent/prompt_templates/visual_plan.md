@@ -94,6 +94,10 @@
   - `count`：`targets[0]` 为要数的组，`expect` 为期望数量；数字必须由逐个计数产生。
   - `recount_verify`：`targets` 为参与合计的组，`expect_total` 为守恒总量；验证即分组
     重数并拼出算式。
+  - `swap_units`：假设-替换论证。`source` 为计数组，`count` 为要替换的单位数，
+    `expect` 为替换后每单位的标记数（0-6），`expect_total` 为替换完成后应达到的
+    可见标记总量；每次替换单位变色、补标记、总量计数同步变化。适用于"两类成员、
+    总数固定、总值固定"的混合结构（假设法/置换法）。
   - 未使用的参数字段一律填 `null`。`move` 必须携带 `destination`（对象 id 或 `x=数值`）。
   - 守恒硬约束：每个数量动词的收支必须平衡（源减 k、目的地增 k），校验器逐动词核对。
 - `targets` 和 `result` 必须精确引用完整的 `visual_objects.id`，不能写 `axes.origin`、
