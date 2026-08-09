@@ -119,6 +119,7 @@ _FALLBACK_IR_PRIMITIVES = {
     "axes",
     "polygon",
     "relation_node",
+    "balance",
 }
 _FALLBACK_IR_ACTIONS = {
     "create",
@@ -138,6 +139,9 @@ _FALLBACK_IR_ACTIONS = {
     "recount_verify",
     "replicate",
     "swap_units",
+    "balance_remove",
+    "balance_divide",
+    "balance_verify",
 }
 # Quantity-verb parameters that must survive IR extraction for the template.
 _FALLBACK_IR_ACTION_FIELDS = (
@@ -482,6 +486,7 @@ class SolutionScene(Scene):
         self.measurement_badges = {}
         self.unit_ledger = {}
         self.count_badges = {}
+        self.balance_parts = {}
         self.deferred_creates = set()
         self.last_comparison_difference = None
         self.relation_values = []
@@ -749,6 +754,12 @@ class SolutionScene(Scene):
             ),
             default=0,
         )
+        if primitive == "balance":
+            body = self.build_balance(spec["id"], params)
+            # Self-positioned hero object: keep it out of slot layout/fit.
+            self.coordinate_ids.add(spec["id"])
+            self.object_bodies[spec["id"]] = body
+            return body
         repeated = self.repeated_body(
             primitive, params, color,
             extra_row_gap=0.2 if max_marks > 0 else 0.0,
@@ -1174,6 +1185,84 @@ class SolutionScene(Scene):
             old.clear_updaters()
             self.remove(old)
         registry[key] = badge
+
+    def build_balance(self, spec_id, params):
+        # A physical two-pan balance: unknown boxes + unit dots on the left,
+        # unit dots on the right, level beam = the equality itself.
+        coefficient = int(self.number(params.get("coefficient"), 1, 0, 6))
+        constant = int(self.number(params.get("constant"), 0, 0, 24))
+        total = int(self.number(params.get("total"), 1, 0, 30))
+        variable = str(params.get("variable") or "x")[:2]
+        # Tall clearance between pans and beam: pan stacks need two rows of
+        # countable objects without touching the beam.
+        beam_y, pan_y = 1.75, 0.55
+        beam = Line([-3.1, beam_y, 0], [3.1, beam_y, 0], color=GREY_B, stroke_width=6)
+        fulcrum = Polygon(
+            [0, beam_y - 0.04, 0], [-0.42, 0.1, 0], [0.42, 0.1, 0],
+            color=GREY_B, fill_color=GREY_D, fill_opacity=1,
+        )
+        parts = VGroup(beam, fulcrum)
+        pans = {}
+        for side, pan_x in (("left", -2.25), ("right", 2.25)):
+            hanger = Line(
+                [pan_x, beam_y, 0], [pan_x, pan_y, 0], color=GREY_B, stroke_width=3
+            )
+            pan = Line(
+                [pan_x - 1.25, pan_y, 0], [pan_x + 1.25, pan_y, 0],
+                color=GREY_B, stroke_width=5,
+            )
+            parts.add(hanger, pan)
+            pans[side] = pan
+        equal_sign = Text("=", font_size=34, color=WHITE).move_to([0, beam_y + 0.4, 0])
+        parts.add(equal_sign)
+
+        def unit_dot():
+            return Dot(radius=0.1, color=YELLOW)
+
+        left_boxes = []
+        for _ in range(coefficient):
+            box = VGroup(
+                Square(side_length=0.44, color=BLUE, fill_color=BLUE, fill_opacity=0.25),
+                Text(variable, font_size=24, color=WHITE),
+            )
+            left_boxes.append(box)
+        left_units = [unit_dot() for _ in range(constant)]
+        right_units = [unit_dot() for _ in range(total)]
+
+        def arrange_on_pan(items, pan):
+            if not items:
+                return
+            # At most two rows so stacks always fit under the beam.
+            columns = max(4, math.ceil(len(items) / 2))
+            group = VGroup(*items).arrange_in_grid(
+                rows=math.ceil(len(items) / columns), cols=columns,
+                buff=(0.1, 0.12),
+            )
+            if group.width > 2.4:
+                group.scale_to_fit_width(2.4)
+            group.next_to(pan, UP, buff=0.08)
+
+        arrange_on_pan(left_boxes + left_units, pans["left"])
+        arrange_on_pan(right_units, pans["right"])
+        for item in (*left_boxes, *left_units, *right_units):
+            parts.add(item)
+        parts.move_to([0, 0.4, 0])
+        self.balance_parts[spec_id] = {
+            "beam": beam,
+            "equal_sign": equal_sign,
+            "pans": pans,
+            "left_boxes": left_boxes,
+            "left_units": left_units,
+            "right_units": right_units,
+            "params": {
+                "coefficient": coefficient,
+                "constant": constant,
+                "total": total,
+                "solution": int(self.number(params.get("solution"), 1, 0, 24)),
+                "variable": variable,
+            },
+        }
+        return parts
 
     def ledger_units(self, object_id):
         # A group's units are the same mobjects for the whole video: they can
@@ -1811,6 +1900,125 @@ class SolutionScene(Scene):
                 self.play(
                     LaggedStart(*moves, lag_ratio=min(0.12, 2.0 / max(len(moves), 1)))
                 )
+        elif op in ("balance_remove", "balance_divide", "balance_verify"):
+            balance_id = str(targets[0]) if targets else ""
+            state = self.balance_parts.get(balance_id)
+            if state is None:
+                return
+            beam = state["beam"]
+            if op == "balance_remove":
+                amount = int(self.number(action.get("count"), 0, 0, 24))
+                amount = min(amount, len(state["left_units"]), len(state["right_units"]))
+                step_time = 0.5 if amount <= 5 else max(0.2, 2.5 / amount)
+                for _ in range(amount):
+                    left_unit = state["left_units"].pop()
+                    right_unit = state["right_units"].pop()
+                    # The PAIR leaves together: same operation, both sides.
+                    self.play(
+                        Indicate(left_unit, color=RED, scale_factor=1.4),
+                        Indicate(right_unit, color=RED, scale_factor=1.4),
+                        run_time=step_time * 0.6,
+                    )
+                    self.play(
+                        FadeOut(left_unit, shift=UP * 0.4),
+                        FadeOut(right_unit, shift=UP * 0.4),
+                        run_time=step_time * 0.6,
+                    )
+                self.play(Indicate(beam, color=GREEN, scale_factor=1.02), run_time=0.6)
+            elif op == "balance_divide":
+                shares = int(self.number(action.get("count"), 2, 2, 6))
+                boxes = state["left_boxes"]
+                right_units = state["right_units"]
+                if not boxes or not right_units:
+                    return
+                per_share = max(1, len(right_units) // shares)
+                # Regroup the right pan into one visible row per share, each
+                # aligned with the unknown box it corresponds to.
+                pan_right = state["pans"]["right"]
+                base_y = pan_right.get_top()[1] + 0.16
+                # Rows must stay clear of the beam above the pan.
+                beam_y = beam.get_center()[1]
+                headroom = beam_y - 0.22 - base_y
+                row_gap = min(0.34, headroom / max(shares - 1, 1)) if shares > 1 else 0.34
+                moves = []
+                separators = VGroup()
+                for share_index in range(shares):
+                    share_units = right_units[
+                        share_index * per_share:(share_index + 1) * per_share
+                    ]
+                    row_y = base_y + share_index * row_gap
+                    for column, unit in enumerate(share_units):
+                        moves.append(unit.animate.move_to([
+                            pan_right.get_center()[0]
+                            + (column - (per_share - 1) / 2) * 0.24,
+                            row_y,
+                            0,
+                        ]))
+                    if share_index > 0:
+                        separators.add(DashedLine(
+                            [pan_right.get_left()[0], row_y - row_gap / 2, 0],
+                            [pan_right.get_right()[0], row_y - row_gap / 2, 0],
+                            color=GREY_B, stroke_width=2, dash_length=0.08,
+                        ))
+                self.play(LaggedStart(*moves, lag_ratio=0.03), run_time=1.6)
+                if len(separators):
+                    self.play(Create(separators), run_time=0.6)
+                # Pair each box with its share, one connector at a time.
+                connectors = VGroup()
+                for share_index, box in enumerate(boxes[:shares]):
+                    row_y = base_y + share_index * 0.34
+                    connector = DashedLine(
+                        box.get_right() + RIGHT * 0.08,
+                        [pan_right.get_left()[0] - 0.08, row_y, 0],
+                        color=BLUE_B, stroke_width=2.5, dash_length=0.1,
+                    )
+                    connectors.add(connector)
+                    self.play(
+                        Indicate(box, color=BLUE, scale_factor=1.15),
+                        Create(connector),
+                        run_time=0.7,
+                    )
+                self.wait(0.5)
+                self.play(FadeOut(connectors), run_time=0.4)
+                self.play(Indicate(beam, color=GREEN, scale_factor=1.02), run_time=0.6)
+            else:  # balance_verify
+                solution = int(self.number(
+                    action.get("expect"),
+                    state["params"].get("solution", 1),
+                    0, 24,
+                ))
+                replacements = []
+                for box in state["left_boxes"]:
+                    dots = VGroup(*[
+                        Dot(radius=0.1, color=GREEN) for _ in range(max(solution, 1))
+                    ]).arrange_in_grid(
+                        rows=max(1, math.ceil(max(solution, 1) / 3)), cols=min(3, max(solution, 1)),
+                        buff=(0.08, 0.08),
+                    ).move_to(box.get_center())
+                    replacements.append((box, dots))
+                self.play(*[
+                    ReplacementTransform(box, dots) for box, dots in replacements
+                ], run_time=1.2)
+                left_count = (
+                    len(state["left_units"])
+                    + sum(len(dots) for _, dots in replacements)
+                )
+                right_count = len(state["right_units"])
+                verdict_color = GREEN if left_count == right_count else RED
+                left_badge = Text(str(left_count), font_size=30, color=verdict_color)
+                left_badge.next_to(state["pans"]["left"], DOWN, buff=0.18)
+                right_badge = Text(str(right_count), font_size=30, color=verdict_color)
+                right_badge.next_to(state["pans"]["right"], DOWN, buff=0.18)
+                check = Text("✓" if left_count == right_count else "✗",
+                             font_size=40, color=verdict_color)
+                check.next_to(state["equal_sign"], UP, buff=0.15)
+                self.play(FadeIn(left_badge), FadeIn(right_badge), run_time=0.6)
+                self.play(
+                    Indicate(beam, color=verdict_color, scale_factor=1.03),
+                    FadeIn(check),
+                    run_time=0.8,
+                )
+                self.wait(0.6)
         elif op == "swap_units":
             source_id = str(action.get("source") or (targets[0] if targets else ""))
             swap_count = int(self.number(action.get("count"), 0, 0, 64))

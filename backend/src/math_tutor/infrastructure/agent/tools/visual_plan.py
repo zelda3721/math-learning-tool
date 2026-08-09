@@ -25,6 +25,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..math_runtime import (
     evaluate_real_expression_at,
+    extract_linear_balance_structure,
     extract_linear_mix_structure,
     sample_real_expression,
 )
@@ -47,6 +48,9 @@ _VISUAL_PRIMITIVES = {
     "axes",
     "polygon",
     "relation_node",
+    # A two-pan balance holding unknown boxes and unit dots; equality made
+    # physical. params: coefficient/constant/total/solution/variable.
+    "balance",
 }
 _VISUAL_ACTIONS = {
     "create",
@@ -68,6 +72,10 @@ _VISUAL_ACTIONS = {
     "recount_verify",
     "replicate",
     "swap_units",
+    # Balance verbs: the same operation applied to BOTH sides at once.
+    "balance_remove",
+    "balance_divide",
+    "balance_verify",
 }
 _QUANTITY_ACTIONS = {
     "take_from",
@@ -87,8 +95,10 @@ _MUTATING_VISUAL_ACTIONS = {
     "combine",
     "replicate",
     "swap_units",
+    "balance_remove",
+    "balance_divide",
 }
-_VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify", "recount_verify"}
+_VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify", "recount_verify", "balance_verify"}
 _TAKE_FROM_STYLES = {"cross_out", "fade", "fly"}
 # Typed axis destination for coordinate-scan moves, e.g. "x=2.5".
 _AXIS_DESTINATION_RE = re.compile(r"^x\s*=\s*[-+]?\d+(?:\.\d+)?$")
@@ -2160,6 +2170,167 @@ def build_mix_swap_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     return plan
 
 
+def build_linear_balance_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Deterministic balance-scale plan for middle-school linear equations.
+
+    Equality made physical: unknown boxes and unit dots sit on two pans;
+    every operation applies to BOTH pans at once and the beam stays level.
+    Detection is the one-variable linear IR shape; representation policy
+    keeps this for the middle grade (high school owns the curve view).
+    """
+    if ctx.grade != "middle":
+        return None
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
+    if (
+        not isinstance(evidence, dict)
+        or not evidence.get("success")
+        or evidence.get("all_claims_passed") is not True
+    ):
+        return None
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    balance = extract_linear_balance_structure(request)
+    if balance is None:
+        return None
+    variable = balance["variable"]
+    coefficient = balance["coefficient"]
+    constant = balance["constant"]
+    total = balance["total"]
+    solution = balance["solution"]
+    remainder = total - constant
+
+    def action(op: str, **fields: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {"op": op, "targets": ["equation_balance"], "result": ""}
+        payload.update(fields)
+        payload.setdefault("meaning", op)
+        return payload
+
+    transform_actions: list[dict[str, Any]] = []
+    if constant >= 1:
+        transform_actions.append(
+            action(
+                "balance_remove",
+                count=constant,
+                meaning=(
+                    f"两盘同时拿走 {constant} 个单位，天平保持平衡："
+                    f"{coefficient}{variable} = {remainder}"
+                ),
+            )
+        )
+    if coefficient >= 2:
+        transform_actions.append(
+            action(
+                "balance_divide",
+                count=coefficient,
+                meaning=(
+                    f"把两盘同时分成 {coefficient} 份，每个 {variable} 方块对应一份："
+                    f"{variable} = {remainder} ÷ {coefficient} = {solution}"
+                ),
+            )
+        )
+    if not transform_actions:
+        return None
+
+    plan = {
+        "plan_version": 2,
+        "grounding_source": "linear_balance",
+        "visual_thesis": (
+            f"把 {coefficient}{variable} + {constant} = {total} 放上天平，"
+            "对两盘做完全相同的操作，平衡不破，未知数被逐步孤立"
+        ),
+        "essence_rationale": (
+            "因为等式就是天平的平衡：两边同时拿走同样多、同时等分，平衡保持不变，"
+            f"所以孤立出的每个 {variable} 方块必然对应 {solution} 个单位，"
+            "学生看到的每一步都是等量同变原理本身。"
+        ),
+        "symbol_ledger": [
+            f"蓝色方块 = 未知数 {variable}",
+            "黄色圆点 = 1 个单位",
+            "水平横梁 = 等式两边保持相等",
+        ],
+        "visual_objects": [
+            {
+                "id": "equation_balance",
+                "primitive": "balance",
+                "meaning": f"承载 {coefficient}{variable} + {constant} = {total} 的天平",
+                "label": "",
+                "color": "blue",
+                "params": {
+                    "coefficient": coefficient,
+                    "constant": constant,
+                    "total": total,
+                    "solution": solution,
+                    "variable": variable,
+                },
+            },
+            {
+                "id": "unit_reference",
+                "primitive": "dot",
+                "meaning": "单位圆点的图例参照",
+                "label": "1 个单位",
+                "color": "yellow",
+                "params": {},
+            },
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "equation_balance",
+                "action": (
+                    f"搭起天平：左盘 {coefficient} 个 {variable} 方块加 {constant} 个单位，"
+                    f"右盘 {total} 个单位"
+                ),
+                "invariant": "天平水平 = 等式成立",
+                "attention_target": "两盘内容与水平的横梁",
+                "exit_condition": "天平及两盘内容清楚可见",
+                "teaching_line": (
+                    f"等式就是天平：左盘 {coefficient} 个 {variable} 加 {constant} 个单位，"
+                    f"右盘 {total} 个单位，正好平衡。"
+                ),
+                "duration_s": 6,
+                "actions": [
+                    action("create", meaning="搭起代表等式的天平"),
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "equation_balance",
+                "action": "对两盘执行完全相同的操作，逐步孤立未知数",
+                "invariant": "每一步两盘同变，横梁始终水平",
+                "attention_target": "被同时拿走/等分的对象与保持水平的横梁",
+                "exit_condition": f"每个 {variable} 方块单独对应一组单位",
+                "teaching_line": "对两边做同样的事，平衡就不会破——这是解方程唯一的规则。",
+                "duration_s": max(6.0, 5 + constant * 0.4 + coefficient * 1.2),
+                "actions": transform_actions,
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "equation_balance",
+                "action": f"把每个 {variable} 方块换成 {solution} 个单位，重数两盘核对平衡",
+                "invariant": f"{coefficient} × {solution} + {constant} = {total}",
+                "attention_target": "替换后两盘的单位数量",
+                "exit_condition": "两盘数量一致，平衡保持",
+                "teaching_line": (
+                    f"检验：{variable} = {solution}，替换后两盘各 {remainder} 个单位仍平衡；"
+                    f"代回原式 {coefficient}×{solution}+{constant}={total}。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    action("balance_verify", expect=solution, meaning="代回并重数两盘"),
+                ],
+            },
+        ],
+        "forbidden": ["只写符号变形不动天平", "只操作一侧托盘"],
+    }
+    errors = _validate_plan(plan, ctx.grade)
+    if errors:
+        logger.warning("linear balance plan failed validation: %s", errors[:3])
+        return None
+    return plan
+
+
 def build_minimal_narrative_plan(ctx: ToolContext) -> dict[str, Any] | None:
     """Absolute last-resort plan: verified quantities as bars, always valid.
 
@@ -3582,6 +3753,14 @@ def _validate_plan(
             params = item.get("params") or {}
             if not str(params.get("expression") or "").strip():
                 errors.append(f"visual_objects[{index}] 的 function_curve 缺少 params.expression")
+        if primitive == "balance":
+            params = item.get("params") or {}
+            for field_name in ("coefficient", "total", "solution"):
+                raw = params.get(field_name)
+                if not isinstance(raw, int) or raw < 0:
+                    errors.append(
+                        f"visual_objects[{index}] 的 balance 缺少非负整数 params.{field_name}"
+                    )
 
     scenes = plan.get("scenes") or []
     transform_ops: set[str] = set()
@@ -3742,6 +3921,54 @@ def _validate_plan(
                         unit_ledger[result] = combined
                         for target in targets:
                             unit_ledger[str(target)] = 0
+            elif op in {"balance_remove", "balance_divide", "balance_verify"}:
+                balance_target = str(targets[0]) if targets else ""
+                if object_primitives.get(balance_target) != "balance":
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 {op} 目标必须是 balance 对象"
+                    )
+                else:
+                    balance_params = (
+                        objects_by_id.get(balance_target, {}).get("params") or {}
+                    )
+                    amount = action.get("count")
+                    if op == "balance_remove":
+                        limit = balance_params.get("constant")
+                        if not isinstance(amount, int) or amount < 1:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 balance_remove "
+                                "缺少正整数 count"
+                            )
+                        elif isinstance(limit, int) and amount > limit:
+                            errors.append(
+                                f"场景 {index} action {action_index} 守恒违例："
+                                f"balance_remove {amount} 超过盘上单位数 {limit}"
+                            )
+                    elif op == "balance_divide":
+                        expected = balance_params.get("coefficient")
+                        if not isinstance(amount, int) or amount < 2:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 balance_divide "
+                                "缺少 ≥2 的整数 count（份数）"
+                            )
+                        elif isinstance(expected, int) and amount != expected:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 balance_divide "
+                                f"份数 {amount} 与未知数系数 {expected} 不一致"
+                            )
+                    else:  # balance_verify
+                        expect = action.get("expect")
+                        declared = balance_params.get("solution")
+                        if not isinstance(expect, int) or expect < 0:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 balance_verify "
+                                "缺少非负整数 expect（解）"
+                            )
+                        elif isinstance(declared, int) and expect != declared:
+                            errors.append(
+                                f"场景 {index} action {action_index} 的 balance_verify "
+                                f"expect={expect} 与已验证解 {declared} 不一致"
+                            )
             elif op == "swap_units":
                 swap_source = str(action.get("source") or "").strip() or (
                     str(targets[0]) if targets else ""
@@ -3866,6 +4093,9 @@ def _validate_plan(
                 "recount_verify",
                 "replicate",
                 "swap_units",
+                "balance_remove",
+                "balance_divide",
+                "balance_verify",
             }:
                 required_visible = list(targets)
                 if op == "take_from":
