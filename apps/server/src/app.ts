@@ -12,6 +12,8 @@ import type { JobStore } from "./ingest/jobs.js";
 import { learnerRoutes } from "./routes/learners.js";
 import { practiceRoutes } from "./routes/practice.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
+import { diagnosisRoutes } from "./routes/diagnosis.js";
+import { explainRoutes } from "./explain/routes.js";
 import { ingestRoutes } from "./ingest/routes.js";
 
 export interface AppState {
@@ -77,6 +79,8 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/learners", learnerRoutes(state));
   app.route("/api/v1/practice", practiceRoutes(state));
   app.route("/api/v1/knowledge", knowledgeRoutes(state));
+  app.route("/api/v1/diagnosis", diagnosisRoutes(state));
+  app.route("/api/v1/explain", explainRoutes(state));
   app.route("/api/v1/ingest", ingestRoutes(state));
 
   // 引擎透传（SSE 流式）

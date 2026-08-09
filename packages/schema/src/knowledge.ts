@@ -139,7 +139,7 @@ export const QuestionSchema = z.object({
   source: z.object({
     file: z.string().optional(),
     lecture: z.string().optional(),
-    role: z.enum(["upload", "teacher", "student", "manual"]),
+    role: z.enum(["upload", "teacher", "student", "manual", "generated"]),
   }),
   variantOf: z.string().optional(),
   contentHash: z.string(),
