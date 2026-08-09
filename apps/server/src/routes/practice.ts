@@ -6,6 +6,8 @@ import { composeToday } from "../composer.js";
 import { grade } from "../grading.js";
 import { applyAttempt, effectiveP, masteryBand } from "../mastery.js";
 import { makeHint } from "../hint.js";
+import { backfillProbeEvidence } from "../diagnosis.js";
+import { getVariant } from "../variant.js";
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（不喂答案从协议层做起） */
 function sanitize(q: Question) {
@@ -108,6 +110,11 @@ export function practiceRoutes(state: AppState): Hono {
       source: body.source,
     });
 
+    // 探针作答回填归因证据（宪法第 4 条：探针是证据，图遍历只是假设）
+    if (body.source === "probe" && !pending) {
+      backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
+    }
+
     return c.json({
       attemptId: attempt.id,
       correct: result.correct,
@@ -116,6 +123,27 @@ export function practiceRoutes(state: AppState): Hono {
       hintAvailable: !result.correct && !pending && body.hintLevelUsed < 3,
       mastery: masteryChanges,
     });
+  });
+
+  // 变式验证门供给（宪法第 1、3 条）：题库优先 > LLM 生成（进抽检）> 降级入复习队列
+  app.post("/variant", async (c) => {
+    const parsed = z
+      .object({ learnerId: z.string(), questionId: z.string() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId 与 questionId" }, 400);
+    const result = await getVariant({
+      store: state.questions,
+      repo: state.repo,
+      llm: state.hintProvider,
+      dataDir: state.config.dataDir,
+      learnerId: parsed.data.learnerId,
+      questionId: parsed.data.questionId,
+    });
+    if ("error" in result) return c.json({ error: result.error }, 404);
+    if (result.kind === "none") {
+      return c.json({ kind: "none", message: "暂无合适的变式题，已排进明天的复习队列——明天做对同类题一样点亮。" });
+    }
+    return c.json({ kind: result.kind, question: sanitize(result.question) });
   });
 
   app.post("/hint", async (c) => {

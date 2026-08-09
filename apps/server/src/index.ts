@@ -25,7 +25,7 @@ function buildHintProvider(): HintProvider | null {
       async generate(prompt: string): Promise<string> {
         let text = "";
         for await (const ev of client.chat([{ role: "user", content: prompt }], {
-          maxTokens: 200,
+          maxTokens: 600,
           temperature: 0.4,
         })) {
           if (ev.type === "text") text += ev.text;

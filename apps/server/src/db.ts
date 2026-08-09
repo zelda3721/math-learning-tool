@@ -64,6 +64,53 @@ CREATE TABLE IF NOT EXISTS queue_items (
   meta_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_queue_due ON queue_items(learner_id, due_at, consumed_at);
+-- P2 错因归因：错因 = 图谱坐标 (root_node_id, misconception_id?)，附证据与置信度（宪法第 4 条）
+CREATE TABLE IF NOT EXISTS mistakes (
+  id TEXT PRIMARY KEY,
+  attempt_id TEXT NOT NULL,
+  learner_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  surface TEXT NOT NULL,           -- concept | procedure | calculation | reading
+  root_node_id TEXT NOT NULL,
+  misconception_id TEXT,
+  chain_json TEXT NOT NULL,        -- 归因回溯路径（依据知识链，UI 明示）
+  confidence REAL NOT NULL,
+  eligible INTEGER NOT NULL,       -- 承重门槛：根因节点 verified 或有实证才为 1（宪法第 6 条）
+  explanation_artifact_id TEXT,
+  corrected_by_parent INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mistakes_learner ON mistakes(learner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mistakes_root ON mistakes(learner_id, root_node_id);
+-- P2 讲解产物登记（引用引擎会话，不入 git 知识层）
+CREATE TABLE IF NOT EXISTS explanations (
+  id TEXT PRIMARY KEY,
+  question_id TEXT,
+  focus_node_ids_json TEXT NOT NULL,
+  engine_session_id TEXT NOT NULL,
+  mode TEXT NOT NULL,              -- 'web' | 'video'（P2 仅 video；web 是 P4）
+  spec_url TEXT,
+  video_url TEXT,
+  subtitle_url TEXT,
+  quality TEXT NOT NULL,           -- good | acceptable
+  contract_version TEXT NOT NULL,
+  feedback_label TEXT,
+  variant_pass_rate REAL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_explanations_question ON explanations(question_id);
+-- P2 讲解生成任务（当天错题排队；夜间预生成后续接入同一张表）
+CREATE TABLE IF NOT EXISTS explain_jobs (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT,
+  question_id TEXT,
+  focus_node_ids_json TEXT NOT NULL,
+  status TEXT NOT NULL,            -- running | done | failed
+  explanation_id TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 -- P1b 批量抽取任务（运行时状态；抽取结果草稿在 result_json，确认后才进 file-first 题库）
 CREATE TABLE IF NOT EXISTS ingest_jobs (
   id TEXT PRIMARY KEY,
