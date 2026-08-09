@@ -19,6 +19,9 @@ export interface TreeCanvasOptions {
   onSelect?: (id: string | null) => void
 }
 
+export type MasteryBand = 'dim' | 'glow' | 'lit'
+export type MasteryMap = Record<string, { band: MasteryBand }>
+
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v))
 }
@@ -59,6 +62,7 @@ export class TreeCanvas {
 
   private selectedId: string | null = null
   private hoverId: string | null = null
+  private mastery: MasteryMap = {}
   private beamActive = true
   private lastFocus: string | null = null
   private destroyed = false
@@ -102,6 +106,23 @@ export class TreeCanvas {
     this.buildNodes()
     this.bindInteractions()
     this.applyTransform()
+    this.applyMastery() // rerender 后保持掌握度着色
+  }
+
+  /** 掌握度着色：dim=现状灰、glow=琥珀微光、lit=点亮（金色渐变+发光描边）。
+   *  未出现在 map 中的节点保持现状；重复调用/重建后均会重新应用。 */
+  setMastery(map: MasteryMap) {
+    this.mastery = map ?? {}
+    this.applyMastery()
+  }
+
+  private applyMastery() {
+    for (const [id, el] of this.nodeEls) {
+      const band = this.mastery[id]?.band
+      el.classList.toggle('m-dim', band === 'dim')
+      el.classList.toggle('m-glow', band === 'glow')
+      el.classList.toggle('m-lit', band === 'lit')
+    }
   }
 
   private defs(): SVGDefsElement {
@@ -113,6 +134,14 @@ export class TreeCanvas {
       s('stop', { offset: '100%', 'stop-color': '#a855f7' }),
     )
     defs.append(grad)
+    // 掌握度「点亮」节点的金色渐变填充（CSS 中经 url(#masteryLitGrad) 引用）
+    const litGrad = s('linearGradient', { id: 'masteryLitGrad', x1: '0', y1: '0', x2: '1', y2: '1' })
+    litGrad.append(
+      s('stop', { offset: '0%', 'stop-color': '#fef3c7' }),
+      s('stop', { offset: '55%', 'stop-color': '#fde68a' }),
+      s('stop', { offset: '100%', 'stop-color': '#fbbf24' }),
+    )
+    defs.append(litGrad)
     const mk = (id: string, color: string) => {
       const m = s('marker', {
         id,

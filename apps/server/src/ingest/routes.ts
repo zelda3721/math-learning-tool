@@ -1,13 +1,201 @@
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
+import { z } from "zod";
+import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/schema";
+import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import type { AppState } from "../app.js";
+import { appendQuestions, contentHashOf } from "../questions.js";
+import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
 
 /**
- * 上传抽取管线（题源主通道）：P1a 并行任务实现中。
- * 契约：POST /upload（文本/图片/PDF → 抽题草稿）、POST /confirm（人工确认入库）。
+ * 上传抽取管线（题源主通道）：
+ * POST /upload  文本/图片/PDF → 题目草稿（含知识点/题型建议，不落库）
+ * POST /confirm 人工确认终稿 → QuestionSchema 校验 + 悬挂检查 → 写批次文件
  */
-export function ingestRoutes(_state: AppState): Hono {
+
+const UploadSchema = z.object({
+  kind: z.enum(["text", "image", "pdf"]),
+  /** 文本原文，或图片/PDF 的 base64（可带 data URL 前缀） */
+  content: z.string().min(1),
+  batchName: z.string().optional(),
+  level: EducationLevelSchema.optional(),
+});
+
+const ConfirmQuestionSchema = z.object({
+  stem: z.string().min(1),
+  answer: z.string().min(1),
+  answerType: z.enum(["numeric", "expression", "steps"]),
+  options: z.array(z.string()).optional(),
+  analysis: z.string().optional(),
+  difficulty: z.number().int().min(1).max(5),
+  level: EducationLevelSchema,
+  nodeIds: z.array(z.string()).min(1),
+  problemTypeId: z.string().optional(),
+  variantOf: z.string().optional(),
+});
+
+const ConfirmSchema = z.object({
+  batchName: z.string().min(1).max(64),
+  questions: z.array(ConfirmQuestionSchema).min(1),
+});
+
+interface LocatedDraft extends ExtractedDraft {
+  suggestedNodeIds: string[];
+  suggestedProblemTypeId?: string;
+  confidence: number;
+}
+
+/** 草稿过离线定位器：知识点/题型建议 + 置信度（top 分数归一化到 0-1） */
+function locateDraft(state: AppState, draft: ExtractedDraft): LocatedDraft {
+  const nodeMatches = matchOffline(state.knowledge.index, draft.stem, 4);
+  const ptMatches = matchProblemTypesOffline(state.knowledge.problemTypes, draft.stem, 1);
+  const topScore = Math.max(nodeMatches[0]?.score ?? 0, ptMatches[0]?.score ?? 0);
+  return {
+    ...draft,
+    suggestedNodeIds: nodeMatches.map((m) => m.id),
+    suggestedProblemTypeId: ptMatches[0]?.id,
+    confidence: Math.round(Math.min(1, topScore / 40) * 100) / 100,
+  };
+}
+
+function stripDataUrl(content: string): { base64: string; mime: string | null } {
+  const m = /^data:([\w/+.-]+);base64,/.exec(content);
+  if (!m) return { base64: content, mime: null };
+  return { base64: content.slice(m[0].length), mime: m[1]! };
+}
+
+/** PDF 文本层抽取（pdfjs-dist，动态 import 避免拖慢启动）；扫描版返回空串 */
+async function extractPdfText(base64: string): Promise<string> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const data = new Uint8Array(Buffer.from(base64, "base64"));
+  const task = getDocument({ data, disableFontFace: true, useSystemFonts: true });
+  try {
+    const doc = await task.promise;
+    const pages: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const tc = await page.getTextContent();
+      pages.push(
+        tc.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" "),
+      );
+    }
+    return pages.join("\n").trim();
+  } finally {
+    await task.destroy();
+  }
+}
+
+export function ingestRoutes(state: AppState): Hono {
   const app = new Hono();
-  app.post("/upload", (c) => c.json({ error: "ingest pipeline not yet implemented" }, 501));
-  app.post("/confirm", (c) => c.json({ error: "ingest pipeline not yet implemented" }, 501));
+
+  app.post("/upload", async (c) => {
+    const parsed = UploadSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: `需要 {kind:'text'|'image'|'pdf', content}: ${parsed.error.issues[0]?.message}` }, 400);
+    }
+    const { kind, content, level } = parsed.data;
+    const provider = state.extraction ?? null;
+    const warnings: string[] = [];
+    let drafts: ExtractedDraft[];
+
+    if (kind === "text") {
+      if (provider) {
+        try {
+          drafts = await provider.extractFromText(content, { level });
+        } catch (err) {
+          warnings.push(`LLM 抽取失败（${String(err)}），已回退离线分块：答案与解析需人工填写`);
+          drafts = offlineTextDrafts(content, level);
+        }
+      } else {
+        warnings.push("未配置 LLM 抽取端点，使用离线分块兜底：答案与解析需人工填写");
+        drafts = offlineTextDrafts(content, level);
+      }
+    } else if (kind === "image") {
+      if (!provider) {
+        return c.json({ error: "图片抽取需配置 LLM 端点（LLM_VISION_* 或 LLM_API_BASE）" }, 501);
+      }
+      const { base64, mime } = stripDataUrl(content);
+      try {
+        drafts = await provider.extractFromImage(base64, mime ?? "image/jpeg", { level });
+      } catch (err) {
+        return c.json({ error: `图片抽取失败: ${String(err)}` }, 502);
+      }
+    } else {
+      if (!provider) {
+        return c.json({ error: "PDF 抽取需配置 LLM 端点（LLM_FAST_* 或 LLM_API_BASE）" }, 501);
+      }
+      const { base64 } = stripDataUrl(content);
+      let pdfText: string;
+      try {
+        pdfText = await extractPdfText(base64);
+      } catch (err) {
+        return c.json({ error: `PDF 解析失败（请确认文件完整）: ${String(err)}` }, 400);
+      }
+      if (!pdfText) {
+        return c.json({ error: "该 PDF 没有文本层（可能是扫描版），请改用拍照上传（kind:'image'）" }, 400);
+      }
+      try {
+        drafts = await provider.extractFromText(pdfText, { level });
+      } catch (err) {
+        return c.json({ error: `PDF 文本抽取失败: ${String(err)}` }, 502);
+      }
+    }
+
+    if (!drafts.length) warnings.push("未能从材料中抽取到题目");
+    return c.json({ drafts: drafts.map((d) => locateDraft(state, d)), warnings });
+  });
+
+  app.post("/confirm", async (c) => {
+    const parsed = ConfirmSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return c.json({ error: `需要 {batchName, questions[]}: ${issue?.path.join(".")} ${issue?.message}` }, 400);
+    }
+    const { batchName, questions } = parsed.data;
+    const issues: { index: number; problem: string }[] = [];
+    const accepted: Question[] = [];
+
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i]!;
+      const badNodes = q.nodeIds.filter((n) => !state.knowledge.index.nodeById.has(n));
+      if (badNodes.length) {
+        issues.push({ index: i, problem: `悬挂知识点 ${badNodes.join(",")}，题目未入库` });
+        continue;
+      }
+      let problemTypeId = q.problemTypeId;
+      if (problemTypeId && !state.knowledge.problemTypes.some((p) => p.id === problemTypeId)) {
+        issues.push({ index: i, problem: `未知题型 ${problemTypeId}，已清除该字段` });
+        problemTypeId = undefined;
+      }
+      const candidate = QuestionSchema.safeParse({
+        id: randomUUID(),
+        problemTypeId,
+        nodeIds: q.nodeIds,
+        level: q.level,
+        stem: q.stem,
+        options: q.options,
+        answer: q.answer,
+        answerType: q.answerType,
+        analysis: q.analysis,
+        difficulty: q.difficulty,
+        source: { role: "upload" as const },
+        variantOf: q.variantOf,
+        contentHash: contentHashOf(q.stem, q.answer),
+        status: "extracted" as const,
+      });
+      if (!candidate.success) {
+        issues.push({ index: i, problem: `schema 校验失败: ${candidate.error.issues[0]?.message}` });
+        continue;
+      }
+      accepted.push(candidate.data);
+    }
+
+    const { written, skippedDuplicates } = appendQuestions(state.config.dataDir, batchName, accepted, state.questions);
+    if (written.length) state.questions.reload();
+    return c.json({ written: written.length, skippedDuplicates, issues });
+  });
+
   return app;
 }
