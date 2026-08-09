@@ -1,0 +1,37 @@
+{
+  "summary": {
+    "runs": 3,
+    "succeeded": 3,
+    "median_s": 170.5,
+    "mean_s": 287.3,
+    "max_s": 568.0,
+    "est_videos_per_night": 168,
+    "night_hours": 8.0
+  },
+  "results": [
+    {
+      "problem": "小明有 12 颗糖，分给 3 个小朋友，每人分得同样多，每人分到几颗？",
+      "grade": "elementary_lower",
+      "elapsed_s": 568.0,
+      "status": "success",
+      "session_id": "acf887c6-a3b7-4130-a44b-ed8d96285b0e",
+      "ok": true
+    },
+    {
+      "problem": "鸡兔同笼，共有 8 个头，22 只脚，鸡和兔各有几只？",
+      "grade": "elementary_upper",
+      "elapsed_s": 170.5,
+      "status": "success",
+      "session_id": "38d0c19e-0fb4-45fd-9f79-1eb5db1ec064",
+      "ok": true
+    },
+    {
+      "problem": "解方程：2x + 3 = 11",
+      "grade": "middle",
+      "elapsed_s": 123.4,
+      "status": "success",
+      "session_id": "776a0117-2a28-4337-8cc3-1a3938a8be27",
+      "ok": true
+    }
+  ]
+}

@@ -6806,3 +6806,45 @@ def test_direct_video_prefers_balance_for_middle_linear_equation() -> None:
     result = asyncio.run(DirectVideoTool(NeverCalledPlanner()).execute({}, ctx))  # type: ignore[arg-type]
     assert result.success is True
     assert ctx.state["visual_plan"]["grounding_source"] == "linear_balance"
+
+
+def test_safe_plan_terminates_when_verified_candidate_is_unusable(monkeypatch) -> None:
+    """Regression: build_safe_visual_plan must not recurse forever when the
+    verified-arithmetic candidate itself fails salvage (fresh dict per call, so
+    identity checks cannot break the cycle). Observed live on 2026-08-09 with
+    a rectangle-perimeter problem: RecursionError after ~976 frames."""
+    from math_tutor.infrastructure.agent.tools import visual_plan as vp
+
+    def fake_verified_candidate(ctx):  # fresh, unusable plan on every call
+        return {
+            "grounding_source": "verified_solution_arithmetic",
+            "visual_thesis": "t",
+            "visual_objects": [
+                # only one addressable object (< 2) and no answer anchor
+                {"id": "a", "primitive": "circle", "meaning": "m", "params": {"count": 3}},
+            ],
+            "scenes": [],
+        }
+
+    monkeypatch.setattr(vp, "_verified_arithmetic_candidate", fake_verified_candidate)
+    # force validation failure so the arithmetic plan is not returned as-is
+    monkeypatch.setattr(vp, "_validate_plan", lambda plan, grade: ["forced failure"])
+
+    ctx = ToolContext(
+        "s",
+        3,
+        "elementary",
+        "一个长方形长 8 厘米，宽 5 厘米，它的周长是多少厘米？",
+        {"solution_verified": True, "solution_answer": "26"},
+    )
+    model_plan = {
+        "grounding_source": "model",
+        "visual_objects": [
+            {"id": "x", "primitive": "circle", "meaning": "m", "params": {"count": 2}},
+            {"id": "y", "primitive": "circle", "meaning": "n", "params": {"count": 4}},
+        ],
+        "scenes": [],
+    }
+    # must return (plan or None) without RecursionError
+    vp.build_safe_visual_plan(model_plan, ctx)
+    vp.build_safe_visual_plan(fake_verified_candidate(ctx), ctx)
