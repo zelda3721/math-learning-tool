@@ -295,25 +295,76 @@ def _parse_plan_audit(
     )
 
 
+_FULL_EQUALITY_RE = re.compile(
+    # The left expression must start at a true boundary: a fragment beginning
+    # right after a letter, digit, operator or closing paren is a slice of a
+    # longer (possibly symbolic) expression such as "2x+5" and must not be
+    # evaluated as literal arithmetic.
+    r"(?P<left>(?<![0-9A-Za-z).+\-*/.])[\d\s+\-*/().]+?)=\s*(?P<right>-?\d+(?:\.\d+)?)"
+)
+
+
+def _false_literal_equality(text: str) -> bool:
+    """True when the text contains a FULL literal equality that is false.
+
+    The naive three-token pattern used to slice sub-expressions out of longer
+    ones ("2*4+5=13" matched as "4+5=13") and veto correct plans; evaluate
+    whole literal expressions instead, and treat unparseable fragments as
+    not machine-checkable.
+    """
+    normalized = (
+        text.replace("×", "*").replace("÷", "/").replace("−", "-").replace("^", "**")
+    )
+    from fractions import Fraction as _Fraction
+
+    for match in _FULL_EQUALITY_RE.finditer(normalized):
+        left_expression = match.group("left").strip()
+        if not re.search(r"\d", left_expression):
+            continue
+        try:
+            import ast as _ast
+
+            def evaluate(node: Any) -> _Fraction:
+                if isinstance(node, _ast.Expression):
+                    return evaluate(node.body)
+                if isinstance(node, _ast.Constant) and isinstance(
+                    node.value, (int, float)
+                ):
+                    return _Fraction(str(node.value))
+                if isinstance(node, _ast.UnaryOp) and isinstance(
+                    node.op, (_ast.UAdd, _ast.USub)
+                ):
+                    value = evaluate(node.operand)
+                    return value if isinstance(node.op, _ast.UAdd) else -value
+                if isinstance(node, _ast.BinOp):
+                    left, right = evaluate(node.left), evaluate(node.right)
+                    operators = {
+                        _ast.Add: lambda: left + right,
+                        _ast.Sub: lambda: left - right,
+                        _ast.Mult: lambda: left * right,
+                        _ast.Div: lambda: left / right,
+                        _ast.Pow: lambda: left ** int(right),
+                    }
+                    if type(node.op) in operators:
+                        return operators[type(node.op)]()
+                raise ValueError("non-literal")
+
+            actual = evaluate(_ast.parse(left_expression, mode="eval"))
+            expected = _Fraction(match.group("right"))
+        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError):
+            continue
+        if actual != expected:
+            return True
+    return False
+
+
 def _machine_checkable_blocking_issue(issue: str) -> bool:
     """Accept only falsifiable arithmetic/scalar conflicts as blockers."""
     text = str(issue or "")
     if not (text.startswith("BLOCKING:") and "observed=" in text and "expected=" in text):
         return False
-    for left, operator, right, result in _AUDIT_EQUALITY_RE.findall(text):
-        a, b, expected_result = float(left), float(right), float(result)
-        if operator == "+":
-            actual = a + b
-        elif operator == "-":
-            actual = a - b
-        elif operator in {"×", "x", "X", "*"}:
-            actual = a * b
-        elif b != 0:
-            actual = a / b
-        else:
-            return True
-        if abs(actual - expected_result) > 1e-8:
-            return True
+    if _false_literal_equality(text):
+        return True
     observed_tail = text.split("observed=", 1)[1]
     # Audit prose is model-authored and may place ``expected=`` before
     # ``observed=``. That is not a machine-checkable blocker and must never
@@ -364,9 +415,57 @@ def _clean_zone(value: str) -> str:
     return match.group(1).upper() if match else text
 
 
+def _normalize_quantity_verb_near_misses(plan: dict[str, Any]) -> None:
+    """Repair mechanical near-misses in quantity-verb usage in place.
+
+    Shape tolerance only, mathematics untouched: an invalid take_from style
+    falls back to the default migration; a RESULT id that was never declared
+    (results are new outputs by definition) gets a neutral container
+    declaration so a 97%-correct plan is not discarded over one omission.
+    """
+    objects = plan.get("visual_objects")
+    if not isinstance(objects, list):
+        return
+    declared = {
+        str(item.get("id"))
+        for item in objects
+        if isinstance(item, dict) and item.get("id")
+    }
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for action in scene.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            op = str(action.get("op") or "")
+            if op == "take_from":
+                style = str(action.get("style") or "").strip()
+                if style and style not in _TAKE_FROM_STYLES:
+                    action["style"] = "fly"
+            result = str(action.get("result") or "").strip()
+            if (
+                result
+                and result not in declared
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", result)
+                and op in {"transform", "partition", "map", "combine", "replicate", "take_from"}
+            ):
+                objects.append(
+                    {
+                        "id": result,
+                        "primitive": "rectangle",
+                        "meaning": str(action.get("meaning") or "承接结果的容器")[:60],
+                        "label": "",
+                        "color": "gray",
+                        "params": {},
+                    }
+                )
+                declared.add(result)
+
+
 def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(plan, dict):
         return plan
+    _normalize_quantity_verb_near_misses(plan)
 
     # Backward-compatible read of stored plans.  The legacy value is treated
     # as free prose; it is never matched against or converted to an enum.
@@ -1872,6 +1971,130 @@ def build_quantity_story_visual_plan(
     errors = _validate_plan(plan, ctx.grade)
     if errors:
         logger.warning("quantity story plan failed validation: %s", errors[:3])
+        return None
+    return plan
+
+
+def build_minimal_narrative_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Absolute last-resort plan: verified quantities as bars, always valid.
+
+    Built ONLY from independently verified numbers (steps + answer), it is a
+    weaker visual argument by design — but a session must never end with no
+    video because the director could not produce a richer contract. The plan
+    is marked degraded so review warns instead of certifying quality.
+    """
+    answer_text = _strip_decorations(str(ctx.state.get("solution_answer") or ""))
+    answer_numbers = [
+        float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer_text)
+    ]
+    step_numbers: list[float] = []
+    for step in ctx.state.get("solution_steps") or []:
+        if isinstance(step, dict):
+            step_numbers.extend(
+                float(item)
+                for item in re.findall(
+                    r"-?\d+(?:\.\d+)?", str(step.get("result") or "")
+                )
+            )
+    answer_value = answer_numbers[-1] if answer_numbers else None
+    start_value = next(
+        (value for value in step_numbers if answer_value is None or value != answer_value),
+        None,
+    )
+    if answer_value is None:
+        answer_value = 1.0
+    if start_value is None:
+        start_value = answer_value + 1 if answer_value else 1.0
+
+    def bar(object_id: str, value: float, meaning: str, label: str, color: str):
+        magnitude = abs(value)
+        return {
+            "id": object_id,
+            "primitive": "quantity_bar",
+            "meaning": meaning,
+            "label": label,
+            "color": color,
+            "params": {"value": magnitude if magnitude > 1e-9 else 1.0},
+        }
+
+    plan = {
+        "plan_version": 2,
+        "grounding_source": "minimal_narrative",
+        "degraded_plan": True,
+        "visual_thesis": "用已验证的数量状态从已知量连续变化到答案量",
+        "essence_rationale": (
+            "学生看到代表已知量的条形连续变为代表答案的条形，"
+            "两者同屏比较后核对最终结论，全部数值来自已验证解答。"
+        ),
+        "symbol_ledger": ["蓝色条 = 已验证的已知量", "绿色条 = 已验证的答案量"],
+        "visual_objects": [
+            bar("known_quantity", start_value, "解答中的已知数量", f"{start_value:g}", "blue"),
+            bar("answer_quantity", answer_value, "已验证的最终答案", f"{answer_value:g}", "green"),
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "known_quantity",
+                "action": "建立代表已知量的条形",
+                "invariant": "无，当前建立初始状态",
+                "attention_target": "已知量条形的长度",
+                "exit_condition": "已知量可见",
+                "teaching_line": "先看解答中出现的已知数量。",
+                "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["known_quantity"],
+                        "result": "",
+                        "meaning": "建立已验证的已知数量",
+                    }
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "known_quantity, answer_quantity",
+                "action": "已知量条形连续变化为答案量条形",
+                "invariant": "数值均来自已验证解答",
+                "attention_target": "条形长度的变化",
+                "exit_condition": "答案量条形可见",
+                "teaching_line": "沿着解答的运算，数量变化到最终答案。",
+                "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": ["known_quantity"],
+                        "result": "answer_quantity",
+                        "meaning": "已知量按已验证运算变为答案量",
+                    }
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "answer_quantity",
+                "action": "框选答案量并显示核对结论",
+                "invariant": "答案与独立验证一致",
+                "attention_target": "答案量条形",
+                "exit_condition": "答案清楚可见",
+                "teaching_line": f"最终答案：{answer_text or '已验证'}。",
+                "duration_s": 4,
+                "actions": [
+                    {
+                        "op": "verify",
+                        "targets": ["answer_quantity"],
+                        "result": "",
+                        "meaning": "核对已验证答案",
+                    }
+                ],
+            },
+        ],
+        "forbidden": ["只显示文字结论", "使用未经验证的数值"],
+    }
+    errors = _validate_plan(plan, ctx.grade)
+    if errors:
+        logger.warning("minimal narrative plan failed validation: %s", errors[:3])
         return None
     return plan
 
@@ -3777,15 +4000,43 @@ class VisualPlanTool(ITool):
         plan = ground_visual_plan_from_math_execution(plan, ctx)
         errors = _validate_plan(plan, grade)
         if errors:
+            # Near-miss plans deserve one evidence-directed retry: feed the
+            # exact violations back before falling to deterministic salvage.
+            contract_feedback = (
+                "\n\n## 上一份计划未通过结构契约\n"
+                + "\n".join(f"- {error}" for error in errors[:6])
+                + "\n重新输出完整 JSON 并逐项修正以上问题；未变动的部分保持原样。"
+                "所有 targets/result/source/destination 必须引用已在 visual_objects "
+                "中声明的 id；take_from 的 style 只能是 cross_out/fade/fly；"
+                "count 的 expect 必须等于该组经历全部动作后的当前数量。"
+            )
+            try:
+                retry_done = await author_plan(prompt + contract_feedback)
+                raw_artifacts.append(_raw_plan_artifact(retry_done, ctx))
+                retry_plan = _parse_plan(retry_done)
+                if retry_plan is not None:
+                    retry_plan = ground_visual_plan_from_math_execution(retry_plan, ctx)
+                    retry_errors = _validate_plan(retry_plan, grade)
+                    if not retry_errors:
+                        done = retry_done
+                        plan = retry_plan
+                        errors = []
+                    elif len(retry_errors) < len(errors):
+                        done = retry_done
+                        plan = retry_plan
+                        errors = retry_errors
+            except Exception:
+                logger.exception("visual_plan contract retry failed")
+        if errors:
             ctx.state["visual_plan_last_violations"] = errors
             ctx.state["visual_plan_retry_count"] = (
                 int(ctx.state.get("visual_plan_retry_count", 0)) + 1
             )
             return ToolResult(
                 success=False,
-                summary="视觉计划结构不完整：" + "；".join(errors[:3]),
+                summary="视觉计划结构不完整（含一次契约重试）：" + "；".join(errors[:3]),
                 data={"plan": plan, "violations": errors},
-                artifacts=[_raw_plan_artifact(done, ctx)],
+                artifacts=raw_artifacts,
                 error="contract_violation",
             )
 

@@ -993,6 +993,22 @@ def _call_name(node: ast.AST) -> str:
 def _check_animation_api_misuse(tree: ast.AST) -> list[str]:
     """Reject generic Manim patterns that run but express no animation."""
     issues: list[str] = []
+    # Text/MarkupText have no real set_text: Mobject's dynamic attribute
+    # setter accepts the call and silently sets a Python attribute without
+    # re-rendering glyphs — a counter driven this way displays its initial
+    # value forever. The working idiom is mob.become(Text(...)).
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "set_text"
+        ):
+            issues.append(
+                "调用了 .set_text()：Manim 的 Text 无法就地改字（静默无效，"
+                "计数会永远停在初始值）；请改用 mob.become(Text(新内容, ...)) "
+                "并保持位置（.move_to(mob)）"
+            )
+            break
     source_parent: dict[ast.AST, ast.AST] = {}
     for parent in ast.walk(tree):
         for child in ast.iter_child_nodes(parent):

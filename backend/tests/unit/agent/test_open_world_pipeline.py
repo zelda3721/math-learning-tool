@@ -1066,7 +1066,7 @@ def test_bounded_recovery_policy_reuses_runnable_code_for_one_visual_fix() -> No
     assert _select_next_tool(state, review_available=True) == "watch_video"
 
 
-def test_direct_video_rejects_static_safe_plan_without_whole_plan_retry() -> None:
+def test_direct_video_degrades_to_minimal_narrative_instead_of_dying() -> None:
     from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
 
     class Planner:
@@ -1091,15 +1091,20 @@ def test_direct_video_rejects_static_safe_plan_without_whole_plan_retry() -> Non
         "任意新问题",
         {
             "solution_verified": True,
-            "solution_answer": "已验证答案",
-            "solution_steps": [{"description": "建立已验证关系"}],
+            "solution_answer": "答案是 8",
+            "solution_steps": [{"description": "建立已验证关系", "result": "先得到 5"}],
         },
     )
     result = asyncio.run(tool.execute({}, ctx))
-    assert result.success is False
+    # No whole-plan stochastic retry (single planner call), but the stage
+    # never ends empty-handed: a minimal verified-quantity narrative ships
+    # with an explicit degradation warning for the review stage.
     assert planner.calls == 1
-    assert "停止整稿重生成" in result.summary
-    assert "visual_plan" not in ctx.state
+    assert result.success is True
+    assert ctx.state["visual_plan"]["grounding_source"] == "minimal_narrative"
+    assert ctx.state["visual_plan"]["degraded_plan"] is True
+    assert "降级" in result.summary
+    assert ctx.state["plan_degraded"]
 
 
 def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
@@ -6304,3 +6309,97 @@ def test_verify_llm_outage_routes_through_degradation_ladder() -> None:
     # exhausting the stage budget into a dead session.
     assert third.success is True
     assert third.data["verification_downgraded"] is True
+
+
+# ---------------------------------------------------------------------------
+# Field diagnosis (qwen3.7-27b runs): audit slicing, near-miss normalization
+# ---------------------------------------------------------------------------
+
+
+def test_audit_filter_does_not_slice_subexpressions() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _machine_checkable_blocking_issue,
+    )
+
+    # The field misfire: "2*4+5=13" is TRUE, but the old three-token pattern
+    # sliced out "4+5=13" and vetoed a zero-violation balance plan.
+    assert not _machine_checkable_blocking_issue(
+        "BLOCKING: 验证步骤的视觉实现与代数逻辑矛盾; observed=计划中 verify 场景仅操作 "
+        "x_single (1个x) 和 const_4 (4个红点)，并声称'左边显示 2 个 x (即 8) 加 5 个红点'; "
+        "expected=根据题目 2x+5=13，验证时需展示 2*4+5=13。"
+    )
+    # A genuinely false full equality still blocks.
+    assert _machine_checkable_blocking_issue(
+        "BLOCKING: 数值错误 observed=按计划 3*4+5=20 expected=17"
+    )
+    # Single-number observed/expected contradiction still blocks.
+    assert _machine_checkable_blocking_issue(
+        "BLOCKING: 顶点错误 observed=7 expected=12"
+    )
+
+
+def test_normalize_repairs_quantity_verb_near_misses() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _normalize_plan,
+        _validate_plan,
+    )
+
+    plan = _quantity_plan_base()
+    # Field shapes from the chicken-rabbit run: invalid style and a result
+    # id that was never declared.
+    plan["scenes"][1]["actions"][1]["style"] = "transform"
+    plan["scenes"][1]["actions"].append(
+        {
+            "op": "transform",
+            "targets": ["removed_box"],
+            "result": "undeclared_result_box",
+            "meaning": "分组结果",
+        }
+    )
+    normalized = _normalize_plan(plan)
+    take = normalized["scenes"][1]["actions"][1]
+    assert take["style"] == "fly"
+    declared = {item["id"] for item in normalized["visual_objects"]}
+    assert "undeclared_result_box" in declared
+    errors = _validate_plan(normalized, "elementary")
+    assert not any("style" in error for error in errors)
+    assert not any("undeclared_result_box" in error for error in errors)
+
+
+def test_validator_flags_silent_set_text_trap() -> None:
+    code = "\n".join(
+        [
+            "from manim import *",
+            "class SolutionScene(Scene):",
+            "    def construct(self):",
+            "        label = Text('0')",
+            "        label.add_updater(lambda m: m.set_text('1'))",
+            "        self.add(label)",
+        ]
+    )
+    issues = _check_animation_api_misuse(ast.parse(code))
+    assert any("set_text" in issue for issue in issues)
+
+
+def test_minimal_narrative_plan_always_validates() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        build_minimal_narrative_plan,
+    )
+
+    # With numbers.
+    ctx = ToolContext(
+        "s",
+        3,
+        "middle",
+        "p",
+        {"solution_answer": "x = 4", "solution_steps": [{"result": "2x = 8"}]},
+    )
+    plan = build_minimal_narrative_plan(ctx)
+    assert plan is not None and _validate_plan(plan, "middle") == []
+    # Without any numbers (proof-style answers) it still builds.
+    ctx2 = ToolContext(
+        "s", 3, "high", "p", {"solution_answer": "命题成立", "solution_steps": []}
+    )
+    plan2 = build_minimal_narrative_plan(ctx2)
+    assert plan2 is not None and _validate_plan(plan2, "high") == []
