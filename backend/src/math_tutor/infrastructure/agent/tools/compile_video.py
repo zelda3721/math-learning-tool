@@ -360,7 +360,7 @@ class SolutionScene(Scene):
         except (TypeError, ValueError):
             return 1
 
-    def repeated_body(self, primitive, params, color):
+    def repeated_body(self, primitive, params, color, extra_row_gap=0.0):
         count = self.repeat_count(params)
         if count <= 1 or primitive not in {
             "dot", "circle", "rectangle", "line", "arrow", "polygon"
@@ -397,7 +397,7 @@ class SolutionScene(Scene):
         ))
         rows = math.ceil(count / columns)
         body = VGroup(*units).arrange_in_grid(
-            rows=rows, cols=columns, buff=(0.11, 0.13),
+            rows=rows, cols=columns, buff=(0.11, 0.13 + extra_row_gap),
         )
         return body
 
@@ -442,11 +442,14 @@ class SolutionScene(Scene):
         marks = VGroup()
         for unit in host_units:
             center = unit.get_center()
+            # Legs hang from the unit's bottom edge — a circle with vertical
+            # lines below reads as an individual with countable appendages.
+            top_y = unit.get_bottom()[1] - 0.01
             for index in range(per_unit):
                 offset = (index - (per_unit - 1) / 2) * 0.075
                 mark = Line(
-                    center + [offset, -0.08, 0],
-                    center + [offset, -0.27, 0],
+                    [center[0] + offset, top_y, 0],
+                    [center[0] + offset, top_y - 0.16, 0],
                     color=color, stroke_width=2.5,
                 )
                 unit.add(mark)
@@ -454,6 +457,11 @@ class SolutionScene(Scene):
         self.attached_ids.add(marker_id)
         self.attachment_hosts[marker_id] = host_id
         self.objects[marker_id] = marks
+        # The host's entity label was positioned before the legs existed;
+        # clear the bottom row's marks so the two never interleave.
+        host_label = self.object_labels.get(host_id)
+        if host_label is not None:
+            host_label.shift(DOWN * 0.24)
         return LaggedStart(
             *[Create(mark) for mark in marks],
             lag_ratio=min(0.025, 1.2 / max(len(marks), 1)),
@@ -732,7 +740,19 @@ class SolutionScene(Scene):
         primitive = spec["primitive"]
         params = spec.get("params") or {}
         color = self.color(spec.get("color"))
-        repeated = self.repeated_body(primitive, params, color)
+        # Units that will host per-unit marks ("legs") need vertical room
+        # for them; without it the marks squeeze into the next grid row.
+        max_marks = max(
+            (
+                int(self.number((other.get("params") or {}).get("count_per_unit"), 0, 0, 6))
+                for other in self.specs.values()
+            ),
+            default=0,
+        )
+        repeated = self.repeated_body(
+            primitive, params, color,
+            extra_row_gap=0.2 if max_marks > 0 else 0.0,
+        )
         if repeated is not None and spec["id"] not in self.coordinate_ids:
             body = repeated
             self.repeat_units[spec["id"]] = body
@@ -1827,7 +1847,18 @@ class SolutionScene(Scene):
                 step_time = 0.5 if swap_count <= 8 else max(0.16, 4.5 / swap_count)
                 for offset in range(swap_count):
                     unit = units[-1 - offset]
-                    center = unit.get_center()
+                    # Geometry from the unit's OWN path: attached legs are
+                    # children and would drag the bbox down.
+                    own_points = unit.points
+                    if len(own_points):
+                        body_bottom = float(own_points[:, 1].min())
+                        body_x = (
+                            float(own_points[:, 0].min()) + float(own_points[:, 0].max())
+                        ) / 2
+                    else:
+                        body_bottom = float(unit.get_bottom()[1])
+                        body_x = float(unit.get_center()[0])
+                    top_y = body_bottom - 0.01
                     new_marks = VGroup()
                     for index in range(max(delta, 0)):
                         # Continue the existing mark row rightward so the
@@ -1836,8 +1867,8 @@ class SolutionScene(Scene):
                             marks_before + index - (marks_before - 1) / 2
                         ) * 0.075
                         new_marks.add(Line(
-                            center + [mark_offset, -0.08, 0],
-                            center + [mark_offset, -0.27, 0],
+                            [body_x + mark_offset, top_y, 0],
+                            [body_x + mark_offset, top_y - 0.16, 0],
                             color=swapped_color, stroke_width=2.5,
                         ))
                     running += delta

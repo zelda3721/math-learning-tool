@@ -2038,15 +2038,17 @@ def build_mix_swap_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
             "学生从画面上直接看到假设法为什么成立。"
         ),
         "symbol_ledger": [
-            f"蓝色单位 = 假设的一类（每单位 {value_a} 个标记）",
-            f"绿色单位 = 替换后的一类（每单位 {value_b} 个标记）",
-            "黄色计数 = 当前可见标记总数",
+            f"蓝色圆圈 = 假设的一类个体（每个垂下 {value_a} 根竖线）",
+            f"绿色圆圈 = 替换后的一类个体（每个垂下 {value_b} 根竖线）",
+            "黄色计数 = 当前可见竖线总数",
         ],
         "visual_objects": [
             {
                 "id": "mix_units",
-                "primitive": "unit_grid",
-                "meaning": f"全部 {total_units} 个单位，先假设同为一类",
+                # Circles read as individuals ("heads"); the per-unit line
+                # marks hang below them as countable appendages ("legs").
+                "primitive": "circle",
+                "meaning": f"全部 {total_units} 个个体，先假设同为一类",
                 "label": f"{total_units} 个",
                 "color": "blue",
                 "params": {
@@ -2057,7 +2059,7 @@ def build_mix_swap_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
             {
                 "id": "mix_marks",
                 "primitive": "line",
-                "meaning": f"每个单位携带的 {value_a} 个数值标记",
+                "meaning": f"每个个体垂下的 {value_a} 根计数竖线",
                 "label": "",
                 "color": "blue",
                 "params": {"count_per_unit": value_a},
@@ -2068,12 +2070,13 @@ def build_mix_swap_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
                 "role": "setup",
                 "anchor_zone": "B2-E5",
                 "key_objects": "mix_units, mix_marks",
-                "action": f"摆出 {total_units} 个单位并给每个挂上 {value_a} 个标记",
+                "action": f"摆出 {total_units} 个圆圈并给每个垂下 {value_a} 根竖线",
                 "invariant": "无，当前建立假设状态",
                 "attention_target": f"假设总量 {assumed_total}",
                 "exit_condition": "假设状态与其总量清楚可见",
                 "teaching_line": (
-                    f"先假设全部是同一类：{total_units} × {value_a} = {assumed_total}。"
+                    f"每个圆圈是一个个体，下面垂 {value_a} 根线；"
+                    f"先假设全部相同：{total_units} × {value_a} = {assumed_total}。"
                 ),
                 "duration_s": 6,
                 "actions": [
