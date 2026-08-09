@@ -1,0 +1,205 @@
+[
+  {
+    "id": "seed-sd-1",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲、乙两个数的和是 100，甲数比乙数大 20。甲数是多少？",
+    "answer": "60",
+    "answerType": "numeric",
+    "analysis": "和差问题：大数 =（和＋差）÷2 =（100＋20）÷2 = 60。",
+    "difficulty": 2,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "3c656484fafa5f1f",
+    "status": "verified",
+    "problemTypeId": "sum-difference"
+  },
+  {
+    "id": "seed-sd-2",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "哥哥和弟弟一共有 52 张卡片，哥哥比弟弟多 8 张。哥哥有多少张卡片？",
+    "answer": "30",
+    "answerType": "numeric",
+    "analysis": "大数 =（52＋8）÷2 = 30（张）。",
+    "difficulty": 2,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "85772bc1e329664c",
+    "status": "verified",
+    "problemTypeId": "sum-difference",
+    "variantOf": "seed-sd-1"
+  },
+  {
+    "id": "seed-sd-3",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "两筐苹果共重 90 千克，第一筐比第二筐重 14 千克。第二筐重多少千克？",
+    "answer": "38",
+    "answerType": "numeric",
+    "analysis": "小数 =（和－差）÷2 =（90－14）÷2 = 38（千克）。",
+    "difficulty": 3,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "665515b3d66e47c4",
+    "status": "verified",
+    "problemTypeId": "sum-difference",
+    "variantOf": "seed-sd-1"
+  },
+  {
+    "id": "seed-per-1",
+    "nodeIds": [
+      "perimeter"
+    ],
+    "level": "elementary_lower",
+    "stem": "一个长方形长 8 厘米、宽 5 厘米，它的周长是多少厘米？",
+    "answer": "26",
+    "answerType": "numeric",
+    "analysis": "长方形周长 =（长＋宽）×2 =（8＋5）×2 = 26（厘米）。",
+    "difficulty": 1,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "38c79acd65575b11",
+    "status": "verified"
+  },
+  {
+    "id": "seed-per-2",
+    "nodeIds": [
+      "perimeter"
+    ],
+    "level": "elementary_lower",
+    "stem": "一个正方形的边长是 7 厘米，它的周长是多少厘米？",
+    "answer": "28",
+    "answerType": "numeric",
+    "analysis": "正方形周长 = 边长 ×4 = 7×4 = 28（厘米）。",
+    "difficulty": 1,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "4c9ab19f99fe89ce",
+    "status": "verified",
+    "variantOf": "seed-per-1"
+  },
+  {
+    "id": "seed-per-3",
+    "nodeIds": [
+      "perimeter"
+    ],
+    "level": "elementary_lower",
+    "stem": "一个长方形的周长是 24 厘米，长是 7 厘米，宽是多少厘米？",
+    "answer": "5",
+    "answerType": "numeric",
+    "analysis": "长＋宽 = 24÷2 = 12，宽 = 12－7 = 5（厘米）。",
+    "difficulty": 2,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "34ac997a689ca054",
+    "status": "verified",
+    "variantOf": "seed-per-1"
+  },
+  {
+    "id": "seed-per-4",
+    "nodeIds": [
+      "perimeter"
+    ],
+    "level": "elementary_lower",
+    "stem": "用一根长 36 厘米的铁丝正好围成一个正方形，这个正方形的边长是多少厘米？",
+    "answer": "9",
+    "answerType": "numeric",
+    "analysis": "正方形四条边相等，边长 = 36÷4 = 9（厘米）。",
+    "difficulty": 2,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "272c9e6b69735a45",
+    "status": "verified",
+    "variantOf": "seed-per-1"
+  },
+  {
+    "id": "seed-tree-1",
+    "nodeIds": [
+      "multiplication-table",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "在一条 100 米长的小路一侧植树，每隔 5 米栽一棵，两端都要栽。一共要栽多少棵树？",
+    "answer": "21",
+    "answerType": "numeric",
+    "analysis": "两端都栽：棵数 = 间隔数＋1 = 100÷5＋1 = 21（棵）。",
+    "difficulty": 3,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "3b6871617eb3db03",
+    "status": "verified",
+    "problemTypeId": "planting-trees"
+  },
+  {
+    "id": "seed-tree-2",
+    "nodeIds": [
+      "multiplication-table",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "在 60 米长的走廊一侧挂灯笼，每隔 6 米挂一个，两端都要挂。一共要挂多少个灯笼？",
+    "answer": "11",
+    "answerType": "numeric",
+    "analysis": "两端都挂：60÷6＋1 = 11（个）。",
+    "difficulty": 3,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "a24ca5d15dec4556",
+    "status": "verified",
+    "problemTypeId": "planting-trees",
+    "variantOf": "seed-tree-1"
+  },
+  {
+    "id": "seed-tree-3",
+    "nodeIds": [
+      "multiplication-table",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "在周长 80 米的圆形花坛四周栽树，每隔 4 米栽一棵。一共要栽多少棵树？",
+    "answer": "20",
+    "answerType": "numeric",
+    "analysis": "封闭图形：棵数 = 间隔数 = 80÷4 = 20（棵）。",
+    "difficulty": 3,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "669bc714fb6aed65",
+    "status": "verified",
+    "problemTypeId": "planting-trees",
+    "variantOf": "seed-tree-1"
+  },
+  {
+    "id": "seed-sd-4-challenge",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "两个数的和是 120，差是 30。如果把较大数减半、较小数翻倍，新的两个数相差多少？",
+    "answer": "52.5",
+    "answerType": "numeric",
+    "analysis": "和差先求两数：大=(120+30)/2=75，小=45；再算 75/2=37.5 与 45*2=90，相差 52.5。",
+    "difficulty": 4,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "39ea668a4c695e09",
+    "status": "verified"
+  }
+]

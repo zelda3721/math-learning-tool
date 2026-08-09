@@ -5,6 +5,7 @@ import type { ServerConfig } from "./config.js";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
+import type { ExtractionProvider } from "./ingest/extraction.js";
 import { proxyToEngine } from "./proxy.js";
 import { effectiveP, masteryBand } from "./mastery.js";
 import { learnerRoutes } from "./routes/learners.js";
@@ -18,6 +19,8 @@ export interface AppState {
   questions: QuestionStore;
   repo: Repo;
   hintProvider: HintProvider | null;
+  /** 上传抽取 LLM Provider；null/缺省时 text 走离线兜底、image/pdf 返回 501 */
+  extraction?: ExtractionProvider | null;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */

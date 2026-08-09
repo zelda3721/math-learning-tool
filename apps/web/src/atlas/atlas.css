@@ -111,7 +111,7 @@
 .atlas-root .node-bar { opacity: 0.95; }
 .atlas-root .node-name { font-size: 13.5px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .atlas-root .node-frontier { font-size: 12px; fill: #f59e0b; text-anchor: middle; filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.6)); }
-/* P0：掌握度未接入，学习圆点统一灰 */
+/* 默认（无掌握度数据 / m-dim）：学习圆点统一灰 */
 .atlas-root .node-learn { fill: #fff; stroke: #cbd5e1; stroke-width: 1.5; }
 
 .atlas-root .node:hover .node-inner { transform: scale(1.06); }
@@ -122,6 +122,36 @@
 .atlas-root .node.rel .node-card { stroke-dasharray: 4 3; opacity: 0.9; }
 .atlas-root .node.beam .node-card { filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.55)); }
 .atlas-root .node.dim { opacity: 0.26; }
+
+/* ───────────────── 掌握度着色（P1a）：dim=现状灰 / glow=琥珀微光 / lit=金色点亮 ─────────────────
+   CSS 规则优先级高于 SVG presentation attribute（rect 的 fill/stroke 内联属性），
+   因此这里的样式能覆盖 buildNodes 里按主线色写入的默认填充。m-dim 保持现状不加规则。 */
+.atlas-root .node.m-glow .node-card {
+  fill: #fffbeb;
+  stroke: #f59e0b;
+  filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.28));
+}
+.atlas-root .node.m-glow .node-bar { fill: #f59e0b; }
+.atlas-root .node.m-glow .node-name { fill: #92400e; }
+.atlas-root .node.m-glow .node-learn { fill: #fde68a; stroke: #f59e0b; }
+
+.atlas-root .node.m-lit .node-card {
+  fill: url(#masteryLitGrad);
+  stroke: #d97706;
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 9px rgba(245, 158, 11, 0.6));
+}
+.atlas-root .node.m-lit .node-bar { fill: #b45309; }
+.atlas-root .node.m-lit .node-name { fill: #78350f; }
+.atlas-root .node.m-lit .node-learn { fill: #f59e0b; stroke: #b45309; }
+
+/* 与交互高亮叠加时，保持选中/悬停仍有更强的描边反馈 */
+.atlas-root .node.m-glow:hover .node-card,
+.atlas-root .node.m-glow.hot .node-card,
+.atlas-root .node.m-lit:hover .node-card,
+.atlas-root .node.m-lit.hot .node-card { stroke-width: 3; }
+.atlas-root .node.m-glow.selected .node-card,
+.atlas-root .node.m-lit.selected .node-card { stroke-width: 3.4; }
 
 /* 入场：按学段从左到右"生长" */
 @media (prefers-reduced-motion: no-preference) {

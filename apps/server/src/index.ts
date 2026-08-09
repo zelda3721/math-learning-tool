@@ -9,6 +9,7 @@ import { openDb } from "./db.js";
 import { Repo } from "./repo.js";
 import { createQuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
+import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -33,6 +34,15 @@ function buildHintProvider(): HintProvider | null {
     };
   } catch (err) {
     console.warn(`[hint] LLM 提示不可用，使用静态兜底: ${String(err)}`);
+    return null;
+  }
+}
+
+function buildExtractionProvider(): ExtractionProvider | null {
+  try {
+    return createLlmExtractionProvider(process.env);
+  } catch (err) {
+    console.warn(`[ingest] LLM 抽取不可用，文本上传走离线兜底: ${String(err)}`);
     return null;
   }
 }
@@ -66,6 +76,7 @@ async function main(): Promise<void> {
     questions,
     repo,
     hintProvider: buildHintProvider(),
+    extraction: buildExtractionProvider(),
   });
   serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     console.log(`MathTutor server listening on http://${info.address}:${info.port}`);
