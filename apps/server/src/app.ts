@@ -27,6 +27,8 @@ export interface AppState {
   extraction?: ExtractionProvider | null;
   /** P1b 批量抽取任务存储；未提供时批量端点返回 503 */
   jobs?: JobStore;
+  /** 可注入的引擎 fetch（测试 mock 引擎 SSE 用）；缺省 globalThis.fetch */
+  engineFetch?: typeof fetch;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
