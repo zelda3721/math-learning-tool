@@ -10,6 +10,7 @@ import ast
 import math
 import re
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Any
 
 import sympy as sp
@@ -296,6 +297,101 @@ def evaluate_real_expression_at(
     except (TypeError, ValueError):
         return None
     return numeric if math.isfinite(numeric) else None
+
+
+def extract_linear_mix_structure(request: Any) -> dict[str, Any] | None:
+    """Detect a two-kind linear mix from verified Math IR, by shape only.
+
+    The structure: two unit kinds sharing a fixed total count N, per-unit
+    values a != b, and a fixed total value M — solvable by visible
+    swap-and-watch-the-delta reasoning. Detection reads the equation
+    coefficients ([[1,1],[a,b]]), never the problem text, so any wording
+    (animals/wheels/coins/scores) with this shape qualifies.
+    """
+    if not isinstance(request, dict):
+        return None
+    for operation in request.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        if str(operation.get("op") or "").lower() != "solve":
+            continue
+        expressions = operation.get("expression")
+        variables = operation.get("variables") or operation.get("variable")
+        if not isinstance(expressions, list) or len(expressions) != 2:
+            continue
+        if not isinstance(variables, list) or len(variables) != 2:
+            continue
+        names = [str(item) for item in variables]
+        symbols = {name: sp.Symbol(name, positive=True) for name in names}
+        parser = _ExpressionParser(dict(symbols))
+        rows: list[tuple[Fraction, Fraction, Fraction]] = []
+        try:
+            for expression in expressions:
+                parsed = parser.parse(expression)
+                if isinstance(parsed, sp.Eq):
+                    parsed = parsed.lhs - parsed.rhs
+                polynomial = sp.Poly(sp.expand(parsed), *symbols.values())
+                if polynomial.total_degree() != 1:
+                    raise ValueError("not linear")
+                coefficient_a = polynomial.coeff_monomial(symbols[names[0]])
+                coefficient_b = polynomial.coeff_monomial(symbols[names[1]])
+                constant = polynomial.coeff_monomial(1)
+                rows.append(
+                    (
+                        Fraction(str(coefficient_a)),
+                        Fraction(str(coefficient_b)),
+                        -Fraction(str(constant)),
+                    )
+                )
+        except (ValueError, TypeError, sp.SympifyError):
+            continue
+        count_rows = [row for row in rows if row[0] == 1 and row[1] == 1]
+        value_rows = [row for row in rows if row not in count_rows]
+        if len(count_rows) != 1 or len(value_rows) != 1:
+            continue
+        total_units = count_rows[0][2]
+        value_a, value_b, total_value = value_rows[0]
+        if value_a == value_b or value_a <= 0 or value_b <= 0:
+            continue
+        # Solve the 2x2 exactly; trust arithmetic, not stringified evidence.
+        denominator = value_b - value_a
+        count_b = (total_value - value_a * total_units) / denominator
+        count_a = total_units - count_b
+        values = [total_units, value_a, value_b, total_value, count_a, count_b]
+        if not all(value.denominator == 1 and value >= 0 for value in values):
+            continue
+        payload = {
+            "name_a": names[0],
+            "name_b": names[1],
+            "total_units": int(total_units),
+            "value_a": int(value_a),
+            "value_b": int(value_b),
+            "total_value": int(total_value),
+            "count_a": int(count_a),
+            "count_b": int(count_b),
+        }
+        # Canonical orientation: assume the SMALLER-value kind first, so each
+        # swap visibly ADDS marks (removing drawn marks would read as loss).
+        if payload["value_a"] > payload["value_b"]:
+            payload = {
+                **payload,
+                "name_a": payload["name_b"],
+                "name_b": payload["name_a"],
+                "value_a": payload["value_b"],
+                "value_b": payload["value_a"],
+                "count_a": payload["count_b"],
+                "count_b": payload["count_a"],
+            }
+        # Countable-visual budget: units drawn individually, values as
+        # per-unit marks (the template caps marks at 6 per unit).
+        if payload["total_units"] < 2 or payload["total_units"] > 64:
+            continue
+        if payload["value_a"] > 6 or payload["value_b"] > 6:
+            continue
+        if payload["count_b"] < 1 or payload["count_a"] < 0:
+            continue
+        return payload
+    return None
 
 
 def _unwrap_single_solution(container: Any) -> Any:

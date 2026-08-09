@@ -23,7 +23,11 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
-from ..math_runtime import evaluate_real_expression_at, sample_real_expression
+from ..math_runtime import (
+    evaluate_real_expression_at,
+    extract_linear_mix_structure,
+    sample_real_expression,
+)
 from ..occupancy_table import parse_zone
 from ..prompt_library import PromptLibrary
 
@@ -63,8 +67,16 @@ _VISUAL_ACTIONS = {
     "count",
     "recount_verify",
     "replicate",
+    "swap_units",
 }
-_QUANTITY_ACTIONS = {"take_from", "combine", "count", "recount_verify", "replicate"}
+_QUANTITY_ACTIONS = {
+    "take_from",
+    "combine",
+    "count",
+    "recount_verify",
+    "replicate",
+    "swap_units",
+}
 _MUTATING_VISUAL_ACTIONS = {
     "transform",
     "move",
@@ -74,6 +86,7 @@ _MUTATING_VISUAL_ACTIONS = {
     "take_from",
     "combine",
     "replicate",
+    "swap_units",
 }
 _VERIFY_VISUAL_ACTIONS = {"compare", "measure", "verify", "recount_verify"}
 _TAKE_FROM_STYLES = {"cross_out", "fade", "fly"}
@@ -1975,6 +1988,167 @@ def build_quantity_story_visual_plan(
     return plan
 
 
+def build_mix_swap_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Deterministic first-shot plan for verified linear-mix structures.
+
+    Assumption-and-adjustment made visible: assume every unit is the first
+    kind, count the total value, then swap units one by one — each swap
+    visibly changes the running total by the per-unit difference until the
+    verified total is reached. Activation is the Math IR coefficient shape
+    ([[1,1],[a,b]]), never the problem wording.
+    """
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
+    if (
+        not isinstance(evidence, dict)
+        or not evidence.get("success")
+        or evidence.get("all_claims_passed") is not True
+    ):
+        return None
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    mix = extract_linear_mix_structure(request)
+    if mix is None:
+        return None
+    total_units = mix["total_units"]
+    value_a, value_b = mix["value_a"], mix["value_b"]
+    total_value = mix["total_value"]
+    count_a, count_b = mix["count_a"], mix["count_b"]
+    assumed_total = total_units * value_a
+    delta = value_b - value_a
+    direction = "增加" if delta > 0 else "减少"
+
+    plan = {
+        "plan_version": 2,
+        "grounding_source": "linear_mix_swap",
+        "visual_thesis": (
+            f"先假设全部 {total_units} 个单位都是每单位 {value_a} 的一类，"
+            f"再逐个替换成每单位 {value_b} 的一类，看总量如何一步步从 "
+            f"{assumed_total} 变到 {total_value}"
+        ),
+        "essence_rationale": (
+            f"每替换一个单位，总量就{direction} {abs(delta)}；从假设总量 {assumed_total} 到实际总量 "
+            f"{total_value} 需要替换 {count_b} 个，这个差额收拢过程就是答案的来源，"
+            "学生从画面上直接看到假设法为什么成立。"
+        ),
+        "symbol_ledger": [
+            f"蓝色单位 = 假设的一类（每单位 {value_a} 个标记）",
+            f"绿色单位 = 替换后的一类（每单位 {value_b} 个标记）",
+            "黄色计数 = 当前可见标记总数",
+        ],
+        "visual_objects": [
+            {
+                "id": "mix_units",
+                "primitive": "unit_grid",
+                "meaning": f"全部 {total_units} 个单位，先假设同为一类",
+                "label": f"{total_units} 个",
+                "color": "blue",
+                "params": {
+                    "count": total_units,
+                    "columns": min(8, max(2, int(total_units**0.5 + 0.999))),
+                },
+            },
+            {
+                "id": "mix_marks",
+                "primitive": "line",
+                "meaning": f"每个单位携带的 {value_a} 个数值标记",
+                "label": "",
+                "color": "blue",
+                "params": {"count_per_unit": value_a},
+            },
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "anchor_zone": "B2-E5",
+                "key_objects": "mix_units, mix_marks",
+                "action": f"摆出 {total_units} 个单位并给每个挂上 {value_a} 个标记",
+                "invariant": "无，当前建立假设状态",
+                "attention_target": f"假设总量 {assumed_total}",
+                "exit_condition": "假设状态与其总量清楚可见",
+                "teaching_line": (
+                    f"先假设全部是同一类：{total_units} × {value_a} = {assumed_total}。"
+                ),
+                "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["mix_units"],
+                        "result": "",
+                        "meaning": "建立全部单位的假设状态",
+                    },
+                    {
+                        "op": "create",
+                        "targets": ["mix_marks"],
+                        "result": "",
+                        "meaning": "给每个单位挂上假设的数值标记",
+                    },
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "B2-E5",
+                "key_objects": "mix_units",
+                "action": (
+                    f"逐个把单位替换为另一类（标记 {value_a}→{value_b}），"
+                    f"总量每次{direction} {abs(delta)}"
+                ),
+                "invariant": f"单位总数保持 {total_units} 不变，只有类别和总量变化",
+                "attention_target": f"总量计数逐步逼近 {total_value}",
+                "exit_condition": f"总量达到 {total_value}，替换停止",
+                "teaching_line": (
+                    f"实际总量是 {total_value}，差 {abs(total_value - assumed_total)}；"
+                    f"每换一个补 {abs(delta)}，要换 {count_b} 个。"
+                ),
+                "duration_s": max(6.0, min(18.0, 4 + count_b * 0.5)),
+                "actions": [
+                    {
+                        "op": "swap_units",
+                        "targets": ["mix_units"],
+                        "result": "",
+                        "source": "mix_units",
+                        "count": count_b,
+                        "expect": value_b,
+                        "expect_total": total_value,
+                        "meaning": (
+                            f"逐个替换 {count_b} 个单位，总量从 {assumed_total} "
+                            f"收拢到 {total_value}"
+                        ),
+                    },
+                ],
+            },
+            {
+                "role": "verify",
+                "anchor_zone": "B2-E5",
+                "key_objects": "mix_units",
+                "action": "分组框选两类单位并核对总数与总量",
+                "invariant": (
+                    f"{count_a} × {value_a} + {count_b} × {value_b} = {total_value}，"
+                    f"且 {count_a} + {count_b} = {total_units}"
+                ),
+                "attention_target": "两组的数量与合计算式",
+                "exit_condition": "两组数量与总量同时成立",
+                "teaching_line": (
+                    f"核对：{count_a} × {value_a} + {count_b} × {value_b} = {total_value}。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "verify",
+                        "targets": ["mix_units"],
+                        "result": "",
+                        "meaning": "框选两类单位并核对合计",
+                    },
+                ],
+            },
+        ],
+        "forbidden": ["直接写方程求解", "总量数字不经过逐步替换直接出现"],
+    }
+    errors = _validate_plan(plan, ctx.grade)
+    if errors:
+        logger.warning("linear mix swap plan failed validation: %s", errors[:3])
+        return None
+    return plan
+
+
 def build_minimal_narrative_plan(ctx: ToolContext) -> dict[str, Any] | None:
     """Absolute last-resort plan: verified quantities as bars, always valid.
 
@@ -3557,6 +3731,34 @@ def _validate_plan(
                         unit_ledger[result] = combined
                         for target in targets:
                             unit_ledger[str(target)] = 0
+            elif op == "swap_units":
+                swap_source = str(action.get("source") or "").strip() or (
+                    str(targets[0]) if targets else ""
+                )
+                swap_count = action.get("count")
+                if not swap_source or swap_source not in object_ids:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 swap_units 缺少已声明的 source 组"
+                    )
+                if not isinstance(swap_count, int) or swap_count < 1:
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 swap_units 缺少正整数 count"
+                    )
+                else:
+                    swap_available = ledger_value(swap_source)
+                    if swap_available is not None and swap_count > swap_available:
+                        errors.append(
+                            f"场景 {index} action {action_index} 守恒违例：swap_units 数量 "
+                            f"{swap_count} 超过 source 当前数量 {swap_available}"
+                        )
+                expect_after = action.get("expect")
+                if expect_after is not None and (
+                    not isinstance(expect_after, int) or not 0 <= expect_after <= 6
+                ):
+                    errors.append(
+                        f"场景 {index} action {action_index} 的 swap_units expect"
+                        "（替换后每单位标记数）必须是 0-6 的整数"
+                    )
             elif op == "replicate":
                 times = action.get("count")
                 replicate_source = str(action.get("source") or "").strip() or (
@@ -3652,6 +3854,7 @@ def _validate_plan(
                 "count",
                 "recount_verify",
                 "replicate",
+                "swap_units",
             }:
                 required_visible = list(targets)
                 if op == "take_from":

@@ -14,6 +14,7 @@ from .visual_plan import (
     VisualPlanTool,
     build_grounded_math_visual_plan,
     build_minimal_narrative_plan,
+    build_mix_swap_visual_plan,
     build_quantity_story_visual_plan,
     build_safe_visual_plan,
     store_visual_plan,
@@ -80,8 +81,10 @@ class DirectVideoTool(ITool):
         )
         grounded_plan = None
         if not force_replan:
-            grounded_plan = build_quantity_story_visual_plan(ctx) or (
-                build_grounded_math_visual_plan(ctx)
+            grounded_plan = (
+                build_quantity_story_visual_plan(ctx)
+                or build_mix_swap_visual_plan(ctx)
+                or build_grounded_math_visual_plan(ctx)
             )
         else:
             previous_plan = ctx.state.get("visual_plan")

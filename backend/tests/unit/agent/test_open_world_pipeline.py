@@ -6553,3 +6553,130 @@ def test_math_runtime_accepts_string_key_and_field_selector_shapes() -> None:
             }
         )
         assert result.success and result.all_claims_passed, (left, result.errors, result.claims)
+
+
+# ---------------------------------------------------------------------------
+# Linear-mix structure: first-shot deterministic assumption-swap plan
+# ---------------------------------------------------------------------------
+
+
+def _mix_state() -> dict[str, Any]:
+    return {
+        "solution_verified": True,
+        "solution_answer": "鸡有 23 只，兔有 12 只",
+        "solution_steps": [{"description": "假设法", "result": "12"}],
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {
+                "chicken": {"domain": "nonnegative"},
+                "rabbit": {"domain": "nonnegative"},
+            },
+            "operations": [
+                {
+                    "id": "solve_system",
+                    "op": "solve",
+                    "expression": ["chicken + rabbit - 35", "2*chicken + 4*rabbit - 94"],
+                    "variables": ["chicken", "rabbit"],
+                }
+            ],
+            "claims": [],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "solve_system", "result": "ok"}],
+        },
+    }
+
+
+def test_extract_linear_mix_structure_by_coefficient_shape() -> None:
+    from math_tutor.infrastructure.agent.math_runtime import extract_linear_mix_structure
+
+    mix = extract_linear_mix_structure(_mix_state()["verify_math_request"])
+    assert mix is not None
+    assert mix["total_units"] == 35
+    assert (mix["value_a"], mix["value_b"]) == (2, 4)
+    assert (mix["count_a"], mix["count_b"]) == (23, 12)
+    assert mix["total_value"] == 94
+
+    # Orientation normalizes so swaps always ADD marks.
+    reversed_request = {
+        "operations": [
+            {
+                "id": "s",
+                "op": "solve",
+                "expression": ["4*r + 2*c - 94", "r + c - 35"],
+                "variables": ["r", "c"],
+            }
+        ]
+    }
+    mix2 = extract_linear_mix_structure(reversed_request)
+    assert mix2 is not None and mix2["value_a"] < mix2["value_b"]
+
+    # Non-mix shapes abstain: quadratic, one-var, non-integer solutions.
+    assert extract_linear_mix_structure(
+        {
+            "operations": [
+                {
+                    "id": "s",
+                    "op": "solve",
+                    "expression": "x**2 - 4",
+                    "variable": "x",
+                }
+            ]
+        }
+    ) is None
+    assert extract_linear_mix_structure(
+        {
+            "operations": [
+                {
+                    "id": "s",
+                    "op": "solve",
+                    "expression": ["x + y - 10", "3*x + 7*y - 23"],
+                    "variables": ["x", "y"],
+                }
+            ]
+        }
+    ) is None  # solution not integral
+
+
+def test_mix_swap_plan_builds_validates_and_compiles() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        build_mix_swap_visual_plan,
+    )
+
+    ctx = ToolContext("s", 3, "elementary_upper", "鸡兔同笼，头35，脚94", _mix_state())
+    plan = build_mix_swap_visual_plan(ctx)
+    assert plan is not None
+    assert plan["grounding_source"] == "linear_mix_swap"
+    assert _validate_plan(plan, "elementary_upper") == []
+    swap = next(
+        action
+        for scene in plan["scenes"]
+        for action in scene["actions"]
+        if action["op"] == "swap_units"
+    )
+    assert swap["count"] == 12
+    assert swap["expect"] == 4
+    assert swap["expect_total"] == 94
+    # Template compiles the plan end to end.
+    ctx.state["visual_plan"] = plan
+    code = build_verified_fallback_code(ctx)
+    compile(code, "<mix-swap>", "exec")
+    assert "swap_units" in code
+
+
+def test_direct_video_prefers_mix_swap_over_llm_director() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class NeverCalledPlanner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            raise AssertionError("LLM director must not run for a verified mix structure")
+
+    ctx = ToolContext("s", 3, "elementary_upper", "鸡兔同笼", _mix_state())
+    result = asyncio.run(DirectVideoTool(NeverCalledPlanner()).execute({}, ctx))  # type: ignore[arg-type]
+    assert result.success is True
+    assert ctx.state["visual_plan"]["grounding_source"] == "linear_mix_swap"
