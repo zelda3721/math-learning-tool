@@ -1,0 +1,28 @@
+{
+  "name": "@mathtutor/knowledge",
+  "version": "0.1.0",
+  "description": "知识图谱算法层：图索引/遍历/演化路径、lint 不变量、离线定位器（移植自 math-wiki）",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mathtutor/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@mathtutor/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MathTutor TS 单体：对外唯一入口（atlas / 练习 / 诊断 / 引擎代理）",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@mathtutor/knowledge": "workspace:*",
+    "@mathtutor/schema": "workspace:*",
+    "hono": "^4.6.14",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

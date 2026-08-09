@@ -1,0 +1,29 @@
+{
+  "name": "@mathtutor/schema",
+  "version": "0.1.0",
+  "description": "MathTutor 全系统唯一类型真源：知识图谱 / 学习者 / SSE 事件 / 引擎契约 / 默认参数",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.24"
+  },
+  "devDependencies": {
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}
