@@ -35,7 +35,11 @@ class ManimExecutor(IVideoGenerator):
         render_timeout_s: float = 300.0,
     ):
         settings = get_settings()
-        self.output_dir = Path(output_dir or settings.manim_output_dir)
+        # Default to the engine-root-anchored media dir so renders land in
+        # the same place no matter which CWD the process started from.
+        self.output_dir = (
+            Path(output_dir) if output_dir else settings.resolved_manim_output_dir
+        )
         self.quality = quality
         self.render_timeout_s = max(30.0, render_timeout_s)
 

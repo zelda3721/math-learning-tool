@@ -240,11 +240,13 @@ class AgentLoop:
         grade: str,
         session_id: str | None = None,
         extra_directives: str | None = None,
+        learner_id: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
         if session_id is None:
             session_id = await self._store.create_session(
                 problem=problem,
                 grade=grade,
+                learner_id=learner_id,
                 meta={
                     "engine": "five_stage_workflow_v3",
                     "quality_contract": "open_world_v4",

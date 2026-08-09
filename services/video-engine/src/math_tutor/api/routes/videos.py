@@ -2,7 +2,6 @@
 Video streaming routes - serves generated video files with Range support
 """
 import logging
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -15,13 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_media_path() -> Path:
-    """Get absolute path to media directory"""
-    settings = get_settings()
-    media_path = Path(settings.manim_output_dir)
-    if not media_path.is_absolute():
-        # Resolve relative to backend directory (where uvicorn runs)
-        media_path = Path(os.getcwd()) / media_path
-    return media_path
+    """Get absolute path to media directory (engine-root anchored)."""
+    return get_settings().resolved_manim_output_dir
 
 
 @router.get("/videos/{path:path}")

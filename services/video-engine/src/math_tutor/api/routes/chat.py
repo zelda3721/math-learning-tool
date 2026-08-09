@@ -43,6 +43,9 @@ class ChatRequest(BaseModel):
     grade: EducationLevel = EducationLevel.ELEMENTARY_UPPER
     session_id: str | None = None
     extra_directives: str | None = None
+    # Optional stable learner identity (passed through by the TS gateway);
+    # persisted on the session row for per-learner history filtering.
+    learner_id: str | None = None
 
 
 def _event_to_sse(event_type: str, payload: dict) -> str:
@@ -58,6 +61,7 @@ async def _stream_events(loop: AgentLoop, req: ChatRequest) -> AsyncIterator[str
             grade=req.grade.value,
             session_id=req.session_id,
             extra_directives=req.extra_directives,
+            learner_id=req.learner_id,
         ):
             if isinstance(evt, SessionCreated):
                 yield _event_to_sse("session", {"session_id": evt.session_id})

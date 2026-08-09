@@ -576,18 +576,23 @@ def _resolve_video_path(arg: str | None, ctx: ToolContext) -> Path | None:
     state_path = ctx.state.get("latest_video_path")
     if isinstance(state_path, str) and state_path:
         candidates.append(state_path)
+    from ....config import get_settings
+
+    media_root = get_settings().resolved_manim_output_dir
     for c in candidates:
         p = Path(c)
         if p.exists():
             return p
         if c.startswith("/api/v1/media/"):
             stripped = c.replace("/api/v1/media/", "")
-            p2 = Path("media") / stripped
+            p2 = media_root / stripped
             if p2.exists():
                 return p2
         p3 = Path(c)
         if not p3.is_absolute():
-            for base in (Path.cwd(), Path.cwd() / "backend"):
+            # media_root's parent covers Manim-relative "media/..." paths;
+            # CWD variants remain as legacy best-effort fallbacks.
+            for base in (media_root.parent, Path.cwd(), Path.cwd() / "backend"):
                 candidate = base / c
                 if candidate.exists():
                     return candidate

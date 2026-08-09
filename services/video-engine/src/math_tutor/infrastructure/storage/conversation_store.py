@@ -9,6 +9,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .database import Database
@@ -36,9 +37,19 @@ def _loads_or_none(s: str | None) -> Any:
 
 
 class ConversationStore:
-    def __init__(self, db: Database, archive: FileArchive) -> None:
+    def __init__(
+        self,
+        db: Database,
+        archive: FileArchive,
+        *,
+        media_root: Path | None = None,
+    ) -> None:
         self._db = db
         self._archive = archive
+        # Root used to resolve relative video paths (Manim-relative like
+        # "media/videos/.../Scene.mp4"). Falls back to CWD when unset so
+        # legacy callers keep their old best-effort behaviour.
+        self._media_root = media_root
 
     @property
     def archive(self) -> FileArchive:
@@ -51,6 +62,7 @@ class ConversationStore:
         problem: str,
         grade: str,
         *,
+        learner_id: str | None = None,
         meta: dict[str, Any] | None = None,
     ) -> str:
         session_id = str(uuid.uuid4())
@@ -58,8 +70,9 @@ class ConversationStore:
         await self._db.execute(
             """
             INSERT INTO sessions
-                (id, created_at, updated_at, problem, grade, status, meta_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, created_at, updated_at, problem, grade, status,
+                 meta_json, learner_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -69,6 +82,7 @@ class ConversationStore:
                 grade,
                 "running",
                 json.dumps(meta or {}, ensure_ascii=False),
+                learner_id,
             ),
         )
         return session_id
@@ -116,23 +130,33 @@ class ConversationStore:
         limit: int = 50,
         offset: int = 0,
         label: str | None = None,
+        learner_id: str | None = None,
     ) -> list[Session]:
+        learner_clause = "" if learner_id is None else "s.learner_id = ?"
+        learner_params: tuple[Any, ...] = () if learner_id is None else (learner_id,)
         if label is None:
+            where = f"WHERE {learner_clause}" if learner_clause else ""
             rows = await self._db.fetch_all(
-                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (limit, offset),
+                f"""
+                SELECT s.* FROM sessions s
+                {where}
+                ORDER BY s.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (*learner_params, limit, offset),
             )
         else:
+            extra = f"AND {learner_clause}" if learner_clause else ""
             rows = await self._db.fetch_all(
-                """
+                f"""
                 SELECT s.* FROM sessions s
                 JOIN feedback f ON f.session_id = s.id
-                WHERE f.label = ?
+                WHERE f.label = ? {extra}
                 GROUP BY s.id
                 ORDER BY s.created_at DESC
                 LIMIT ? OFFSET ?
                 """,
-                (label, limit, offset),
+                (label, *learner_params, limit, offset),
             )
         return [self._row_to_session(r) for r in rows]
 
@@ -157,9 +181,6 @@ class ConversationStore:
 
         videos_removed: list[str] = []
         if drop_videos:
-            import shutil as _sh
-            from pathlib import Path as _Path
-
             # Candidate paths: artifacts table (kind='video'), and the
             # session row's final_video_path.
             video_paths = {
@@ -168,13 +189,24 @@ class ConversationStore:
             if session.final_video_path:
                 video_paths.add(session.final_video_path)
 
+            # Bases for resolving relative video paths. Stored paths are
+            # typically Manim-relative including the media dir name
+            # ("media/videos/Scene/480p15/Scene.mp4"), so the configured
+            # media root's PARENT is the primary anchor; the media root
+            # itself covers bare "videos/..." paths; CWD stays as the
+            # legacy best-effort fallback.
+            bases: list[Path] = []
+            if self._media_root is not None:
+                bases.extend([self._media_root.parent, self._media_root])
+            bases.append(Path.cwd())
+
             for vp in video_paths:
-                p = _Path(vp)
+                p = Path(vp)
                 if not p.is_absolute():
-                    # final_video_path is typically Manim-relative
-                    # (e.g. "media/videos/SolutionScene/480p15/SolutionScene.mp4")
-                    # or just a filename. Best-effort resolve from CWD.
-                    p = _Path.cwd() / vp
+                    p = next(
+                        (b / vp for b in bases if (b / vp).is_file()),
+                        bases[0] / vp,
+                    )
                 if p.exists() and p.is_file():
                     try:
                         p.unlink()
@@ -394,6 +426,7 @@ class ConversationStore:
             final_video_path=row.get("final_video_path"),
             error=row.get("error"),
             meta=_loads_or_none(row.get("meta_json")) or {},
+            learner_id=row.get("learner_id"),
         )
 
     @staticmethod

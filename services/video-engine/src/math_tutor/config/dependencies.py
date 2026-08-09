@@ -72,7 +72,7 @@ def get_video_generator(
 ) -> IVideoGenerator:
     """Get video generator (Manim executor)"""
     return ManimExecutor(
-        output_dir=settings.manim_output_dir,
+        output_dir=str(settings.resolved_manim_output_dir),
         quality=settings.manim_quality,
         render_timeout_s=settings.manim_render_timeout_s,
     )
@@ -107,10 +107,18 @@ def get_file_archive(
     return _get_file_archive(settings)
 
 
+def _build_conversation_store(settings: Settings) -> ConversationStore:
+    return ConversationStore(
+        _get_database(settings),
+        _get_file_archive(settings),
+        media_root=settings.resolved_manim_output_dir,
+    )
+
+
 def get_conversation_store(
     settings: Settings = Depends(get_settings),
 ) -> ConversationStore:
-    return ConversationStore(_get_database(settings), _get_file_archive(settings))
+    return _build_conversation_store(settings)
 
 
 def get_examples_store(
@@ -287,7 +295,7 @@ def _get_tool_registry(settings: Settings) -> ToolRegistry:
             llm=_get_llm_provider(settings),
             fast_llm=_get_fast_llm_provider(settings),
             video_generator=ManimExecutor(
-                output_dir=settings.manim_output_dir,
+                output_dir=str(settings.resolved_manim_output_dir),
                 quality=settings.manim_quality,
                 render_timeout_s=settings.manim_render_timeout_s,
             ),
@@ -331,9 +339,7 @@ def _get_wiki_ingester(settings: Settings) -> WikiIngester | None:
             wiki=wiki,
             llm=ingest_llm,
             prompts=_get_prompt_library(),
-            store=ConversationStore(
-                _get_database(settings), _get_file_archive(settings)
-            ),
+            store=_build_conversation_store(settings),
         )
     return _wiki_ingester_instance
 
@@ -353,7 +359,7 @@ def get_agent_loop(
         llm=_get_llm_provider(settings),
         registry=_get_tool_registry(settings),
         composer=PromptComposer(),
-        store=ConversationStore(_get_database(settings), _get_file_archive(settings)),
+        store=_build_conversation_store(settings),
         use_latex=settings.manim_use_latex,
         learned_memory=_get_learned_memory(settings),
         max_turns=settings.llm_agent_max_turns,
