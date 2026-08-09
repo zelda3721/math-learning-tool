@@ -26,6 +26,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# 本脚本只访问本机引擎：禁用系统代理（http_proxy 等 env 会把 localhost 也送进代理）
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 # 覆盖三个年级段的代表性题目（与引擎示例题风格一致）
 DEFAULT_PROBLEMS: list[dict[str, str]] = [
     {"problem": "小明有 12 颗糖，分给 3 个小朋友，每人分得同样多，每人分到几颗？", "grade": "elementary_lower"},
@@ -41,13 +44,13 @@ def post_json(url: str, payload: dict, timeout: float) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def check_up(base_url: str) -> None:
     try:
-        with urllib.request.urlopen(f"{base_url}/api/health", timeout=5) as resp:
+        with _OPENER.open(f"{base_url}/api/health", timeout=5) as resp:
             resp.read()
     except (urllib.error.URLError, OSError) as exc:
         print(f"[fatal] 引擎不可达（{base_url}）：{exc}")

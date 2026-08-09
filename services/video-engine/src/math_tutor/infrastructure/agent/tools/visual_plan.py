@@ -3324,8 +3324,14 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         and item.get("meaning")
     ]
     if len(objects) < 2:
+        # Never recurse when we already hold the verified-arithmetic candidate:
+        # _verified_arithmetic_candidate builds a fresh dict on every call, so
+        # an identity check cannot break the cycle and salvage would loop
+        # forever on the same unusable plan.
+        if candidate.get("grounding_source") == "verified_solution_arithmetic":
+            return None
         verified_candidate = _verified_arithmetic_candidate(ctx)
-        if verified_candidate is None or verified_candidate is candidate:
+        if verified_candidate is None:
             return None
         return build_safe_visual_plan(verified_candidate, ctx)
     object_ids = [str(item["id"]) for item in objects]
@@ -3364,7 +3370,13 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             ) or param_value == answer_value:
                 answer_object_id = object_id
                 break
-    if answer_object_id is None:
+    if (
+        answer_object_id is None
+        and candidate.get("grounding_source") != "verified_solution_arithmetic"
+    ):
+        # Escalate to the verified-arithmetic chain at most once (recursion
+        # depth <= 1). If that chain itself lacks an addressable answer state
+        # we fall through to generic salvage instead of recursing forever.
         verified_candidate = _verified_arithmetic_candidate(ctx)
         if verified_candidate is not None:
             return build_safe_visual_plan(verified_candidate, ctx)

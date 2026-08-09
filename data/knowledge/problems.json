@@ -1,0 +1,1304 @@
+[
+  {
+    "id": "chickens-rabbits",
+    "name": "鸡兔同笼",
+    "category": "假设与方程",
+    "stage": "primary",
+    "example": "笼子里有鸡和兔共8只，一共26条腿。鸡和兔各几只？",
+    "essence": "有两个未知量（鸡数、兔数），又有两个相等关系（头的总数、脚的总数）。一切解法的核心都是「想办法消去一个未知量」。",
+    "methods": [
+      {
+        "name": "假设法",
+        "idea": "先假设全是鸡，算出脚数会少多少，少的脚÷(兔脚−鸡脚)就是兔的只数。"
+      },
+      {
+        "name": "列表法",
+        "idea": "从一只兔开始一只一只往上试，列表逼近正确答案。"
+      },
+      {
+        "name": "抬脚法/画图",
+        "idea": "让每只动物抬起2只脚，剩下的脚都是兔子多出来的，÷2即兔数。"
+      },
+      {
+        "name": "方程法",
+        "idea": "设兔x只、鸡(8−x)只，按脚数列方程——到初中用二元一次方程组一步到位。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "add-sub-100",
+      "multiplication-table"
+    ],
+    "evolveNote": "初中用「二元一次方程组」把这类问题统一成标准消元法。",
+    "evolveNode": "linear-equation",
+    "keywords": [
+      "鸡兔同笼",
+      "鸡",
+      "兔",
+      "腿",
+      "脚",
+      "几只",
+      "头",
+      "龟鹤",
+      "假设"
+    ]
+  },
+  {
+    "id": "planting-trees",
+    "name": "植树问题",
+    "category": "对应与规律",
+    "stage": "primary",
+    "example": "一条100米的路，每隔5米栽一棵树，两端都栽，共栽几棵？",
+    "essence": "棵数和「间隔数」一一对应。关键是数清有几个间隔，再看两端栽不栽。",
+    "methods": [
+      {
+        "name": "两端都栽",
+        "idea": "棵数 = 间隔数 + 1。"
+      },
+      {
+        "name": "一端栽 / 都不栽",
+        "idea": "棵数 = 间隔数 / 间隔数 − 1，按是否含端点调整。"
+      },
+      {
+        "name": "封闭路线",
+        "idea": "围成一圈时棵数 = 间隔数。"
+      },
+      {
+        "name": "画图",
+        "idea": "先画几个间隔，找出棵数与间隔的关系，再推广。"
+      }
+    ],
+    "nodes": [
+      "patterns-rules",
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "evolveNote": "「锯木头、爬楼梯、敲钟」都是同一个间隔模型。",
+    "keywords": [
+      "植树",
+      "间隔",
+      "每隔",
+      "栽",
+      "棵",
+      "路灯",
+      "锯",
+      "段",
+      "爬楼",
+      "敲钟"
+    ]
+  },
+  {
+    "id": "surplus-deficit",
+    "name": "盈亏问题",
+    "category": "分配",
+    "stage": "primary",
+    "example": "分苹果：每人3个多5个，每人5个少7个。多少人？多少苹果？",
+    "essence": "同一批东西两种分法，两次结果的「总差」÷ 每份的「差」= 份数（人数）。",
+    "methods": [
+      {
+        "name": "盈亏公式",
+        "idea": "(盈+亏) ÷ 两次每份之差 = 份数；一盈一亏相加，同盈/同亏相减。"
+      },
+      {
+        "name": "画图/线段",
+        "idea": "画出两次分配，直观看出多出来与少掉的部分。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "multiplication-table"
+    ],
+    "evolveNote": "本质是一元一次方程，初中可直接设未知数求解。",
+    "evolveNode": "linear-equation",
+    "keywords": [
+      "盈亏",
+      "多",
+      "少",
+      "余",
+      "不足",
+      "分给",
+      "每人",
+      "剩"
+    ]
+  },
+  {
+    "id": "sum-difference",
+    "name": "和差问题",
+    "category": "和差倍",
+    "stage": "primary",
+    "example": "两个数的和是20，差是4，这两个数各是多少？",
+    "essence": "知道两个数的「和」与「差」，就能拆出每一个数。",
+    "methods": [
+      {
+        "name": "和差公式",
+        "idea": "大数 = (和 + 差) ÷ 2，小数 = (和 − 差) ÷ 2。"
+      },
+      {
+        "name": "线段图",
+        "idea": "把差从和里去掉/补上，变成两个相等的部分。"
+      }
+    ],
+    "nodes": [
+      "add-sub-100",
+      "average-charts"
+    ],
+    "keywords": [
+      "和是",
+      "差是",
+      "相差",
+      "多多少",
+      "两个数"
+    ]
+  },
+  {
+    "id": "sum-multiple",
+    "name": "和倍问题",
+    "category": "和差倍",
+    "stage": "primary",
+    "example": "果园里桃树和梨树共48棵，桃树是梨树的3倍，各几棵？",
+    "essence": "把小量看作「1 份」，总和里一共有 (倍数+1) 份。",
+    "methods": [
+      {
+        "name": "份数法",
+        "idea": "和 ÷ (倍数 + 1) = 1 份（小量），再求另一个。"
+      },
+      {
+        "name": "线段图",
+        "idea": "1 段表示小量，倍数段表示大量，一起拼成总和。"
+      }
+    ],
+    "nodes": [
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "一共",
+      "是…的几倍",
+      "倍",
+      "总共",
+      "和"
+    ]
+  },
+  {
+    "id": "difference-multiple",
+    "name": "差倍问题",
+    "category": "和差倍",
+    "stage": "primary",
+    "example": "哥哥的钱是弟弟的4倍，哥哥比弟弟多30元，各有多少？",
+    "essence": "把小量看作「1 份」，相差的部分正好是 (倍数−1) 份。",
+    "methods": [
+      {
+        "name": "份数法",
+        "idea": "差 ÷ (倍数 − 1) = 1 份（小量），再求大量。"
+      },
+      {
+        "name": "线段图",
+        "idea": "画出多出来的 (倍数−1) 份对应这个差。"
+      }
+    ],
+    "nodes": [
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "多",
+      "倍",
+      "相差",
+      "比…多"
+    ]
+  },
+  {
+    "id": "age-problem",
+    "name": "年龄问题",
+    "category": "不变量",
+    "stage": "primary",
+    "example": "今年爸爸38岁，儿子10岁，几年后爸爸的年龄是儿子的3倍？",
+    "essence": "抓住核心不变量：两人的「年龄差」永远不变。其余转化成和差倍。",
+    "methods": [
+      {
+        "name": "差不变",
+        "idea": "无论过多少年，年龄差恒定，把它当已知量。"
+      },
+      {
+        "name": "转和差倍",
+        "idea": "用差不变 + 倍数关系，化成差倍/和倍问题。"
+      }
+    ],
+    "nodes": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "年龄",
+      "岁",
+      "几年后",
+      "几年前",
+      "父亲",
+      "儿子",
+      "倍"
+    ]
+  },
+  {
+    "id": "journey-problem",
+    "name": "行程问题",
+    "category": "运动",
+    "stage": "primary",
+    "example": "两人相距300米，相向而行，速度分别是40、60米/分，几分钟相遇？",
+    "essence": "一切行程都由「路程 = 速度 × 时间」生长出来：相遇看速度和，追及看速度差。",
+    "methods": [
+      {
+        "name": "相遇问题",
+        "idea": "总路程 ÷ 速度和 = 相遇时间。"
+      },
+      {
+        "name": "追及问题",
+        "idea": "距离差 ÷ 速度差 = 追上时间。"
+      },
+      {
+        "name": "线段/示意图",
+        "idea": "画出两人位置与方向，标速度和时间。"
+      }
+    ],
+    "nodes": [
+      "multiplication-table",
+      "problem-solving-primary",
+      "proportion"
+    ],
+    "evolveNote": "高中用函数与解析几何描述运动，是它的成熟形态。",
+    "evolveNode": "junior-function",
+    "keywords": [
+      "相遇",
+      "追及",
+      "速度",
+      "千米",
+      "每小时",
+      "每分钟",
+      "相向",
+      "同时出发",
+      "路程",
+      "环形"
+    ]
+  },
+  {
+    "id": "work-problem",
+    "name": "工程问题",
+    "category": "单位1",
+    "stage": "primary",
+    "example": "一项工程，甲单独10天、乙单独15天完成，合作几天完成？",
+    "essence": "把总工作量看作单位「1」，每人每天完成的份额（工作效率）是关键。",
+    "methods": [
+      {
+        "name": "单位1法",
+        "idea": "效率 = 1 ÷ 单独天数，合作时间 = 1 ÷ 效率之和。"
+      },
+      {
+        "name": "份数法",
+        "idea": "用总量的公倍数当份数，避开分数更直观。"
+      }
+    ],
+    "nodes": [
+      "fraction-arithmetic",
+      "ratio-percent"
+    ],
+    "evolveNote": "注水放水、走路、印刷……都是同一个「效率×时间」模型。",
+    "keywords": [
+      "工程",
+      "单独",
+      "合作",
+      "几天完成",
+      "效率",
+      "注水",
+      "水管",
+      "一项工作"
+    ]
+  },
+  {
+    "id": "unitary-problem",
+    "name": "归一问题",
+    "category": "单一量",
+    "stage": "primary",
+    "example": "5辆车3次运货60吨，照这样8辆车5次运多少吨？",
+    "essence": "先求出「一份」的量（单一量），再乘以需要的份数。",
+    "methods": [
+      {
+        "name": "归一",
+        "idea": "先 ÷ 求出 1 份，再 × 推出总量。"
+      },
+      {
+        "name": "归总",
+        "idea": "先算出不变的「总量」，再按新条件分配。"
+      }
+    ],
+    "nodes": [
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "照这样",
+      "平均每",
+      "一共能",
+      "几小时",
+      "几台"
+    ]
+  },
+  {
+    "id": "reverse-problem",
+    "name": "还原问题（逆推）",
+    "category": "倒推",
+    "stage": "primary",
+    "example": "一个数加5，再乘2，得到18。这个数是多少？",
+    "essence": "已知最后结果，沿着相反的运算一步步「倒着走」回起点。",
+    "methods": [
+      {
+        "name": "倒推法",
+        "idea": "从结果出发，把加变减、乘变除，逆序还原。"
+      },
+      {
+        "name": "框图法",
+        "idea": "画出正向流程图，再反向填回去。"
+      }
+    ],
+    "nodes": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "evolveNote": "这就是「逆运算」思想，方程里的移项正是它的延伸。",
+    "evolveNode": "linear-equation",
+    "keywords": [
+      "原来",
+      "倒推",
+      "最后",
+      "还剩",
+      "又",
+      "再",
+      "结果是"
+    ]
+  },
+  {
+    "id": "period-problem",
+    "name": "周期问题",
+    "category": "规律与余数",
+    "stage": "primary",
+    "example": "按红、黄、蓝循环排灯，第50盏灯是什么颜色？",
+    "essence": "一组东西不断重复，用「除法的余数」判断它落在周期里的第几个。",
+    "methods": [
+      {
+        "name": "找周期",
+        "idea": "先看清一个完整周期有几个、长什么样。"
+      },
+      {
+        "name": "求余定位",
+        "idea": "序号 ÷ 周期长度，看余数对应周期里的第几个。"
+      }
+    ],
+    "nodes": [
+      "patterns-rules",
+      "factor-multiple"
+    ],
+    "keywords": [
+      "第几",
+      "周期",
+      "循环",
+      "排列",
+      "星期几",
+      "余",
+      "重复",
+      "第50"
+    ]
+  },
+  {
+    "id": "pigeonhole",
+    "name": "抽屉原理（鸽巢）",
+    "category": "存在性推理",
+    "stage": "primary",
+    "example": "任意13个人中，一定有至少两人是同一个月出生，为什么？",
+    "essence": "把多的东西放进少的抽屉，必有一个抽屉里至少有两个——保证「一定存在」。",
+    "methods": [
+      {
+        "name": "最不利原则",
+        "idea": "先假设尽量平均/尽量躲开，看最坏情况也躲不掉。"
+      },
+      {
+        "name": "构造抽屉",
+        "idea": "关键是想清楚「什么是抽屉、什么是物体」。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "patterns-rules"
+    ],
+    "evolveNote": "它是组合数学与存在性证明的雏形。",
+    "evolveNode": "reasoning-proof",
+    "keywords": [
+      "至少",
+      "一定有",
+      "保证",
+      "抽屉",
+      "鸽巢",
+      "同一",
+      "必有"
+    ]
+  },
+  {
+    "id": "gauss-sum",
+    "name": "等差数列求和（高斯求和）",
+    "category": "数列雏形",
+    "stage": "primary",
+    "example": "1 + 2 + 3 + … + 100 = ?",
+    "essence": "把首尾配对，每对的和都相等，于是用「乘法」代替大量「加法」。",
+    "methods": [
+      {
+        "name": "首尾配对",
+        "idea": "(首 + 末) 配成相等的若干对。"
+      },
+      {
+        "name": "求和公式",
+        "idea": "和 = (首项 + 末项) × 项数 ÷ 2。"
+      }
+    ],
+    "nodes": [
+      "patterns-rules",
+      "add-sub-100"
+    ],
+    "evolveNote": "这正是高中「等差数列求和」的童年版本。",
+    "evolveNode": "sequence",
+    "keywords": [
+      "1+2+3",
+      "连续",
+      "求和",
+      "等差",
+      "1到100",
+      "相加"
+    ]
+  },
+  {
+    "id": "inclusion-exclusion",
+    "name": "容斥问题（重叠）",
+    "category": "集合思想",
+    "stage": "primary",
+    "example": "全班40人，参加语文组25人、数学组20人，两个都参加15人。至少参加一项的有几人？",
+    "essence": "两类有重叠时，直接相加会把重叠部分算两次，要减回去一次。",
+    "methods": [
+      {
+        "name": "文氏图",
+        "idea": "用两个圈的交叠区域看清「都」「只」「至少」。"
+      },
+      {
+        "name": "加减法",
+        "idea": "至少其一 = A + B − 两者都。"
+      }
+    ],
+    "nodes": [
+      "classify-organize",
+      "average-charts"
+    ],
+    "evolveNote": "高中「计数原理」把它推广到更多集合的容斥公式。",
+    "evolveNode": "counting-principle",
+    "keywords": [
+      "既",
+      "又",
+      "都",
+      "至少",
+      "两项",
+      "重叠",
+      "只参加",
+      "都参加"
+    ]
+  },
+  {
+    "id": "number-puzzle",
+    "name": "数字谜 / 竖式谜",
+    "category": "推理",
+    "stage": "primary",
+    "example": "竖式 □5 + 2□ = 6□，每个 □ 代表一个数字，它们各是几？",
+    "essence": "利用数位结构和进位/退位的约束，一位一位地逻辑推断。",
+    "methods": [
+      {
+        "name": "逐位推理",
+        "idea": "从个位开始，结合进位条件缩小可能。"
+      },
+      {
+        "name": "枚举验证",
+        "idea": "在很少的候选里逐一试验、排除矛盾。"
+      }
+    ],
+    "nodes": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "evolveNote": "它训练的逻辑推理，是几何证明与代数推导的根。",
+    "evolveNode": "reasoning-proof",
+    "keywords": [
+      "竖式",
+      "数字谜",
+      "代表",
+      "填",
+      "□",
+      "字母",
+      "各是几"
+    ]
+  },
+  {
+    "id": "flowing-water",
+    "name": "流水行船",
+    "category": "行程变体",
+    "stage": "primary",
+    "example": "一条船顺水每小时20千米，逆水每小时12千米，水速和船速各是多少？",
+    "essence": "行程问题在水流中的变体：顺水速度=船速+水速，逆水速度=船速−水速，本质是「合速度」。",
+    "methods": [
+      {
+        "name": "顺逆水公式",
+        "idea": "船速=(顺水+逆水)÷2，水速=(顺水−逆水)÷2。"
+      },
+      {
+        "name": "线段图",
+        "idea": "把水速当作助力/阻力，叠加到船的静水速度上。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "multiplication-table"
+    ],
+    "evolveNote": "和行程、火车过桥同属「相对速度」家族。",
+    "evolveNode": "junior-function",
+    "keywords": [
+      "顺水",
+      "逆水",
+      "船",
+      "水流",
+      "静水",
+      "漂流",
+      "划船"
+    ]
+  },
+  {
+    "id": "train-bridge",
+    "name": "火车过桥",
+    "category": "行程变体",
+    "stage": "primary",
+    "example": "一列长200米的火车，每秒20米，通过一座700米的桥要多少秒？",
+    "essence": "物体「有长度」的行程：过桥走的路程要算上车身长（车长+桥长）。",
+    "methods": [
+      {
+        "name": "过桥/过隧道",
+        "idea": "路程 = 车长 + 桥长，再 ÷ 速度。"
+      },
+      {
+        "name": "错车/超车",
+        "idea": "两车相错走过的是两车长之和，用速度和/速度差。"
+      }
+    ],
+    "nodes": [
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "火车",
+      "过桥",
+      "车长",
+      "隧道",
+      "错车",
+      "超车",
+      "通过"
+    ]
+  },
+  {
+    "id": "clock-problem",
+    "name": "时钟问题",
+    "category": "行程变体",
+    "stage": "primary",
+    "example": "从3点开始，再过多少分钟时针与分针第一次重合？",
+    "essence": "钟面上的「追及问题」：分针每分钟走6°、时针走0.5°，靠速度差追赶。",
+    "methods": [
+      {
+        "name": "角度法",
+        "idea": "用分针与时针的角速度差（5.5°/分）算追及时间。"
+      },
+      {
+        "name": "格数法",
+        "idea": "把钟面看成60格，分针每分1格、时针每分1/12格。"
+      }
+    ],
+    "nodes": [
+      "clock-money",
+      "problem-solving-primary",
+      "multiplication-table"
+    ],
+    "keywords": [
+      "时针",
+      "分针",
+      "重合",
+      "成直角",
+      "钟面",
+      "几点",
+      "夹角"
+    ]
+  },
+  {
+    "id": "cows-grass",
+    "name": "牛吃草（牛顿问题）",
+    "category": "变化的总量",
+    "stage": "primary",
+    "example": "一片草地，10头牛20天吃完，15头牛10天吃完。多少头牛5天吃完？",
+    "essence": "草「边吃边长」：总草量 = 原有草 + 每天新长的草。关键是把「新长速度」分离出来。",
+    "methods": [
+      {
+        "name": "设份数",
+        "idea": "设每头牛每天吃1份，列出消耗与生长，解出原有草量与日生长量。"
+      },
+      {
+        "name": "差量法",
+        "idea": "用两种情形作差，消去原有草量，先求每天新长多少。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "patterns-rules"
+    ],
+    "evolveNote": "这是初中方程组思想在「动态总量」上的典型应用。",
+    "evolveNode": "linear-equation",
+    "keywords": [
+      "牛吃草",
+      "几头牛",
+      "几天吃完",
+      "牧场",
+      "草",
+      "排水",
+      "新长"
+    ]
+  },
+  {
+    "id": "concentration",
+    "name": "浓度问题",
+    "category": "百分数应用",
+    "stage": "primary",
+    "example": "200克含盐20%的盐水，要变成含盐10%，需加多少克水？",
+    "essence": "浓度 = 溶质 ÷ 溶液。稀释或加水时「溶质的量不变」，是解题的钥匙。",
+    "methods": [
+      {
+        "name": "溶质守恒",
+        "idea": "抓住溶质（盐）总量不变，列出前后关系。"
+      },
+      {
+        "name": "十字交叉法",
+        "idea": "两种浓度混合时，用交叉法快速求配比。"
+      }
+    ],
+    "nodes": [
+      "ratio-percent",
+      "fraction-arithmetic"
+    ],
+    "keywords": [
+      "浓度",
+      "盐水",
+      "溶液",
+      "稀释",
+      "百分之",
+      "混合",
+      "含盐"
+    ]
+  },
+  {
+    "id": "profit",
+    "name": "利润问题",
+    "category": "百分数应用",
+    "stage": "primary",
+    "example": "一件商品进价80元，标价120元，打八折卖出，赚了多少？利润率是多少？",
+    "essence": "成本、售价、利润率之间的百分数关系：利润 = 售价 − 成本。",
+    "methods": [
+      {
+        "name": "利润率",
+        "idea": "利润率 = 利润 ÷ 成本；售价 = 成本 ×(1+利润率)。"
+      },
+      {
+        "name": "打折",
+        "idea": "实售价 = 标价 × 折扣；几折就是十分之几。"
+      }
+    ],
+    "nodes": [
+      "ratio-percent",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "利润",
+      "成本",
+      "售价",
+      "进价",
+      "打折",
+      "几折",
+      "赚",
+      "亏",
+      "利润率"
+    ]
+  },
+  {
+    "id": "ratio-distribution",
+    "name": "按比例分配",
+    "category": "比与分配",
+    "stage": "primary",
+    "example": "把180本书按2∶3∶4分给三个班，各分多少本？",
+    "essence": "把总量看成「份数之和」那么多份，每部分占其中几份。",
+    "methods": [
+      {
+        "name": "份数法",
+        "idea": "总量 ÷ (各比之和) = 1 份，再乘各自的份数。"
+      },
+      {
+        "name": "分数法",
+        "idea": "每部分 = 总量 × (该比 ÷ 比之和)。"
+      }
+    ],
+    "nodes": [
+      "ratio-percent",
+      "proportion"
+    ],
+    "keywords": [
+      "按比例",
+      "分配",
+      "比是",
+      "分成",
+      "占",
+      "几比几"
+    ]
+  },
+  {
+    "id": "optimization",
+    "name": "统筹与最优策略",
+    "category": "策略与对策",
+    "stage": "primary",
+    "example": "烙饼每次只能烙2张、每面2分钟，烙3张饼最少要几分钟？",
+    "essence": "在多种方案里找「最省时间/最优」的安排，比较不同顺序的代价。",
+    "methods": [
+      {
+        "name": "排序/贪心",
+        "idea": "把任务按合理顺序排，让等待与浪费最少。"
+      },
+      {
+        "name": "枚举比较",
+        "idea": "方案不多时逐一列出、比较，挑最优。"
+      }
+    ],
+    "nodes": [
+      "problem-solving-primary",
+      "comprehensive-practice"
+    ],
+    "evolveNote": "它是高中「数学建模/最优化」与运筹学的童年版。",
+    "evolveNode": "math-modeling-senior",
+    "keywords": [
+      "最少",
+      "最优",
+      "最省",
+      "统筹",
+      "烙饼",
+      "排队",
+      "田忌",
+      "过河",
+      "倒水",
+      "安排"
+    ]
+  },
+  {
+    "id": "magic-square",
+    "name": "数阵图与幻方",
+    "category": "推理与构造",
+    "stage": "primary",
+    "example": "把1~9填进九宫格，使每行、每列、每条对角线的三数之和都相等。",
+    "essence": "利用「总和」与「某些数被重复计算」的约束来推断该填什么。",
+    "methods": [
+      {
+        "name": "幻和法",
+        "idea": "先算出每行必须的和（幻和），定出中心数。"
+      },
+      {
+        "name": "试填调整",
+        "idea": "先放关键位置，再依约束微调。"
+      }
+    ],
+    "nodes": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "keywords": [
+      "幻方",
+      "数阵",
+      "九宫格",
+      "每行",
+      "每列",
+      "对角",
+      "和相等",
+      "填数"
+    ]
+  },
+  {
+    "id": "average-problem",
+    "name": "平均数问题",
+    "category": "平均与统计",
+    "stage": "primary",
+    "example": "前4次考试平均90分，第5次考多少分能把平均提到92分？",
+    "essence": "平均数 = 总和 ÷ 份数。平均数变化时，要紧紧抓住「总和」。",
+    "methods": [
+      {
+        "name": "总和法",
+        "idea": "由平均数还原总和，变化前后用总和比较。"
+      },
+      {
+        "name": "移多补少 / 基准数",
+        "idea": "以一个基准数算偏差的平均，简化计算。"
+      }
+    ],
+    "nodes": [
+      "average-charts",
+      "add-sub-100"
+    ],
+    "keywords": [
+      "平均",
+      "平均数",
+      "平均每",
+      "提高",
+      "移多补少",
+      "几次"
+    ]
+  },
+  {
+    "id": "counting-figures",
+    "name": "几何计数（数图形）",
+    "category": "有序枚举",
+    "stage": "primary",
+    "example": "下图一条线段被分成4段，图中一共有多少条线段？",
+    "essence": "用分类、有序的方法「不重不漏」地数出线段、角、三角形、长方形等。",
+    "methods": [
+      {
+        "name": "有序枚举",
+        "idea": "按端点/层次有序地数，避免重复或遗漏。"
+      },
+      {
+        "name": "找公式",
+        "idea": "线段数 = 1+2+…+(n) 这类组合规律。"
+      }
+    ],
+    "nodes": [
+      "solid-plane-shapes",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "evolveNote": "它是高中「计数原理（排列组合）」的起点。",
+    "evolveNode": "counting-principle",
+    "keywords": [
+      "数线段",
+      "数三角形",
+      "数长方形",
+      "几个",
+      "图中有",
+      "多少条"
+    ]
+  },
+  {
+    "id": "fraction-application",
+    "name": "分数应用题（单位1）",
+    "category": "量率对应",
+    "stage": "primary",
+    "example": "一根绳用去全长的2/5，又用去6米，正好用完。绳原来多长？",
+    "essence": "找准「单位 1」，抓住「量」和「率（几分之几）」的对应关系。",
+    "methods": [
+      {
+        "name": "找单位1",
+        "idea": "「谁的几分之几」，谁就是单位 1。"
+      },
+      {
+        "name": "量率对应",
+        "idea": "一个具体的量 ÷ 它对应的分率 = 单位 1。"
+      },
+      {
+        "name": "线段图",
+        "idea": "画线段标出已知的量与率，看出对应。"
+      }
+    ],
+    "nodes": [
+      "fraction-arithmetic",
+      "ratio-percent"
+    ],
+    "keywords": [
+      "几分之几",
+      "占",
+      "用去",
+      "剩下",
+      "单位1",
+      "全长",
+      "正好"
+    ]
+  },
+  {
+    "id": "linear-eq-application",
+    "name": "一元一次方程应用",
+    "category": "方程与应用",
+    "stage": "junior",
+    "example": "苹果每斤5元，小明付50元找回15元，买了几斤？",
+    "essence": "把文字里的\"相等关系\"翻译成方程：设出未知数，按等量关系列式再解。",
+    "methods": [
+      {
+        "name": "找等量关系",
+        "idea": "抓住题目中表示\"相等\"的那句话列方程。"
+      },
+      {
+        "name": "设未知数",
+        "idea": "直接设或间接设，让方程最简单。"
+      }
+    ],
+    "nodes": [
+      "linear-equation",
+      "algebraic-expression"
+    ],
+    "evolveNote": "它把小学的算术应用题升级为代数方程，是数学建模的起点。",
+    "evolveNode": "math-modeling-senior",
+    "keywords": [
+      "方程",
+      "应用题",
+      "设",
+      "等量关系",
+      "解方程",
+      "几斤",
+      "几个"
+    ]
+  },
+  {
+    "id": "system-equations",
+    "name": "二元一次方程组应用",
+    "category": "方程与应用",
+    "stage": "junior",
+    "example": "鸡兔同笼用方程组：x+y=8，2x+4y=26。",
+    "essence": "两个未知量配两个等量关系，用\"消元\"把它变成一个方程。",
+    "methods": [
+      {
+        "name": "代入消元",
+        "idea": "从一个方程解出一个量代入另一个。"
+      },
+      {
+        "name": "加减消元",
+        "idea": "两式相加减消去一个未知数。"
+      }
+    ],
+    "nodes": [
+      "linear-equation"
+    ],
+    "keywords": [
+      "方程组",
+      "二元",
+      "消元",
+      "代入",
+      "加减",
+      "x+y"
+    ]
+  },
+  {
+    "id": "quadratic-application",
+    "name": "一元二次方程应用",
+    "category": "方程与应用",
+    "stage": "junior",
+    "example": "长方形面积、增长率（平均每年增长百分之几）问题。",
+    "essence": "当等量关系是\"二次\"的（面积、增长率）时，建模成一元二次方程。",
+    "methods": [
+      {
+        "name": "列二次方程",
+        "idea": "面积=长×宽、增长率连乘两次。"
+      },
+      {
+        "name": "舍解",
+        "idea": "负长度、超范围的解要舍去。"
+      }
+    ],
+    "nodes": [
+      "quadratic-equation",
+      "quadratic-function"
+    ],
+    "keywords": [
+      "二次方程",
+      "面积",
+      "增长率",
+      "平均增长",
+      "利润",
+      "降价"
+    ]
+  },
+  {
+    "id": "congruence-similarity",
+    "name": "全等与相似三角形",
+    "category": "几何证明",
+    "stage": "junior",
+    "example": "证明两个三角形全等，从而对应边相等。",
+    "essence": "先找\"对应关系\"，再用判定定理推出全等/相似，得到边角结论。",
+    "methods": [
+      {
+        "name": "找对应",
+        "idea": "对应顶点、对应边角一一对应。"
+      },
+      {
+        "name": "判定定理",
+        "idea": "全等用 SSS/SAS/ASA/AAS；相似用比例。"
+      }
+    ],
+    "nodes": [
+      "triangle",
+      "reasoning-proof"
+    ],
+    "keywords": [
+      "全等",
+      "相似",
+      "三角形",
+      "证明",
+      "对应",
+      "判定"
+    ]
+  },
+  {
+    "id": "moving-point-junior",
+    "name": "动点问题",
+    "category": "函数与几何",
+    "stage": "junior",
+    "example": "点在线段上运动，求何时三角形面积最大。",
+    "essence": "用一个变量表示运动中变化的量，把几何问题化成函数或方程。",
+    "methods": [
+      {
+        "name": "设变量",
+        "idea": "设时间或距离为变量，表示出相关长度。"
+      },
+      {
+        "name": "数形结合",
+        "idea": "化成二次函数求最值或方程求时刻。"
+      }
+    ],
+    "nodes": [
+      "coordinate-geometry",
+      "quadratic-function",
+      "junior-function"
+    ],
+    "keywords": [
+      "动点",
+      "运动",
+      "秒",
+      "最大",
+      "数轴",
+      "线段",
+      "何时"
+    ]
+  },
+  {
+    "id": "scheme-design-junior",
+    "name": "方案设计与最值",
+    "category": "应用与最优",
+    "stage": "junior",
+    "example": "两种收费方案，哪种更省钱？",
+    "essence": "把不同方案用代数式表示，用不等式比较或二次函数求最优。",
+    "methods": [
+      {
+        "name": "不等式比较",
+        "idea": "令两方案相等找分界，再分情况。"
+      },
+      {
+        "name": "二次最值",
+        "idea": "二次函数顶点处取最值。"
+      }
+    ],
+    "nodes": [
+      "inequality",
+      "quadratic-function"
+    ],
+    "evolveNote": "高中用导数、线性规划求最优，是运筹学的雏形。",
+    "evolveNode": "math-modeling-senior",
+    "keywords": [
+      "方案",
+      "最省",
+      "最值",
+      "哪种",
+      "划算",
+      "收费",
+      "选择"
+    ]
+  },
+  {
+    "id": "function-derivative",
+    "name": "函数与导数综合",
+    "category": "函数与导数",
+    "stage": "senior",
+    "example": "用导数求 f(x)=x³−3x 的单调区间与极值。",
+    "essence": "导数的正负决定函数增减，导数零点对应极值；这是研究函数的利器。",
+    "methods": [
+      {
+        "name": "求导定号",
+        "idea": "求导后判断在各区间的正负。"
+      },
+      {
+        "name": "列表分析",
+        "idea": "列单调性表找极值与最值。"
+      }
+    ],
+    "nodes": [
+      "derivative",
+      "function-concept"
+    ],
+    "keywords": [
+      "导数",
+      "单调",
+      "极值",
+      "最值",
+      "切线",
+      "求导",
+      "增减"
+    ]
+  },
+  {
+    "id": "sequence-problem",
+    "name": "数列通项与求和",
+    "category": "数列",
+    "stage": "senior",
+    "example": "求 1·2 + 2·3 + … + n(n+1)。",
+    "essence": "先找通项规律，再用错位相减、裂项相消等技巧求和。",
+    "methods": [
+      {
+        "name": "求通项",
+        "idea": "判断等差/等比或由递推求出。"
+      },
+      {
+        "name": "特殊求和",
+        "idea": "错位相减、裂项相消对应不同结构。"
+      }
+    ],
+    "nodes": [
+      "sequence"
+    ],
+    "evolveNote": "小学的\"高斯求和\"在这里被一般化为数列求和。",
+    "keywords": [
+      "数列",
+      "通项",
+      "求和",
+      "等差",
+      "等比",
+      "递推",
+      "裂项"
+    ]
+  },
+  {
+    "id": "solve-triangle",
+    "name": "解三角形与三角恒等",
+    "category": "三角",
+    "stage": "senior",
+    "example": "已知两边及夹角，用余弦定理求第三边。",
+    "essence": "正弦/余弦定理把\"边\"和\"角\"联系起来，恒等变换负责化简。",
+    "methods": [
+      {
+        "name": "正余弦定理",
+        "idea": "边角互求。"
+      },
+      {
+        "name": "恒等变换",
+        "idea": "和差倍角公式化简求值。"
+      }
+    ],
+    "nodes": [
+      "trig-function"
+    ],
+    "keywords": [
+      "三角形",
+      "正弦定理",
+      "余弦定理",
+      "三角",
+      "化简",
+      "解三角形",
+      "夹角"
+    ]
+  },
+  {
+    "id": "conic-section",
+    "name": "圆锥曲线",
+    "category": "解析几何",
+    "stage": "senior",
+    "example": "直线与椭圆相交，求弦长或证明过定点。",
+    "essence": "用坐标与方程研究曲线；联立方程后\"设而不求\"，借韦达定理推进。",
+    "methods": [
+      {
+        "name": "联立方程",
+        "idea": "直线代入曲线得到关于x的二次方程。"
+      },
+      {
+        "name": "设而不求",
+        "idea": "用根与系数关系表示和与积，不解出具体根。"
+      }
+    ],
+    "nodes": [
+      "analytic-geometry"
+    ],
+    "evolveNote": "是大学解析几何与微分几何的基础。",
+    "evolveNode": "differential-geometry",
+    "keywords": [
+      "椭圆",
+      "双曲线",
+      "抛物线",
+      "圆锥曲线",
+      "弦长",
+      "焦点",
+      "定点"
+    ]
+  },
+  {
+    "id": "solid-vector",
+    "name": "立体几何（向量法）",
+    "category": "立体几何",
+    "stage": "senior",
+    "example": "求二面角或异面直线所成的角。",
+    "essence": "建立空间直角坐标系，把\"角\"和\"距离\"变成向量运算。",
+    "methods": [
+      {
+        "name": "建系设坐标",
+        "idea": "选合适原点与坐标轴。"
+      },
+      {
+        "name": "法向量求角",
+        "idea": "用法向量夹角求二面角。"
+      }
+    ],
+    "nodes": [
+      "solid-geometry",
+      "vector"
+    ],
+    "keywords": [
+      "立体几何",
+      "二面角",
+      "异面直线",
+      "法向量",
+      "空间向量",
+      "建系"
+    ]
+  },
+  {
+    "id": "prob-distribution-problem",
+    "name": "概率分布与期望",
+    "category": "概率统计",
+    "stage": "senior",
+    "example": "求随机变量 X 的分布列与数学期望。",
+    "essence": "先列出所有取值及其概率（分布列），再算期望与方差。",
+    "methods": [
+      {
+        "name": "分布列",
+        "idea": "穷举取值，用计数原理算每个概率。"
+      },
+      {
+        "name": "期望方差",
+        "idea": "按公式加权求 E(X)、D(X)。"
+      }
+    ],
+    "nodes": [
+      "prob-distribution",
+      "counting-principle"
+    ],
+    "evolveNote": "通向大学概率论与数理统计、机器学习。",
+    "evolveNode": "probability-theory",
+    "keywords": [
+      "分布列",
+      "期望",
+      "方差",
+      "随机变量",
+      "概率",
+      "二项分布",
+      "正态"
+    ]
+  }
+]

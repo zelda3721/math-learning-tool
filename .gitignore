@@ -29,10 +29,14 @@ ENV/
 
 # Manim生成的媒体文件（仅运行输出；不要吞掉 infrastructure/media 源码）
 /media/
-/backend/media/
+/services/video-engine/media/
+/apps/web/media/
 
-# 持久化数据（SQLite + 会话归档）
-data/
+# 持久化运行时数据（SQLite + 会话归档）——但知识层与产能报告是 file-first，必须进 git
+/data/*
+!/data/knowledge/
+!/data/bench/
+/services/video-engine/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
