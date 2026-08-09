@@ -5,7 +5,9 @@ import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf } from "../questions.js";
+import { reviewQuestion } from "../knowledgeAdmin.js";
 import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
+import { processBatch, type BatchFile } from "./batch.js";
 
 /**
  * 上传抽取管线（题源主通道）：
@@ -195,6 +197,119 @@ export function ingestRoutes(state: AppState): Hono {
     const { written, skippedDuplicates } = appendQuestions(state.config.dataDir, batchName, accepted, state.questions);
     if (written.length) state.questions.reload();
     return c.json({ written: written.length, skippedDuplicates, issues });
+  });
+
+  // ---- P1b 批量上传（多文件 + 师生配对 + 分块，异步任务） ----
+  const BatchSchema = z.object({
+    batchName: z.string().min(1).max(64),
+    level: EducationLevelSchema.optional(),
+    files: z
+      .array(
+        z.object({
+          name: z.string().min(1),
+          kind: z.enum(["text", "pdf"]),
+          /** 文本原文或 PDF base64（图片请走单发 /upload） */
+          content: z.string().min(1),
+          role: z.enum(["teacher", "student", "auto"]).default("auto"),
+        }),
+      )
+      .min(1)
+      .max(20),
+  });
+
+  app.post("/batch", async (c) => {
+    if (!state.jobs) return c.json({ error: "批量任务存储未初始化" }, 503);
+    const parsed = BatchSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return c.json({ error: `需要 {batchName, files[]}: ${issue?.path.join(".")} ${issue?.message}` }, 400);
+    }
+    const { batchName, level, files } = parsed.data;
+
+    // PDF 先抽文本层（同步、快）；批量的重活（LLM 抽取）进异步任务
+    const batchFiles: BatchFile[] = [];
+    for (const f of files) {
+      if (f.kind === "text") {
+        batchFiles.push({ name: f.name, text: f.content, role: f.role });
+      } else {
+        const { base64 } = stripDataUrl(f.content);
+        let text: string;
+        try {
+          text = await extractPdfText(base64);
+        } catch (err) {
+          return c.json({ error: `${f.name}: PDF 解析失败（请确认文件完整）: ${String(err)}` }, 400);
+        }
+        if (!text) {
+          return c.json({ error: `${f.name}: 没有文本层（可能是扫描版），请改用拍照逐页上传` }, 400);
+        }
+        batchFiles.push({ name: f.name, text, role: f.role });
+      }
+    }
+
+    const jobId = state.jobs.create(batchName);
+    const jobs = state.jobs;
+    // fire-and-forget：单机单发，进程内异步执行；进度写 job 表供轮询
+    void processBatch(batchFiles, state.extraction ?? null, level, (p) => jobs.updateProgress(jobId, p))
+      .then((result) => {
+        jobs.finish(jobId, {
+          batchName,
+          drafts: result.drafts.map((d) => locateDraft(state, d)),
+          warnings: result.warnings,
+          pairing: result.pairing,
+        });
+      })
+      .catch((err) => jobs.fail(jobId, String(err)));
+    return c.json({ jobId }, 202);
+  });
+
+  app.get("/jobs/:id", (c) => {
+    if (!state.jobs) return c.json({ error: "批量任务存储未初始化" }, 503);
+    const job = state.jobs.get(c.req.param("id"));
+    if (!job) return c.json({ error: "任务不存在" }, 404);
+    return c.json(job);
+  });
+
+  // ---- P1b 抽检（家长视角，含答案；区别于练习端的 sanitize） ----
+  app.get("/questions", (c) => {
+    const status = c.req.query("status");
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const items = state.questions.all
+      .filter((q) => (status ? q.status === status : true))
+      .slice(0, limit);
+    return c.json({
+      total: state.questions.all.length,
+      extracted: state.questions.all.filter((q) => q.status === "extracted").length,
+      items,
+    });
+  });
+
+  const ReviewSchema = z.object({
+    questionId: z.string().min(1),
+    verdict: z.enum(["verified", "rejected"]),
+    patch: z
+      .object({
+        stem: z.string().min(1).optional(),
+        answer: z.string().min(1).optional(),
+        answerType: z.enum(["numeric", "expression", "steps"]).optional(),
+        difficulty: z.number().int().min(1).max(5).optional(),
+        nodeIds: z.array(z.string()).min(1).optional(),
+        analysis: z.string().optional(),
+      })
+      .optional(),
+  });
+
+  app.post("/review", async (c) => {
+    const parsed = ReviewSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {questionId, verdict}" }, 400);
+    const { questionId, verdict, patch } = parsed.data;
+    if (patch?.nodeIds) {
+      const bad = patch.nodeIds.filter((n) => !state.knowledge.index.nodeById.has(n));
+      if (bad.length) return c.json({ error: `悬挂知识点: ${bad.join(",")}` }, 422);
+    }
+    const result = reviewQuestion(state.config.dataDir, questionId, verdict, patch);
+    if (!result.ok) return c.json({ error: result.error }, 404);
+    state.questions.reload();
+    return c.json({ ok: true, verdict, file: result.file });
   });
 
   return app;

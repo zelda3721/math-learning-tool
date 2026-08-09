@@ -10,6 +10,7 @@ import { Repo } from "./repo.js";
 import { createQuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
+import { JobStore } from "./ingest/jobs.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
     repo,
     hintProvider: buildHintProvider(),
     extraction: buildExtractionProvider(),
+    jobs: new JobStore(db),
   });
   serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     console.log(`MathTutor server listening on http://${info.address}:${info.port}`);

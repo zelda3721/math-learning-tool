@@ -1,21 +1,57 @@
 // 节点详情浮层（精简版）：name / summary / 前置 chips / 演化 chips
 // chip 点击 → 跳转选中对应节点
-import type { CSSProperties } from 'react'
+// P1b：status 徽章（未核验/已核验）+「标记已核验」入口 + 命中题数
+import { useState, type CSSProperties } from 'react'
 import type { GraphIndex } from './graphIndex'
 import type { KnowledgeNode } from './types'
+import { verifyNodeApi } from './CoveragePanel'
 
 interface NodeDetailProps {
     gi: GraphIndex
     id: string
     onJump: (id: string) => void
     onClose: () => void
+    /** 该节点命中题数（AtlasPage 从 coverage 传入；缺省不显示） */
+    questionCount?: number
+    /** 父级已知的核验覆写（本会话内刚核验过的节点） */
+    verified?: boolean
+    /** 核验成功回调（父级同步 coverage / 覆写集合） */
+    onVerified?: (id: string) => void
 }
 
 const chipStyle = (color: string) => ({ '--c': color }) as CSSProperties
 
-export function NodeDetail({ gi, id, onJump, onClose }: NodeDetailProps) {
+export function NodeDetail({
+    gi,
+    id,
+    onJump,
+    onClose,
+    questionCount,
+    verified,
+    onVerified,
+}: NodeDetailProps) {
+    // 本地核验状态：按钮成功后立即翻徽章（父级 verified 覆写用于跨开合保持）
+    const [localVerified, setLocalVerified] = useState(false)
+    const [verifying, setVerifying] = useState(false)
+    const [verifyError, setVerifyError] = useState<string | null>(null)
+
     const node = gi.getNode(id)
     if (!node) return null
+
+    const isVerified = localVerified || verified || node.status === 'verified'
+
+    const markVerified = async () => {
+        setVerifying(true)
+        setVerifyError(null)
+        const res = await verifyNodeApi(id)
+        setVerifying(false)
+        if (res.ok) {
+            setLocalVerified(true)
+            onVerified?.(id)
+        } else {
+            setVerifyError(res.error ?? '核验失败')
+        }
+    }
 
     const stage = gi.stageById.get(node.stage)
     const strand = gi.strandById.get(node.strand)
@@ -59,6 +95,15 @@ export function NodeDetail({ gi, id, onJump, onClose }: NodeDetailProps) {
                         {strand.icon} {strand.name}
                     </span>
                 )}
+                {isVerified ? (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                        ✓ 已核验
+                    </span>
+                ) : (
+                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                        未核验
+                    </span>
+                )}
             </div>
 
             <h2 className="text-xl font-extrabold text-slate-800 leading-tight">
@@ -68,6 +113,29 @@ export function NodeDetail({ gi, id, onJump, onClose }: NodeDetailProps) {
                 )}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">{node.summary}</p>
+
+            {(questionCount !== undefined || !isVerified) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {questionCount !== undefined && (
+                        <span className="text-xs text-slate-400">
+                            命中题目 <b className="text-slate-600 tabular-nums">{questionCount}</b> 道
+                        </span>
+                    )}
+                    {!isVerified && (
+                        <button
+                            type="button"
+                            disabled={verifying}
+                            onClick={markVerified}
+                            className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                        >
+                            {verifying ? '提交中…' : '标记已核验'}
+                        </button>
+                    )}
+                    {verifyError && (
+                        <span className="text-[11px] text-red-500">{verifyError}</span>
+                    )}
+                </div>
+            )}
 
             {prereqs.length > 0 && (
                 <section className="mt-4">

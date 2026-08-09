@@ -64,6 +64,17 @@ CREATE TABLE IF NOT EXISTS queue_items (
   meta_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_queue_due ON queue_items(learner_id, due_at, consumed_at);
+-- P1b 批量抽取任务（运行时状态；抽取结果草稿在 result_json，确认后才进 file-first 题库）
+CREATE TABLE IF NOT EXISTS ingest_jobs (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,            -- 'running' | 'done' | 'failed'
+  batch_name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  progress_json TEXT NOT NULL DEFAULT '{}',
+  result_json TEXT,
+  error TEXT
+);
 `;
 
 export function openDb(dataDir: string): DatabaseSync {

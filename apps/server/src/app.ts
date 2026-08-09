@@ -8,8 +8,10 @@ import type { HintProvider } from "./hint.js";
 import type { ExtractionProvider } from "./ingest/extraction.js";
 import { proxyToEngine } from "./proxy.js";
 import { effectiveP, masteryBand } from "./mastery.js";
+import type { JobStore } from "./ingest/jobs.js";
 import { learnerRoutes } from "./routes/learners.js";
 import { practiceRoutes } from "./routes/practice.js";
+import { knowledgeRoutes } from "./routes/knowledge.js";
 import { ingestRoutes } from "./ingest/routes.js";
 
 export interface AppState {
@@ -21,6 +23,8 @@ export interface AppState {
   hintProvider: HintProvider | null;
   /** 上传抽取 LLM Provider；null/缺省时 text 走离线兜底、image/pdf 返回 501 */
   extraction?: ExtractionProvider | null;
+  /** P1b 批量抽取任务存储；未提供时批量端点返回 503 */
+  jobs?: JobStore;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
@@ -72,6 +76,7 @@ export function createApp(state: AppState): Hono {
 
   app.route("/api/v1/learners", learnerRoutes(state));
   app.route("/api/v1/practice", practiceRoutes(state));
+  app.route("/api/v1/knowledge", knowledgeRoutes(state));
   app.route("/api/v1/ingest", ingestRoutes(state));
 
   // 引擎透传（SSE 流式）
