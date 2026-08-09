@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
 import { AtlasPage } from './atlas/AtlasPage'
+import { PracticePage } from './practice/PracticePage'
+import { IngestPage } from './ingest/IngestPage'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
 import {
@@ -18,7 +20,7 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'solve' | 'atlas'
+type AppView = 'practice' | 'solve' | 'atlas' | 'ingest'
 
 function App() {
     const [view, setView] = useState<AppView>('solve')
@@ -83,13 +85,15 @@ function App() {
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             <Header onOpenHistory={() => setHistoryOpen(true)} />
 
-            {/* 顶层视图切换：做题 / 星图 */}
+            {/* 顶层视图切换：练习 / 讲解 / 星图 / 录题 */}
             <div className="relative z-20 flex justify-center px-4 mt-1">
                 <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 backdrop-blur p-1 shadow-sm">
                     {(
                         [
-                            ['solve', '做题'],
+                            ['practice', '练习'],
+                            ['solve', '讲解'],
                             ['atlas', '星图'],
+                            ['ingest', '录题'],
                         ] as const
                     ).map(([key, label]) => (
                         <button
@@ -107,6 +111,18 @@ function App() {
                     ))}
                 </div>
             </div>
+
+            {view === 'practice' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <PracticePage />
+                </main>
+            )}
+
+            {view === 'ingest' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <IngestPage />
+                </main>
+            )}
 
             {view === 'atlas' && (
                 <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 py-4 relative z-10">
