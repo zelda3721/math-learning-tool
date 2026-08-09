@@ -13,6 +13,7 @@ from ....application.interfaces import ITool, ToolContext, ToolResult
 from .visual_plan import (
     VisualPlanTool,
     build_grounded_math_visual_plan,
+    build_minimal_narrative_plan,
     build_quantity_story_visual_plan,
     build_safe_visual_plan,
     store_visual_plan,
@@ -151,11 +152,26 @@ class DirectVideoTool(ITool):
                 data=safe_plan,
                 artifacts=result.artifacts,
             )
-        # A parse failure contains no addressable field or beat to repair.
-        # Repeating the same whole-plan generation merely hides a protocol
-        # problem behind stochastic retries.  Parsed contract violations are
-        # already repaired locally by ``build_safe_visual_plan`` above; all
-        # remaining failures stop once and preserve the planner's raw artifact.
+        # Absolute last resort: a session must never end with no video
+        # because directing failed. Deliver a minimal verified-quantity
+        # narrative, explicitly marked degraded so review warns on it.
+        minimal_plan = build_minimal_narrative_plan(ctx)
+        if minimal_plan is not None:
+            minimal_plan["discarded_plan_error"] = result.error
+            minimal_plan["discarded_plan_summary"] = first_summary[:500]
+            store_visual_plan(ctx, minimal_plan)
+            ctx.state["plan_degraded"] = (
+                "视觉导演未产出完整计划，已降级为最小可验证叙事：" + first_summary[:200]
+            )
+            return ToolResult(
+                success=True,
+                summary=(
+                    "视觉导演降级：LLM 计划与安全基线均不可用，"
+                    "已改用最小已验证数量叙事（成片审查将附降级警告）"
+                ),
+                data=minimal_plan,
+                artifacts=result.artifacts,
+            )
         return ToolResult(
             success=False,
             summary="视觉导演未通过内部契约，已停止整稿重生成：" + first_summary,

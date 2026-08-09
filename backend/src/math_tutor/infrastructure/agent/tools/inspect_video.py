@@ -1144,6 +1144,7 @@ class InspectVideoTool(ITool):
             for downgrade_key, downgrade_hint in (
                 ("verification_downgraded", "独立验证已降级"),
                 ("math_evidence_downgraded", "solve 阶段数学证据已降级"),
+                ("plan_degraded", "视觉计划为最小降级叙事"),
             ):
                 downgrade_note = str(ctx.state.get(downgrade_key) or "").strip()
                 if downgrade_note:
