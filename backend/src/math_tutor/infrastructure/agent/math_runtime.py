@@ -184,9 +184,18 @@ class _ExpressionParser:
                     return container[index_node.value]
                 except (IndexError, KeyError, TypeError) as exc:
                     raise ValueError(f"invalid subscript on prior result: {exc}")
-            raise ValueError("only constant integer subscripts are supported")
+            if isinstance(index_node, ast.Constant) and isinstance(index_node.value, str):
+                # "$solve[0]['x']" / "$solve['x']": key access, with the
+                # single-solution list unwrapped first.
+                container = _unwrap_single_solution(container)
+                if isinstance(container, dict):
+                    for key, item in container.items():
+                        if str(key) == index_node.value:
+                            return item
+                raise ValueError(f"unknown key on prior result: {index_node.value}")
+            raise ValueError("only constant integer/string subscripts are supported")
         if isinstance(node, ast.Attribute):
-            container = self._visit(node.value)
+            container = _unwrap_single_solution(self._visit(node.value))
             if isinstance(container, dict):
                 for key, item in container.items():
                     if str(key) == node.attr:
@@ -289,6 +298,17 @@ def evaluate_real_expression_at(
     return numeric if math.isfinite(numeric) else None
 
 
+def _unwrap_single_solution(container: Any) -> Any:
+    """A one-element solution list is its element for key/field access."""
+    if (
+        isinstance(container, (list, tuple))
+        and len(container) == 1
+        and isinstance(container[0], dict)
+    ):
+        return container[0]
+    return container
+
+
 def _resolve_reference(value: str, outputs: dict[str, Any]) -> Any:
     match = _REFERENCE_HEAD_RE.fullmatch(value)
     if match is None or match.group(1) not in outputs:
@@ -310,6 +330,14 @@ def _resolve_reference(value: str, outputs: dict[str, Any]) -> Any:
             except IndexError as exc:
                 raise ValueError(f"reference index out of range: {value}") from exc
             continue
+        # "$solve[0].x" and "$solve.x" describe the same single solution:
+        # unwrap a one-element solution list before field access.
+        if (
+            isinstance(current, (list, tuple))
+            and len(current) == 1
+            and isinstance(current[0], dict)
+        ):
+            current = current[0]
         if not isinstance(current, dict):
             raise ValueError(f"reference has no keyed field: {value}")
         matching_key = next(

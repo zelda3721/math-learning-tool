@@ -1092,7 +1092,10 @@ class InspectVideoTool(ITool):
 
         technical_metrics = await _ffprobe_metadata(video_path)
         duration = float(technical_metrics.get("duration_s") or 6.0)
-        n = self._frame_count
+        # Vision cost scales linearly with frame count and dominates review
+        # wall time on local hardware; short videos are fully covered by 8
+        # samples, so keep 12 for long timelines only.
+        n = self._frame_count if duration > 30 else min(self._frame_count, 8)
         if n == 1:
             offsets = [duration / 2]
         elif n == 5:
