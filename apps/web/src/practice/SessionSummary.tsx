@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchNodeNames, type MasteryBand } from './api'
+import {
+    fetchMistakes,
+    fetchNodeNames,
+    type ExplainRequest,
+    type MasteryBand,
+    type MistakeSummary,
+} from './api'
 import type { QuestionRecord } from './QuestionCard'
 import { BandBadge } from './badges'
+import { confidenceText } from './DiagnosisCard'
+import { ExplanationView } from './ExplanationView'
 
 interface Props {
     records: QuestionRecord[]
@@ -19,11 +27,16 @@ interface NodeChange {
 export function SessionSummary({ records, learnerId, onRestart }: Props) {
     const [nodeNames, setNodeNames] = useState<Record<string, string>>({})
     const [atlasTip, setAtlasTip] = useState(false)
+    const [mistakes, setMistakes] = useState<MistakeSummary[]>([])
+    const [explainReq, setExplainReq] = useState<ExplainRequest | null>(null)
 
     useEffect(() => {
         let cancelled = false
         void fetchNodeNames(learnerId).then((names) => {
             if (!cancelled) setNodeNames(names)
+        })
+        void fetchMistakes(learnerId).then((list) => {
+            if (!cancelled) setMistakes(list)
         })
         return () => {
             cancelled = true
@@ -35,6 +48,19 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
     const review = records.filter((r) => r.review).length
     const wrong = total - correct - review
     const hintsUsed = records.reduce((sum, r) => sum + r.hintLevel, 0)
+    const variantLit = records.filter((r) => r.variantCorrect === true).length
+
+    // 错题（含跳过）× 最近一次归因坐标（mistakes 按时间倒序，find 即最新）
+    const wrongRecords = useMemo(
+        () =>
+            records
+                .filter((r) => !r.correct && !r.review)
+                .map((r) => ({
+                    record: r,
+                    mistake: mistakes.find((m) => m.questionId === r.questionId),
+                })),
+        [records, mistakes]
+    )
 
     const nodeChanges = useMemo<NodeChange[]>(() => {
         const map = new Map<string, NodeChange>()
@@ -84,6 +110,58 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
             {review > 0 && (
                 <p className="text-sm text-slate-500">另有 {review} 题已交给家长确认。</p>
             )}
+            {variantLit > 0 && (
+                <p className="text-sm text-emerald-600 font-medium">
+                    ⭐ 其中 {variantLit} 题通过变式题重新点亮！
+                </p>
+            )}
+
+            {wrongRecords.length > 0 && (
+                <div className="text-left space-y-2">
+                    <h3 className="text-sm font-semibold text-slate-500 text-center">错题回顾</h3>
+                    <ul className="space-y-2">
+                        {wrongRecords.map(({ record, mistake }, i) => (
+                            <li
+                                key={`${record.questionId}-${i}`}
+                                className="rounded-2xl bg-white/70 border border-slate-100 px-4 py-3 space-y-1.5"
+                            >
+                                <p className="text-sm text-slate-600 line-clamp-2">
+                                    {mistake?.questionStem ?? record.questionId}
+                                </p>
+                                <div className="flex items-center justify-between gap-3">
+                                    {mistake ? (
+                                        <span className="text-sm min-w-0 truncate">
+                                            <span className="font-semibold text-indigo-600">
+                                                {mistake.rootNodeName}
+                                            </span>
+                                            <span className="text-slate-400 ml-2">
+                                                {confidenceText(mistake.confidence)}
+                                            </span>
+                                        </span>
+                                    ) : (
+                                        <span className="text-sm text-slate-400">还没归因</span>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setExplainReq({
+                                                learnerId,
+                                                questionId: record.questionId,
+                                                mistakeId: mistake?.id,
+                                                focusNodeId: mistake?.rootNodeId,
+                                                misconceptionId: mistake?.misconceptionId,
+                                            })
+                                        }
+                                        className="shrink-0 px-3 py-1.5 rounded-xl bg-sky-100 text-sky-600 text-xs font-bold hover:bg-sky-200 transition-colors"
+                                    >
+                                        再看讲解
+                                    </button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {nodeChanges.length > 0 && (
                 <div className="text-left space-y-2">
@@ -130,6 +208,20 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
             </div>
             {atlasTip && (
                 <p className="text-sm text-sky-600">点击页面上方的「星图」标签，看看哪些星星亮起来了。</p>
+            )}
+
+            {/* 再看讲解：浮层复用 ExplanationView，key 保证换题时重新请求 */}
+            {explainReq && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+                    <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 text-left shadow-2xl">
+                        <ExplanationView
+                            key={explainReq.questionId ?? explainReq.mistakeId ?? 'explain'}
+                            request={explainReq}
+                            primaryLabel="关闭"
+                            onPrimary={() => setExplainReq(null)}
+                        />
+                    </div>
+                </div>
             )}
         </div>
     )

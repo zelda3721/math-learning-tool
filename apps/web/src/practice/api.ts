@@ -41,6 +41,83 @@ export interface HintResult {
     source: string
 }
 
+/** 归因结果：错因 = 图谱坐标 + 置信度 + 依据链（镜像 server diagnosis.ts DiagnosisResult） */
+export interface DiagnosisResult {
+    mistakeId: string
+    /** false = 根因未核验，只给定位；探针题已排队等实证 */
+    eligible: boolean
+    surface: 'concept' | 'procedure' | 'calculation' | 'reading'
+    rootNodeId: string
+    rootNodeName: string
+    misconceptionId?: string
+    misconceptionDesc?: string
+    chain: string[]
+    chainNames: string[]
+    confidence: number
+    explanation: string
+    probesQueued: string[]
+}
+
+/** 错题列表项（GET /diagnosis/mistakes） */
+export interface MistakeSummary {
+    id: string
+    attemptId: string
+    learnerId: string
+    questionId: string
+    questionStem?: string
+    surface: string
+    rootNodeId: string
+    rootNodeName: string
+    misconceptionId?: string
+    chain: string[]
+    chainNames: string[]
+    confidence: number
+    eligible: boolean
+    createdAt: string
+}
+
+/** 讲解视频元数据（镜像 server explain/routes.ts explanationView） */
+export interface Explanation {
+    id: string
+    questionId?: string
+    focusNodeIds: string[]
+    mode: string
+    videoUrl: string
+    subtitleUrl?: string
+    quality: string
+}
+
+/** 图文兜底：任何分支都即时可读，不等视频 */
+export interface ExplainFallback {
+    rootNode?: { name: string; whatIsIt?: string; why?: string }
+    chainNames?: string[]
+    misconceptionDesc?: string
+    analysis?: string
+}
+
+export interface ExplainRequest {
+    learnerId?: string
+    questionId?: string
+    focusNodeId?: string
+    misconceptionId?: string
+    mistakeId?: string
+}
+
+export type ExplainResponse =
+    | { status: 'ready'; explanation: Explanation; fallback: ExplainFallback }
+    | { status: 'generating'; jobId: string; fallback: ExplainFallback }
+    | { status: 'offline'; fallback: ExplainFallback; message: string }
+
+export interface ExplainJobStatus {
+    status: 'running' | 'done' | 'failed'
+    explanation?: Explanation
+    error?: string
+}
+
+export type VariantResponse =
+    | { kind: 'bank' | 'generated'; question: PracticeQuestion }
+    | { kind: 'none'; message: string }
+
 async function post<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(path, {
         method: 'POST',
@@ -71,8 +148,48 @@ export function submitAnswer(payload: {
     hintLevelUsed: number
     durationS: number
     queueItemId?: string
+    source?: 'daily' | 'probe' | 'variant' | 'explore'
 }): Promise<SubmitResult> {
     return post('/api/v1/practice/submit', payload)
+}
+
+export function diagnoseAttempt(attemptId: string): Promise<DiagnosisResult> {
+    return post(`/api/v1/diagnosis/${encodeURIComponent(attemptId)}`, {})
+}
+
+/** 错题列表（best-effort）：小结页展示用，失败返回空表不打断流程。 */
+export async function fetchMistakes(learnerId: string): Promise<MistakeSummary[]> {
+    try {
+        const res = await fetch(`/api/v1/diagnosis/mistakes?learnerId=${encodeURIComponent(learnerId)}`)
+        if (!res.ok) return []
+        const data = (await res.json()) as { mistakes?: MistakeSummary[] }
+        return data.mistakes ?? []
+    } catch {
+        return []
+    }
+}
+
+export function requestExplain(payload: ExplainRequest): Promise<ExplainResponse> {
+    return post('/api/v1/explain', payload)
+}
+
+export async function fetchExplainJob(jobId: string): Promise<ExplainJobStatus> {
+    const res = await fetch(`/api/v1/explain/jobs/${encodeURIComponent(jobId)}`)
+    if (!res.ok) {
+        let message = `HTTP ${res.status}`
+        try {
+            const data = (await res.json()) as { error?: string }
+            if (data.error) message = data.error
+        } catch {
+            /* 保留 HTTP 状态码信息 */
+        }
+        throw new Error(message)
+    }
+    return (await res.json()) as ExplainJobStatus
+}
+
+export function fetchVariant(payload: { learnerId: string; questionId: string }): Promise<VariantResponse> {
+    return post('/api/v1/practice/variant', payload)
 }
 
 export function fetchHint(payload: {
