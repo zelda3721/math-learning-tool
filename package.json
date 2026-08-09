@@ -7,6 +7,9 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@10.6.5",
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+  },
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",

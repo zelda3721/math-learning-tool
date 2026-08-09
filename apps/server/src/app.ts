@@ -1,15 +1,26 @@
 import { Hono } from "hono";
 import type { EngineContract } from "@mathtutor/schema";
+import type { Knowledge } from "@mathtutor/knowledge";
 import type { ServerConfig } from "./config.js";
-import { getKnowledge } from "./atlas.js";
+import type { Repo } from "./repo.js";
+import type { QuestionStore } from "./questions.js";
+import type { HintProvider } from "./hint.js";
 import { proxyToEngine } from "./proxy.js";
+import { effectiveP, masteryBand } from "./mastery.js";
+import { learnerRoutes } from "./routes/learners.js";
+import { practiceRoutes } from "./routes/practice.js";
+import { ingestRoutes } from "./ingest/routes.js";
 
 export interface AppState {
   config: ServerConfig;
   contract: EngineContract | null;
+  knowledge: Knowledge;
+  questions: QuestionStore;
+  repo: Repo;
+  hintProvider: HintProvider | null;
 }
 
-/** 引擎既有 API 中经 server 透传的路径前缀（P0：chat/sessions/grades/media/health 原样代理）。 */
+/** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
 const ENGINE_PREFIXES = [
   "/api/v1/chat",
   "/api/v1/problems",
@@ -28,6 +39,8 @@ export function createApp(state: AppState): Hono {
       ok: true,
       engine: state.contract ? "connected" : "offline",
       contract_version: state.contract?.contract_version ?? null,
+      questions: state.questions.all.length,
+      learners: state.repo.listLearners().length,
     }),
   );
 
@@ -37,15 +50,26 @@ export function createApp(state: AppState): Hono {
     return c.json(state.contract);
   });
 
-  // 星图数据：图谱 + 题型 + （P0 全灰的）掌握度占位
+  // 星图数据：图谱 + 题型 + 掌握度着色（?learnerId= 提供时返回该生投影）
   app.get("/api/v1/atlas", (c) => {
-    const knowledge = getKnowledge(state.config.dataDir);
+    const learnerId = c.req.query("learnerId");
+    const mastery: Record<string, { p: number; evidenceN: number; band: string }> = {};
+    if (learnerId) {
+      for (const row of state.repo.allMastery(learnerId)) {
+        const p = effectiveP(row);
+        mastery[row.nodeId] = { p, evidenceN: row.evidenceN, band: masteryBand(p, row.evidenceN) };
+      }
+    }
     return c.json({
-      graph: knowledge.graph,
-      problemTypes: knowledge.problemTypes,
-      mastery: {}, // P0：掌握度全灰；P1a 起由 learner 层填充
+      graph: state.knowledge.graph,
+      problemTypes: state.knowledge.problemTypes,
+      mastery,
     });
   });
+
+  app.route("/api/v1/learners", learnerRoutes(state));
+  app.route("/api/v1/practice", practiceRoutes(state));
+  app.route("/api/v1/ingest", ingestRoutes(state));
 
   // 引擎透传（SSE 流式）
   for (const prefix of ENGINE_PREFIXES) {

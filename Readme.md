@@ -1,7 +1,6 @@
 # 🎓 MathTutor · 数学成长引擎
 
 > 一张会点亮的数学地图，一位不喂答案的导师，一台数形结合的讲解引擎。
-> 三工程合并系统（math-wiki × practise-diagnosis × math-learning-tool），设计文档见项目 artifact「数学成长引擎 · 三工程合并设计」。
 
 ## Monorepo 布局（P0 起）
 
