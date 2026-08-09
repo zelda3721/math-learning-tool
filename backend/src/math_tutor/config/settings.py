@@ -47,10 +47,12 @@ class Settings(BaseSettings):
     # if you see frequent only_thinking_no_tool_calls errors.
     llm_agent_loop_max_tokens: int = 4096
     llm_request_timeout: float = 180.0
-    # Per-tool execution wall-clock cap. Generate_manim_code on a quantized
-    # 35B model can legitimately take 2-3 min; bump above llm_request_timeout
-    # if you switch to a slower model.
-    llm_tool_timeout_s: float = 300.0
+    # Per-tool execution wall-clock cap. Composite stages legitimately make
+    # up to three sequential 6K-token calls on a quantized 35B model (solve:
+    # initial + format retry + contract repair), each of which can take 2-3
+    # minutes. The cap is a hang breaker, not a pacing device — a timeout
+    # here kills the whole stage budget, so it must cover the worst case.
+    llm_tool_timeout_s: float = 720.0
     # Happy path is five product stages. Solve/Verify and Direct may each get
     # one fallback; Compile/Watch own their bounded repair internally, so eight
     # turns covers the full graph and remains only a circuit breaker.

@@ -60,7 +60,11 @@ logger = logging.getLogger(__name__)
 # own only evidence-directed local repair.
 _STAGE_ATTEMPT_LIMITS: dict[str, int] = {
     "solve_problem": 1,
-    "verify_solution": 2,
+    # Attempt 3 is the tool's own escalation: after two format failures it
+    # forces logical mode; and if THAT also fails on format it degrades with
+    # a warning instead of returning here. Budget 3 makes the escalation and
+    # the degradation actually reachable.
+    "verify_solution": 3,
     "direct_video": 1,
     # These stages already own one evidence-directed internal repair.
     "compile_video": 1,
@@ -576,6 +580,19 @@ class AgentLoop:
                     # A corrected solution must receive a fresh bounded verification
                     # budget instead of inheriting attempts spent on the rejected draft.
                     stage_attempts["verify_solution"] = 0
+                if (
+                    outcome.tc.name == "verify_solution"
+                    and not outcome.result.success
+                    and state.get("last_verify_failure")
+                    and not state.get("solve_retry_granted")
+                ):
+                    # A mathematical rejection routes back to solve_problem,
+                    # whose budget (1) is otherwise already spent — the
+                    # documented re-solve path was unreachable. Grant exactly
+                    # one evidence-directed re-solve per session; the one-shot
+                    # flag prevents solve↔verify ping-pong.
+                    state["solve_retry_granted"] = True
+                    stage_attempts["solve_problem"] = 0
                 if outcome.unknown_tool_error is not None:
                     await self._store.complete_tool_call(
                         outcome.tc.id,

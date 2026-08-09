@@ -29,6 +29,17 @@ from ..math_runtime import execute_math_request
 from ..prompt_library import PromptLibrary
 from .visual_plan import _machine_checkable_blocking_issue
 
+
+def _raw_verify_artifact(done: Any, ctx: ToolContext, label: str) -> ArtifactSpec:
+    text = getattr(done, "text", "") or ""
+    reasoning = getattr(done, "reasoning", "") or ""
+    return ArtifactSpec(
+        kind="raw_model_output",
+        filename=f"verify-raw-{label}-turn{ctx.turn_index:02d}.txt",
+        content=("## visible\n" + text + "\n\n## reasoning\n" + reasoning)[:40000],
+        meta={"stage": "verify_solution", "label": label},
+    )
+
 logger = logging.getLogger(__name__)
 
 _SAFE_LITERAL_BINOPS = {
@@ -470,6 +481,61 @@ class VerifySolutionTool(ITool):
             "required": [],
         }
 
+    def _format_failure_result(
+        self,
+        ctx: ToolContext,
+        done: Any,
+        message: str,
+        *,
+        error: str,
+        data: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Record a verification-ARTIFACT failure; degrade instead of dying.
+
+        Format failures are verifier faults, not mathematical counterexamples.
+        Attempt 1-2 retry (attempt 3 is forced into logical mode); if even
+        that fails on format, the session must not end empty-handed: accept
+        with an explicit downgrade warning that the frame review surfaces, so
+        an arbitrary new problem can never die to verification formatting.
+        Raw model output is always saved for diagnosis.
+        """
+        self._record_format_failure(ctx, message)
+        count = int(ctx.state.get("verify_format_failure_count") or 0)
+        artifacts = [_raw_verify_artifact(done, ctx, f"attempt{count:02d}")]
+        if count >= 3:
+            solve_evidence = ctx.state.get("solve_math_evidence") or {}
+            solve_backed = bool(solve_evidence.get("applicable")) and bool(
+                solve_evidence.get("all_claims_passed")
+            )
+            reason = (
+                "独立验证连续格式失败；已采用 solve 阶段确定性证据作为验证依据"
+                if solve_backed
+                else "独立验证连续格式失败且无确定性证据；已降级放行，成片审查需重点核对数学一致性"
+            )
+            logger.warning("verification degraded after format exhaustion: %s", message)
+            ctx.state["solution_verified"] = True
+            ctx.state["verification_downgraded"] = f"{reason}（{message[:200]}）"
+            ctx.state.pop("last_verify_failure", None)
+            self._clear_format_failure(ctx)
+            return ToolResult(
+                success=True,
+                summary="验证降级：" + reason,
+                data={
+                    "passed": True,
+                    "verification_downgraded": True,
+                    "message": message,
+                    "solve_evidence_backed": solve_backed,
+                },
+                artifacts=artifacts,
+            )
+        return ToolResult(
+            success=False,
+            summary=message,
+            error=error,
+            data=data,
+            artifacts=artifacts,
+        )
+
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         problem = (args.get("problem") or ctx.problem or "").strip()
         answer = args.get("answer") or ctx.state.get("solution_answer") or ""
@@ -517,15 +583,29 @@ class VerifySolutionTool(ITool):
             )
         except Exception as exc:
             logger.exception("verify_solution LLM call failed")
-            return ToolResult(success=False, summary="校验调用失败", error=str(exc))
+
+            # A transport outage is a verifier fault, not a math verdict.
+            # Route it through the same escalation/degradation ladder as
+            # format failures so a persistent outage cannot end the session
+            # without a diagnosis trail.
+            class _OutageStub:
+                text = ""
+                reasoning = f"LLM call failed: {exc}"
+
+            return self._format_failure_result(
+                ctx,
+                _OutageStub(),
+                f"校验调用失败：{str(exc)[:200]}",
+                error="llm_call_failed",
+            )
 
         text = (getattr(done, "text", "") or "") or (getattr(done, "reasoning", "") or "")
         section = md.find_section(text, "验证", level=2) or md.find_section(text, "验证")
         if section is None:
-            self._record_format_failure(ctx, "无法解析 ## 验证 section")
-            return ToolResult(
-                success=False,
-                summary="无法解析 ## 验证 section",
+            return self._format_failure_result(
+                ctx,
+                done,
+                "无法解析 ## 验证 section",
                 error="parse_failed",
                 data={"raw": text[:500]},
             )
@@ -540,6 +620,7 @@ class VerifySolutionTool(ITool):
             request = md.parse_json_anywhere(request_section or "")
             execution = execute_math_request(request)
             evidence = execution.to_dict()
+            extra_raw_artifacts: list[ArtifactSpec] = []
             passed = bool(
                 execution.success
                 and execution.applicable
@@ -553,14 +634,25 @@ class VerifySolutionTool(ITool):
                 ctx.state.pop("last_verify_failure", None)
                 self._clear_format_failure(ctx)
             elif not execution.success or not execution.applicable:
-                message = "独立 Math IR 无法执行：" + (
+                detail = (
                     "；".join(execution.errors[:2])
                     or execution.reason
                     or "请求不适用于确定性计算"
                 )
+                if request is None:
+                    detail += (
+                        "（计算请求 JSON 无法解析：所有 expression 必须是带引号的"
+                        "字符串，先输出合法 JSON 再检查一遍）"
+                    )
+                message = "独立 Math IR 无法执行：" + detail
                 ctx.state["solution_verified"] = False
                 ctx.state.pop("last_verify_failure", None)
-                self._record_format_failure(ctx, message)
+                degradable = self._format_failure_result(
+                    ctx, done, message, error="math_ir_unexecutable"
+                )
+                if degradable.success:
+                    return degradable
+                extra_raw_artifacts = list(degradable.artifacts)
             else:
                 failed_claims = [
                     item for item in execution.claims if item.get("passed") is not True
@@ -593,7 +685,8 @@ class VerifySolutionTool(ITool):
                             "success": execution.success,
                             "all_claims_passed": execution.all_claims_passed,
                         },
-                    )
+                    ),
+                    *extra_raw_artifacts,
                 ],
                 error=None if passed else message,
             )
@@ -605,7 +698,11 @@ class VerifySolutionTool(ITool):
                 self._clear_format_failure(ctx)
             elif message.startswith(("逻辑审计缺少证据区：", "逻辑审计结论格式无效：")):
                 ctx.state.pop("last_verify_failure", None)
-                self._record_format_failure(ctx, message)
+                degradable = self._format_failure_result(
+                    ctx, done, message, error="logical_audit_format"
+                )
+                if degradable.success:
+                    return degradable
             else:
                 ctx.state["last_verify_failure"] = message
             return ToolResult(
@@ -650,10 +747,10 @@ class VerifySolutionTool(ITool):
 
         if problem_data is None or answer_data is None:
             message = "题目数值 / 答案数值 字段无法解析为 JSON 或安全算术字面量"
-            self._record_format_failure(ctx, message)
-            return ToolResult(
-                success=False,
-                summary=message,
+            return self._format_failure_result(
+                ctx,
+                done,
+                message,
                 error="bad_data_fields",
                 data={
                     "problem_data": problem_data,
@@ -664,10 +761,10 @@ class VerifySolutionTool(ITool):
 
         code = _extract_python_block(section)
         if not code:
-            self._record_format_failure(ctx, "没找到 Python 验证代码块")
-            return ToolResult(
-                success=False,
-                summary="没找到 ```python``` 代码块",
+            return self._format_failure_result(
+                ctx,
+                done,
+                "没找到 ```python``` 验证代码块",
                 error="no_code_block",
             )
 
