@@ -1,0 +1,17 @@
+{
+  "name": "mathtutor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MathTutor — 数学成长引擎：整体认知 / 弱点诊断 / 直观理解 / 能力养成 / 融会贯通",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev:server": "pnpm --filter @mathtutor/server dev",
+    "dev:web": "pnpm --filter @mathtutor/web dev"
+  }
+}

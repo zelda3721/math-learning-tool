@@ -1,0 +1,1 @@
+{"frame_width": 14.222222222222221, "frame_height": 8.0, "beats": [{"beat_index": 0, "role": "setup", "end_time": 10.133, "groups": {}}, {"beat_index": 1, "role": "transform", "end_time": 12.367, "groups": {}}, {"beat_index": 2, "role": "verify", "end_time": 18.967, "groups": {}}]}

@@ -48,3 +48,9 @@ data/
 Thumbs.db
 .env.qwen
 .env.deepseek
+
+# Node / monorepo
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+.venv/
