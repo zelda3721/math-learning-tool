@@ -6699,3 +6699,110 @@ def test_essence_rationale_must_name_the_decisive_relation() -> None:
         )
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Linear balance: first-shot equation-as-scale for middle school
+# ---------------------------------------------------------------------------
+
+
+def _balance_state() -> dict[str, Any]:
+    return {
+        "solution_verified": True,
+        "solution_answer": "x = 4",
+        "solution_steps": [{"description": "移项", "result": "2x = 8"}],
+        "verify_math_request": {
+            "engine": "sympy",
+            "symbols": {"x": {"domain": "real"}},
+            "operations": [
+                {"id": "s", "op": "solve", "expression": "2*x + 5 - 13", "variable": "x"}
+            ],
+            "claims": [],
+        },
+        "verify_math_evidence": {
+            "success": True,
+            "all_claims_passed": True,
+            "operations": [{"id": "s", "result": "[4]"}],
+        },
+    }
+
+
+def test_extract_linear_balance_recovers_both_pans() -> None:
+    from math_tutor.infrastructure.agent.math_runtime import (
+        extract_linear_balance_structure,
+    )
+
+    balance = extract_linear_balance_structure(_balance_state()["verify_math_request"])
+    assert balance is not None
+    assert balance["coefficient"] == 2
+    assert balance["constant"] == 5
+    assert balance["total"] == 13
+    assert balance["solution"] == 4
+
+    # Eq(...) spelling recovers the pans from the two sides directly.
+    eq_form = {
+        "operations": [
+            {"id": "s", "op": "solve", "expression": "Eq(3*y + 2, 14)", "variable": "y"}
+        ]
+    }
+    balance2 = extract_linear_balance_structure(eq_form)
+    assert balance2 is not None
+    assert (balance2["coefficient"], balance2["constant"], balance2["total"]) == (3, 2, 14)
+    assert balance2["solution"] == 4
+
+    # Already-normalized forms still work with an empty left pan.
+    normalized = {
+        "operations": [
+            {"id": "s", "op": "solve", "expression": "2*x - 8", "variable": "x"}
+        ]
+    }
+    balance3 = extract_linear_balance_structure(normalized)
+    assert balance3 is not None
+    assert (balance3["constant"], balance3["total"], balance3["solution"]) == (0, 8, 4)
+
+    # Non-integral solutions and quadratics abstain.
+    assert extract_linear_balance_structure(
+        {"operations": [{"id": "s", "op": "solve", "expression": "2*x - 7", "variable": "x"}]}
+    ) is None
+    assert extract_linear_balance_structure(
+        {"operations": [{"id": "s", "op": "solve", "expression": "x**2 - 4", "variable": "x"}]}
+    ) is None
+
+
+def test_balance_plan_builds_for_middle_grade_only_and_compiles() -> None:
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _validate_plan,
+        build_linear_balance_visual_plan,
+    )
+
+    middle = ToolContext("s", 3, "middle", "解方程 2x+5=13", _balance_state())
+    plan = build_linear_balance_visual_plan(middle)
+    assert plan is not None
+    assert plan["grounding_source"] == "linear_balance"
+    assert _validate_plan(plan, "middle") == []
+    ops = [a["op"] for scene in plan["scenes"] for a in scene["actions"]]
+    assert "balance_remove" in ops and "balance_divide" in ops and "balance_verify" in ops
+    middle.state["visual_plan"] = plan
+    code = build_verified_fallback_code(middle)
+    compile(code, "<balance>", "exec")
+    assert "build_balance" in code
+
+    # High school keeps the curve view; elementary never sees equations.
+    for grade in ("high", "elementary_upper"):
+        ctx = ToolContext("s", 3, grade, "解方程 2x+5=13", _balance_state())
+        assert build_linear_balance_visual_plan(ctx) is None
+
+
+def test_direct_video_prefers_balance_for_middle_linear_equation() -> None:
+    from math_tutor.infrastructure.agent.tools.direct_video import DirectVideoTool
+
+    class NeverCalledPlanner:
+        parameters: dict[str, Any] = {"type": "object", "properties": {}}
+
+        async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            raise AssertionError("LLM director must not run for a verified linear equation")
+
+    ctx = ToolContext("s", 3, "middle", "解方程 2x+5=13", _balance_state())
+    result = asyncio.run(DirectVideoTool(NeverCalledPlanner()).execute({}, ctx))  # type: ignore[arg-type]
+    assert result.success is True
+    assert ctx.state["visual_plan"]["grounding_source"] == "linear_balance"

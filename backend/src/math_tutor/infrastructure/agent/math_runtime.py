@@ -394,6 +394,113 @@ def extract_linear_mix_structure(request: Any) -> dict[str, Any] | None:
     return None
 
 
+def extract_linear_balance_structure(request: Any) -> dict[str, Any] | None:
+    """Detect a one-variable linear equation a·x + b = c from verified IR.
+
+    The balance metaphor needs the ORIGINAL two sides, so constants are
+    recovered from the raw expression's term signs (canonical sympy form
+    collapses "…+5-13" into "-8"): positive constants stay on the unknown's
+    side, negated constants are the other pan. Detection is coefficient
+    shape only — no problem wording.
+    """
+    if not isinstance(request, dict):
+        return None
+    for operation in request.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        if str(operation.get("op") or "").lower() != "solve":
+            continue
+        expression = operation.get("expression")
+        variables = operation.get("variables") or operation.get("variable")
+        if isinstance(variables, list):
+            if len(variables) != 1:
+                continue
+            variable = str(variables[0])
+        else:
+            variable = str(variables or "").strip()
+        if not isinstance(expression, str) or not variable.isidentifier():
+            continue
+        symbol = sp.Symbol(variable, real=True)
+        try:
+            parsed = _ExpressionParser({variable: symbol}).parse(expression)
+            if isinstance(parsed, sp.Eq):
+                lhs, rhs = parsed.lhs, parsed.rhs
+            else:
+                lhs, rhs = parsed, sp.Integer(0)
+            normalized = sp.expand(lhs - rhs)
+            polynomial = sp.Poly(normalized, symbol)
+            if polynomial.degree() != 1:
+                continue
+            coefficient = Fraction(str(polynomial.coeff_monomial(symbol)))
+            constant_term = Fraction(str(polynomial.coeff_monomial(1)))
+        except (ValueError, TypeError, sp.SympifyError):
+            continue
+        if coefficient == 0:
+            continue
+        if coefficient < 0:
+            coefficient, constant_term = -coefficient, -constant_term
+        solution = -constant_term / coefficient
+        # Recover the pans: positive constant terms sit with the unknown,
+        # negated ones form the other side. Falls back to b=0 when the raw
+        # split is unavailable (e.g. already-normalized "2*x - 8").
+        left_constant = Fraction(0)
+        right_constant = Fraction(0)
+        if isinstance(parsed, sp.Eq):
+            try:
+                left_constant = Fraction(str(sp.expand(lhs).coeff(symbol, 0)))
+                right_constant = Fraction(str(sp.expand(rhs).coeff(symbol, 0)))
+                if Fraction(str(sp.expand(rhs).coeff(symbol, 1))) != 0:
+                    left_constant, right_constant = Fraction(0), Fraction(0)
+            except (ValueError, TypeError):
+                left_constant = right_constant = Fraction(0)
+        if right_constant == 0:
+            raw_terms = re.findall(
+                r"[+-]?\s*\d+(?:\.\d+)?(?![\w.*/])",
+                expression.replace("−", "-"),
+            )
+            positives = [Fraction(t.replace(" ", "")) for t in raw_terms]
+            left_constant = sum(
+                (value for value in positives if value > 0), Fraction(0)
+            )
+            right_constant = -sum(
+                (value for value in positives if value < 0), Fraction(0)
+            )
+        if left_constant - right_constant != constant_term:
+            left_constant, right_constant = (
+                (Fraction(0), -constant_term)
+                if constant_term <= 0
+                else (constant_term, Fraction(0))
+            )
+        values = [coefficient, left_constant, right_constant, solution]
+        if not all(value.denominator == 1 and value >= 0 for value in values):
+            continue
+        payload = {
+            "variable": variable,
+            "coefficient": int(coefficient),
+            "constant": int(left_constant),
+            "total": int(right_constant),
+            "solution": int(solution),
+        }
+        # Countable pans: boxes and dots must stay individually readable.
+        if not 1 <= payload["coefficient"] <= 4:
+            continue
+        if not 0 <= payload["constant"] <= 12:
+            continue
+        if not 1 <= payload["total"] <= 24:
+            continue
+        if not 1 <= payload["solution"] <= 12:
+            continue
+        if payload["constant"] == 0 and payload["coefficient"] == 1:
+            continue  # x = c directly; nothing to demonstrate
+        if (
+            payload["coefficient"] * payload["solution"] + payload["constant"]
+            != payload["total"]
+        ):
+            continue
+        return payload
+    return None
+
+
 def _unwrap_single_solution(container: Any) -> Any:
     """A one-element solution list is its element for key/field access."""
     if (

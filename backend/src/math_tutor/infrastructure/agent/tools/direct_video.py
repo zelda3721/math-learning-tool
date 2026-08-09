@@ -13,6 +13,7 @@ from ....application.interfaces import ITool, ToolContext, ToolResult
 from .visual_plan import (
     VisualPlanTool,
     build_grounded_math_visual_plan,
+    build_linear_balance_visual_plan,
     build_minimal_narrative_plan,
     build_mix_swap_visual_plan,
     build_quantity_story_visual_plan,
@@ -84,6 +85,7 @@ class DirectVideoTool(ITool):
             grounded_plan = (
                 build_quantity_story_visual_plan(ctx)
                 or build_mix_swap_visual_plan(ctx)
+                or build_linear_balance_visual_plan(ctx)
                 or build_grounded_math_visual_plan(ctx)
             )
         else:
