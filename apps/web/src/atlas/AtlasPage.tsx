@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { TreeCanvas, type MasteryMap } from './treeCanvas'
 import { createGraphIndex } from './graphIndex'
 import { NodeDetail } from './NodeDetail'
+import { CoveragePanel, useCoverage } from './CoveragePanel'
 import { useLearner } from '../learner/LearnerContext'
 import type { Graph, ProblemType } from './types'
 import localGraphRaw from './graph.local.json'
@@ -60,6 +61,15 @@ export function AtlasPage() {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<TreeCanvas | null>(null)
 
+    // P1b 覆盖度：面板默认收起；本会话内刚核验过的节点用覆写集合保持徽章
+    const { report: coverage, failed: coverageFailed, reload: reloadCoverage } = useCoverage()
+    const [coverageOpen, setCoverageOpen] = useState(false)
+    const [verifiedIds, setVerifiedIds] = useState<ReadonlySet<string>>(new Set())
+    const handleVerified = (nodeId: string) => {
+        setVerifiedIds((prev) => new Set(prev).add(nodeId))
+        reloadCoverage()
+    }
+
     const learnerId = learner?.id ?? null
 
     useEffect(() => {
@@ -99,6 +109,28 @@ export function AtlasPage() {
             canvasRef.current = null
         }
     }, [data, masteryMap])
+
+    // 覆盖度面板/缺口 chips → 星图定位：监听全局 atlas-focus 事件
+    useEffect(() => {
+        const onFocus = (e: Event) => {
+            const nodeId = (e as CustomEvent<{ nodeId?: string }>).detail?.nodeId
+            if (nodeId) canvasRef.current?.focusAndSelect(nodeId)
+        }
+        window.addEventListener('mathtutor:atlas-focus', onFocus)
+        return () => window.removeEventListener('mathtutor:atlas-focus', onFocus)
+    }, [])
+
+    const questionCountOf = useMemo(() => {
+        const m = new Map<string, number>()
+        for (const row of coverage?.nodes ?? []) m.set(row.nodeId, row.questionCount)
+        return m
+    }, [coverage])
+
+    const stageNames = useMemo(() => {
+        const m: Record<string, string> = {}
+        for (const st of data?.graph.stages ?? []) m[st.id] = st.name
+        return m
+    }, [data])
 
     const jumpTo = (id: string) => canvasRef.current?.focusAndSelect(id)
     const closeDetail = () => {
@@ -147,8 +179,45 @@ export function AtlasPage() {
                 </button>
             </div>
 
+            {/* 覆盖度折叠面板（默认收起）：左下角，与右下缩放控件错开 */}
+            <div className="absolute left-3 bottom-3 z-10 flex flex-col items-start gap-2">
+                {coverageOpen && (
+                    <div className="w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto rounded-2xl border border-slate-200 bg-white/90 backdrop-blur shadow-xl">
+                        <CoveragePanel
+                            report={coverage}
+                            failed={coverageFailed}
+                            onReload={reloadCoverage}
+                            stageNames={stageNames}
+                            onVerified={handleVerified}
+                        />
+                    </div>
+                )}
+                <button
+                    type="button"
+                    onClick={() => setCoverageOpen((v) => !v)}
+                    aria-expanded={coverageOpen}
+                    className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                >
+                    {coverageOpen ? '▾ 覆盖度' : '▸ 覆盖度'}
+                    {coverage && (
+                        <span className="ml-1.5 font-medium text-slate-400">
+                            {coverage.totals.covered}/{coverage.totals.nodes} 覆盖
+                        </span>
+                    )}
+                </button>
+            </div>
+
             {gi && selectedId && (
-                <NodeDetail gi={gi} id={selectedId} onJump={jumpTo} onClose={closeDetail} />
+                <NodeDetail
+                    key={selectedId}
+                    gi={gi}
+                    id={selectedId}
+                    onJump={jumpTo}
+                    onClose={closeDetail}
+                    questionCount={questionCountOf.get(selectedId)}
+                    verified={verifiedIds.has(selectedId)}
+                    onVerified={handleVerified}
+                />
             )}
         </div>
     )

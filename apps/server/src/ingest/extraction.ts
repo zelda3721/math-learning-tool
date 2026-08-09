@@ -124,15 +124,32 @@ export function segmentQuestionsOffline(text: string): string[] {
   return blocks.filter((b) => b.length >= 2);
 }
 
-/** 离线文本兜底：分块成题干草稿，答案留空待人工填写 */
+/** 教师版常见的行内答案/解析标注（「答案：27 棵。解析：45-18=27。」），确定性可解析 */
+const ANSWER_PATTERN = /答案[：:]\s*([^\n。；;]+)[。；;]?/;
+const ANALYSIS_PATTERN = /(?:解析|详解|分析)[：:]\s*([^\n]+)/;
+
+/**
+ * 离线文本兜底：分块成题干草稿。教师版行内「答案：/解析：」标注会被
+ * 确定性解析进对应字段并从题干剥离；没有标注则答案留空待人工填写。
+ */
 export function offlineTextDrafts(text: string, level: EducationLevel = DEFAULT_LEVEL): ExtractedDraft[] {
-  return segmentQuestionsOffline(text).map((stem) => ({
-    stem,
-    answer: "",
-    answerType: "numeric" as const,
-    difficulty: 2,
-    level,
-  }));
+  return segmentQuestionsOffline(text).map((block) => {
+    const answerMatch = ANSWER_PATTERN.exec(block);
+    const analysisMatch = ANALYSIS_PATTERN.exec(block);
+    const stem = block
+      .replace(ANALYSIS_PATTERN, "")
+      .replace(ANSWER_PATTERN, "")
+      .replace(/\s+$/, "")
+      .trim();
+    return {
+      stem: stem || block,
+      answer: answerMatch?.[1]?.trim() ?? "",
+      answerType: "numeric" as const,
+      difficulty: 2,
+      level,
+      ...(analysisMatch ? { analysis: analysisMatch[1]!.trim() } : {}),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { loadKnowledge, type Knowledge } from "@mathtutor/knowledge";
 import type { Question } from "@mathtutor/schema";
 import { openMemoryDb } from "../src/db.js";
 import { Repo } from "../src/repo.js";
+import { JobStore } from "../src/ingest/jobs.js";
 import { createQuestionStore, contentHashOf, type QuestionStore } from "../src/questions.js";
 import { createApp, type AppState } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
@@ -52,7 +53,8 @@ export function tempFixtureEnv(questions: Question[]): {
   mkdirSync(qdir, { recursive: true });
   writeFileSync(path.join(qdir, "fixture.json"), JSON.stringify(questions), "utf8");
   const store = createQuestionStore(dataDir, knowledge.index);
-  const repo = new Repo(openMemoryDb());
+  const db = openMemoryDb();
+  const repo = new Repo(db);
   const state: AppState = {
     config: { ...loadConfig({}), dataDir },
     contract: null,
@@ -60,6 +62,7 @@ export function tempFixtureEnv(questions: Question[]): {
     questions: store,
     repo,
     hintProvider: null,
+    jobs: new JobStore(db),
   };
   return { dataDir, store, repo, state };
 }
