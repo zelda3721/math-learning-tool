@@ -28,10 +28,12 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         status           TEXT NOT NULL,
         final_video_path TEXT,
         error            TEXT,
-        meta_json        TEXT
+        meta_json        TEXT,
+        learner_id       TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_learner ON sessions(learner_id)",
     """
     CREATE TABLE IF NOT EXISTS messages (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,10 +138,48 @@ class Database:
         finally:
             conn.close()
 
+    # Column-level migrations for databases created by older schema versions.
+    # Each entry: (table, column, ALTER TABLE ... ADD COLUMN statement).
+    # SQLite has no "ADD COLUMN IF NOT EXISTS", so we check table_info first
+    # and treat an OperationalError (e.g. concurrent add) as "already there".
+    _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+        (
+            "sessions",
+            "learner_id",
+            "ALTER TABLE sessions ADD COLUMN learner_id TEXT",
+        ),
+    )
+
     def _initialize(self) -> None:
         with self.connect() as conn:
+            # Migrations run BEFORE the schema statements so that indexes on
+            # migrated columns (e.g. idx_sessions_learner) can be created for
+            # old databases where the table pre-exists without the column.
+            self._migrate(conn)
             for stmt in _SCHEMA_STATEMENTS:
                 conn.execute(stmt)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        for table, column, ddl in self._COLUMN_MIGRATIONS:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            if exists is None:
+                continue  # fresh DB — CREATE TABLE below includes the column
+            columns = {
+                row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
+            }
+            if column in columns:
+                continue
+            try:
+                conn.execute(ddl)
+                logger.info("migrated: added %s.%s", table, column)
+            except sqlite3.OperationalError as exc:
+                # Tolerate races / repeated startup: "duplicate column name"
+                if "duplicate column" not in str(exc).lower():
+                    raise
+                logger.debug("column %s.%s already present: %s", table, column, exc)
 
     # --- Sync helpers (callable from to_thread) ----------------------------
 

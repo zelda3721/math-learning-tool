@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
+import { AtlasPage } from './atlas/AtlasPage'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
 import {
@@ -17,7 +18,10 @@ import {
     HistoricalSessionView,
 } from './components'
 
+type AppView = 'solve' | 'atlas'
+
 function App() {
+    const [view, setView] = useState<AppView>('solve')
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
     const [historyOpen, setHistoryOpen] = useState(false)
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
@@ -79,7 +83,38 @@ function App() {
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             <Header onOpenHistory={() => setHistoryOpen(true)} />
 
-            <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 md:py-12 flex flex-col gap-8 relative z-10">
+            {/* 顶层视图切换：做题 / 星图 */}
+            <div className="relative z-20 flex justify-center px-4 mt-1">
+                <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 backdrop-blur p-1 shadow-sm">
+                    {(
+                        [
+                            ['solve', '做题'],
+                            ['atlas', '星图'],
+                        ] as const
+                    ).map(([key, label]) => (
+                        <button
+                            key={key}
+                            type="button"
+                            onClick={() => setView(key)}
+                            className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                                view === key
+                                    ? 'bg-sky-500 text-white shadow'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {view === 'atlas' && (
+                <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 py-4 relative z-10">
+                    <AtlasPage />
+                </main>
+            )}
+
+            <main className={`flex-1 w-full max-w-5xl mx-auto px-4 py-8 md:py-12 flex-col gap-8 relative z-10 ${view === 'solve' ? 'flex' : 'hidden'}`}>
                 {!isViewingHistory && (
                     <>
                         <section className="flex flex-col items-center text-center space-y-6 max-w-3xl mx-auto mt-8">

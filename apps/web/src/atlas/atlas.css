@@ -1,0 +1,153 @@
+/* ========================================================================
+   星图（进化树画布）样式 —— 移植自 math-wiki src/styles.css 中
+   TreeCanvas 相关部分，scoped 到 .atlas-root 以免影响现有页面
+   ===================================================================== */
+.atlas-root {
+  --canvas: #f4f7fb;
+  --grid: #e4eaf3;
+  --grid-strong: #d6def0;
+  --ink: #1f2733;
+  --ink-soft: #56627a;
+  --ink-faint: #97a3b8;
+  --surface: #ffffff;
+  --line: #e3e8f2;
+  --line-soft: #eef2f8;
+  --accent: #4f46e5;
+  --shadow-sm: 0 1px 2px rgba(31, 39, 51, 0.06), 0 2px 8px rgba(31, 39, 51, 0.06);
+  --shadow-md: 0 6px 24px rgba(31, 39, 51, 0.12);
+  --r-sm: 10px;
+  --r-md: 16px;
+}
+
+/* ───────────────── 画布（原 .canvas-wrap） ───────────────── */
+.atlas-root .atlas-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+.atlas-root .tree-svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.atlas-root .tree-svg.grabbing { cursor: grabbing; }
+
+.atlas-root .zoom-ctl {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: 10;
+}
+.atlas-root .zoom-ctl button {
+  width: 40px;
+  height: 38px;
+  border: none;
+  background: var(--surface);
+  font-size: 19px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.atlas-root .zoom-ctl button:last-child { border-bottom: none; }
+.atlas-root .zoom-ctl button:hover { background: var(--line-soft); color: var(--accent); }
+
+/* ───────────────── SVG 背景层 ───────────────── */
+.atlas-root .strand-band { transition: fill-opacity 0.2s; }
+.atlas-root .strand-icon { font-size: 22px; }
+.atlas-root .strand-name { font-size: 16px; font-weight: 800; }
+.atlas-root .strand-sub { font-size: 11px; fill: var(--ink-faint); }
+.atlas-root .stage-name { font-size: 15px; font-weight: 800; text-anchor: middle; }
+.atlas-root .stage-age { font-size: 10.5px; fill: var(--ink-faint); text-anchor: middle; }
+
+/* ───────────────── 连接线 ───────────────── */
+.atlas-root .link { fill: none; stroke: #c6cee0; stroke-width: 1.6; transition: stroke 0.2s, opacity 0.2s, stroke-width 0.2s; }
+.atlas-root .link.hot { stroke: #6366f1; stroke-width: 2.6; }
+.atlas-root .link.dim { opacity: 0.12; }
+.atlas-root .beam-link { stroke: url(#beamGrad); stroke-width: 3.4; stroke-linecap: round; }
+/* 跨节点支线：默认隐藏，仅在聚焦相关节点时出现，保持默认视图干净 */
+.atlas-root .link.skip:not(.hot):not(.beam-link) { opacity: 0; }
+
+/* 演化光路（signature） */
+.atlas-root .beam-path {
+  fill: none;
+  stroke: url(#beamGrad);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 14;
+  filter: url(#glow);
+  opacity: 0;
+  animation: atlasBeamIn 0.4s ease forwards, atlasBeamFlow 0.9s linear infinite;
+}
+.atlas-root .beam-howlabel { opacity: 0; animation: atlasBeamIn 0.4s ease forwards; }
+.atlas-root .beam-howlabel rect { fill: rgba(255, 255, 255, 0.93); stroke: #a855f7; stroke-width: 1.2; filter: drop-shadow(0 2px 4px rgba(168, 85, 247, 0.16)); }
+.atlas-root .beam-howlabel text { font-size: 11.5px; font-weight: 600; fill: #6d28d9; text-anchor: middle; dominant-baseline: middle; }
+
+/* 前置/由来 关系层（冷色，区别于演化的紫色） */
+.atlas-root .rel-howlabel rect { fill: rgba(255, 255, 255, 0.93); stroke: #38bdf8; stroke-width: 1.2; filter: drop-shadow(0 2px 4px rgba(14, 165, 233, 0.16)); }
+.atlas-root .rel-howlabel text { font-size: 11.5px; font-weight: 600; fill: #0369a1; text-anchor: middle; dominant-baseline: middle; }
+
+@keyframes atlasBeamFlow { to { stroke-dashoffset: -32; } }
+@keyframes atlasBeamIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ───────────────── 节点 ───────────────── */
+/* 外层 .node 只承载定位 translate（SVG 属性）；缩放只作用于内层 .node-inner，
+   避免 CSS transform 覆盖定位导致节点塌到原点 */
+.atlas-root .node { cursor: pointer; }
+.atlas-root .node:focus { outline: none; }
+.atlas-root .node-inner { transform-box: fill-box; transform-origin: center; transition: transform 0.16s ease; }
+.atlas-root .node-card {
+  stroke-width: 1.8;
+  filter: drop-shadow(0 2px 5px rgba(31, 39, 51, 0.1));
+  transition: stroke-width 0.16s, filter 0.16s;
+}
+.atlas-root .node-bar { opacity: 0.95; }
+.atlas-root .node-name { font-size: 13.5px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.atlas-root .node-frontier { font-size: 12px; fill: #f59e0b; text-anchor: middle; filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.6)); }
+/* P0：掌握度未接入，学习圆点统一灰 */
+.atlas-root .node-learn { fill: #fff; stroke: #cbd5e1; stroke-width: 1.5; }
+
+.atlas-root .node:hover .node-inner { transform: scale(1.06); }
+.atlas-root .node:hover .node-card,
+.atlas-root .node.hot .node-card { stroke-width: 3; filter: drop-shadow(0 5px 14px rgba(31, 39, 51, 0.2)); }
+.atlas-root .node.selected .node-card { stroke-width: 3.4; filter: drop-shadow(0 6px 18px rgba(79, 70, 229, 0.34)); }
+.atlas-root .node.up .node-card { stroke-dasharray: 5 3; }
+.atlas-root .node.rel .node-card { stroke-dasharray: 4 3; opacity: 0.9; }
+.atlas-root .node.beam .node-card { filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.55)); }
+.atlas-root .node.dim { opacity: 0.26; }
+
+/* 入场：按学段从左到右"生长" */
+@media (prefers-reduced-motion: no-preference) {
+  .atlas-root .node-inner { animation: atlasGrow 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .atlas-root .node.stage-primary .node-inner { animation-delay: 0.02s; }
+  .atlas-root .node.stage-junior .node-inner { animation-delay: 0.16s; }
+  .atlas-root .node.stage-senior .node-inner { animation-delay: 0.3s; }
+  .atlas-root .node.stage-university .node-inner { animation-delay: 0.44s; }
+  .atlas-root .links .link { animation: atlasLinkIn 0.6s ease both; animation-delay: 0.3s; }
+}
+@keyframes atlasGrow { from { opacity: 0; transform: scale(0.4) translateY(10px); } to { opacity: 1; transform: scale(1); } }
+@keyframes atlasLinkIn { from { opacity: 0; } }
+
+/* ───────────────── 详情浮层 chips（复用 wiki 视觉） ───────────────── */
+.atlas-root .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.atlas-root .chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
+  border: 1.5px solid color-mix(in srgb, var(--c) 40%, var(--line));
+  border-radius: 999px; background: color-mix(in srgb, var(--c) 6%, #fff);
+  font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--c) 80%, #000);
+  transition: transform 0.12s; cursor: pointer;
+}
+.atlas-root .chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.atlas-root .chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-root .beam-path { animation: none; opacity: 1; }
+  .atlas-root .beam-howlabel { animation: none; opacity: 1; }
+}

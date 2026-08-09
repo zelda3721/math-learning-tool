@@ -1,4 +1,39 @@
-# 🎓 AI Math Tutor
+# 🎓 MathTutor · 数学成长引擎
+
+> 一张会点亮的数学地图，一位不喂答案的导师，一台数形结合的讲解引擎。
+> 三工程合并系统（math-wiki × practise-diagnosis × math-learning-tool），设计文档见项目 artifact「数学成长引擎 · 三工程合并设计」。
+
+## Monorepo 布局（P0 起）
+
+```
+mathtutor/
+├─ packages/schema        # zod 单一类型真源：四实体 / 学习者 / SSE v2 / 引擎契约 / 默认参数
+├─ packages/knowledge     # 图算法（演化路径/归因候选回溯）、lint 不变量、离线定位器
+├─ packages/llm-client    # OpenAI 兼容流式客户端（<think> 剥离 / Hermes 回退 / 五端点分层）
+├─ apps/server            # Hono TS 单体：对外唯一入口（atlas / 引擎 SSE 代理 / 契约启动校验）
+├─ apps/web               # React：星图（wiki 画布迁入）+ 做题 / SSE 思考链 / 历史
+├─ services/video-engine  # Python 讲解引擎（原 backend/，黑盒；五阶段 + 质量门禁 v2）
+├─ data/knowledge/        # 知识图谱 file-first（graph.json 75 节点 / problems.json 40 题型）
+└─ scripts/bench_video_throughput.py  # GPU 产能实测（P0 验收项）
+```
+
+### 开发启动
+
+```bash
+pnpm install && pnpm -r build && pnpm -r test          # TS 侧（82 测试）
+cd services/video-engine && uv sync --extra dev \
+  && .venv/bin/python -m pytest -q tests               # 引擎（234 测试）
+.venv/bin/python -m math_tutor.api.main                # 引擎 :8000
+ENGINE_URL=http://127.0.0.1:8000 SERVER_PORT=8080 \
+  node apps/server/dist/index.js                       # 网关 :8080（启动时校验引擎契约）
+pnpm dev:web                                           # 前端（VITE_API_PROXY 可指向网关）
+```
+
+注意：本机若开系统代理，curl 调试本地端口需加 `--noproxy '*'`（引擎与 llm-client 代码内已对本地地址绕代理）。
+
+---
+
+## 视频引擎（services/video-engine，原 backend）
 
 > 把一道数学题变成可播放的 Manim 教学动画。
 

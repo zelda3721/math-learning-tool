@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings, setup_logging
 from ..config.dependencies import get_database, get_file_archive
-from .routes import chat, grades, health, problems, sessions, skills, videos
+from .routes import chat, contract, grades, health, problems, sessions, skills, videos
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +55,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Mount static files for videos
-    import os
-    from pathlib import Path
-    media_path = Path(settings.manim_output_dir)
-    if not media_path.is_absolute():
-        # Make relative path absolute based on project root
-        media_path = Path(os.getcwd()) / media_path
+    # Mount static files for videos — engine-root anchored, CWD-independent.
+    media_path = settings.resolved_manim_output_dir
     media_path.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
-    
+
     # Register routes
     app.include_router(health.router, prefix="/api", tags=["Health"])
+    app.include_router(contract.router, prefix="/api/v1/contract", tags=["Contract"])
     app.include_router(grades.router, prefix="/api/v1/grades", tags=["Grades"])
     app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])
     app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problems"])

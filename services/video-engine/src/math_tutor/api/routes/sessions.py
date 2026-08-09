@@ -57,6 +57,7 @@ def _session_to_dict(s: Session) -> dict[str, Any]:
         "final_video_path": s.final_video_path,
         "error": s.error,
         "meta": s.meta,
+        "learner_id": s.learner_id,
     }
 
 
@@ -119,9 +120,12 @@ async def list_sessions(
     limit: int = 50,
     offset: int = 0,
     label: str | None = None,
+    learner_id: str | None = None,
     store: ConversationStore = Depends(get_conversation_store),
 ) -> list[dict[str, Any]]:
-    sessions = await store.list_sessions(limit=limit, offset=offset, label=label)
+    sessions = await store.list_sessions(
+        limit=limit, offset=offset, label=label, learner_id=learner_id
+    )
     return [_session_to_dict(s) for s in sessions]
 
 

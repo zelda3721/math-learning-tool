@@ -17,6 +17,7 @@ class Session:
     final_video_path: str | None = None
     error: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
+    learner_id: str | None = None
 
 
 @dataclass

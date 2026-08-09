@@ -14,9 +14,28 @@ logger = logging.getLogger(__name__)
 
 # Resolve the .env path absolutely (anchored to this file), so the loader
 # works regardless of which directory the process was started from.
-# settings.py → config/ → math_tutor/ → src/ → backend/ → <project_root>
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
-_ENV_FILE = _PROJECT_ROOT / ".env"
+# Monorepo layout: settings.py → config/ → math_tutor/ → src/ → video-engine/
+# → services/ → <repo_root>. Prefer an engine-local .env, then the repo root.
+_ENV_CANDIDATES = [
+    Path(__file__).resolve().parents[3] / ".env",  # services/video-engine/.env
+    Path(__file__).resolve().parents[5] / ".env",  # repo root .env
+]
+_ENV_FILE = next((p for p in _ENV_CANDIDATES if p.exists()), _ENV_CANDIDATES[1])
+
+# Engine root (services/video-engine). All relative filesystem settings
+# (data_dir, manim_output_dir, db_path, learned_wiki_dir) are anchored HERE
+# instead of the process CWD, so the engine finds its data no matter which
+# directory uvicorn/pytest was launched from.
+# settings.py → config/ → math_tutor/ → src/ → <engine_root>
+_ENGINE_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _anchored(raw: str | Path) -> Path:
+    """Absolutize a possibly-relative path against the engine root."""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = _ENGINE_ROOT / path
+    return path.resolve()
 
 
 class Settings(BaseSettings):
@@ -231,21 +250,26 @@ class Settings(BaseSettings):
 
     @property
     def resolved_db_path(self) -> Path:
-        """Absolute path to the SQLite database file."""
+        """Absolute path to the SQLite database file (engine-root anchored)."""
         if self.db_path:
-            return Path(self.db_path).expanduser().resolve()
-        return (Path(self.data_dir).expanduser() / "math_tutor.sqlite").resolve()
+            return _anchored(self.db_path)
+        return self.resolved_data_dir / "math_tutor.sqlite"
 
     @property
     def resolved_data_dir(self) -> Path:
-        """Absolute path to the data directory."""
-        return Path(self.data_dir).expanduser().resolve()
+        """Absolute path to the data directory (engine-root anchored)."""
+        return _anchored(self.data_dir)
+
+    @property
+    def resolved_manim_output_dir(self) -> Path:
+        """Absolute path to the Manim media directory (engine-root anchored)."""
+        return _anchored(self.manim_output_dir)
 
     @property
     def resolved_learned_wiki_dir(self) -> Path:
-        """Absolute path to the learned wiki directory."""
+        """Absolute path to the learned wiki directory (engine-root anchored)."""
         if self.learned_wiki_dir:
-            return Path(self.learned_wiki_dir).expanduser().resolve()
+            return _anchored(self.learned_wiki_dir)
         return self.resolved_data_dir / "learned_wiki"
 
     model_config = {
