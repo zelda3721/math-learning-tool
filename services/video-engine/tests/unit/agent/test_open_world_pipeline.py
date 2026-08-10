@@ -1152,6 +1152,9 @@ def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
 
     assert result.success is True
     assert planner.calls == 0
+    # A verified limit now owns a calculus-specific approach argument; the
+    # generic curve/neighbourhood lowering stays available underneath it.
+    assert result.data["grounding_source"] == "calculus_limit"
     plan = build_grounded_math_visual_plan(ctx)
     assert plan is not None
     assert plan["grounded_from_math_execution"] is True
@@ -1162,6 +1165,7 @@ def test_parse_failure_uses_verified_drawable_math_evidence() -> None:
         item for item in plan["visual_objects"] if item["id"] == "grounded_result_intersection"
     )
     assert point["params"]["open"] is True
+    ctx.state["visual_plan"] = plan
     code = build_verified_fallback_code(ctx)
     assert "sampled_segments" in code
     assert "'grounded_expression_focus'" in code and "'label': ''" in code

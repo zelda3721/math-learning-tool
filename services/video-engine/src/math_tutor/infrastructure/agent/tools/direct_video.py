@@ -12,7 +12,11 @@ from typing import Any
 from ....application.interfaces import ITool, ToolContext, ToolResult
 from .visual_plan import (
     VisualPlanTool,
+    build_composition_visual_plan,
+    build_derivative_visual_plan,
     build_grounded_math_visual_plan,
+    build_integral_visual_plan,
+    build_limit_visual_plan,
     build_linear_balance_visual_plan,
     build_minimal_narrative_plan,
     build_mix_swap_visual_plan,
@@ -82,10 +86,21 @@ class DirectVideoTool(ITool):
         )
         grounded_plan = None
         if not force_replan:
+            # Specific-before-general: a verified derivative/integral/limit
+            # has its own visual argument (secants collapsing onto a tangent,
+            # rectangles accumulating, values converging). The generic
+            # curve-and-focus lowering only runs when none of those apply,
+            # and the composite-function chain runs last because it is a
+            # structural reading of the expression rather than of the asked
+            # operation.
             grounded_plan = (
                 build_quantity_story_visual_plan(ctx)
                 or build_mix_swap_visual_plan(ctx)
                 or build_linear_balance_visual_plan(ctx)
+                or build_derivative_visual_plan(ctx)
+                or build_integral_visual_plan(ctx)
+                or build_limit_visual_plan(ctx)
+                or build_composition_visual_plan(ctx)
                 or build_grounded_math_visual_plan(ctx)
             )
         else:
