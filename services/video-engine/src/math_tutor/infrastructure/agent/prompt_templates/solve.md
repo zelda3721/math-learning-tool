@@ -48,6 +48,46 @@
 }
 ```
 
+**可执行运算必须声明**：题目要求的动作若是**求导 / 求积分 / 求极限 / 化简 / 解方程**，
+`operations` 里**必须**出现对应的 op（`differentiate` / `integrate` / `limit` / `simplify` /
+`solve`），最终答案要写成该运算的结果，并在 claims 里断言它。只在文字步骤里叙述过程而不声明
+运算，一律不合格——下游要用这条运算的输出画图，缺了它就只能凭空编造几何。
+
+正例（求 y = sin(2x+1) 的导数）：
+
+```json
+{
+  "engine": "sympy",
+  "symbols": {"x": {"domain": "real"}},
+  "operations": [
+    {"id": "dy", "op": "differentiate", "expression": "sin(2*x + 1)", "variable": "x"}
+  ],
+  "claims": [
+    {"id": "final_answer", "relation": "equal", "left": "$dy", "right": "2*cos(2*x + 1)"}
+  ]
+}
+```
+
+反例（都不合格）：
+- 只写“设 u = 2x+1，根据链式法则 y' = cos(u)·2”这类散文步骤，`operations` 里没有 `differentiate`。
+- 写成 `{"id": "a", "op": "evaluate", "expression": "2*cos(2*x + 1)"}`，把已经写好的答案再求值
+  一次，等于没算。
+
+**表达式书写纪律**：`expression` 与 claims 的 `left` / `right` 必须是**可直接解析的纯数学
+写法**，因为下游要拿它做确定性求值和画图。
+- 对：`sin(2*x + 1)`、`x**2 - 3*x`、`sqrt(x)`、`(a + b)/2`、`exp(-x)`
+- 错：`\sin(2x+1)`、`\frac{1}{2}`、`$y = \sin x$`、`2x`（缺 `*`）、`sin(2x+1) 的导数`（夹带中文）；
+  求导/求积分的 expression 只写函数本体，不带 `y =`。
+
+LaTeX 只允许出现在给孩子看的 描述 / 解释 / 最终答案 文字里，绝不能进 Math IR。
+
+**复合函数（推荐，不强制）**：被处理的表达式若是复合结构 f(g(x))，可再声明内层与外层两个
+`simplify` 运算，帮下游画出“这条曲线是由哪两层拼出来的”；新引入的中间变量必须同时写进
+`symbols`（如 `"u": {"domain": "real"}`）：
+`{"id": "inner", "op": "simplify", "expression": "2*x + 1"}`、
+`{"id": "outer", "op": "simplify", "expression": "sin(u)"}`。
+若题目关心某一点（切线、瞬时速度、代入值），用 `point` 或 `substitutions` 声明那一点。
+
 运算可按需增加 `variables`、`point`、`direction`、`order`、`bounds` 或 `substitutions`。禁止
 import、任意 Python、数值采样代替全局证明、以及把待证答案直接作为 evaluate 输入。如果结论
 确实不能由这些确定性运算充分检查，仍必须输出：

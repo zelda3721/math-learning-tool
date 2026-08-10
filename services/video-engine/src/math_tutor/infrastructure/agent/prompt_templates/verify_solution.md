@@ -31,6 +31,18 @@
 }
 ```
 
+**可执行运算必须声明**：题目要求的动作若是**求导 / 求积分 / 求极限 / 化简 / 解方程**，
+`operations` 里**必须**出现对应的 op（`differentiate` / `integrate` / `limit` / `simplify` /
+`solve`），由它独立算出结果再与候选答案比较。例：题目求 y = sin(2x+1) 的导数，就写
+`{"id": "dy", "op": "differentiate", "expression": "sin(2*x + 1)", "variable": "x"}`，
+claims 写 `{"relation": "equal", "left": "$dy", "right": "2*cos(2*x + 1)"}`。
+反例：只用 `evaluate` 把候选答案代进去，或在文字里叙述链式法则而不声明运算——都不合格，
+下游会拿这份运算画图，缺了它只能编造几何。
+
+**表达式书写纪律**：`expression` 与 claims 的 `left` / `right` 必须是可直接解析的纯数学写法
+（`sin(2*x + 1)`、`x**2`、`sqrt(x)`），不得夹带 LaTeX（`\sin`、`\frac`、`$...$`）或中文，
+乘号显式写 `*`（`2x` 非法）。LaTeX 只出现在给孩子看的文字里。
+
 表达式使用 Python/SymPy 语法，按需增加 `variables`、`point`、`direction`、`order`、`bounds`
 或 `substitutions`。claims 必须把从题面独立计算出的结果与候选答案比较，不能直接 evaluate
 候选答案本身。若 Math IR 无法充分验证，选择下面的模式，而不是在 math_ir 中写 engine=none。
