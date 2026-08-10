@@ -46,6 +46,14 @@ export interface RecentMistake {
     createdAt: string
 }
 
+/** 一份讲解的画面由谁设计：确定性构造器的章，或 llm_director（模型写的计划） */
+export interface ExplanationSource {
+    mode: string
+    source: string
+    quality: string
+    count: number
+}
+
 export interface ParentSummary {
     trend: TrendDay[]
     mistakePatterns: MistakePattern[]
@@ -53,6 +61,8 @@ export interface ParentSummary {
     mastery: MasterySummary
     dueReviews: number
     recentMistakes: RecentMistake[]
+    /** 全库口径的产线质量指标（不分孩子）；旧后端没有这个字段 */
+    explanationSources?: ExplanationSource[]
 }
 
 /** 带 HTTP 状态码的错误：correct-mistake 需要区分 422（节点不存在）。 */

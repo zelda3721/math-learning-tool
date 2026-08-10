@@ -58,6 +58,9 @@ export function parentRoutes(state: AppState): Hono {
       pendingVerdicts,
       mastery: { ...bands, tracked: mastery.length },
       dueReviews: state.repo.countDueReviews(learnerId),
+      // 讲解画面来源分布（全库口径的产线质量指标，不分孩子）：
+      // 掉到 LLM 导演的比例越高，画质越不稳定——先看得见，才谈得上调
+      explanationSources: state.repo.explanationSources(),
       recentMistakes: mistakes.slice(0, 20).map((m) => ({
         id: m.id,
         questionStem: state.questions.byId.get(m.questionId)?.stem,

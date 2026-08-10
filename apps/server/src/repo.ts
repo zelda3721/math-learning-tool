@@ -235,6 +235,30 @@ export class Repo {
   }
 
   // ---- explanations（P2 讲解产物登记） ----
+  /**
+   * 讲解画面的来源分布：确定性构造器各接管了多少、多少掉到了 LLM 导演。
+   * 画质波动到底来自哪条路径，只有这张表能回答——不统计就只能凭感觉调。
+   * 全库口径（不分 learner）：这是产线质量指标，不是某个孩子的学习数据。
+   */
+  explanationSources(): {
+    mode: string;
+    source: string;
+    quality: string;
+    count: number;
+  }[] {
+    return this.db
+      .prepare(
+        `SELECT mode,
+                COALESCE(grounding_source, 'llm_director') AS source,
+                quality,
+                COUNT(*) AS count
+           FROM explanations
+          GROUP BY mode, source, quality
+          ORDER BY count DESC`,
+      )
+      .all() as { mode: string; source: string; quality: string; count: number }[];
+  }
+
   insertExplanation(e: {
     id: string;
     questionId?: string;
@@ -246,12 +270,14 @@ export class Repo {
     subtitleUrl?: string;
     quality: "good" | "acceptable";
     contractVersion: string;
+    /** 画面由谁设计：确定性构造器的章；LLM 导演写的计划没有，留空 */
+    groundingSource?: string;
   }): void {
     this.db
       .prepare(
         `INSERT INTO explanations (id, question_id, focus_node_ids_json, engine_session_id, mode,
-          spec_url, video_url, subtitle_url, quality, contract_version, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          spec_url, video_url, subtitle_url, quality, contract_version, grounding_source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.id,
@@ -264,6 +290,7 @@ export class Repo {
         e.subtitleUrl ?? null,
         e.quality,
         e.contractVersion,
+        e.groundingSource ?? null,
         new Date().toISOString(),
       );
   }

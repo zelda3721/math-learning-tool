@@ -9,6 +9,7 @@ import { effectiveLearnerId, type AppState } from "./app.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
 import { expressionsEquivalent, normalizeText, parseNumeric } from "./grading.js";
 import { composeDirectives } from "./explain/engine.js";
+import { groundingSourceOf } from "./explain/grounding.js";
 
 /**
  * P6 自由提问（题库外的题）——**不是答案机器**：
@@ -207,6 +208,7 @@ export async function runAskJob(
           specUrl: persisted.specUrl,
           quality: persisted.quality,
           contractVersion: state.contract.contract_version,
+          groundingSource: groundingSourceOf(result.scene_spec),
         });
       }
     }

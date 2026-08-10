@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS explanations (
   subtitle_url TEXT,
   quality TEXT NOT NULL,           -- good | acceptable
   contract_version TEXT NOT NULL,
+  -- 这份讲解的画面是谁设计的：确定性构造器盖的章（linear_mix_swap /
+  -- quantity_story / derivative…），LLM 导演写的计划则为 NULL。
+  -- 不记这一笔，就看不出画质波动来自哪条路径，只能凭感觉调。
+  grounding_source TEXT,
   feedback_label TEXT,
   variant_pass_rate REAL,
   created_at TEXT NOT NULL
@@ -171,12 +175,19 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 );
 `;
 
-/** 旧库容错迁移（P4：explain_jobs 加 mode 列；已存在则跳过） */
+/** 旧库容错迁移（列已存在则跳过；node:sqlite 没有 IF NOT EXISTS 语法） */
+const MIGRATIONS = [
+  "ALTER TABLE explain_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'",
+  "ALTER TABLE explanations ADD COLUMN grounding_source TEXT",
+];
+
 function migrate(db: DatabaseSync): void {
-  try {
-    db.exec("ALTER TABLE explain_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'");
-  } catch {
-    // duplicate column — already migrated
+  for (const sql of MIGRATIONS) {
+    try {
+      db.exec(sql);
+    } catch {
+      // duplicate column — already migrated
+    }
   }
 }
 
