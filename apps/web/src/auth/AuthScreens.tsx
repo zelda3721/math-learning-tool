@@ -4,6 +4,7 @@
  * logo 锁定与顶栏一致（beam 方章 + Math/Tutor）。
  */
 import { useState, type FormEvent, type ReactNode } from 'react'
+import { SLOGAN } from '../brand'
 import { Button, Field } from '../ui'
 import { useAuth } from './AuthContext'
 
@@ -18,13 +19,17 @@ const LEVEL_OPTIONS: [string, string][] = [
 function AuthShell({ children }: { children: ReactNode }) {
     return (
         <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10">
-            <div className="flex items-center gap-2.5 mb-8">
-                <div className="w-10 h-10 rounded-[10px] bg-beam flex items-center justify-center">
-                    <span className="text-white font-bold text-xl leading-none">M</span>
+            <div className="flex flex-col items-center gap-2.5 mb-8">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-[10px] bg-beam flex items-center justify-center">
+                        <span className="text-white font-bold text-xl leading-none">M</span>
+                    </div>
+                    <span className="font-bold text-2xl text-ink tracking-tight">
+                        Math<span className="text-beam">Tutor</span>
+                    </span>
                 </div>
-                <span className="font-bold text-2xl text-ink tracking-tight">
-                    Math<span className="text-beam">Tutor</span>
-                </span>
+                {/* 口号放在标识正下方：进门第一眼就说清这个产品要做什么 */}
+                <p className="text-sm text-ink-soft tracking-wide">{SLOGAN}</p>
             </div>
             <div className="plate w-full max-w-md p-8">{children}</div>
         </div>
