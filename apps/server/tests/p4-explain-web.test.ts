@@ -107,6 +107,25 @@ describe("explain web mode (P4 default)", () => {
     expect(job.error).toContain("为空");
   });
 
+  it("free-text problem works without a question and caches by content hash", async () => {
+    const { app } = makeWebApp(mockPlanFetch({}));
+    const first = await post(app, "/api/v1/explain", {
+      problem: "一个正方形边长 6 厘米，周长是多少？",
+      grade: "elementary_lower",
+    });
+    expect(first.status).toBe(202);
+    const job = await waitJob(app, first.body.jobId);
+    expect(job.status).toBe("done");
+    expect(job.explanation.questionId).toMatch(/^free-/);
+
+    const second = await post(app, "/api/v1/explain", {
+      problem: "一个正方形边长 6 厘米，周长是多少？",
+      grade: "elementary_lower",
+    });
+    expect(second.body.status).toBe("ready");
+    expect(second.body.explanation.specUrl).toBe(job.explanation.specUrl);
+  });
+
   it("engine plan failure surfaces error, fallback already delivered", async () => {
     const { app } = makeWebApp(mockPlanFetch({ status: "failed", spec: null, error: "solve 失败" }));
     const first = await post(app, "/api/v1/explain", { questionId: "wq1" });

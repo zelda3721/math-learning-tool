@@ -1,14 +1,15 @@
-import { Settings, Bell, History } from 'lucide-react'
+import { History } from 'lucide-react'
 
 interface HeaderProps {
     onOpenHistory?: () => void
+    /** 历史记录只对「讲解」视图有意义（引擎会话历史），其余视图隐藏 */
+    showHistory?: boolean
 }
 
-export function Header({ onOpenHistory }: HeaderProps = {}) {
+export function Header({ onOpenHistory, showHistory = false }: HeaderProps = {}) {
     return (
         <header className="sticky top-4 z-50 px-4 mb-4">
             <div className="soft-glass mx-auto max-w-5xl px-6 py-3 flex items-center justify-between">
-                {/* Logo Area */}
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-200">
                         <span className="text-white font-bold text-lg">M</span>
@@ -18,55 +19,16 @@ export function Header({ onOpenHistory }: HeaderProps = {}) {
                     </span>
                 </div>
 
-                {/* Nav Links (Hidden on small screens) */}
-                <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
-                    <button
-                        type="button"
-                        className="text-sky-600 cursor-default"
-                    >
-                        首页
-                    </button>
+                {showHistory && (
                     <button
                         type="button"
                         onClick={onOpenHistory}
-                        className="hover:text-slate-800 transition-colors inline-flex items-center gap-1"
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors"
                     >
-                        <History size={14} />
+                        <History size={15} />
                         历史记录
                     </button>
-                    <button type="button" className="hover:text-slate-800 transition-colors opacity-50 cursor-not-allowed" disabled>
-                        错题本
-                    </button>
-                    <button type="button" className="hover:text-slate-800 transition-colors opacity-50 cursor-not-allowed" disabled>
-                        我的成就
-                    </button>
-                </nav>
-
-                {/* Actions */}
-                <div className="flex items-center gap-3">
-                    {/* Mobile-only history shortcut (the desktop one is in the nav above) */}
-                    <button
-                        type="button"
-                        onClick={onOpenHistory}
-                        className="md:hidden p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all"
-                        aria-label="历史记录"
-                    >
-                        <History size={20} />
-                    </button>
-                    <button className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all">
-                        <Bell size={20} />
-                    </button>
-                    <button className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all">
-                        <Settings size={20} />
-                    </button>
-                    <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden ml-2">
-                        <img
-                            src="https://api.dicebear.com/7.x/notionists/svg?seed=Felix"
-                            alt="User"
-                            className="w-full h-full object-cover"
-                        />
-                    </div>
-                </div>
+                )}
             </div>
         </header>
     )
