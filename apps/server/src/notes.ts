@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
-import type { AppState } from "./app.js";
+import { effectiveLearnerId, type AppState } from "./app.js";
 
 export interface ResearchNote {
   slug: string;
@@ -139,6 +139,7 @@ export function notesRoutes(state: AppState): Hono {
   app.post("/", async (c) => {
     const parsed = SaveNoteSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId / nodeId / title / contentMd" }, 400);
+    parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     try {
       const note = saveNote(state.config.dataDir, parsed.data);
       return c.json({ ok: true, slug: note.slug });
@@ -148,7 +149,7 @@ export function notesRoutes(state: AppState): Hono {
   });
 
   app.get("/", (c) => {
-    const learnerId = c.req.query("learnerId");
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     if (!learnerId) return c.json({ error: "需要 learnerId" }, 400);
     try {
       return c.json({ notes: listNotes(state.config.dataDir, learnerId, c.req.query("nodeId")) });
