@@ -34,6 +34,8 @@ export interface Unit {
   /** 换成了哪一类（目标组 id）。播放器照这个组的形状与颜色画——
    *  「变成兔了」就该长得跟兔那一组一样，而不是随便换个颜色。 */
   swappedTo?: string;
+  /** 这个单位身上挂几个附属记号（换类之后每个单位的数值变了：2 条腿 → 4 条腿） */
+  marks?: number;
   /** 天平语义：这个单位在左盘还是右盘 */
   side?: "left" | "right";
   /** 天平语义：未知数方块 or 单位 */
@@ -64,6 +66,11 @@ export interface GroupState {
   count?: number;
   /** spec 声明的语义色名（blue/red/yellow…）；播放器按自己的配色盘映射，不直接当 CSS 用 */
   color?: string;
+  /**
+   * 从属声明：这个组不是一堆独立的东西，而是**挂在每个宿主单位身上的 N 个记号**
+   * （每只动物垂下的 2 根腿）。画成独立的一堆，「每个几」的结构就没了。
+   */
+  attachPerUnit?: number;
   /** 一个 Unit 代表 N 个真实单位（> 1 表示超上限后的聚合显示） */
   unitScale?: number;
   /** 由折叠过程派生出的组（残影区、等分份、余数组…），不在 visual_objects 中 */
@@ -173,6 +180,7 @@ interface WorkUnit {
   swapped?: boolean;
   /** 假设法换成了哪一类（目标组 id）：播放器据此让它长成那一类的样子 */
   swappedTo?: string;
+  marks?: number;
   side?: "left" | "right";
   kind?: "unit" | "unknown";
 }
@@ -195,6 +203,8 @@ interface WorkGroup {
   ghost: boolean;
   synthetic: boolean;
   declaredCount?: number;
+  /** 见 GroupState.attachPerUnit */
+  attachPerUnit?: number;
   /** 见 GroupState.magnitude */
   magnitude?: number;
   color?: string;
@@ -346,8 +356,14 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       declaredColors[obj.id] = declaredColor;
     }
 
+    // 从属记号：声明了「每个单位几个」，它就不是独立的一组，而是宿主身上的结构
+    const perUnit = integerQuantity(params.count_per_unit ?? params.per_unit ?? params.count_per_head);
+    if (perUnit !== undefined) group.attachPerUnit = perUnit;
+
     if (obj.primitive === "balance") {
       expandBalance(group);
+    } else if (group.attachPerUnit !== undefined) {
+      // 附属组自己不展开单位——它的量由宿主的单位数乘出来
     } else if (!NON_QUANTITY_PRIMITIVES.has(obj.primitive)) {
       const n = declaredQuantity(params);
       if (n !== undefined) {
@@ -465,6 +481,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           if (unit.weight !== 1) out.weight = unit.weight;
           if (unit.swapped === true) out.swapped = true;
           if (unit.swappedTo !== undefined) out.swappedTo = unit.swappedTo;
+          if (unit.marks !== undefined) out.marks = unit.marks;
           if (unit.side !== undefined) out.side = unit.side;
           if (unit.kind !== undefined) out.kind = unit.kind;
           return out;
@@ -476,6 +493,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       if (group.ghost) state.ghost = true;
       if (group.units.length > 0) state.quantity = quantityOf(group);
       if (group.magnitude !== undefined) state.magnitude = group.magnitude;
+      if (group.attachPerUnit !== undefined) state.attachPerUnit = group.attachPerUnit;
       if (group.color !== undefined) state.color = group.color;
       if (group.declaredCount !== undefined) state.count = group.declaredCount;
       if (group.unitScale > 1) state.unitScale = group.unitScale;
@@ -741,12 +759,16 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           if (!source) break;
           source.visible = true;
           const becomes = str(rec.destination) ?? str(rec.into) ?? str(rec.result) ?? str(rec.b);
+          // expect = 换成的那一类每个单位值多少（2 条腿 → 4 条腿）。
+          // 附属记号跟着变，「每换一个补 2」才在画面上真的发生。
+          const perUnitAfter = integerQuantity(rec.expect ?? rec.expect_per_unit);
           let swapped = 0;
           for (const unit of source.units) {
             if (swapped >= count) break;
             if (unit.swapped === true) continue;
             unit.swapped = true;
             if (becomes !== undefined) unit.swappedTo = becomes;
+            if (perUnitAfter !== undefined) unit.marks = perUnitAfter;
             swapped += 1;
           }
           if (source.unitBearing && swapped < count) {

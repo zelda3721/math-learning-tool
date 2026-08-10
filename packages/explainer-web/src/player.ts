@@ -479,6 +479,20 @@ export class ExplainerPlayer {
         g.ghost,
       );
       this.svg.appendChild(node);
+      // 垂下的附属记号：挂在这个单位身上，跟着它一起走
+      if (u.markXs && u.markLen) {
+        for (const dx of u.markXs) {
+          this.svg.appendChild(
+            el("line", {
+              x1: u.cx + dx, y1: u.cy + u.r * 0.8,
+              x2: u.cx + dx, y2: u.cy + u.r * 0.8 + u.markLen,
+              stroke: u.swapped ? swappedTone : tone,
+              "stroke-width": Math.max(1, u.r * 0.22),
+              "stroke-linecap": "round",
+            }),
+          );
+        }
+      }
       if (u.weight > 1) {
         this.text(String(u.weight), u.cx, u.cy + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
       }
