@@ -51,7 +51,9 @@ mathtutor/
 
 ```bash
 # 0) LMStudio 加载模型（如 qwen/qwen3.6-27b）并启动 OpenAI 兼容服务 :1234
-#    仓库根 .env 配置 LLM_API_BASE / LLM_MODEL / LLM_VISION_*（拍照判卷需要）
+#    仓库根 .env 是唯一配置文件（引擎与网关共读；真实环境变量优先级更高）：
+#    LLM_API_BASE / LLM_MODEL / LLM_VISION_*（拍照判卷）· API_PORT（引擎，默认 8000）
+#    SERVER_PORT（网关，默认 8080）· SERVER_HOST · ENGINE_URL · DATA_DIR
 
 # 1) 安装与全量测试
 pnpm install && pnpm -r build && pnpm -r test                  # TS：180 测试
@@ -60,7 +62,7 @@ cd services/video-engine && uv sync --extra dev \
 
 # 2) 三个进程
 cd services/video-engine && .venv/bin/python -m math_tutor.api.main &   # 引擎 :8000（内网）
-SERVER_PORT=8080 node apps/server/dist/index.js &                       # 网关 :8080（对外唯一入口）
+node apps/server/dist/index.js &                                        # 网关 :8080（对外唯一入口）
 cd apps/web && VITE_API_PROXY=http://localhost:8080 npx vite            # 前端 :5173
 
 # 平板：连同一局域网，访问 http://<电脑IP>:5173（或构建后由网关托管）

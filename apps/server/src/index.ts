@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import path from "node:path";
 import { loadKnowledge } from "@mathtutor/knowledge";
 import { LlmClient, loadLlmConfig } from "@mathtutor/llm-client";
-import { loadConfig } from "./config.js";
+import { applyDotEnv, loadConfig } from "./config.js";
 import { fetchEngineContract, ContractError } from "./contract.js";
 import { createApp } from "./app.js";
 import { openDb } from "./db.js";
@@ -50,6 +50,7 @@ function buildExtractionProvider(): ExtractionProvider | null {
 }
 
 async function main(): Promise<void> {
+  applyDotEnv(); // 与引擎共享仓库根 .env（真实环境变量优先）
   const config = loadConfig();
 
   let contract;
