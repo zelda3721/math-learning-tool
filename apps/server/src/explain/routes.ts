@@ -116,10 +116,13 @@ async function runWebJob(
   body: WebJobBody,
   payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
   mode: WebJobMode,
+  /** both 模式下已缓存的 SceneSpec 讲解 id：不必重复生成，但仍作为退路与对比项 */
+  existingSpecId?: string,
 ): Promise<void> {
   const repo = state.repo;
   const fetchImpl = state.engineFetch ?? fetch;
-  const engineRoute = mode === "web" ? "plan" : mode === "web_html" ? "html" : "both";
+  const engineRoute =
+    mode === "web" ? "plan" : mode === "web_html" || existingSpecId ? "html" : "both";
   const focusNodeIds = body.focusNodeId
     ? [body.focusNodeId]
     : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []);
@@ -175,8 +178,8 @@ async function runWebJob(
     }
 
     /** SceneSpec：结构检查后落盘 */
-    let specExplanationId: string | undefined;
-    if (mode !== "web_html") {
+    let specExplanationId: string | undefined = existingSpecId;
+    if (mode !== "web_html" && !existingSpecId) {
       const parsed = SceneSpecSchema.safeParse(result.scene_spec);
       if (!result.scene_spec) {
         problems.push("plan-only 未产出 SceneSpec");
@@ -212,12 +215,19 @@ async function runWebJob(
       }
     }
 
-    // 交付优先级：模型那份 > SceneSpec 那份。both 模式下前者没过门禁就自动退回后者，
-    // 于是「试新路」不会让孩子这次没讲解看。
+    // 交付优先级：模型那份 > SceneSpec 那份（含此前已缓存的）。both 模式下前者
+    // 没过门禁就自动退回后者，于是「试新路」不会让孩子这次没讲解看。
     const delivered = htmlExplanationId ?? specExplanationId;
     if (!delivered) {
       repo.failExplainJob(jobId, problems[0] ?? "引擎未产出讲解");
       return;
+    }
+    // 退回发生时把原因留下来：孩子看到的仍是能用的那份，但「为什么没有对比可切」
+    // 必须查得到，否则只能靠猜（刚被这个坑过一次）。
+    if (mode === "both" && !htmlExplanationId && problems.length > 0) {
+      const note = `模型直写那份未采用：${problems.slice(0, 2).join("；")}`;
+      repo.noteExplainJob(jobId, note);
+      console.warn(`[explain] ${note}`);
     }
     if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, delivered);
     repo.finishExplainJob(jobId, delivered);
@@ -252,11 +262,17 @@ export function explainRoutes(state: AppState): Hono {
     const fallback = buildFallback(state, body);
 
     // 1) 缓存命中（同题优先，其次同根因节点；按模式命中）
-    // both 是生成策略而不是产物形态：查缓存时按交付优先级找——先模型那份，再 SceneSpec
+    //
+    // both 是「两份都要」的生成策略，所以只有**首选那份**（模型直写）才算命中。
+    // 早先让它回退到已有的 SceneSpec，结果是：题目只要以前生成过动画讲解，
+    // 缓存就直接返回那份，模型那份永远没机会生成，页面上也就永远没有对比可切。
+    const cachedSpec =
+      body.mode === "both"
+        ? state.repo.findExplanation(body.questionId, body.focusNodeId, "web")
+        : undefined;
     const cached =
       body.mode === "both"
-        ? (state.repo.findExplanation(body.questionId, body.focusNodeId, "web_html") ??
-          state.repo.findExplanation(body.questionId, body.focusNodeId, "web"))
+        ? state.repo.findExplanation(body.questionId, body.focusNodeId, "web_html")
         : state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
     if (cached && (cached.videoUrl || cached.specUrl || cached.htmlUrl)) {
       if (body.mistakeId) state.repo.linkMistakeExplanation(body.mistakeId, cached.id);
@@ -307,7 +323,8 @@ export function explainRoutes(state: AppState): Hono {
     };
     // 模式 A（web 默认）：plan-only 出 SceneSpec，秒级~分钟级、无渲染
     if (body.mode === "web_html" || body.mode === "both" || body.mode === "web") {
-      void runWebJob(state, jobId, body, payload, body.mode);
+      // 已经有 SceneSpec 那份就别重复生成，只补模型那份（省一次生成）
+      void runWebJob(state, jobId, body, payload, body.mode, cachedSpec?.id);
       return c.json({ status: "generating", jobId, mode: body.mode, fallback }, 202);
     }
 
@@ -401,6 +418,8 @@ export function explainRoutes(state: AppState): Hono {
       explanation: explanation ? explanationView(explanation) : undefined,
       alternatives: explanation ? alternativesOf(state, explanation) : undefined,
       error: job.error,
+      // 非致命备注（如 both 模式下模型那份为何被弃用），排查用
+      note: job.note,
     });
   });
 

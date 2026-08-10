@@ -428,6 +428,13 @@ export class Repo {
     return id;
   }
 
+  /** 非致命备注：任务成功了，但有些事该被记下来（如模型那份为何被弃用） */
+  noteExplainJob(jobId: string, note: string): void {
+    this.db
+      .prepare("UPDATE explain_jobs SET note = ?, updated_at = ? WHERE id = ?")
+      .run(note.slice(0, 500), new Date().toISOString(), jobId);
+  }
+
   finishExplainJob(id: string, explanationId: string): void {
     this.db
       .prepare("UPDATE explain_jobs SET status = 'done', explanation_id = ?, updated_at = ? WHERE id = ?")
@@ -451,6 +458,7 @@ export class Repo {
       status: String(r.status) as "running" | "done" | "failed",
       explanationId: r.explanation_id === null ? undefined : String(r.explanation_id),
       error: r.error === null ? undefined : String(r.error),
+      note: r.note === null || r.note === undefined ? undefined : String(r.note),
     };
   }
 
