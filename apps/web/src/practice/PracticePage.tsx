@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
+import { Button, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
 import { fetchLitCount, fetchNextStep, fetchToday, type NextStep, type TodayItem } from './api'
 import { LearnerGate, LearnerSwitcher } from './LearnerGate'
 import { QuestionCard, type QuestionRecord } from './QuestionCard'
@@ -85,6 +86,7 @@ export function PracticePage() {
 
     return (
         <div className="space-y-2">
+            <PageHeader title="今日练习" subtitle="每天一小组，把星图一颗颗点亮" />
             <LearnerSwitcher disabled={inSession} />
 
             {phase.kind === 'idle' && (
@@ -113,48 +115,28 @@ export function PracticePage() {
                             ⭐ 已点亮 <span className="font-bold text-amber-500">{litCount}</span> 颗星星
                         </p>
                     )}
-                    <button
-                        type="button"
-                        onClick={() => void startSession()}
-                        className="px-10 py-4 rounded-2xl bg-sky-500 text-white text-xl font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 transition-colors"
-                    >
+                    <Button size="lg" onClick={() => void startSession()}>
                         开始今日练习
-                    </button>
+                    </Button>
                 </div>
             )}
 
-            {phase.kind === 'loading' && (
-                <div className="text-center text-slate-400 py-16">正在为你挑选今天的题目……</div>
-            )}
+            {phase.kind === 'loading' && <LoadingState text="正在为你挑选今天的题目……" />}
 
             {phase.kind === 'empty' && (
-                <div className="soft-glass p-10 max-w-lg mx-auto text-center space-y-4">
-                    <h2 className="text-xl font-bold text-slate-700">题库还没有题</h2>
-                    <p className="text-slate-500">
-                        请家长先到上方的「录题」页上传讲义或题目，再回来开始练习。
-                    </p>
-                    <button
-                        type="button"
-                        onClick={() => setPhase({ kind: 'idle' })}
-                        className="px-6 py-2.5 rounded-2xl bg-white border-2 border-slate-100 text-slate-600 font-semibold hover:border-sky-300 transition-colors"
-                    >
-                        返回
-                    </button>
-                </div>
+                <EmptyState
+                    title="题库还没有题"
+                    hint="请家长先到上方的「录题」页上传讲义或题目，再回来开始练习。"
+                    action={
+                        <Button variant="secondary" onClick={() => setPhase({ kind: 'idle' })}>
+                            返回
+                        </Button>
+                    }
+                />
             )}
 
             {phase.kind === 'error' && (
-                <div className="soft-glass p-10 max-w-lg mx-auto text-center space-y-4">
-                    <h2 className="text-xl font-bold text-red-500">出了点小问题</h2>
-                    <p className="text-slate-500">{phase.message}</p>
-                    <button
-                        type="button"
-                        onClick={() => void startSession()}
-                        className="px-8 py-3 rounded-2xl bg-sky-500 text-white font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 transition-colors"
-                    >
-                        重试
-                    </button>
-                </div>
+                <ErrorState message={phase.message} onRetry={() => void startSession()} />
             )}
 
             {phase.kind === 'session' && (

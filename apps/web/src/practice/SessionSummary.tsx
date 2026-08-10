@@ -6,6 +6,7 @@ import {
     type MasteryBand,
     type MistakeSummary,
 } from './api'
+import { Button } from '../ui'
 import type { QuestionRecord } from './QuestionCard'
 import { BandBadge } from './badges'
 import { confidenceText } from './DiagnosisCard'
@@ -141,8 +142,10 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
                                     ) : (
                                         <span className="text-sm text-slate-400">还没归因</span>
                                     )}
-                                    <button
-                                        type="button"
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="shrink-0"
                                         onClick={() =>
                                             setExplainReq({
                                                 learnerId,
@@ -152,10 +155,9 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
                                                 misconceptionId: mistake?.misconceptionId,
                                             })
                                         }
-                                        className="shrink-0 px-3 py-1.5 rounded-xl bg-sky-100 text-sky-600 text-xs font-bold hover:bg-sky-200 transition-colors"
                                     >
                                         再看讲解
-                                    </button>
+                                    </Button>
                                 </div>
                             </li>
                         ))}
@@ -191,20 +193,10 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
             )}
 
             <div className="flex flex-wrap justify-center gap-3 pt-2">
-                <button
-                    type="button"
-                    onClick={handleGoAtlas}
-                    className="px-6 py-3 rounded-2xl bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-600 transition-colors"
-                >
-                    去星图看看
-                </button>
-                <button
-                    type="button"
-                    onClick={onRestart}
-                    className="px-6 py-3 rounded-2xl bg-white border-2 border-slate-100 text-slate-600 font-bold hover:border-sky-300 transition-colors"
-                >
+                <Button onClick={handleGoAtlas}>去星图看看</Button>
+                <Button variant="secondary" onClick={onRestart}>
                     再练一组
-                </button>
+                </Button>
             </div>
             {atlasTip && (
                 <p className="text-sm text-sky-600">点击页面上方的「星图」标签，看看哪些星星亮起来了。</p>

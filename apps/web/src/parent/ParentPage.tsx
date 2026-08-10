@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
+import { Button, ErrorState, LoadingState, PageHeader } from '../ui'
+import { ChildrenPanel } from './ChildrenPanel'
 import {
     ApiError,
     fetchParentSummary,
@@ -138,22 +140,21 @@ function VerdictQueue({
                                 className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
                             />
                             <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
+                                <Button
+                                    size="sm"
                                     disabled={busy !== null}
                                     onClick={() => void judge(item, 'correct')}
-                                    className="px-4 py-1.5 rounded-full bg-emerald-500 text-white text-sm font-semibold shadow hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                 >
                                     判对
-                                </button>
-                                <button
-                                    type="button"
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="danger"
                                     disabled={busy !== null}
                                     onClick={() => void judge(item, 'incorrect')}
-                                    className="px-4 py-1.5 rounded-full bg-rose-500 text-white text-sm font-semibold shadow hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                 >
                                     判错
-                                </button>
+                                </Button>
                                 {busy === item.attemptId && (
                                     <span className="text-xs text-slate-400">提交中……</span>
                                 )}
@@ -268,14 +269,13 @@ function RecentMistakes({
                                                 className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
                                             />
                                             <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
+                                                <Button
+                                                    size="sm"
                                                     disabled={busy}
                                                     onClick={() => void confirm(m)}
-                                                    className="px-4 py-1.5 rounded-full bg-sky-500 text-white text-xs font-semibold shadow hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                                 >
                                                     {busy ? '提交中……' : '确认'}
-                                                </button>
+                                                </Button>
                                                 {error && <p className="text-xs text-red-500">{error}</p>}
                                             </div>
                                         </div>
@@ -406,20 +406,16 @@ export function ParentPage() {
     const content = useMemo(() => {
         if (!learner) return <LearnerGate />
         if (loading && !summary) {
-            return <div className="text-center text-slate-400 py-16">正在加载家长视图……</div>
+            return <LoadingState text="正在加载家长视图……" />
         }
         if (error) {
             return (
-                <div className="soft-glass p-6 border-l-4 border-red-400 space-y-3">
-                    <p className="text-slate-600">加载失败：{error}</p>
-                    <button
-                        type="button"
-                        onClick={() => learnerId && void load(learnerId)}
-                        className="px-4 py-1.5 rounded-full bg-sky-500 text-white text-sm font-semibold shadow hover:bg-sky-600 transition-colors"
-                    >
-                        重试
-                    </button>
-                </div>
+                <ErrorState
+                    message={`加载失败：${error}`}
+                    onRetry={() => {
+                        if (learnerId) void load(learnerId)
+                    }}
+                />
             )
         }
         if (!summary) return null
@@ -451,8 +447,10 @@ export function ParentPage() {
 
     return (
         <div className="space-y-6">
+            <PageHeader title="家长中心" subtitle="错因模式 · 进步趋势 · 判卷抽检 · 账号管理" />
             <LearnerSwitcher disabled={loading} />
             {content}
+            <ChildrenPanel />
         </div>
     )
 }

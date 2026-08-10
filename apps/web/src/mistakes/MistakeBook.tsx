@@ -9,6 +9,7 @@ import { ConfidenceBadge } from '../practice/DiagnosisCard'
 import { ExplanationView } from '../practice/ExplanationView'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { VariantGate } from '../practice/VariantGate'
+import { Badge, Button, EmptyState, LoadingState, PageHeader } from '../ui'
 
 type ListState =
     | { kind: 'loading' }
@@ -58,25 +59,21 @@ export function MistakeBook() {
 
     return (
         <div className="space-y-4">
+            <PageHeader
+                title="错题本"
+                subtitle="每道错题都标好了根因，讲解和再练一道都在这"
+                actions={
+                    state.kind === 'ready' && state.mistakes.length > 0 ? (
+                        <span className="text-sm text-slate-400">共 {state.mistakes.length} 道</span>
+                    ) : undefined
+                }
+            />
             <LearnerSwitcher />
 
-            <div className="flex items-baseline justify-between px-1">
-                <h2 className="text-2xl font-bold text-slate-700">错题本</h2>
-                {state.kind === 'ready' && state.mistakes.length > 0 && (
-                    <span className="text-sm text-slate-400">共 {state.mistakes.length} 道</span>
-                )}
-            </div>
-
-            {state.kind === 'loading' && (
-                <div className="text-center text-slate-400 py-16">正在翻错题本……</div>
-            )}
+            {state.kind === 'loading' && <LoadingState text="正在翻错题本……" />}
 
             {state.kind === 'ready' && state.mistakes.length === 0 && (
-                <div className="soft-glass p-12 text-center space-y-3">
-                    <p className="text-4xl">🎉</p>
-                    <h3 className="text-xl font-bold text-slate-700">还没有错题，太棒了</h3>
-                    <p className="text-slate-500">继续保持，把更多星星点亮吧。</p>
-                </div>
+                <EmptyState icon="🎉" title="还没有错题，太棒了" hint="继续保持，把更多星星点亮吧。" />
             )}
 
             {state.kind === 'ready' &&
@@ -121,11 +118,7 @@ function MistakeItem({ mistake: m, learnerId, active, onOpen, onClose }: ItemPro
                 <span className="text-sm text-slate-400">卡住的地方</span>
                 <span className="font-bold text-indigo-600">{m.rootNodeName}</span>
                 <ConfidenceBadge confidence={m.confidence} />
-                {!m.eligible && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-sky-100 text-sky-600 border-sky-200">
-                        待探针确认
-                    </span>
-                )}
+                {!m.eligible && <Badge tone="sky">待探针确认</Badge>}
             </div>
 
             {m.chainNames.length > 0 && (
@@ -137,20 +130,10 @@ function MistakeItem({ mistake: m, learnerId, active, onOpen, onClose }: ItemPro
 
             {active === null && (
                 <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                        type="button"
-                        onClick={() => onOpen('explain')}
-                        className="px-6 py-2.5 rounded-2xl bg-sky-500 text-white font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 transition-colors"
-                    >
-                        再看讲解
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => onOpen('variant')}
-                        className="px-6 py-2.5 rounded-2xl bg-violet-500 text-white font-bold shadow-lg shadow-violet-200 hover:bg-violet-600 transition-colors"
-                    >
+                    <Button onClick={() => onOpen('explain')}>再看讲解</Button>
+                    <Button variant="secondary" onClick={() => onOpen('variant')}>
                         再练一道
-                    </button>
+                    </Button>
                 </div>
             )}
 
