@@ -4,6 +4,7 @@ import { History, LogOut } from 'lucide-react'
 
 import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
+import { SLOGAN } from './brand'
 import { useAuth } from './auth/AuthContext'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
@@ -152,6 +153,15 @@ function AuthedApp() {
                         </div>
                         <span className="hidden sm:inline font-bold text-lg text-ink tracking-tight">
                             Math<span className="text-beam">Tutor</span>
+                        </span>
+                        {/* 口号与字标锁成一行。顶栏只有 56px 高，放不下第二行；
+                            窄屏优先让导航，够宽才显示——完整登录页上一定看得到。 */}
+                        <span
+                            className="hidden xl:flex items-center gap-2.5 text-xs text-ink-faint whitespace-nowrap"
+                            aria-hidden="true"
+                        >
+                            <span className="w-px h-3.5 bg-rule" />
+                            {SLOGAN}
                         </span>
                     </div>
 
