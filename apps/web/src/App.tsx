@@ -146,26 +146,30 @@ function AuthedApp() {
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             {/* 统一顶栏：贴合纸面的横轨 —— logo · 角色导航 · 用户区 */}
             <header className="top-rail sticky top-0 z-50 mb-6">
-                <div className="mx-auto max-w-6xl px-4 md:px-6 h-14 flex items-center gap-3">
+                <div className="mx-auto max-w-6xl px-4 md:px-6 h-16 md:h-[4.5rem] flex items-center gap-3">
+                    {/* 标识锁定：方章 + 字标，口号在字标正下方另起一行。
+                        排成一行时它把顶栏挤出了横向滚动条——竖排比横排窄一截，
+                        顶栏也随之加高到 72px 容下两行。 */}
                     <div className="flex items-center gap-2.5 shrink-0">
-                        <div className="w-8 h-8 rounded-[10px] bg-beam flex items-center justify-center">
+                        <div className="w-9 h-9 rounded-[10px] bg-beam flex items-center justify-center shrink-0">
                             <span className="text-white font-bold text-lg leading-none">M</span>
                         </div>
-                        <span className="hidden sm:inline font-bold text-lg text-ink tracking-tight">
-                            Math<span className="text-beam">Tutor</span>
-                        </span>
-                        {/* 口号与字标锁成一行。顶栏只有 56px 高，放不下第二行；
-                            窄屏优先让导航，够宽才显示——完整登录页上一定看得到。 */}
-                        <span
-                            className="hidden xl:flex items-center gap-2.5 text-xs text-ink-faint whitespace-nowrap"
-                            aria-hidden="true"
-                        >
-                            <span className="w-px h-3.5 bg-rule" />
-                            {SLOGAN}
-                        </span>
+                        <div className="hidden sm:flex flex-col justify-center leading-none">
+                            <span className="font-bold text-lg text-ink tracking-tight">
+                                Math<span className="text-beam">Tutor</span>
+                            </span>
+                            <span
+                                className="hidden lg:block text-[11px] text-ink-faint whitespace-nowrap mt-1"
+                                aria-hidden="true"
+                            >
+                                {SLOGAN}
+                            </span>
+                        </div>
                     </div>
 
-                    <nav className="flex-1 flex items-center justify-center gap-1 overflow-x-auto">
+                    {/* min-w-0 是关键：flex 子项默认 min-width:auto，装不下时会把整条顶栏
+                        撑宽而不是让 overflow-x-auto 生效——那正是横向滚动条的来源。 */}
+                    <nav className="flex-1 min-w-0 flex items-center justify-center gap-1 overflow-x-auto">
                         {navItems.map(({ key, label }) => (
                             <button
                                 key={key}
