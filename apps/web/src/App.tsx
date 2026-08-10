@@ -1,8 +1,12 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { History, LogOut } from 'lucide-react'
 
 import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
+import { useAuth } from './auth/AuthContext'
+import { AuthGate, SetupPage } from './auth/AuthScreens'
+import { Badge } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
 import { PracticePage } from './practice/PracticePage'
 import { IngestPage } from './ingest/IngestPage'
@@ -13,7 +17,6 @@ import { FreeExplainPanel } from './solve/FreeExplainPanel'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
 import {
-    Header,
     GradeSelector,
     ProblemInput,
     LoadingAnimation,
@@ -26,8 +29,38 @@ import {
 
 type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'parent'
 
+/** 角色导航：孩子只看学习面，家长全量（管理员） */
+const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[] = [
+    { key: 'practice', label: '练习', roles: ['parent', 'child'] },
+    { key: 'atlas', label: '星图', roles: ['parent', 'child'] },
+    { key: 'mistakes', label: '错题本', roles: ['parent', 'child'] },
+    { key: 'explore', label: '探索', roles: ['parent', 'child'] },
+    { key: 'solve', label: '讲解', roles: ['parent'] },
+    { key: 'ingest', label: '录题', roles: ['parent'] },
+    { key: 'parent', label: '家长', roles: ['parent'] },
+]
+
 function App() {
+    const { status } = useAuth()
+    if (status === 'loading') {
+        return <div className="min-h-screen flex items-center justify-center text-slate-400">正在启动……</div>
+    }
+    if (status === 'setup') return <SetupPage />
+    if (status === 'anon') return <AuthGate />
+    return <AuthedApp />
+}
+
+function AuthedApp() {
+    const { user, logout } = useAuth()
     const [view, setView] = useState<AppView>('practice')
+    const role = user?.role ?? 'child'
+    const navItems = NAV_ITEMS.filter((item) => item.roles.includes(role))
+
+    // 角色变化 / 越权视图兜底：回练习页
+    useEffect(() => {
+        if (!navItems.some((item) => item.key === view)) setView('practice')
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [role])
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
     // 讲解 tab 的双模式：⚡ 动画（web 默认，秒级）/ 🎬 视频（Manim 高级成片）
     const [explainMode, setExplainMode] = useState<'anim' | 'video'>('anim')
@@ -95,37 +128,63 @@ function App() {
 
     return (
         <div className="min-h-screen flex flex-col relative overflow-hidden">
-            <Header onOpenHistory={() => setHistoryOpen(true)} showHistory={view === 'solve'} />
+            {/* 统一顶栏：logo · 角色导航 · 用户区 */}
+            <header className="sticky top-4 z-50 px-4 mb-4">
+                <div className="soft-glass mx-auto max-w-6xl px-4 md:px-6 py-2.5 flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-200">
+                            <span className="text-white font-bold text-lg">M</span>
+                        </div>
+                        <span className="hidden sm:inline font-bold text-lg text-slate-700 tracking-tight">
+                            Math<span className="text-sky-500">Tutor</span>
+                        </span>
+                    </div>
 
-            {/* 顶层视图切换：练习 / 讲解 / 星图 / 录题 */}
-            <div className="relative z-20 flex justify-center px-4 mt-1">
-                <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 backdrop-blur p-1 shadow-sm">
-                    {(
-                        [
-                            ['practice', '练习'],
-                            ['solve', '讲解'],
-                            ['atlas', '星图'],
-                            ['mistakes', '错题本'],
-                            ['explore', '探索'],
-                            ['ingest', '录题'],
-                            ['parent', '家长'],
-                        ] as const
-                    ).map(([key, label]) => (
+                    <nav className="flex-1 flex items-center justify-center gap-0.5 overflow-x-auto">
+                        {navItems.map(({ key, label }) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setView(key)}
+                                className={`px-3.5 md:px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+                                    view === key
+                                        ? 'bg-sky-500 text-white shadow'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </nav>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                        {view === 'solve' && (
+                            <button
+                                type="button"
+                                onClick={() => setHistoryOpen(true)}
+                                className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all"
+                                aria-label="历史记录"
+                                title="历史记录"
+                            >
+                                <History size={17} />
+                            </button>
+                        )}
+                        <span className="hidden md:inline text-sm font-semibold text-slate-600">{user?.username}</span>
+                        <Badge tone={role === 'parent' ? 'amber' : 'sky'}>
+                            {role === 'parent' ? '家长' : '同学'}
+                        </Badge>
                         <button
-                            key={key}
                             type="button"
-                            onClick={() => setView(key)}
-                            className={`px-5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                                view === key
-                                    ? 'bg-sky-500 text-white shadow'
-                                    : 'text-slate-500 hover:text-slate-800'
-                            }`}
+                            onClick={() => void logout()}
+                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                            aria-label="退出登录"
+                            title="退出登录"
                         >
-                            {label}
+                            <LogOut size={17} />
                         </button>
-                    ))}
+                    </div>
                 </div>
-            </div>
+            </header>
 
             {view === 'practice' && (
                 <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
