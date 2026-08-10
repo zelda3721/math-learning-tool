@@ -462,6 +462,24 @@ export class Repo {
     };
   }
 
+  /**
+   * 把久悬未决的 running 任务判死。
+   *
+   * 任务是 fire-and-forget 的：进程中途重启、或引擎那头彻底没响应，
+   * 这条记录就永远停在 running——既挡住同题去重（这道题再也生成不了），
+   * 前端也会一直空轮询等一个永远不来的结果。宁可判它失败让人重试。
+   */
+  reapStaleExplainJobs(maxAgeMs: number): number {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const info = this.db
+      .prepare(
+        `UPDATE explain_jobs SET status = 'failed', error = ?, updated_at = ?
+          WHERE status = 'running' AND created_at < ?`,
+      )
+      .run("任务久未完成，已判定超时（引擎无响应或进程中途退出）", new Date().toISOString(), cutoff);
+    return Number(info.changes ?? 0);
+  }
+
   /** 有 running 讲解任务时避免重复排队（同题同模式去重） */
   runningExplainJobForQuestion(
     questionId: string,

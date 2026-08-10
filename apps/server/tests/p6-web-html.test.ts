@@ -367,3 +367,47 @@ describe("退回时留下原因（否则只能靠猜）", () => {
     expect(job.note).toBeFalsy();
   });
 });
+
+describe("僵尸任务不许永久占位", () => {
+  it("久悬的 running 任务被判死，同一道题可以重新生成", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    // 造一个 30 分钟前创建、至今仍 running 的任务（进程中途退出的典型残留）
+    const stale = state.repo.createExplainJob({
+      questionId: "wq1",
+      focusNodeIds: [],
+      mode: "both",
+    });
+    const old = new Date(Date.now() - 30 * 60_000).toISOString();
+    (state.repo as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } }).db
+      .prepare("UPDATE explain_jobs SET created_at = ? WHERE id = ?")
+      .run(old, stale);
+
+    const res = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    const body = (await res.json()) as { status: string; jobId?: string };
+    expect(body.status).toBe("generating");
+    // 不能把那个僵尸任务的 id 还回来——那样前端会永远轮询一个不会有结果的任务
+    expect(body.jobId).not.toBe(stale);
+    expect(state.repo.getExplainJob(stale)?.status).toBe("failed");
+    expect(state.repo.getExplainJob(stale)?.error).toContain("超时");
+  });
+
+  it("刚起的任务不受影响，仍然去重", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const fresh = state.repo.createExplainJob({
+      questionId: "wq1",
+      focusNodeIds: [],
+      mode: "both",
+    });
+    const res = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    expect(((await res.json()) as { jobId?: string }).jobId).toBe(fresh);
+    expect(state.repo.getExplainJob(fresh)?.status).toBe("running");
+  });
+});
