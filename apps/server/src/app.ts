@@ -118,6 +118,9 @@ export function createApp(state: AppState): Hono {
       contract_version: state.contract?.contract_version ?? null,
       questions: state.questions.all.length,
       learners: state.repo.listLearners().length,
+      // 当前 Web 讲解走哪条路（EXPLAIN_WEB_MODE）。暴露出来是因为踩过一次：
+      // 改了 .env 却忘了重新编译 dist，行为还是旧的，从外面完全看不出来。
+      explain_web_mode: state.config.defaultWebExplainMode,
     }),
   );
 
