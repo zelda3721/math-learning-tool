@@ -75,7 +75,7 @@ describe("composeDirectives", () => {
 describe("explain pipeline", () => {
   it("generates via engine, registers explanation, then serves from cache", async () => {
     const { app, repo } = makeExplainApp(mockEngineFetch({ doneText: "视频已生成" }));
-    const first = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     expect(first.status).toBe(202);
     expect(first.body.status).toBe("generating");
     expect(first.body.fallback.analysis).toBe("解析文本");
@@ -85,7 +85,7 @@ describe("explain pipeline", () => {
     expect(job.explanation.videoUrl).toContain("/api/v1/media/");
     expect(job.explanation.quality).toBe("good");
 
-    const second = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const second = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     expect(second.body.status).toBe("ready");
     expect(second.body.explanation.videoUrl).toBe(job.explanation.videoUrl);
     expect(repo.findExplanation("eq1", undefined)?.engineSessionId).toBe("mock-session-1");
@@ -93,14 +93,14 @@ describe("explain pipeline", () => {
 
   it("degraded-delivery done text maps quality to acceptable", async () => {
     const { app } = makeExplainApp(mockEngineFetch({ doneText: "当前为可播放保底版本，质量提示请查看 Watch 阶段。" }));
-    const first = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     const job = await waitJob(app, first.body.jobId);
     expect(job.explanation.quality).toBe("acceptable");
   });
 
   it("engine failure fails the job; fallback was already delivered", async () => {
     const { app } = makeExplainApp(mockEngineFetch({ status: "failed", videoUrl: null, doneText: "门禁未过" }));
-    const first = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     expect(first.body.fallback.rootNode?.name).toBeTruthy();
     const job = await waitJob(app, first.body.jobId);
     expect(job.status).toBe("failed");
@@ -109,22 +109,22 @@ describe("explain pipeline", () => {
 
   it("engine offline returns fallback-only honestly", async () => {
     const { app } = makeExplainApp(undefined, null);
-    const res = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const res = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     expect(res.body.status).toBe("offline");
     expect(res.body.fallback.rootNode?.name).toBeTruthy();
   });
 
   it("dedupes concurrent jobs for the same question", async () => {
     const { app } = makeExplainApp(mockEngineFetch({ delayMs: 200 }));
-    const first = await post(app, "/api/v1/explain", { questionId: "eq1" });
-    const second = await post(app, "/api/v1/explain", { questionId: "eq1" });
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
+    const second = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
     expect(second.body.status).toBe("generating");
     expect(second.body.jobId).toBe(first.body.jobId);
   });
 
   it("focus-node-only request works without a question", async () => {
     const { app } = makeExplainApp(mockEngineFetch({}));
-    const first = await post(app, "/api/v1/explain", { focusNodeId: NODE_A });
+    const first = await post(app, "/api/v1/explain", { focusNodeId: NODE_A, mode: "video" });
     expect(first.body.status).toBe("generating");
     const job = await waitJob(app, first.body.jobId);
     expect(job.status).toBe("done");
