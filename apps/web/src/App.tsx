@@ -9,6 +9,7 @@ import { IngestPage } from './ingest/IngestPage'
 import { MistakeBook } from './mistakes/MistakeBook'
 import { ExplorePage } from './explore/ExplorePage'
 import { ParentPage } from './parent/ParentPage'
+import { FreeExplainPanel } from './solve/FreeExplainPanel'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
 import {
@@ -28,6 +29,9 @@ type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest
 function App() {
     const [view, setView] = useState<AppView>('practice')
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
+    // 讲解 tab 的双模式：⚡ 动画（web 默认，秒级）/ 🎬 视频（Manim 高级成片）
+    const [explainMode, setExplainMode] = useState<'anim' | 'video'>('anim')
+    const [animRequest, setAnimRequest] = useState<{ problem: string; grade: string } | null>(null)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
     const [historicalSession, setHistoricalSession] = useState<SessionDetail | null>(null)
@@ -51,10 +55,15 @@ function App() {
     const handleSubmit = useCallback(
         async (problem: string) => {
             setHistoricalSession(null)
+            if (explainMode === 'anim') {
+                setAnimRequest({ problem, grade: selectedGrade })
+                return
+            }
+            setAnimRequest(null)
             await startAgent({ problem, grade: selectedGrade })
             setHistoryRefreshKey((k) => k + 1)
         },
-        [selectedGrade, startAgent]
+        [explainMode, selectedGrade, startAgent]
     )
 
     const handleNewProblem = useCallback(() => {
@@ -86,7 +95,7 @@ function App() {
 
     return (
         <div className="min-h-screen flex flex-col relative overflow-hidden">
-            <Header onOpenHistory={() => setHistoryOpen(true)} />
+            <Header onOpenHistory={() => setHistoryOpen(true)} showHistory={view === 'solve'} />
 
             {/* 顶层视图切换：练习 / 讲解 / 星图 / 录题 */}
             <div className="relative z-20 flex justify-center px-4 mt-1">
@@ -180,7 +189,31 @@ function App() {
                             </div>
                         </section>
 
-                        <section className="w-full max-w-3xl mx-auto">
+                        <section className="w-full max-w-3xl mx-auto space-y-4">
+                            {/* 讲解双模式：动画（web 默认，秒级）/ 视频（Manim 高级成片） */}
+                            <div className="flex justify-center">
+                                <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">
+                                    {(
+                                        [
+                                            ['anim', '⚡ 动画讲解（秒级）'],
+                                            ['video', '🎬 视频讲解（Manim 高级）'],
+                                        ] as const
+                                    ).map(([m, label]) => (
+                                        <button
+                                            key={m}
+                                            type="button"
+                                            onClick={() => setExplainMode(m)}
+                                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                                                explainMode === m
+                                                    ? 'bg-slate-800 text-white shadow'
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <div className="soft-glass p-1">
                                 <div className="bg-white/50 rounded-[1.4rem] p-6 md:p-8 backdrop-blur-sm">
                                     <ProblemInput
@@ -192,6 +225,13 @@ function App() {
                                     />
                                 </div>
                             </div>
+                            {explainMode === 'anim' && animRequest && (
+                                <FreeExplainPanel
+                                    key={`${animRequest.problem}-${animRequest.grade}`}
+                                    problem={animRequest.problem}
+                                    grade={animRequest.grade}
+                                />
+                            )}
                         </section>
 
                         <section className="w-full pb-20 space-y-6">

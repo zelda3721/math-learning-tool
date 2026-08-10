@@ -117,6 +117,9 @@ export interface ExplainRequest {
     focusNodeId?: string
     misconceptionId?: string
     mistakeId?: string
+    /** 自由题目文本（讲解 tab 直接输入，不经题库） */
+    problem?: string
+    grade?: string
 }
 
 export type ExplainResponse =

@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { SceneSpecSchema } from "@mathtutor/schema";
+import { EducationLevelSchema, SceneSpecSchema } from "@mathtutor/schema";
 import type { AppState } from "../app.js";
+import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
 
 /**
@@ -19,10 +20,15 @@ const ExplainSchema = z
     focusNodeId: z.string().optional(),
     misconceptionId: z.string().optional(),
     mistakeId: z.string().optional(),
+    /** 自由题目文本（讲解 tab 直接输入，不经题库）；与 questionId/focusNodeId 三选一 */
+    problem: z.string().min(4).max(500).optional(),
+    grade: EducationLevelSchema.optional(),
     /** 模式 A（web，默认）：plan-only 秒级动画；模式 B（video）：Manim 高级成片 */
     mode: z.enum(["web", "video"]).default("web"),
   })
-  .refine((v) => v.questionId || v.focusNodeId, { message: "需要 questionId 或 focusNodeId" });
+  .refine((v) => v.questionId || v.focusNodeId || v.problem, {
+    message: "需要 questionId、focusNodeId 或 problem",
+  });
 
 interface Fallback {
   rootNode?: { name: string; whatIsIt?: string; why?: string };
@@ -138,7 +144,12 @@ export function explainRoutes(state: AppState): Hono {
   app.post("/", async (c) => {
     const parsed = ExplainSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
-    const body = parsed.data;
+    // 自由文本按内容哈希生成伪题目 id：缓存/去重/登记与题库题走同一套机制
+    const raw = parsed.data;
+    const body = {
+      ...raw,
+      questionId: raw.questionId ?? (raw.problem ? `free-${contentHashOf(raw.problem, "")}` : undefined),
+    };
     const fallback = buildFallback(state, body);
 
     // 1) 缓存命中（同题优先，其次同根因节点；按模式命中）
@@ -162,7 +173,7 @@ export function explainRoutes(state: AppState): Hono {
     // 4) 建任务，异步调引擎（生成队列首版只排当天错题——即本请求）
     const question = body.questionId ? state.questions.byId.get(body.questionId) : undefined;
     const focusNode = body.focusNodeId ? state.knowledge.index.getNode(body.focusNodeId) : undefined;
-    if (!question && !focusNode) return c.json({ error: "题目/节点不存在" }, 404);
+    if (!question && !focusNode && !body.problem) return c.json({ error: "题目/节点不存在" }, 404);
 
     const learner = body.learnerId ? state.repo.getLearner(body.learnerId) : undefined;
     const jobId = state.repo.createExplainJob({
@@ -174,8 +185,9 @@ export function explainRoutes(state: AppState): Hono {
     const payload = {
       problem: question
         ? question.stem
-        : `请讲解知识点：${focusNode!.name}——${focusNode!.whatIsIt ?? focusNode!.summary}`,
-      grade: learner?.level ?? question?.level ?? "elementary_upper",
+        : (body.problem ??
+          `请讲解知识点：${focusNode!.name}——${focusNode!.whatIsIt ?? focusNode!.summary}`),
+      grade: body.grade ?? learner?.level ?? question?.level ?? "elementary_upper",
       learner_id: body.learnerId,
       extra_directives: composeDirectives({
         knowledge: state.knowledge,
