@@ -1,394 +1,119 @@
 # 🎓 MathTutor · 数学成长引擎
 
 > 一张会点亮的数学地图，一位不喂答案的导师，一台数形结合的讲解引擎。
+>
+> 不是为了考 100 分，而是知道如何考 100 分。
 
-## Monorepo 布局（P0 起）
+家庭本地部署的数学学习系统：孩子每天做少量精选题；做错了，系统沿知识图谱回溯真正薄弱的
+前置知识，用揭示本质的动画讲透，再让他自己做对一道变式题来证明理解。日复一日，星图点亮、
+错因模式消退、演化光路指向前沿。全部本地运行（LMStudio 等 OpenAI 兼容端点），平板可用。
+
+由三个项目合并而成（math-wiki 进化树 × practise-diagnosis 蓝图 × math-learning-tool 视频引擎），
+完整设计文档见项目 artifact「数学成长引擎 · 三工程合并设计」。**当前状态：P0–P5 全部落地。**
+
+## 六条产品目标 → 落地形态
+
+| 目标 | 形态 |
+|---|---|
+| 学科整体概念 | 星图进化树（75 节点 × 4 主线 × 4 学段）+ 演化光路 + 掌握度着色 |
+| 知道自己的弱点 | 错因坐标归因（根因节点 + 误概念 + 置信度 + 依据链）+ 探针证据 + 错题本 |
+| 直观理解 | 讲解双模式：**Web 动画默认**（SceneSpec 秒级逐拍播放，无 ffmpeg）/ Manim 视频高级（质量门禁 v2） |
+| 解决问题的能力 | 提示阶梯 L1→L3 不喂答案 + 变式验证门（做对才点亮）+ SM-2 换题复习 |
+| 融会贯通与研究 | 题型统一之路 + 苏格拉底探索对话 + 研究笔记（孩子自己的 wiki） |
+| 知道如何考 100 分 | 学生「点亮地图 + 下一步」/ 家长「错因模式 + 趋势 + 判卷抽检 + 归因纠错」 |
+
+## 教学法宪法（凌驾于一切功能之上）
+
+1. **理解由行为验证，不由观看验证**——看完讲解必须做对同题型变式题，节点才点亮
+2. **不喂答案**——答错先走提示阶梯自己再试；答案永不下发前端
+3. **复习 = 同题型换题再练**——绝不重看原题答案式复习
+4. **归因必须带证据**——错因是图谱坐标，附置信度与依据链；探针作答是证据，图遍历只是假设
+5. **数形结合、揭示本质**——图形承担论证，文字关掉仍能看懂
+6. **未核验的知识不承重**——节点 verified 或有实证才做根因归因；系统永不假装精准
+
+## Monorepo 布局
 
 ```
 mathtutor/
-├─ packages/schema        # zod 单一类型真源：四实体 / 学习者 / SSE v2 / 引擎契约 / 默认参数
+├─ packages/schema        # zod 单一类型真源：知识四实体 / 学习者 / SSE v2 / 引擎契约 / SceneSpec / 默认参数
 ├─ packages/knowledge     # 图算法（演化路径/归因候选回溯）、lint 不变量、离线定位器
 ├─ packages/llm-client    # OpenAI 兼容流式客户端（<think> 剥离 / Hermes 回退 / 五端点分层）
-├─ packages/explainer-web # Web 动态讲解播放器：SceneSpec → SVG 逐拍渲染（无 ffmpeg）
-├─ apps/server            # Hono TS 单体：对外唯一入口（atlas / 引擎 SSE 代理 / 契约启动校验）
-├─ apps/web               # React 七视图：练习/讲解/星图/错题本/探索/录题/家长
-├─ services/video-engine  # Python 讲解引擎（原 backend/，黑盒；五阶段 + 质量门禁 v2）
-├─ data/knowledge/        # 知识图谱 file-first（graph.json 75 节点 / problems.json 40 题型）
-└─ scripts/bench_video_throughput.py  # GPU 产能实测（P0 验收项）
+├─ packages/explainer-web # Web 动态讲解播放器：SceneSpec → SVG 逐拍渲染 + WAAPI（无 ffmpeg）
+├─ apps/server            # Hono TS 单体：对外唯一入口（练习/诊断/讲解/探索/家长/录题 + 引擎代理 + 契约校验）
+├─ apps/web               # React 七视图：练习(默认)/讲解/星图/错题本/探索/录题/家长
+├─ services/video-engine  # Python 讲解引擎（黑盒，侵入四处封顶）→ services/video-engine/README.md
+├─ data/knowledge/        # 知识层 file-first（graph.json / problems.json / questions/，git 版本化 + lint 闸门）
+├─ data/                  # 运行时（app.sqlite / specs/ / notes/ / bench/，除 knowledge、bench 外不入 git）
+└─ scripts/               # bench_video_throughput.py（产能实测）/ diagnose_lmstudio.py
 ```
-
-### 开发启动
-
-```bash
-pnpm install && pnpm -r build && pnpm -r test          # TS 侧（82 测试）
-cd services/video-engine && uv sync --extra dev \
-  && .venv/bin/python -m pytest -q tests               # 引擎（234 测试）
-.venv/bin/python -m math_tutor.api.main                # 引擎 :8000
-ENGINE_URL=http://127.0.0.1:8000 SERVER_PORT=8080 \
-  node apps/server/dist/index.js                       # 网关 :8080（启动时校验引擎契约）
-pnpm dev:web                                           # 前端（VITE_API_PROXY 可指向网关）
-```
-
-注意：本机若开系统代理，curl 调试本地端口需加 `--noproxy '*'`（引擎与 llm-client 代码内已对本地地址绕代理）。
-
----
-
-## 视频引擎（services/video-engine，原 backend）
-
-> 把一道数学题变成可播放的 Manim 教学动画。
-
----
-
-## ✨ 它能做什么
-
-- 输入数学题 + 选年级 → 生成 Manim 解题动画
-- 实时显示生成流水线：每个工具调用、参数、结果都通过 SSE 推到前端
-- 每次对话、生成的代码、最终视频都本地落库（SQLite + 文件系统）
-- 你可以对每次结果打 👍/👎；反馈会进入候选—复现—晋升学习流程
-- 不枚举题型、不向生产提示词注入相似题代码；视觉方案由当前数学语义生成
-- Solve/Verify 把模型结论编译为安全 Math IR，并由 SymPy 独立计算、验算
-- 可绘制的数学证据直接降低为 Visual IR；确定性编译器优先生成 Manim，不必反复重写整份代码
-- 渲染后结合确定性技术检测和多模态模型评审；只有明确证据时才进行一次局部修复
-- 历史页展示首轮通过率、数学一致性、技术规格、阶段耗时与重试次数
-
-生成策略、质量门禁和调试复盘规范见
-[数学视频生成策略与调试参考](docs/VIDEO_GENERATION_STRATEGIES.md)。
-
----
-
-## 🏗️ 架构
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│            Frontend (React 19 + Vite + Tailwind)              │
-│  ProblemInput → SSE 实时事件流 → AgentTimeline + LiveResult   │
-│  反馈条 / 历史会话抽屉 / 只读历史查看                          │
-└────────────┬─────────────────────────────────────────────────┘
-             │ POST /api/v1/chat (text/event-stream, fetch)
-┌────────────▼─────────────────────────────────────────────────┐
-│          Backend (FastAPI + bounded workflow)                 │
-├──────────────────────────────────────────────────────────────┤
-│  有界状态机：只暴露合法下一步；正常路径无需控制器 LLM 调用     │
-├──────────────────────────────────────────────────────────────┤
-│  3 个生产 endpoint，留空 fallback 主 LLM：                     │
-│   • LLM provider       (OpenAI 兼容协议) ← LMStudio / vLLM    │
-│   • Vision provider    (多模态)         ← Qwen-VL / 复用主 LLM │
-│   • Fast provider      (分析/求解/规划)  ← 小模型 / 复用主 LLM  │
-├──────────────────────────────────────────────────────────────┤
-│  ToolRegistry — 5 个产品阶段（严格按证据状态推进）：           │
-│      • Solve    问题事实简报 + 结构化解答 + Math IR             │
-│      • Verify   独立 Math IR / 逻辑 / 反例审计                  │
-│      • Direct   数学证据 → Visual IR；否则开放式 SceneSpec     │
-│      • Compile  确定性 IR 编译优先 + 门禁 + 720p30 渲染         │
-│      • Watch    抽帧 + 技术指标 + 数学/教学评审                 │
-│  Compile/Watch 的内部动作不再显示成独立失败；各自最多一次       │
-│  由具体错误或帧证据驱动的修复。                                │
-├──────────────────────────────────────────────────────────────┤
-│  MathRuntime：白名单 AST → SymPy 精确运算 → claims 验证        │
-│  Visual IR：可组合图元 + 因果动作 → 无任意代码的 Manim 场景    │
-├──────────────────────────────────────────────────────────────┤
-│  LearnedWiki：candidate 隔离 → 3 个独立 session 复现 → 晋升    │
-│  QualityReport：首轮成功/数学一致性/技术门禁/耗时/重试          │
-│  ConversationStore + FileArchive (SQLite + 文件系统)           │
-└──────────────────────────────────────────────────────────────┘
-```
-
-生产链路不按题型路由。状态机只负责依赖和失败回退，LLM 把当前问题编译为紧凑的数学与
-视觉中间表示；确定性运行时负责计算、验算、采样、布局和优先渲染。大段代码保存在
-state/artifact 中，不回灌控制器上下文。
-
-### 从数学证据到视频
-
-```
-题目
-  → Solve：结构化解答 + Math IR
-  → Verify：独立构造并执行 Math IR
-  → Direct：验证证据 → 可绘制对象、稳定含义、因果动作
-  → Compile：Visual IR → Manim → MP4
-  → Watch：技术指标 + 抽帧数学/教学审查
-```
-
-- Math IR 是能力协议，不是题型表。模型声明符号、表达式、操作和 claims；运行时支持精确化简、
-  展开、因式分解、微分、积分、极限、求解、代入、行列式、求和与连乘等可组合操作。
-- 表达式只经过白名单 AST 解析，不执行模型生成的任意 Python。
-- 当验证证据包含可绘制的一元表达式时，系统可直接安全采样函数曲线并构造视觉论证；
-  只有最终声明直接引用的 `solve` 才会降低为曲线零点与坐标投影（支持多根），被后续
-  代入的中间 `solve` 会按运算依赖继续传递；不可无损降低的内容仍交给开放式视觉导演，
-  而不是增加题型分支。
-- 题目卡总是在视频开头出现。坐标对象保持真实数据坐标；空心点、易读刻度和标签分区由
-  编译器统一处理，避免公式依赖、双字幕和末段遮挡。
-- Visual IR 会在本地归一化等价但不规范的模型输出：安全 Math IR 简写、坐标点/多点、
-  `start/end` 线段、派生曲线叠加、辅助线揭示和自变换都会局部降低为可执行语义；不会为
-  某道题新增分支，也不会因为轻微 schema 差异重新生成整份计划。
-
----
-
-## 📁 关键目录
-
-```
-math-learning-tool/
-├── backend/src/math_tutor/
-│   ├── api/
-│   │   ├── main.py
-│   │   └── routes/
-│   │       ├── chat.py          # POST /api/v1/chat (SSE 推荐)
-│   │       ├── problems.py      # POST /api/v1/problems/process (同步包装)
-│   │       ├── sessions.py      # 历史 / 反馈 / 质量趋势 / 字幕
-│   │       ├── grades.py / skills.py / health.py / videos.py
-│   ├── application/interfaces/  # ILLMProvider/IEmbeddingProvider/
-│   │                            # IRerankProvider/ISkillRepository/
-│   │                            # IVideoGenerator/ITool
-│   ├── domain/                  # 实体与值对象
-│   ├── infrastructure/
-│   │   ├── agent/
-│   │   │   ├── loop.py          # 有界状态机 + SSE 事件
-│   │   │   ├── prompt_composer.py # 兼容自由控制器的系统提示
-│   │   │   ├── prompt_library.py  # 外置模板加载器
-│   │   │   ├── prompt_templates/  # 各阶段紧凑契约
-│   │   │   ├── math_runtime.py     # 安全 Math IR / SymPy 执行与函数采样
-│   │   │   ├── markdown_extract.py # markdown→结构化数据
-│   │   │   ├── learned_wiki.py    # 候选/跨会话晋升
-│   │   │   ├── quality_metrics.py # 内容无关质量指标
-│   │   │   ├── tool_registry.py
-│   │   │   └── tools/             # 5 个产品阶段 + 可单测的内部编译组件
-│   │   ├── llm/                   # 3 个 OpenAI 兼容 provider
-│   │   ├── manim/                 # Manim 执行器
-│   │   ├── media/                 # 字幕时间轴与可选 TTS 混流
-│   │   ├── skills/                # 旧离线素材；不进入生产路由
-│   │   └── storage/               # SQLite + 文件归档
-│   └── config/                    # settings + dependencies (DI)
-├── frontend/src/
-│   ├── App.tsx                  # 主入口（SSE 流式 + 历史抽屉）
-│   ├── components/              # AgentTimeline / FeedbackBar / 等
-│   ├── hooks/useAgentRun.ts     # SSE 事件 → reducer → UI state
-│   ├── services/sseClient.ts    # fetch + ReadableStream SSE 解析
-│   └── types/agent.ts
-├── scripts/
-│   ├── diagnose_lmstudio.py     # 诊断 LMStudio/endpoint 故障
-│   └── setup_latex.sh
-├── docs/
-│   └── VIDEO_GENERATION_STRATEGIES.md # 通用策略、门禁与调试复盘
-├── data/                        # SQLite + 会话归档 + learned_rules.md
-├── media/                       # Manim 输出
-├── docker-compose.yml
-└── backend/Dockerfile  + frontend/Dockerfile
-```
-
----
 
 ## 🚀 快速开始
 
-### 1) 启动本地 LLM 栈
+```bash
+# 0) LMStudio 加载模型（如 qwen/qwen3.6-27b）并启动 OpenAI 兼容服务 :1234
+#    仓库根 .env 配置 LLM_API_BASE / LLM_MODEL / LLM_VISION_*（拍照判卷需要）
 
-最简版本：仅 LMStudio 跑 chat（embedding/rerank/vision 都先不开，回退到关键词）。
+# 1) 安装与全量测试
+pnpm install && pnpm -r build && pnpm -r test                  # TS：180 测试
+cd services/video-engine && uv sync --extra dev \
+  && .venv/bin/python -m pytest -q tests && cd ../..           # 引擎：238 测试
+
+# 2) 三个进程
+cd services/video-engine && .venv/bin/python -m math_tutor.api.main &   # 引擎 :8000（内网）
+SERVER_PORT=8080 node apps/server/dist/index.js &                       # 网关 :8080（对外唯一入口）
+cd apps/web && VITE_API_PROXY=http://localhost:8080 npx vite            # 前端 :5173
+
+# 平板：连同一局域网，访问 http://<电脑IP>:5173（或构建后由网关托管）
+```
+
+网关启动时会拉取引擎 `GET /api/v1/contract` 并用 zod 校验——版本不符**拒绝启动**而非静默失真；
+开发时引擎未启动可用 `ALLOW_ENGINE_OFFLINE=1` 降级（讲解不可用，其余功能正常）。
+
+> 本机若开系统代理，curl 调试本地端口需加 `--noproxy '*'`（引擎与 llm-client 已对本地地址绕代理）。
+
+## 日常使用（七个视图）
+
+- **练习**（默认）：选人 → 今日组卷（到期复习 > 探针 > 弱点 > 新题 + 1 挑战）→ 键盘/拍照作答 →
+  判卷 → 提示阶梯 → 仍错则归因 → 看讲解（动画默认，可生成高级视频）→ 变式做对点亮
+- **星图**：进化树 + 掌握度三档着色 + 演化光路 + 覆盖度面板 + 题型统一之路 + 节点核验
+- **错题本**：根因 + 置信度 + 依据链，再看讲解 / 再练一道
+- **探索**：苏格拉底对话（只引导不给答案）+「记下我的发现」研究笔记挂到图谱节点
+- **录题**：粘贴 / 拍照 / PDF（单份或批量师生版配对）→ 抽题草稿 → 人工确认入库；抽检 tab 复核
+- **家长**：错因模式聚合、14 天趋势、判卷抽检裁决（裁决后才计掌握度证据）、归因纠错
+- **讲解**：直接给任意题目生成 Manim 教学视频（原引擎入口，含思考链观测台）
+
+## 网关 API 速查（:8080，类型皆出自 packages/schema）
+
+```
+POST /api/v1/practice/today|submit|submit-photo|hint|variant     GET /api/v1/practice/next-step
+POST /api/v1/diagnosis/{attemptId}          GET  /api/v1/diagnosis/mistakes
+POST /api/v1/explain（默认 web 模式）        GET  /api/v1/explain/jobs/:id · /explain/specs/:id
+POST /api/v1/explore/chat                   POST/GET /api/v1/notes
+GET  /api/v1/parent/summary                 POST /api/v1/parent/verdict|correct-mistake
+POST /api/v1/ingest/upload|batch|confirm|review                  GET /api/v1/ingest/jobs/:id|questions
+GET  /api/v1/knowledge/coverage             POST /api/v1/knowledge/verify-node
+GET  /api/v1/atlas · /api/v1/registry · /healthz                 （引擎 chat/sessions/media 经网关透传）
+```
+
+## 数据纪律
+
+- **知识层 file-first**：`data/knowledge/` 里的图谱、题型、题目是 git 版本化 JSON，
+  一切修改经 lint 闸门（悬挂/环/反向演化/去重），学习行为反哺只能生成候选变更集
+- **学习者层 DB-first**：`data/app.sqlite`（learners/attempts/mastery/mistakes/review_cards/
+  learner_events append-only）；掌握度是事件的可重放投影，固定参数启发式——永不宣称精准诊断
+- **答案永不下发**：练习端点的题目 JSON 经 sanitize；家长抽检端点才含答案
+
+## 测试与文档
 
 ```bash
-# 在 LMStudio 加载 qwen/qwen3.6-35b-a3b（或任何 OpenAI 兼容模型）
-# 启动 OpenAI 兼容服务器，监听 http://localhost:1234
-# 模型加载页找 "Thinking" toggle，关掉（重要！）
+pnpm -r test                                          # TS 180（schema/knowledge/llm-client/explainer-web/server）
+services/video-engine/.venv/bin/python -m pytest -q services/video-engine/tests   # 引擎 238
 ```
 
-进阶版本：再加一个 `infinity` 同时跑 embedding + rerank：
+- 引擎细节：`services/video-engine/README.md`
+- 生成策略与质量门禁：`docs/VIDEO_GENERATION_STRATEGIES.md` · `docs/VISUAL_SEMANTICS_DESIGN.md`
+- 产能基线：`data/bench/throughput-001.json`（qwen3.6-27b：中位 170s/条，一夜约 168 条）
 
-```bash
-pip install "infinity-emb[all]"
-infinity_emb v2 \
-  --model-id BAAI/bge-m3 \
-  --model-id BAAI/bge-reranker-v2-m3 \
-  --port 8090
-```
-
-### 2) 配置 .env
-
-```bash
-cp .env.example .env
-# 主 LLM 默认指向 LMStudio + qwen3.6-35b-a3b
-# 已验证模型名示例：LLM_MODEL=qwen/qwen3.6-35b-a3b
-# OpenAI 兼容端点需要包含 /v1，例如 LLM_API_BASE=http://localhost:1234/v1
-# Vision/Embedding/Rerank 留空 = 自动回退（不影响主链路）
-# 如装了 infinity：
-#   LLM_EMBEDDING_API_BASE=http://localhost:8090
-#   LLM_EMBEDDING_MODEL=BAAI/bge-m3
-#   LLM_RERANK_API_BASE=http://localhost:8090
-#   LLM_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-#   LLM_RERANK_API_TYPE=cohere
-#   LLM_RERANK_ENABLED=true
-```
-
-### 3) 启动后端
-
-```bash
-conda activate math_learning_tool   # 或你的 Python ≥3.10 环境
-pip install -e backend/
-cd backend && python -m math_tutor.api.main
-# 监听 http://localhost:8000
-```
-
-启动日志应能看到：
-
-```
-PromptLibrary loaded 11 templates: ['analyze', 'audit_manim_semantics', 'audit_solution_consistency', 'audit_visual_plan', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'wiki_ingest']
-OpenAILLMProvider ready (base_url=..., model=qwen/qwen3.6-35b-a3b, bypass_proxy=True)
-```
-
-### 4) 启动前端
-
-```bash
-cd frontend && npm install && npm run dev
-# 访问 http://localhost:5173
-```
-
-### 5) 玩起来
-
-- 选年级，输入数学题，提交
-- 右侧实时看到五阶段证据链：Solve → Verify → Direct → Compile → Watch
-- 视频出来后用反馈条打 👍/👎；反馈先进入隔离候选区，不会把单题代码注入生产提示词
-
-### Docker 一键
-
-```bash
-docker compose up -d --build
-# 前端 http://localhost:3000
-# 后端 http://localhost:8000
-# LMStudio 必须跑在宿主机的 1234 端口（容器通过 host.docker.internal 访问）
-```
-
----
-
-## 📡 API
-
-### `POST /api/v1/chat` （推荐，SSE 流）
-
-```bash
-curl -N -X POST localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"problem":"鸡兔同笼，头35脚94","grade":"elementary_upper"}'
-```
-
-事件类型：`session / text / reasoning / tool_call / tool_result / done / error`
-
-### `POST /api/v1/problems/process` （同步，向下兼容）
-
-内部仍跑 AgentLoop，drain 后返回一个汇总 JSON。
-
-### 会话与反馈
-
-```bash
-curl localhost:8000/api/v1/sessions?label=good
-curl localhost:8000/api/v1/sessions/<session_id>
-
-curl -X POST localhost:8000/api/v1/sessions/<id>/feedback \
-  -H "Content-Type: application/json" \
-  -d '{"label":"good","notes":"假设法很清晰"}'
-
-# 把这次代码加入示例库（多次重试时取最后一次成功的）
-curl -X POST localhost:8000/api/v1/sessions/<id>/promote_example \
-  -H "Content-Type: application/json" \
-  -d '{"label":"good","tags":["鸡兔同笼","假设法"]}'
-```
-
----
-
-## 🧠 数据如何变成下次的提示
-
-```
-session 五阶段证据 + Watch 质量报告 + 用户反馈
-  → ingester 只提炼与题目/题型无关的通用机制
-  → candidates/ 隔离（生产不可检索）
-  → 同一机制由至少 3 个独立 session 复现
-  → 晋升到 lessons/
-  → 仅在匹配具体运行错误时作为短 KB 片段检索
-```
-
-单次会话、单题代码、相似题样例和 `data/learned_rules.md` 不进入冷启动生产提示词。
-
----
-
-## ⚙️ 配置（.env）
-
-| 变量 | 用途 | 默认 |
-|---|---|---|
-| `LLM_API_BASE/KEY/MODEL` | 主 LLM endpoint | LMStudio + qwen3.6-35b-a3b |
-| `LLM_EXTRA_BODY` | 透传给 OpenAI 客户端的 extra_body（JSON） | 空 |
-| `LLM_DISABLE_THINKING_WITH_TOOLS` | 工具调用时强制 enable_thinking=false | true |
-| `AGENT_DETERMINISTIC_WORKFLOW` | 有界状态机直接调度，跳过控制器 LLM | true |
-| `LLM_VISION_*` | 视觉模型 endpoint（Watch 成片审查用） | 空 = 复用主 LLM |
-| `LLM_EMBEDDING_*` | embedding endpoint | 空 = 禁用语义检索 |
-| `LLM_RERANK_*` | reranker endpoint | 空 = 禁用精排 |
-| `LLM_RERANK_API_TYPE` | `cohere` 或 `tei` | cohere |
-| `LLM_RERANK_ENABLED` | 显式开关（即使配 model 也能临时关） | true |
-| `MANIM_QUALITY` | low / medium / high | medium |
-| `MANIM_USE_LATEX` | 是否启用 LaTeX | false |
-| `MANIM_RENDER_TIMEOUT_S` | 单次渲染超时 | 300 |
-| `NARRATION_SUBTITLES_ENABLED` | 从 visual beat 导出 WebVTT 字幕 | true |
-| `NARRATION_TTS_ENABLED` | 调用兼容 `/audio/speech` 的 TTS 并混入音轨 | false |
-| `NARRATION_TTS_*` | 独立 TTS endpoint / model / voice / speed | 空 |
-| `LEARNED_WIKI_ENABLED` | 启用候选—跨会话晋升学习 | false |
-| `DATA_DIR` | 数据目录（SQLite + 归档） | ./data |
-
----
-
-## 📊 质量指标
-
-- 单会话：`GET /api/v1/sessions/{id}` 的 `quality` 字段
-- 聚合与前后窗口趋势：`GET /api/v1/sessions/metrics/quality?trend_window=10`
-- 指标不按题型分桶：首轮通过、B 段教学分、数学一致性、本质兑现、分辨率/帧率、
-  实际/计划时长、字幕/旁白可访问性、工具耗时、重试次数和质量回归。
-
----
-
-## 🛠️ 故障诊断
-
-```bash
-# LLM endpoint 通不通？哪个字段出问题？
-python scripts/diagnose_lmstudio.py            # 完整请求
-python scripts/diagnose_lmstudio.py --no-tools # 不带工具
-python scripts/diagnose_lmstudio.py --tool solve_problem
-python scripts/diagnose_lmstudio.py --print-curl --dump-body /tmp/req.json
-```
-
----
-
-## ✅ 测试
-
-```bash
-uv sync --project backend --extra dev
-backend/.venv/bin/pytest -q backend/tests
-cd frontend && npm run build && npm run lint
-```
-
-前端端到端验收建议至少检查：
-
-1. Solve 与 Verify 的 Math IR 都通过，并且没有依赖模型心算得出最终数值。
-2. Direct/Compile 首次成功；重试只作为有明确错误证据时的兜底。
-3. 视频开头完整显示题目，核心数学变化由图形表达，不是依次罗列文字或对象。
-4. 抽查中段和末段帧：无双字幕、标签遮挡、坐标漂移或错误的实心/空心点。
-
----
-
-## 🛣️ 设计原则
-
-1. **有界而开放**：工作流依赖固定，数学内容和视觉方案开放；不枚举题型
-2. **跨工具记忆**：`ToolContext.state` 在工具间共享，agent 不必每次重复传上下文
-3. **可追溯可复现**：每次对话、参数、结果、artifact 全落 SQLite + 文件系统
-4. **反馈是证据**：good/bad 反馈先隔离，跨会话复现后才晋升为生产知识
-5. **端点分层可配**：主 LLM / Fast LLM / Vision endpoint 独立配置
-6. **紧凑阶段契约**：每个工具只接收当前阶段所需信息，大产物不回灌上下文
-7. **双重成片门禁**：确定性技术检测 + 多模态数学/教学评审，失败自动修复
-8. **同源讲解轨道**：画面字幕、WebVTT 和可选旁白共享 visual plan 时间轴
-9. **数学先执行后表达**：模型声明 Math IR，确定性工具计算与验算，视频只消费已验证证据
-10. **重试只是兜底**：优先修复局部结构；没有可定位证据时停止，不进行无限整稿重生成
-
----
-
-## 📄 License
+## License
 
 MIT
-
-## 🙏 致谢
-
-- [Manim Community](https://www.manim.community/)
-- DispatchMind — harness agent 蓝本
-- [Claude Code](https://claude.com/claude-code) — 设计哲学参考
-- [Anthropic Skills](https://github.com/anthropics/skills) — 技能系统参考
-- [BGE](https://huggingface.co/BAAI) — 推荐的 embedding/reranker 模型
