@@ -15,7 +15,7 @@ import {
   type ToolDefinition,
 } from "@mathtutor/llm-client";
 import { matchOffline, matchProblemTypesOffline, type Knowledge } from "@mathtutor/knowledge";
-import type { AppState } from "./app.js";
+import { effectiveLearnerId, type AppState } from "./app.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -263,6 +263,7 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
   app.post("/chat", async (c) => {
     const parsed = ChatSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId 与 messages" }, 400);
+    parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     const result = await runExplore(state, parsed.data, clientFactory);
     return c.json(result);
   });

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Question } from "@mathtutor/schema";
-import type { AppState } from "../app.js";
+import { effectiveLearnerId, type AppState } from "../app.js";
 import { composeToday } from "../composer.js";
 import { grade } from "../grading.js";
 import { applyAttempt, effectiveP, masteryBand } from "../mastery.js";
@@ -48,7 +48,8 @@ export function practiceRoutes(state: AppState): Hono {
   app.post("/today", async (c) => {
     const parsed = TodaySchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId" }, 400);
-    const { learnerId, count } = parsed.data;
+    const { count } = parsed.data;
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const composed = composeToday(state.questions, state.knowledge.index, state.repo, learnerId, { count });
     return c.json({
@@ -63,7 +64,7 @@ export function practiceRoutes(state: AppState): Hono {
 
   // 学生「下一步」一句话建议（元认知首版：点亮地图 + 一条下一步，设计 §04）
   app.get("/next-step", (c) => {
-    const learnerId = c.req.query("learnerId");
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
     const dueReviews = state.repo.countDueReviews(learnerId);
     if (dueReviews > 0) {
@@ -98,6 +99,7 @@ export function practiceRoutes(state: AppState): Hono {
     const parsed = PhotoSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId/questionId/image" }, 400);
     const body = parsed.data;
+    body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
     if (!state.photoGrader) return c.json({ error: "拍照判卷需配置 vision LLM 端点" }, 501);
     if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
@@ -177,6 +179,7 @@ export function practiceRoutes(state: AppState): Hono {
     const parsed = SubmitSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     const body = parsed.data;
+    body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
     if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
@@ -255,6 +258,7 @@ export function practiceRoutes(state: AppState): Hono {
       .object({ learnerId: z.string(), questionId: z.string() })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId 与 questionId" }, 400);
+    parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     const result = await getVariant({
       store: state.questions,
       repo: state.repo,
@@ -273,7 +277,8 @@ export function practiceRoutes(state: AppState): Hono {
   app.post("/hint", async (c) => {
     const parsed = HintSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "参数错误" }, 400);
-    const { learnerId, questionId, level, lastWrongAnswer } = parsed.data;
+    const { questionId, level, lastWrongAnswer } = parsed.data;
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     const question = state.questions.byId.get(questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
     const { hint, source } = await makeHint(

@@ -63,6 +63,7 @@ export function tempFixtureEnv(questions: Question[]): {
     repo,
     hintProvider: null,
     jobs: new JobStore(db),
+    authDisabled: true, // 既有测试聚焦业务逻辑；认证路径由 auth.test.ts 专测
   };
   return { dataDir, store, repo, state };
 }

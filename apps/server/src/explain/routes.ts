@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { EducationLevelSchema, SceneSpecSchema } from "@mathtutor/schema";
-import type { AppState } from "../app.js";
+import { effectiveLearnerId, type AppState } from "../app.js";
 import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
 
@@ -148,6 +148,7 @@ export function explainRoutes(state: AppState): Hono {
     const raw = parsed.data;
     const body = {
       ...raw,
+      learnerId: effectiveLearnerId(c, state, raw.learnerId) ?? raw.learnerId,
       questionId: raw.questionId ?? (raw.problem ? `free-${contentHashOf(raw.problem, "")}` : undefined),
     };
     const fallback = buildFallback(state, body);

@@ -64,6 +64,23 @@ CREATE TABLE IF NOT EXISTS queue_items (
   meta_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_queue_due ON queue_items(learner_id, due_at, consumed_at);
+-- 账户体系：家长 = 管理员（唯一），孩子自注册（上限 5），孩子账号绑定 learner
+CREATE TABLE IF NOT EXISTS auth_users (
+  id TEXT PRIMARY KEY,
+  role TEXT NOT NULL,              -- 'parent' | 'child'
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  learner_id TEXT,                 -- child 绑定的 learner；parent 为 NULL
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON auth_sessions(user_id);
 -- P3 SM-2 复习卡：复习 = 同题型换题再练（宪法第 3 条）；答对进档、答错回退 2 档
 CREATE TABLE IF NOT EXISTS review_cards (
   id TEXT PRIMARY KEY,

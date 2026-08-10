@@ -1,5 +1,8 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { getCookie } from "hono/cookie";
 import type { EngineContract } from "@mathtutor/schema";
+import { SESSION_COOKIE, type AuthStore, type AuthUser } from "./auth.js";
+import { authRoutes } from "./routes/auth.js";
 import type { Knowledge } from "@mathtutor/knowledge";
 import type { ServerConfig } from "./config.js";
 import type { Repo } from "./repo.js";
@@ -35,6 +38,9 @@ export interface AppState {
   engineFetch?: typeof fetch;
   /** 拍照作答判卷（vision）；未配置时 submit-photo 返回 501 */
   photoGrader?: PhotoGrader | null;
+  /** 账户体系；authDisabled=true 时全开放（单测用） */
+  auth?: AuthStore | null;
+  authDisabled?: boolean;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
@@ -48,8 +54,61 @@ const ENGINE_PREFIXES = [
   "/api/health",
 ];
 
+/**
+ * 数据隔离核心：孩子会话强制绑定自己的 learnerId（请求里传什么都会被覆盖）；
+ * 家长与关闭认证（单测）时按请求值放行。
+ */
+export function effectiveLearnerId(
+  c: Context,
+  state: AppState,
+  requested: string | undefined,
+): string | undefined {
+  if (state.authDisabled || !state.auth) return requested;
+  const user = c.get("user") as AuthUser | undefined;
+  if (user?.role === "child") return user.learnerId;
+  return requested;
+}
+
+export function requireParentRole(c: Context, state: AppState): boolean {
+  if (state.authDisabled || !state.auth) return true;
+  return (c.get("user") as AuthUser | undefined)?.role === "parent";
+}
+
 export function createApp(state: AppState): Hono {
   const app = new Hono();
+
+  // ---- 认证中间件：/api 全域必须登录，/api/v1/auth/* 免（登录/注册本身）----
+  app.use("/api/*", async (c, next) => {
+    if (state.authDisabled || !state.auth) return next();
+    const token = getCookie(c, SESSION_COOKIE);
+    const user = token ? state.auth.userForSession(token) : null;
+    if (user) c.set("user", user);
+    if (c.req.path.startsWith("/api/v1/auth")) return next(); // 免认证面，但已带上 user
+    if (!user) return c.json({ error: "未登录" }, 401);
+    return next();
+  });
+
+  // ---- 家长专属面（管理员）：家长页 / 录题管线 / 节点核验 / 引擎原始入口 ----
+  const parentOnly = async (c: Context, next: () => Promise<void>) => {
+    if (!requireParentRole(c, state)) return c.json({ error: "仅家长可用" }, 403);
+    return next();
+  };
+  app.use("/api/v1/parent/*", parentOnly);
+  app.use("/api/v1/ingest/*", parentOnly);
+  app.use("/api/v1/knowledge/verify-node", parentOnly);
+  app.use("/api/v1/chat", parentOnly);
+  app.use("/api/v1/chat/*", parentOnly);
+  app.use("/api/v1/problems/*", parentOnly);
+  app.use("/api/v1/sessions", parentOnly);
+  app.use("/api/v1/sessions/*", parentOnly);
+  app.use("/api/v1/learners", async (c, next) => {
+    // 孩子经 /auth/register-child 建档；直接建 learner 是家长动作
+    if (c.req.method === "POST" && !requireParentRole(c, state))
+      return c.json({ error: "仅家长可用" }, 403);
+    return next();
+  });
+
+  app.route("/api/v1/auth", authRoutes(state));
 
   app.get("/healthz", (c) =>
     c.json({
@@ -67,9 +126,9 @@ export function createApp(state: AppState): Hono {
     return c.json(state.contract);
   });
 
-  // 星图数据：图谱 + 题型 + 掌握度着色（?learnerId= 提供时返回该生投影）
+  // 星图数据：图谱 + 题型 + 掌握度着色（?learnerId= 提供时返回该生投影；孩子强制本人）
   app.get("/api/v1/atlas", (c) => {
-    const learnerId = c.req.query("learnerId");
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     const mastery: Record<string, { p: number; evidenceN: number; band: string }> = {};
     if (learnerId) {
       for (const row of state.repo.allMastery(learnerId)) {

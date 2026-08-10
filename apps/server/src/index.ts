@@ -12,6 +12,7 @@ import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
 import { JobStore } from "./ingest/jobs.js";
 import { createPhotoGrader } from "./photoGrader.js";
+import { AuthStore } from "./auth.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -81,6 +82,7 @@ async function main(): Promise<void> {
     hintProvider: buildHintProvider(),
     extraction: buildExtractionProvider(),
     jobs: new JobStore(db),
+    auth: new AuthStore(db),
     photoGrader: (() => {
       try {
         return createPhotoGrader(process.env);
