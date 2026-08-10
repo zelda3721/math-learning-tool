@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
+import { ExplainerPlayer, validateSpec } from '@mathtutor/explainer-web'
 import {
     fetchExplainJob,
+    fetchSpec,
     requestExplain,
     type ExplainFallback,
     type ExplainRequest,
     type Explanation,
+    type SceneSpec,
 } from './api'
 
 /**
- * 讲解视图：ready 直接放视频；generating 先渲染图文兜底并 3s 轮询任务，
- * done 原地切视频；failed/offline 保留图文 + 小字说明（不空手失败）。
+ * 讲解视图：默认 mode:'web' 动态讲解——ready/job done 后拉 SceneSpec 挂 ExplainerPlayer；
+ * generating 先渲染图文兜底并 3s 轮询任务；spec 校验失败/failed/offline 保留图文 + 小字说明（不空手失败）。
+ * 动画下方提供「生成高级视频」小按钮，切 mode:'video' 走原 Manim 流程，生成完成原地切 <video>。
  */
 
 type ViewState =
     | { kind: 'loading' }
     | { kind: 'video'; explanation: Explanation }
+    | { kind: 'web'; spec: SceneSpec; fallback: ExplainFallback; videoJobId?: string; videoNote?: string }
     | { kind: 'fallback'; fallback: ExplainFallback; jobId?: string; note?: string }
     | { kind: 'error'; message: string }
 
@@ -27,20 +32,53 @@ interface Props {
     onSkip?: () => void
 }
 
-const FAILED_NOTE = '视频生成失败，先看文字讲解'
+const FAILED_NOTE = '动画生成失败，先看文字讲解'
+const SPEC_BROKEN_NOTE = '动画数据异常，先看文字讲解'
+const VIDEO_FAILED_NOTE = '视频生成失败，可稍后再试'
 
 export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Props) {
     const [state, setState] = useState<ViewState>({ kind: 'loading' })
     // request 是调用方内联对象：只在挂载时发一次，避免引用变化反复请求
     const requestRef = useRef(request)
+    // applyExplanation 由挂载 effect 定义（共享其 cancelled 标志），轮询 effect 经 ref 复用
+    const applyRef = useRef<(explanation: Explanation, fallback: ExplainFallback) => void>(() => {})
+    // 最近一次拿到的图文兜底：轮询 done 时作为 spec 异常的退路
+    const fallbackRef = useRef<ExplainFallback>({})
 
     useEffect(() => {
         let cancelled = false
+
+        /** ready/done 拿到 explanation 后统一落地：web → 拉 spec 校验挂播放器；video → 原地放视频 */
+        const applyExplanation = (explanation: Explanation, fallback: ExplainFallback) => {
+            fallbackRef.current = fallback
+            if (explanation.mode === 'web' && explanation.specUrl) {
+                void fetchSpec(explanation.specUrl)
+                    .then((raw) => {
+                        if (cancelled) return
+                        const { spec, errors } = validateSpec(raw)
+                        if (spec && errors.length === 0) {
+                            setState({ kind: 'web', spec, fallback })
+                        } else {
+                            setState({ kind: 'fallback', fallback, note: SPEC_BROKEN_NOTE })
+                        }
+                    })
+                    .catch(() => {
+                        if (!cancelled) setState({ kind: 'fallback', fallback, note: SPEC_BROKEN_NOTE })
+                    })
+            } else if (explanation.videoUrl) {
+                setState({ kind: 'video', explanation })
+            } else {
+                setState({ kind: 'fallback', fallback, note: FAILED_NOTE })
+            }
+        }
+        applyRef.current = applyExplanation
+
         void requestExplain(requestRef.current)
             .then((res) => {
                 if (cancelled) return
+                fallbackRef.current = res.fallback
                 if (res.status === 'ready') {
-                    setState({ kind: 'video', explanation: res.explanation })
+                    applyExplanation(res.explanation, res.fallback)
                 } else if (res.status === 'generating') {
                     setState({ kind: 'fallback', fallback: res.fallback, jobId: res.jobId })
                 } else {
@@ -57,39 +95,64 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
         }
     }, [])
 
-    // 3s 轮询生成任务，done 原地切视频，failed 保留图文
-    const jobId = state.kind === 'fallback' ? state.jobId : undefined
+    // 3s 轮询生成任务：初始 web 任务（fallback.jobId）与高级视频任务（web.videoJobId）共用一套轮询
+    const pollJobId =
+        state.kind === 'fallback' ? state.jobId : state.kind === 'web' ? state.videoJobId : undefined
     useEffect(() => {
-        if (!jobId) return
+        if (!pollJobId) return
         let cancelled = false
+        const markFailed = () => {
+            setState((prev) => {
+                if (prev.kind === 'fallback') {
+                    return { kind: 'fallback', fallback: prev.fallback, note: FAILED_NOTE }
+                }
+                if (prev.kind === 'web') {
+                    return { ...prev, videoJobId: undefined, videoNote: VIDEO_FAILED_NOTE }
+                }
+                return prev
+            })
+        }
         const timer = window.setInterval(() => {
-            void fetchExplainJob(jobId)
+            void fetchExplainJob(pollJobId)
                 .then((job) => {
                     if (cancelled) return
                     if (job.status === 'done' && job.explanation) {
-                        setState({ kind: 'video', explanation: job.explanation })
+                        applyRef.current(job.explanation, fallbackRef.current)
                     } else if (job.status === 'failed') {
-                        setState((prev) =>
-                            prev.kind === 'fallback'
-                                ? { kind: 'fallback', fallback: prev.fallback, note: FAILED_NOTE }
-                                : prev
-                        )
+                        markFailed()
                     }
                 })
                 .catch(() => {
-                    if (cancelled) return
-                    setState((prev) =>
-                        prev.kind === 'fallback'
-                            ? { kind: 'fallback', fallback: prev.fallback, note: FAILED_NOTE }
-                            : prev
-                    )
+                    if (!cancelled) markFailed()
                 })
         }, 3000)
         return () => {
             cancelled = true
             window.clearInterval(timer)
         }
-    }, [jobId])
+    }, [pollJobId])
+
+    // 「生成高级视频」：显式 mode:'video' 走原 Manim 流程；已有缓存（ready 且 videoUrl）直接切视频
+    const requestVideo = () => {
+        setState((prev) => (prev.kind === 'web' ? { ...prev, videoNote: undefined } : prev))
+        void requestExplain(requestRef.current, 'video')
+            .then((res) => {
+                if (res.status === 'ready' && res.explanation.videoUrl) {
+                    setState({ kind: 'video', explanation: res.explanation })
+                } else if (res.status === 'generating') {
+                    setState((prev) => (prev.kind === 'web' ? { ...prev, videoJobId: res.jobId } : prev))
+                } else {
+                    setState((prev) =>
+                        prev.kind === 'web'
+                            ? { ...prev, videoNote: 'message' in res ? res.message : VIDEO_FAILED_NOTE }
+                            : prev
+                    )
+                }
+            })
+            .catch(() => {
+                setState((prev) => (prev.kind === 'web' ? { ...prev, videoNote: VIDEO_FAILED_NOTE } : prev))
+            })
+    }
 
     return (
         <div className="space-y-5">
@@ -124,11 +187,28 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                 </video>
             )}
 
+            {state.kind === 'web' && (
+                <div className="space-y-2">
+                    <WebPlayer spec={state.spec} />
+                    <div className="flex items-center justify-center gap-3">
+                        <button
+                            type="button"
+                            onClick={requestVideo}
+                            disabled={Boolean(state.videoJobId)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-medium hover:bg-slate-200 transition-colors disabled:opacity-60"
+                        >
+                            {state.videoJobId ? '🎬 视频生成中…' : '🎬 生成高级视频'}
+                        </button>
+                        {state.videoNote && <span className="text-xs text-slate-400">{state.videoNote}</span>}
+                    </div>
+                </div>
+            )}
+
             {state.kind === 'fallback' && (
                 <div className="space-y-4">
                     {state.jobId && !state.note && (
                         <div className="rounded-2xl bg-sky-50 border border-sky-200 px-4 py-2.5 text-sm text-sky-600 font-medium">
-                            🎬 视频生成中…先看文字版
+                            ⚡ 动画讲解生成中…先看文字版
                         </div>
                     )}
                     <FallbackContent fallback={state.fallback} />
@@ -153,6 +233,57 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                         先跳过
                     </button>
                 )}
+            </div>
+        </div>
+    )
+}
+
+/** web 动态讲解：受控挂载 ExplainerPlayer（autoPlay），显示 第 i/total 拍 */
+function WebPlayer({ spec }: { spec: SceneSpec }) {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [beat, setBeat] = useState<{ i: number; total: number } | null>(null)
+    const playerRef = useRef<ExplainerPlayer | null>(null)
+
+    useEffect(() => {
+        const el = containerRef.current
+        if (!el) return
+        const player = new ExplainerPlayer(el, spec, {
+            autoPlay: true,
+            onBeatChange: (i, total) => setBeat({ i, total }),
+        })
+        playerRef.current = player
+        return () => {
+            playerRef.current = null
+            player.destroy()
+        }
+    }, [spec])
+
+    return (
+        <div className="space-y-1">
+            <div
+                ref={containerRef}
+                className="w-full rounded-2xl bg-white border border-slate-100 shadow-lg overflow-hidden"
+            />
+            <div className="flex items-center justify-center gap-4 text-xs text-slate-400">
+                <button
+                    type="button"
+                    onClick={() => playerRef.current?.prev()}
+                    className="px-2 py-0.5 rounded hover:bg-slate-100"
+                >
+                    ⏮ 上一拍
+                </button>
+                {beat && (
+                    <span>
+                        第 {beat.i + 1} / {beat.total} 拍
+                    </span>
+                )}
+                <button
+                    type="button"
+                    onClick={() => playerRef.current?.next()}
+                    className="px-2 py-0.5 rounded hover:bg-slate-100"
+                >
+                    下一拍 ⏭
+                </button>
             </div>
         </div>
     )

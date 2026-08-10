@@ -47,6 +47,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@mathtutor/explainer-web':
+        specifier: workspace:*
+        version: link:../../packages/explainer-web
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.3.3(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
@@ -102,6 +105,22 @@ importers:
       vite:
         specifier: ^7.2.4
         version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)
+
+  packages/explainer-web:
+    dependencies:
+      '@mathtutor/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
   packages/knowledge:
     dependencies:

@@ -17,6 +17,8 @@ import { explainRoutes } from "./explain/routes.js";
 import { parentRoutes } from "./routes/parent.js";
 import type { PhotoGrader } from "./photoGrader.js";
 import { ingestRoutes } from "./ingest/routes.js";
+import { exploreRoutes } from "./explore.js";
+import { notesRoutes } from "./notes.js";
 
 export interface AppState {
   config: ServerConfig;
@@ -89,6 +91,8 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/explain", explainRoutes(state));
   app.route("/api/v1/parent", parentRoutes(state));
   app.route("/api/v1/ingest", ingestRoutes(state));
+  app.route("/api/v1/explore", exploreRoutes(state));
+  app.route("/api/v1/notes", notesRoutes(state));
 
   // 引擎透传（SSE 流式）
   for (const prefix of ENGINE_PREFIXES) {

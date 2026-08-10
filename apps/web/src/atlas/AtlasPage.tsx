@@ -7,6 +7,7 @@ import { TreeCanvas, type MasteryMap } from './treeCanvas'
 import { createGraphIndex } from './graphIndex'
 import { NodeDetail } from './NodeDetail'
 import { CoveragePanel, useCoverage } from './CoveragePanel'
+import { UnificationPanel } from './UnificationPanel'
 import { useLearner } from '../learner/LearnerContext'
 import type { Graph, ProblemType } from './types'
 import localGraphRaw from './graph.local.json'
@@ -64,6 +65,8 @@ export function AtlasPage() {
     // P1b 覆盖度：面板默认收起；本会话内刚核验过的节点用覆写集合保持徽章
     const { report: coverage, failed: coverageFailed, reload: reloadCoverage } = useCoverage()
     const [coverageOpen, setCoverageOpen] = useState(false)
+    // P5 题型统一之路面板（默认收起）
+    const [unificationOpen, setUnificationOpen] = useState(false)
     const [verifiedIds, setVerifiedIds] = useState<ReadonlySet<string>>(new Set())
     const handleVerified = (nodeId: string) => {
         setVerifiedIds((prev) => new Set(prev).add(nodeId))
@@ -192,19 +195,36 @@ export function AtlasPage() {
                         />
                     </div>
                 )}
-                <button
-                    type="button"
-                    onClick={() => setCoverageOpen((v) => !v)}
-                    aria-expanded={coverageOpen}
-                    className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
-                >
-                    {coverageOpen ? '▾ 覆盖度' : '▸ 覆盖度'}
-                    {coverage && (
-                        <span className="ml-1.5 font-medium text-slate-400">
-                            {coverage.totals.covered}/{coverage.totals.nodes} 覆盖
-                        </span>
+                {unificationOpen && data?.problemTypes && (
+                    <div className="w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto rounded-2xl border border-slate-200 bg-white/90 backdrop-blur shadow-xl">
+                        <UnificationPanel problemTypes={data.problemTypes} graph={data.graph} />
+                    </div>
+                )}
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setCoverageOpen((v) => !v)}
+                        aria-expanded={coverageOpen}
+                        className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                    >
+                        {coverageOpen ? '▾ 覆盖度' : '▸ 覆盖度'}
+                        {coverage && (
+                            <span className="ml-1.5 font-medium text-slate-400">
+                                {coverage.totals.covered}/{coverage.totals.nodes} 覆盖
+                            </span>
+                        )}
+                    </button>
+                    {data?.problemTypes && data.problemTypes.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setUnificationOpen((v) => !v)}
+                            aria-expanded={unificationOpen}
+                            className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                        >
+                            {unificationOpen ? '▾ 统一之路' : '▸ 统一之路'}
+                        </button>
                     )}
-                </button>
+                </div>
             </div>
 
             {gi && selectedId && (
