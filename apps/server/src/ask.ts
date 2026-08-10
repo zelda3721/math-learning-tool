@@ -10,6 +10,7 @@ import { appendQuestions, contentHashOf } from "./questions.js";
 import { expressionsEquivalent, normalizeText, parseNumeric } from "./grading.js";
 import { composeDirectives } from "./explain/engine.js";
 import { groundingSourceOf } from "./explain/grounding.js";
+import { engineJsonFetch } from "./engineHttp.js";
 
 /**
  * P6 自由提问（题库外的题）——**不是答案机器**：
@@ -120,12 +121,12 @@ async function callPlan(
   state: AppState,
   payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
 ): Promise<PlanResult> {
-  const fetchImpl = state.engineFetch ?? fetch;
+  // 同样绕开内置 fetch 的 300 秒 headersTimeout（见 engineHttp.ts）
+  const fetchImpl = state.engineFetch ?? engineJsonFetch;
   const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(300_000),
   });
   if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
   return (await resp.json()) as PlanResult;

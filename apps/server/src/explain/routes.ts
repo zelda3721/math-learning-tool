@@ -8,6 +8,7 @@ import { effectiveLearnerId, type AppState } from "../app.js";
 import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
 import { groundingSourceOf } from "./grounding.js";
+import { engineJsonFetch } from "../engineHttp.js";
 
 /**
  * P2 讲解管线（模式 B · Manim）：缓存命中直接返回；未命中建生成任务，
@@ -120,7 +121,9 @@ async function runWebJob(
   existingSpecId?: string,
 ): Promise<void> {
   const repo = state.repo;
-  const fetchImpl = state.engineFetch ?? fetch;
+  // 默认走 node:http 客户端：内置 fetch 的 undici 有个 300 秒 headersTimeout，
+  // 不受 AbortSignal 控制，而模型写一页讲解经常要 5–10 分钟（见 engineHttp.ts）
+  const fetchImpl = state.engineFetch ?? engineJsonFetch;
   const engineRoute =
     mode === "web" ? "plan" : mode === "web_html" || existingSpecId ? "html" : "both";
   const focusNodeIds = body.focusNodeId
@@ -132,8 +135,6 @@ async function runWebJob(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...payload, route: engineRoute }),
-      // 模型写码比出 SceneSpec 慢得多（还可能重写两轮），给足时间
-      signal: AbortSignal.timeout(engineRoute === "plan" ? 300_000 : 600_000),
     });
     if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
     const result = (await resp.json()) as {
@@ -232,9 +233,14 @@ async function runWebJob(
     if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, delivered);
     repo.finishExplainJob(jobId, delivered);
   } catch (err) {
-    repo.failExplainJob(jobId, String(err));
+    // 把底层原因一并记下：光一句 "fetch failed" 事后谁也查不动
+    const detail = err instanceof Error && err.cause ? `${err.message}（${String(err.cause)}）` : String(err);
+    repo.failExplainJob(jobId, detail);
   }
 }
+
+/** 超过这个时长仍在 running 的讲解任务判定为死掉（引擎客户端上限 20 分钟 + 余量） */
+const STALE_JOB_MS = 25 * 60_000;
 
 const FeedbackSchema = z.object({
   /** clear=讲得清楚 / confusing=没看懂；只有这两个值，多了没人认真填 */
@@ -289,7 +295,8 @@ export function explainRoutes(state: AppState): Hono {
       return c.json({ status: "offline", fallback, message: "讲解引擎离线，先看文字讲解" });
     }
 
-    // 3) 同题同模式 running 任务去重
+    // 3) 同题同模式 running 任务去重（先清掉久悬的僵尸任务，否则它会永久占位）
+    state.repo.reapStaleExplainJobs(STALE_JOB_MS);
     if (body.questionId) {
       const running = state.repo.runningExplainJobForQuestion(body.questionId, body.mode);
       if (running) return c.json({ status: "generating", jobId: running, fallback }, 202);
