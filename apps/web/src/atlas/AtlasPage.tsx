@@ -142,29 +142,33 @@ export function AtlasPage() {
         setSelectedId(null)
     }
 
-    const masteryHint = !learner
-        ? '未选择学习者·掌握度未着色'
-        : source === 'local'
-          ? '离线快照·掌握度不可用'
-          : litCount > 0
-            ? `${learner.name} 已点亮 ${litCount} 个知识点`
-            : `${learner.name}·尚无掌握度数据`
+    const masteryHint = !learner ? (
+        '未选择学习者 · 掌握度未着色'
+    ) : source === 'local' ? (
+        '离线快照 · 掌握度不可用'
+    ) : litCount > 0 ? (
+        <>
+            {learner.name} 已点亮 <span className="numeric text-lit">{litCount}</span> 个知识点
+        </>
+    ) : (
+        `${learner.name} · 尚无掌握度数据`
+    )
 
     return (
         <div
-            className="atlas-root relative w-full overflow-hidden rounded-2xl border border-slate-200 shadow-sm"
+            className="atlas-root relative w-full overflow-hidden rounded-[14px] border border-rule"
             style={{ height: 'calc(100vh - 170px)', minHeight: 420 }}
         >
             <div ref={containerRef} className="atlas-canvas" />
 
             {!data && (
-                <div className="absolute inset-0 grid place-items-center text-slate-400 text-sm">
+                <div className="absolute inset-0 grid place-items-center text-ink-faint text-sm">
                     星图加载中…
                 </div>
             )}
 
             {data && (
-                <div className="absolute left-3 top-3 z-10 rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-xs text-slate-400">
+                <div className="soft-glass-panel absolute left-3 top-3 z-10 px-3 py-1 text-xs text-ink-faint">
                     {source === 'api' ? '数据：/api/v1/atlas' : '数据：离线快照 graph.local.json'}
                     <span className="mx-1">·</span>
                     {masteryHint}
@@ -186,7 +190,7 @@ export function AtlasPage() {
             {/* 覆盖度折叠面板（默认收起）：左下角，与右下缩放控件错开 */}
             <div className="absolute left-3 bottom-3 z-10 flex flex-col items-start gap-2">
                 {coverageOpen && (
-                    <div className="w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto rounded-2xl border border-slate-200 bg-white/90 backdrop-blur shadow-xl">
+                    <div className="soft-glass-panel w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto">
                         <CoveragePanel
                             report={coverage}
                             failed={coverageFailed}
@@ -197,7 +201,7 @@ export function AtlasPage() {
                     </div>
                 )}
                 {unificationOpen && data?.problemTypes && (
-                    <div className="w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto rounded-2xl border border-slate-200 bg-white/90 backdrop-blur shadow-xl">
+                    <div className="soft-glass-panel w-[380px] max-w-[92vw] max-h-[min(560px,60vh)] overflow-y-auto">
                         <UnificationPanel problemTypes={data.problemTypes} graph={data.graph} />
                     </div>
                 )}
@@ -207,11 +211,10 @@ export function AtlasPage() {
                         variant="secondary"
                         onClick={() => setCoverageOpen((v) => !v)}
                         aria-expanded={coverageOpen}
-                        className="shadow-sm"
                     >
                         {coverageOpen ? '▾ 覆盖度' : '▸ 覆盖度'}
                         {coverage && (
-                            <span className="ml-1.5 font-medium text-slate-400">
+                            <span className="numeric ml-1.5 text-ink-faint">
                                 {coverage.totals.covered}/{coverage.totals.nodes} 覆盖
                             </span>
                         )}
@@ -222,7 +225,6 @@ export function AtlasPage() {
                             variant="secondary"
                             onClick={() => setUnificationOpen((v) => !v)}
                             aria-expanded={unificationOpen}
-                            className="shadow-sm"
                         >
                             {unificationOpen ? '▾ 统一之路' : '▸ 统一之路'}
                         </Button>

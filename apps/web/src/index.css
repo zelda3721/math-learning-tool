@@ -1,149 +1,214 @@
 @import "tailwindcss";
 
-/* 
-  Luminous Horizon Design System 
-  2025 EdTech Trend: Warm, Trustworthy, Growth-oriented
+/*
+  MathTutor 设计系统 ——「星图纸」
+  ────────────────────────────────────────────────────────────
+  主题来自产品自身，而不是通用教育风：
+  · 纸 —— 孩子写数学的方格本：极淡网格底纹、发丝级分隔线、仪器般的精确感
+  · 光 —— 知识点的掌握状态本就是「暗 / 微光 / 点亮」，所以金色只用来表示"学会了"，
+          绝不当装饰色。界面交互色是另一支（靛蓝），避免与成就语义抢话。
+  字体：本地部署可能无外网，一律系统字体栈；数字用等宽对齐 + 字距，
+        让"数"成为排版个性（数学产品里数字是主角）。
 */
+
+@theme {
+  /* 墨 · 纸 · 线 */
+  --color-ink: #16203a;
+  --color-ink-soft: #4a5670;
+  --color-ink-faint: #8b95ab;
+  --color-paper: #f6f7fa;
+  --color-plate: #ffffff;
+  --color-rule: #dde2ec;
+
+  /* 交互主色：靛蓝（仪器/图表的蓝，比 sky 更沉稳） */
+  --color-beam: #2b5ce6;
+  --color-beam-deep: #1e45b8;
+  --color-beam-wash: #eaefff;
+
+  /* 掌握状态 —— 是数据，不是装饰 */
+  --color-lit: #e0a32e;
+  --color-lit-wash: #fdf3dd;
+  --color-glow: #b9a06a;
+
+  /* 判定语义 */
+  --color-correct: #1f9d6b;
+  --color-correct-wash: #e7f6ef;
+  --color-wrong: #d3453f;
+  --color-wrong-wash: #fdecec;
+}
 
 :root {
-  /* Brand Colors */
-  --color-brand-primary: #0ea5e9;
-  /* Sky Blue - Trust & Clarity */
-  --color-brand-success: #10b981;
-  /* Mint Green - Growth & Correctness */
-  --color-brand-accent: #f472b6;
-  /* Soft Pink - Warmth & Encouragement */
-  --color-brand-warning: #f59e0b;
-  /* Amber - Attention */
+  --radius-plate: 14px;
+  --radius-control: 10px;
+  --shadow-plate: 0 1px 2px rgb(22 32 58 / 0.04), 0 8px 24px -12px rgb(22 32 58 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(22 32 58 / 0.06), 0 16px 32px -16px rgb(22 32 58 / 0.18);
 
-  /* Backgrounds */
-  --color-bg-page: #f8fafc;
-  /* Off-white / Very pale blue */
-  --color-bg-glass: rgba(255, 255, 255, 0.7);
-  --color-bg-glass-strong: rgba(255, 255, 255, 0.9);
-
-  /* Text */
-  --color-text-main: #0f172a;
-  /* Deep Slate - Readable & Soft */
-  --color-text-muted: #64748b;
-  /* Cool Gray */
-
-  /* Shapes for 3D vibes */
-  --color-shape-1: #e0f2fe;
-  /* Light Sky */
-  --color-shape-2: #d1fae5;
-  /* Light Mint */
-  --color-shape-3: #fae8ff;
-  /* Light Pink */
+  /* 数字/编号/度量：等宽对齐，字距微开 */
+  --font-numeric: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 
-/* Base resets */
 body {
-  @apply bg-slate-50 text-slate-800 antialiased min-h-screen relative overflow-x-hidden;
-  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
-  /* Friendly rounded sans */
+  @apply text-ink antialiased min-h-screen relative overflow-x-hidden;
+  font-family: var(--font-body);
+  background-color: var(--color-paper);
+  /* 方格本底纹：24px 网格，淡到只在余光里存在 */
+  background-image:
+    linear-gradient(to right, rgb(22 32 58 / 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(22 32 58 / 0.028) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: center top;
 }
 
-/* 
-  Background Animation 
-  Floating soft blobs/shapes for "Horizon" feel
-*/
-body::before {
-  content: '';
-  position: fixed;
-  top: -10%;
-  left: -10%;
-  width: 50%;
-  height: 50%;
-  background: radial-gradient(circle, var(--color-shape-1) 0%, transparent 70%);
-  filter: blur(60px);
-  z-index: -2;
-  animation: float 20s infinite ease-in-out;
-}
+/* ── 版面 ─────────────────────────────────────────────── */
 
-body::after {
-  content: '';
-  position: fixed;
-  bottom: -10%;
-  right: -10%;
-  width: 60%;
-  height: 60%;
-  background: radial-gradient(circle, var(--color-shape-2) 0%, transparent 70%);
-  filter: blur(80px);
-  z-index: -2;
-  animation: float-reverse 25s infinite ease-in-out;
-}
-
-@keyframes float {
-
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-
-  50% {
-    transform: translate(10%, 10%);
-  }
-}
-
-@keyframes float-reverse {
-
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-
-  50% {
-    transform: translate(-10%, -5%);
-  }
-}
-
-/* 
-  Soft Glassmorphism Utility
-  High transparency, heavy blur, soft shadow, NO border or very thin white border
-*/
-.soft-glass {
-  @apply bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl shadow-slate-200/50 rounded-3xl;
+/* 图版：内容的基本容器。发丝边框 + 克制的投影，不用玻璃模糊 */
+.soft-glass,
+.plate {
+  background: var(--color-plate);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
 }
 
 .soft-glass-panel {
-  @apply bg-white/80 backdrop-blur-2xl border border-white/60 shadow-lg shadow-slate-200/40 rounded-2xl;
+  background: var(--color-plate);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-plate);
 }
 
-/* 
-  Typography Utilities 
-*/
+.bento-card {
+  background: var(--color-plate);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
+  @apply p-6 flex flex-col gap-4;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.bento-card:hover {
+  box-shadow: var(--shadow-lift);
+}
+
+/* 顶栏：贴合纸面的横轨，不悬浮不模糊 */
+.top-rail {
+  background: rgb(255 255 255 / 0.92);
+  border-bottom: 1px solid var(--color-rule);
+  backdrop-filter: saturate(1.4) blur(6px);
+}
+
+/* ── 排版 ─────────────────────────────────────────────── */
+
 .text-hero {
-  @apply text-4xl md:text-5xl font-bold bg-gradient-to-r from-sky-500 to-indigo-600 bg-clip-text text-transparent;
+  @apply text-3xl md:text-4xl font-bold text-ink;
+  letter-spacing: -0.02em;
 }
 
 .text-section {
-  @apply text-xl font-semibold text-slate-700 tracking-tight;
+  @apply text-lg font-semibold text-ink tracking-tight;
 }
 
-/* 
-  Input Styles 
-  Big, friendly, inviting
-*/
+/* 眉标：小号、大写字距、用于分区标签与度量名 */
+.eyebrow {
+  font-family: var(--font-numeric);
+  @apply text-[11px] uppercase text-ink-faint;
+  letter-spacing: 0.14em;
+}
+
+/* 数字排版：分数、计数、时长、进度 —— 等宽对齐 */
+.numeric {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* 题干：孩子要读的数学文本，放大、行距舒展 */
+.stem {
+  @apply text-xl md:text-2xl text-ink leading-relaxed;
+  letter-spacing: 0.01em;
+}
+
+/* ── 控件 ─────────────────────────────────────────────── */
+
 .input-hero {
-  @apply w-full px-6 py-4 text-lg bg-white border-2 border-slate-100 rounded-2xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 transition-all duration-300 shadow-sm hover:border-sky-200;
+  @apply w-full px-4 py-3 text-lg text-ink placeholder:text-ink-faint;
+  background: var(--color-plate);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* 
-  Button Styles 
-  Pill-shaped, gradient or solid, elevating on hover
-*/
+.input-hero:focus {
+  outline: none;
+  border-color: var(--color-beam);
+  box-shadow: 0 0 0 3px var(--color-beam-wash);
+}
+
 .btn-primary {
-  @apply px-8 py-3 bg-sky-500 text-white rounded-full font-semibold hover:bg-sky-400 active:scale-95 transition-all duration-200 shadow-lg shadow-sky-200 hover:shadow-sky-300 hover:-translate-y-0.5;
+  @apply px-6 py-2.5 text-white font-semibold;
+  background: var(--color-beam);
+  border-radius: var(--radius-control);
+  transition: background 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-beam-deep);
 }
 
 .btn-secondary {
-  @apply px-6 py-2 bg-white text-slate-600 border border-slate-200 rounded-full font-medium hover:bg-slate-50 hover:text-sky-600 hover:border-sky-200 transition-all duration-200;
+  @apply px-5 py-2 font-medium text-ink-soft;
+  background: var(--color-plate);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-/* 
-  Card Grid 
-*/
-.bento-card {
-  @apply bg-white/80 backdrop-blur-2xl border border-white/60 shadow-lg shadow-slate-200/40 rounded-2xl p-6 flex flex-col gap-4 transition-all duration-300 hover:shadow-xl hover:shadow-slate-200/60;
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--color-beam);
+  color: var(--color-beam);
+}
+
+/* ── 签名元素：光 ──────────────────────────────────────
+   同一套「点亮」语汇贯穿全局：星图节点、变式过关、进度条。
+   金色只在这里出现——它的意思永远是"这块学会了"。            */
+
+.lightline {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-rule);
+  overflow: hidden;
+}
+
+.lightline > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-glow), var(--color-lit));
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 点亮的一刻：唯一一处编排过的动效 */
+@keyframes star-lit {
+  0% { transform: scale(0.9); filter: brightness(1); }
+  45% { transform: scale(1.08); filter: brightness(1.35); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+.star-lit {
+  animation: star-lit 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star-lit { animation: none; }
+  .lightline > i { transition: none; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* ── 可访问性 ─────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--color-beam);
+  outline-offset: 2px;
 }

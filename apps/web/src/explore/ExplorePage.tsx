@@ -6,10 +6,9 @@
  *  - 「✍️ 记下我的发现」→ POST /api/v1/notes；下方列出我的研究笔记。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MathText } from '../ui/MathText'
 import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
-import { Button, PageHeader } from '../ui'
+import { Button, Card, MathText, PageHeader } from '../ui'
 
 interface AtlasNodeLite {
     id: string
@@ -225,16 +224,16 @@ export function ExplorePage() {
             <LearnerSwitcher />
 
             {/* 选节点：掌握中的节点下拉 + 全图搜索 */}
-            <div className="soft-glass p-4 space-y-3">
+            <div className="plate p-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
-                    <label className="text-sm font-semibold text-slate-500" htmlFor="explore-node">
+                    <label className="eyebrow" htmlFor="explore-node">
                         探索的知识点
                     </label>
                     <select
                         id="explore-node"
                         value={litNodes.some((n) => n.id === nodeId) ? nodeId : ''}
                         onChange={(e) => setNodeId(e.target.value)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
+                        className="rounded-[10px] border border-rule bg-plate px-3 py-1.5 text-sm text-ink"
                     >
                         <option value="">（不指定）</option>
                         {litNodes.map((n) => (
@@ -248,7 +247,7 @@ export function ExplorePage() {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="搜索全部知识点…"
-                        className="flex-1 min-w-[160px] rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm"
+                        className="flex-1 min-w-[160px] rounded-[10px] border border-rule bg-plate px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
                     />
                 </div>
                 {searchHits.length > 0 && (
@@ -261,7 +260,7 @@ export function ExplorePage() {
                                     setNodeId(n.id)
                                     setSearch('')
                                 }}
-                                className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+                                className="rounded-[10px] border border-rule bg-plate px-2.5 py-1 text-xs text-ink-soft hover:border-beam hover:text-beam transition-colors"
                             >
                                 {n.name}
                             </button>
@@ -269,13 +268,13 @@ export function ExplorePage() {
                     </div>
                 )}
                 {nodeId && (
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-ink-faint">
                         正在探索：
-                        <span className="font-bold text-indigo-600">{nameOf.get(nodeId) ?? nodeId}</span>
+                        <span className="font-semibold text-beam">{nameOf.get(nodeId) ?? nodeId}</span>
                         <button
                             type="button"
                             onClick={() => setNodeId('')}
-                            className="ml-2 text-slate-400 hover:text-slate-600 underline"
+                            className="ml-2 text-ink-faint hover:text-ink underline"
                         >
                             清除
                         </button>
@@ -284,10 +283,10 @@ export function ExplorePage() {
             </div>
 
             {/* 聊天区 */}
-            <div className="soft-glass p-4 space-y-3">
+            <div className="plate p-4 space-y-3">
                 <div className="max-h-[46vh] overflow-y-auto space-y-3 pr-1">
                     {turns.length === 0 && (
-                        <p className="text-center text-slate-400 text-sm py-8">
+                        <p className="text-center text-ink-faint text-sm py-8">
                             问点什么吧——比如「这个知识点将来会长成什么？」
                         </p>
                     )}
@@ -296,23 +295,25 @@ export function ExplorePage() {
                             <div
                                 className={
                                     t.role === 'user'
-                                        ? 'max-w-[85%] rounded-2xl rounded-br-md bg-sky-500 text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
-                                        : 'max-w-[85%] rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-2.5 text-sm text-slate-700 whitespace-pre-wrap'
+                                        ? 'max-w-[85%] rounded-[14px] rounded-br-[4px] bg-beam text-white px-4 py-2.5 text-sm whitespace-pre-wrap'
+                                        : 'max-w-[85%] plate px-4 py-2.5 text-sm text-ink whitespace-pre-wrap'
                                 }
                             >
                                 <MathText>{t.content}</MathText>
                                 {t.role === 'assistant' && (t.toolTrace?.length ?? 0) > 0 && (
-                                    <div className="mt-1.5 text-[11px] text-slate-400">
+                                    <div className="mt-2 space-y-0.5 border-t border-rule pt-2">
                                         {t.toolTrace!.map((tt, j) => (
-                                            <div key={j}>查了：{tt.summary}</div>
+                                            <div key={j} className="eyebrow">
+                                                查了：{tt.summary}
+                                            </div>
                                         ))}
                                     </div>
                                 )}
                             </div>
                         </div>
                     ))}
-                    {sending && <p className="text-sm text-slate-400 px-1">伙伴正在想…</p>}
-                    {chatError && <p className="text-sm text-red-500 px-1">出错了：{chatError}</p>}
+                    {sending && <p className="text-sm text-ink-faint px-1">伙伴正在想…</p>}
+                    {chatError && <p className="text-sm text-wrong px-1">出错了：{chatError}</p>}
                     <div ref={chatEndRef} />
                 </div>
 
@@ -327,7 +328,7 @@ export function ExplorePage() {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         placeholder="说说你的好奇…"
-                        className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
+                        className="input-hero flex-1 min-w-0"
                     />
                     <Button type="submit" disabled={sending || !input.trim()}>
                         发送
@@ -337,6 +338,7 @@ export function ExplorePage() {
                 <div className="flex items-center gap-3">
                     <Button
                         size="sm"
+                        variant="secondary"
                         onClick={openNoteComposer}
                         disabled={turns.length === 0 || !nodeId}
                         title={!nodeId ? '先选一个知识点再记笔记' : undefined}
@@ -344,27 +346,29 @@ export function ExplorePage() {
                         ✍️ 记下我的发现
                     </Button>
                     {!nodeId && turns.length > 0 && (
-                        <span className="text-xs text-slate-400">先在上面选一个知识点，就能记笔记啦</span>
+                        <span className="text-xs text-ink-faint">先在上面选一个知识点，就能记笔记啦</span>
                     )}
-                    {noteNotice && <span className="text-xs font-semibold text-emerald-600">{noteNotice}</span>}
+                    {noteNotice && (
+                        <span className="text-xs font-semibold text-[var(--color-correct)]">{noteNotice}</span>
+                    )}
                 </div>
             </div>
 
             {/* 记笔记弹层（简单内联卡片） */}
             {noteOpen && (
-                <div className="soft-glass p-5 space-y-3 border-l-4 border-violet-300">
-                    <h3 className="font-bold text-slate-700">记下我的发现</h3>
+                <div className="plate p-5 space-y-3">
+                    <h3 className="text-section">记下我的发现</h3>
                     <input
                         value={noteTitle}
                         onChange={(e) => setNoteTitle(e.target.value)}
                         placeholder="给发现起个标题"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        className="w-full rounded-[10px] border border-rule bg-plate px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
                     />
                     <textarea
                         value={noteContent}
                         onChange={(e) => setNoteContent(e.target.value)}
                         rows={6}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-mono"
+                        className="numeric w-full rounded-[10px] border border-rule bg-plate px-3 py-2 text-sm text-ink"
                     />
                     <div className="flex gap-2">
                         <Button
@@ -383,23 +387,31 @@ export function ExplorePage() {
 
             {/* 我的研究笔记 */}
             <div className="space-y-2">
-                <h3 className="text-lg font-bold text-slate-700 px-1 pt-2">我的研究笔记</h3>
+                <h3 className="eyebrow px-1 pt-3">我的研究笔记</h3>
                 {notes.length === 0 && (
-                    <p className="text-sm text-slate-400 px-1">还没有笔记——探索中记下的发现会出现在这里。</p>
+                    <p className="text-sm text-ink-faint px-1">还没有笔记——探索中记下的发现会出现在这里。</p>
                 )}
                 {notes.map((n) => (
-                    <details key={n.slug} className="soft-glass p-4">
-                        <summary className="cursor-pointer select-none">
-                            <span className="font-semibold text-slate-700">{n.title}</span>
-                            <span className="ml-2 text-xs text-slate-400">
-                                {nameOf.get(n.nodeId) ?? n.nodeId}
-                                {n.created ? ` · ${new Date(n.created).toLocaleDateString('zh-CN')}` : ''}
-                            </span>
-                        </summary>
-                        <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-600 font-sans">
-                            {n.contentMd}
-                        </pre>
-                    </details>
+                    <Card key={n.slug}>
+                        <details>
+                            <summary className="cursor-pointer select-none">
+                                <span className="font-semibold text-ink">{n.title}</span>
+                                <span className="ml-2 text-xs text-ink-faint">
+                                    {nameOf.get(n.nodeId) ?? n.nodeId}
+                                    {n.created ? (
+                                        <span className="numeric">
+                                            {` · ${new Date(n.created).toLocaleDateString('zh-CN')}`}
+                                        </span>
+                                    ) : (
+                                        ''
+                                    )}
+                                </span>
+                            </summary>
+                            <pre className="mt-3 whitespace-pre-wrap text-sm text-ink-soft font-sans leading-relaxed">
+                                {n.contentMd}
+                            </pre>
+                        </details>
+                    </Card>
                 ))}
             </div>
         </div>

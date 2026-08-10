@@ -9,6 +9,7 @@ import {
     type Explanation,
     type SceneSpec,
 } from './api'
+import { Button } from '../ui'
 
 /**
  * 讲解视图：默认 mode:'web' 动态讲解——ready/job done 后拉 SceneSpec 挂 ExplainerPlayer；
@@ -156,14 +157,14 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
 
     return (
         <div className="space-y-5">
-            <h3 className="text-lg font-bold text-slate-700 text-center">讲给你听</h3>
+            <h3 className="text-section text-center">讲给你听</h3>
 
             {state.kind === 'loading' && (
-                <div className="text-center text-slate-400 py-10">正在准备讲解……</div>
+                <div className="text-center text-ink-faint py-10">正在准备讲解……</div>
             )}
 
             {state.kind === 'error' && (
-                <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-red-500 text-sm">
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong text-sm">
                     讲解没取到：{state.message}
                 </div>
             )}
@@ -173,7 +174,7 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                     controls
                     autoPlay
                     src={state.explanation.videoUrl}
-                    className="w-full rounded-2xl bg-black shadow-lg"
+                    className="w-full rounded-[14px] border border-rule bg-black"
                 >
                     {state.explanation.subtitleUrl && (
                         <track
@@ -191,15 +192,15 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                 <div className="space-y-2">
                     <WebPlayer spec={state.spec} />
                     <div className="flex items-center justify-center gap-3">
-                        <button
-                            type="button"
+                        <Button
+                            size="sm"
+                            variant="secondary"
                             onClick={requestVideo}
                             disabled={Boolean(state.videoJobId)}
-                            className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-medium hover:bg-slate-200 transition-colors disabled:opacity-60"
                         >
                             {state.videoJobId ? '🎬 视频生成中…' : '🎬 生成高级视频'}
-                        </button>
-                        {state.videoNote && <span className="text-xs text-slate-400">{state.videoNote}</span>}
+                        </Button>
+                        {state.videoNote && <span className="text-xs text-ink-faint">{state.videoNote}</span>}
                     </div>
                 </div>
             )}
@@ -207,31 +208,23 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
             {state.kind === 'fallback' && (
                 <div className="space-y-4">
                     {state.jobId && !state.note && (
-                        <div className="rounded-2xl bg-sky-50 border border-sky-200 px-4 py-2.5 text-sm text-sky-600 font-medium">
+                        <div className="rounded-[10px] bg-beam-wash border border-beam/20 px-4 py-2.5 text-sm text-beam font-medium">
                             ⚡ 动画讲解生成中…先看文字版
                         </div>
                     )}
                     <FallbackContent fallback={state.fallback} />
-                    {state.note && <p className="text-xs text-slate-400">{state.note}</p>}
+                    {state.note && <p className="text-xs text-ink-faint">{state.note}</p>}
                 </div>
             )}
 
             <div className="flex flex-col items-center gap-2 pt-1">
-                <button
-                    type="button"
-                    onClick={onPrimary}
-                    className="px-8 py-3 rounded-2xl bg-violet-500 text-white text-lg font-bold shadow-lg shadow-violet-200 hover:bg-violet-600 transition-colors"
-                >
+                <Button size="lg" onClick={onPrimary}>
                     {primaryLabel}
-                </button>
+                </Button>
                 {onSkip && (
-                    <button
-                        type="button"
-                        onClick={onSkip}
-                        className="text-xs text-slate-400 underline hover:text-slate-500"
-                    >
+                    <Button size="sm" variant="ghost" onClick={onSkip} className="underline">
                         先跳过
-                    </button>
+                    </Button>
                 )}
             </div>
         </div>
@@ -259,31 +252,20 @@ function WebPlayer({ spec }: { spec: SceneSpec }) {
     }, [spec])
 
     return (
-        <div className="space-y-1">
-            <div
-                ref={containerRef}
-                className="w-full rounded-2xl bg-white border border-slate-100 shadow-lg overflow-hidden"
-            />
-            <div className="flex items-center justify-center gap-4 text-xs text-slate-400">
-                <button
-                    type="button"
-                    onClick={() => playerRef.current?.prev()}
-                    className="px-2 py-0.5 rounded hover:bg-slate-100"
-                >
+        <div className="space-y-2">
+            <div ref={containerRef} className="plate w-full overflow-hidden" />
+            <div className="flex items-center justify-center gap-3 text-xs text-ink-faint">
+                <Button size="sm" variant="ghost" onClick={() => playerRef.current?.prev()}>
                     ⏮ 上一拍
-                </button>
+                </Button>
                 {beat && (
-                    <span>
+                    <span className="numeric">
                         第 {beat.i + 1} / {beat.total} 拍
                     </span>
                 )}
-                <button
-                    type="button"
-                    onClick={() => playerRef.current?.next()}
-                    className="px-2 py-0.5 rounded hover:bg-slate-100"
-                >
+                <Button size="sm" variant="ghost" onClick={() => playerRef.current?.next()}>
                     下一拍 ⏭
-                </button>
+                </Button>
             </div>
         </div>
     )
@@ -294,43 +276,49 @@ function FallbackContent({ fallback }: { fallback: ExplainFallback }) {
     const empty =
         !fallback.rootNode && !fallback.chainNames?.length && !fallback.misconceptionDesc && !fallback.analysis
     if (empty) {
-        return <p className="text-sm text-slate-400 text-center py-4">暂时没有文字讲解。</p>
+        return <p className="text-sm text-ink-faint text-center py-4">暂时没有文字讲解。</p>
     }
     return (
         <div className="space-y-3 text-left">
             {fallback.rootNode && (
-                <div className="rounded-2xl bg-white/70 border border-slate-100 px-4 py-3 space-y-2">
-                    <p className="text-lg font-bold text-indigo-600">{fallback.rootNode.name}</p>
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 space-y-2">
+                    <p className="text-lg font-bold text-ink">{fallback.rootNode.name}</p>
                     {fallback.rootNode.whatIsIt && (
-                        <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">
-                            <span className="text-xs font-bold text-slate-400 mr-2">是什么</span>
-                            {fallback.rootNode.whatIsIt}
-                        </p>
+                        <div className="space-y-1">
+                            <p className="eyebrow">是什么</p>
+                            <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">
+                                {fallback.rootNode.whatIsIt}
+                            </p>
+                        </div>
                     )}
                     {fallback.rootNode.why && (
-                        <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">
-                            <span className="text-xs font-bold text-slate-400 mr-2">为什么</span>
-                            {fallback.rootNode.why}
-                        </p>
+                        <div className="space-y-1">
+                            <p className="eyebrow">为什么</p>
+                            <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">
+                                {fallback.rootNode.why}
+                            </p>
+                        </div>
                     )}
                 </div>
             )}
             {fallback.chainNames && fallback.chainNames.length > 0 && (
-                <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100 px-4 py-3">
-                    <p className="text-xs font-bold text-indigo-400 mb-1">知识链</p>
-                    <p className="text-sm text-indigo-700">{fallback.chainNames.join(' → ')}</p>
+                <div className="rounded-[10px] bg-beam-wash border border-beam/20 px-4 py-3">
+                    <p className="eyebrow mb-1.5">知识链</p>
+                    <p className="text-sm text-ink-soft">{fallback.chainNames.join(' → ')}</p>
                 </div>
             )}
             {fallback.misconceptionDesc && (
-                <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3">
-                    <p className="text-xs font-bold text-amber-500 mb-1">常见的坑</p>
-                    <p className="text-amber-800 whitespace-pre-wrap">{fallback.misconceptionDesc}</p>
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/20 px-4 py-3">
+                    <p className="eyebrow mb-1.5">常见的坑</p>
+                    <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">
+                        {fallback.misconceptionDesc}
+                    </p>
                 </div>
             )}
             {fallback.analysis && (
-                <div className="rounded-2xl bg-white/70 border border-slate-100 px-4 py-3">
-                    <p className="text-xs font-bold text-slate-400 mb-1">题目解析</p>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{fallback.analysis}</p>
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3">
+                    <p className="eyebrow mb-1.5">题目解析</p>
+                    <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">{fallback.analysis}</p>
                 </div>
             )}
         </div>

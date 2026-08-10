@@ -121,5 +121,14 @@ export async function extractErrorMessage(res: Response, notReadyHint: string): 
     return serverMsg || `请求失败 (HTTP ${res.status})`
 }
 
+/** 卡片内输入框：与 .input-hero 同源（rule 边框 / beam 聚焦），尺寸收紧一档 */
 export const inputCls =
-    'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-300'
+    'w-full rounded-[10px] border border-rule bg-plate px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-beam focus:ring-2 focus:ring-beam-wash transition-colors'
+
+/** 文件选择器：控件半径 10px、beam 语义色，单发与批量共用 */
+export const fileInputCls =
+    'mx-auto block text-sm text-ink-soft file:mr-3 file:rounded-[8px] file:border-0 file:bg-beam-wash file:px-4 file:py-1.5 file:text-sm file:font-medium file:text-beam hover:file:bg-beam/15'
+
+/** 虚线投放区：批量与单发上传共用 */
+export const dropzoneCls =
+    'rounded-[10px] border-2 border-dashed border-rule bg-paper p-6 text-center'

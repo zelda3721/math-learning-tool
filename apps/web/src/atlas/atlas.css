@@ -165,14 +165,16 @@
 @keyframes atlasGrow { from { opacity: 0; transform: scale(0.4) translateY(10px); } to { opacity: 1; transform: scale(1); } }
 @keyframes atlasLinkIn { from { opacity: 0; } }
 
-/* ───────────────── 详情浮层 chips（复用 wiki 视觉） ───────────────── */
+/* ───────────────── 详情浮层 chips ─────────────────
+   浮层归「星图纸」控件语汇：10px 控件圆角（胶囊只留给圆点），
+   颜色仍由主线色 --c 驱动，与画布同源。                        */
 .atlas-root .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .atlas-root .chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
-  border: 1.5px solid color-mix(in srgb, var(--c) 40%, var(--line));
-  border-radius: 999px; background: color-mix(in srgb, var(--c) 6%, #fff);
+  border: 1px solid color-mix(in srgb, var(--c) 40%, var(--line));
+  border-radius: var(--r-sm); background: color-mix(in srgb, var(--c) 6%, #fff);
   font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--c) 80%, #000);
-  transition: transform 0.12s; cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s; cursor: pointer;
 }
 .atlas-root .chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .atlas-root .chip-dot { width: 8px; height: 8px; border-radius: 50%; }

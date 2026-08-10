@@ -1,11 +1,11 @@
 /**
- * FeedbackBar — collects 👍/👎/neutral marks for a session and optionally
- * promotes the manim_code artifact into the few-shot examples store.
+ * FeedbackBar — 给一次会话打 👍/👎/一般，并可把 manim_code 产物提升为 few-shot 示例。
  */
 import { useState } from 'react'
-import { ThumbsUp, ThumbsDown, Sparkles, Send, CheckCircle2 } from 'lucide-react'
+import { ThumbsUp, ThumbsDown } from 'lucide-react'
 
 import { api } from '../services/api'
+import { Button } from '../ui'
 
 interface FeedbackBarProps {
     sessionId: string
@@ -52,12 +52,9 @@ export function FeedbackBar({ sessionId, hasManimCode }: FeedbackBarProps) {
 
     if (submitted) {
         return (
-            <div className="bento-card md:col-span-12 bg-emerald-50/50 border-l-4 border-emerald-400">
-                <div className="flex items-center gap-2 text-emerald-700">
-                    <CheckCircle2 size={20} />
-                    <span className="font-bold">谢谢反馈！</span>
-                </div>
-                <p className="text-sm text-emerald-700/70 mt-1">
+            <div className="plate border-l-[3px] border-l-beam p-5">
+                <p className="font-semibold text-ink">谢谢反馈</p>
+                <p className="text-sm text-ink-soft mt-1">
                     {promote && hasManimCode && (label === 'good' || label === 'bad')
                         ? '本次代码已加入示例库，下次类似题目会被检索为参考。'
                         : '反馈已记录到本会话。'}
@@ -67,57 +64,52 @@ export function FeedbackBar({ sessionId, hasManimCode }: FeedbackBarProps) {
     }
 
     return (
-        <div className="bento-card md:col-span-12 bg-white/70 border-l-4 border-violet-300">
-            <div className="flex items-center gap-2 text-violet-700 mb-3">
-                <Sparkles size={20} />
-                <h3 className="font-bold">这次结果怎么样？</h3>
-            </div>
+        <div className="plate p-5 space-y-4">
+            <p className="eyebrow">这次结果怎么样</p>
 
-            <div className="flex gap-3 mb-4">
+            <div className="flex flex-wrap gap-2">
                 <LabelButton
-                    label="good"
                     active={label === 'good'}
                     onClick={() => setLabel('good')}
-                    icon={<ThumbsUp size={16} />}
+                    icon={<ThumbsUp size={15} />}
                     text="不错"
-                    activeCls="bg-emerald-500 text-white border-emerald-500"
-                    idleCls="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    activeCls="bg-[color:var(--color-correct)] text-white border-correct"
+                    idleCls="border-rule text-ink-soft hover:border-correct hover:text-correct"
                 />
                 <LabelButton
-                    label="bad"
                     active={label === 'bad'}
                     onClick={() => setLabel('bad')}
-                    icon={<ThumbsDown size={16} />}
+                    icon={<ThumbsDown size={15} />}
                     text="不行"
-                    activeCls="bg-red-500 text-white border-red-500"
-                    idleCls="border-red-200 text-red-700 hover:bg-red-50"
+                    activeCls="bg-wrong text-white border-wrong"
+                    idleCls="border-rule text-ink-soft hover:border-wrong hover:text-wrong"
                 />
                 <LabelButton
-                    label="neutral"
                     active={label === 'neutral'}
                     onClick={() => setLabel('neutral')}
                     icon={null}
                     text="一般"
-                    activeCls="bg-slate-500 text-white border-slate-500"
-                    idleCls="border-slate-200 text-slate-700 hover:bg-slate-50"
+                    activeCls="bg-ink-soft text-white border-ink-soft"
+                    idleCls="border-rule text-ink-soft hover:border-beam hover:text-beam"
                 />
             </div>
 
             <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="可选备注：哪里好 / 哪里需要改 / 错的地方在哪..."
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm placeholder:text-slate-300 focus:border-violet-300 focus:ring-2 focus:ring-violet-100 outline-none resize-y min-h-[72px]"
+                placeholder="可选备注：哪里好 / 哪里需要改 / 错的地方在哪……"
+                className="w-full px-3 py-2 rounded-[10px] border border-rule bg-plate text-sm text-ink
+                           placeholder:text-ink-faint focus:border-beam focus:outline-none resize-y min-h-[72px]"
             />
 
             {(label === 'good' || label === 'bad') && hasManimCode && (
-                <div className="mt-3 space-y-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-ink-soft">
                         <input
                             type="checkbox"
                             checked={promote}
                             onChange={(e) => setPromote(e.target.checked)}
-                            className="w-4 h-4 accent-violet-500"
+                            className="w-4 h-4 accent-beam"
                         />
                         加入示例库（{label === 'good' ? '良好样本' : '失败样本'}），用于下次 few-shot 参考
                     </label>
@@ -126,27 +118,23 @@ export function FeedbackBar({ sessionId, hasManimCode }: FeedbackBarProps) {
                             value={tags}
                             onChange={(e) => setTags(e.target.value)}
                             placeholder="标签（用逗号或空格分隔，如：鸡兔同笼,假设法）"
-                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs placeholder:text-slate-300 focus:border-violet-300 focus:ring-2 focus:ring-violet-100 outline-none"
+                            className="w-full px-3 py-1.5 rounded-[10px] border border-rule bg-plate text-xs text-ink
+                                       placeholder:text-ink-faint focus:border-beam focus:outline-none"
                         />
                     )}
                 </div>
             )}
 
             {error && (
-                <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                <p className="px-3 py-2 rounded-[10px] bg-wrong-wash border border-wrong/20 text-xs text-wrong">
                     {error}
-                </div>
+                </p>
             )}
 
-            <div className="mt-4 flex justify-end">
-                <button
-                    onClick={onSubmit}
-                    disabled={!canSubmit}
-                    className="inline-flex items-center gap-2 btn-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0"
-                >
-                    <Send size={16} />
-                    {submitting ? '提交中...' : '提交反馈'}
-                </button>
+            <div className="flex justify-end">
+                <Button size="sm" onClick={onSubmit} disabled={!canSubmit}>
+                    {submitting ? '提交中……' : '提交反馈'}
+                </Button>
             </div>
         </div>
     )
@@ -160,7 +148,6 @@ function LabelButton({
     activeCls,
     idleCls,
 }: {
-    label: Label
     active: boolean
     onClick: () => void
     icon: React.ReactNode
@@ -170,9 +157,10 @@ function LabelButton({
 }) {
     return (
         <button
+            type="button"
             onClick={onClick}
-            className={`flex-1 px-3 py-2 rounded-xl border transition-all text-sm font-medium flex items-center justify-center gap-2 ${active ? activeCls : idleCls
-                }`}
+            className={`flex-1 min-w-[96px] px-3 py-2 rounded-[10px] border text-sm font-medium
+                        flex items-center justify-center gap-2 transition-colors ${active ? activeCls : idleCls}`}
         >
             {icon}
             {text}

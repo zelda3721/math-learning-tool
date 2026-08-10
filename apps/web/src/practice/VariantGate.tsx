@@ -6,6 +6,7 @@ import {
     type PracticeQuestion,
 } from './api'
 import { BandBadge } from './badges'
+import { Badge, Button } from '../ui'
 
 /**
  * 变式关卡：讲完就练一道同类题。做对 → 大庆祝 + 点亮徽章；
@@ -69,22 +70,18 @@ export function VariantGate({ learnerId, questionId, onDone }: Props) {
     }, [learnerId, questionId])
 
     if (state.kind === 'loading') {
-        return <div className="text-center text-slate-400 py-10">正在找一道变式题……</div>
+        return <div className="text-center text-ink-faint py-10">正在找一道变式题……</div>
     }
 
     if (state.kind === 'none' || state.kind === 'error') {
         return (
             <div className="space-y-5 text-center">
-                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-slate-600">
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft">
                     {state.kind === 'none' ? state.message : `变式题没取到：${state.message}`}
                 </div>
-                <button
-                    type="button"
-                    onClick={() => onDone(undefined)}
-                    className="px-8 py-3 rounded-2xl bg-emerald-500 text-white text-lg font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-colors"
-                >
+                <Button size="lg" onClick={() => onDone(undefined)}>
                     下一题
-                </button>
+                </Button>
             </div>
         )
     }
@@ -138,33 +135,26 @@ export function VariantGate({ learnerId, questionId, onDone }: Props) {
     return (
         <div className="space-y-5">
             <div className="flex items-center justify-center gap-2">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-violet-100 text-violet-600 border-violet-200">
-                    变式题
-                </span>
-                <span className="text-sm text-slate-400">换个样子，再试一次</span>
+                <Badge tone="beam">变式题</Badge>
+                <span className="text-sm text-ink-faint">换个样子，再试一次</span>
             </div>
 
-            <p className="text-xl md:text-2xl font-semibold text-slate-700 leading-relaxed whitespace-pre-wrap">
-                {q.stem}
-            </p>
+            <p className="stem whitespace-pre-wrap">{q.stem}</p>
 
             {answering &&
                 (q.options && q.options.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {q.options.map((opt) => (
-                            <button
+                            <Button
                                 key={opt}
-                                type="button"
+                                size="lg"
+                                variant={answer === opt ? 'primary' : 'secondary'}
                                 disabled={submitting}
                                 onClick={() => setAnswer(opt)}
-                                className={`px-4 py-3 rounded-2xl border-2 text-left text-lg font-medium transition-colors disabled:cursor-not-allowed ${
-                                    answer === opt
-                                        ? 'border-violet-400 bg-violet-50 text-violet-700'
-                                        : 'border-slate-100 bg-white text-slate-600 hover:border-violet-200'
-                                }`}
+                                className="text-left"
                             >
                                 {opt}
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 ) : (
@@ -176,18 +166,19 @@ export function VariantGate({ learnerId, questionId, onDone }: Props) {
                         onChange={(e) => setAnswer(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="在这里写答案，按回车提交"
-                        className="w-full px-5 py-4 text-xl bg-white border-2 border-slate-100 rounded-2xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-100 transition-all"
+                        className="input-hero"
                     />
                 ))}
 
             {state.outcome === 'retry' && (
-                <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-red-600 font-semibold">
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong font-semibold">
                     还差一点，再试一次！
                 </div>
             )}
+            {/* 签名时刻：全站唯一编排过的金色 + 点亮动效 —— 这一刻的意思就是「学会了」 */}
             {state.outcome === 'passed' && (
-                <div className="rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-4 text-center space-y-2">
-                    <p className="text-xl font-bold text-emerald-600">⭐ 做对了，星星点亮！</p>
+                <div className="star-lit rounded-[14px] bg-lit-wash border border-lit/30 px-4 py-5 text-center space-y-3">
+                    <p className="text-xl font-bold text-lit">⭐ 做对了，星星点亮！</p>
                     {litBands.length > 0 && (
                         <div className="flex flex-wrap justify-center gap-1.5">
                             {litBands.map((m) => (
@@ -198,35 +189,34 @@ export function VariantGate({ learnerId, questionId, onDone }: Props) {
                 </div>
             )}
             {state.outcome === 'exhausted' && (
-                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-slate-600 font-medium">
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
                     没关系，明天再练——这个知识点会再来找你。
                 </div>
             )}
             {state.outcome === 'review' && (
-                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-slate-600 font-medium">
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
                     这道题已交给家长确认，先继续下一题吧。
                 </div>
             )}
             {error && (
-                <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-red-500 text-sm">
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong text-sm">
                     出了点小问题：{error}，请再试一次。
                 </div>
             )}
 
             <div className="flex flex-wrap justify-center gap-3">
                 {answering && (
-                    <button
-                        type="button"
+                    <Button
+                        size="lg"
                         onClick={() => void handleSubmit()}
                         disabled={!answer.trim() || submitting}
-                        className="px-8 py-3 rounded-2xl bg-violet-500 text-white text-lg font-bold shadow-lg shadow-violet-200 hover:bg-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                         {submitting ? '批改中……' : state.outcome === 'retry' ? '再交一次' : '交卷'}
-                    </button>
+                    </Button>
                 )}
                 {!answering && (
-                    <button
-                        type="button"
+                    <Button
+                        size="lg"
                         onClick={() =>
                             onDone(
                                 state.outcome === 'passed'
@@ -236,10 +226,9 @@ export function VariantGate({ learnerId, questionId, onDone }: Props) {
                                       : undefined
                             )
                         }
-                        className="px-8 py-3 rounded-2xl bg-emerald-500 text-white text-lg font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-colors"
                     >
                         下一题
-                    </button>
+                    </Button>
                 )}
             </div>
         </div>
