@@ -1,4 +1,5 @@
 import type { DiagnosisResult } from './api'
+import { MathText } from '../ui/MathText'
 
 /** 置信度文案：不给小孩看裸百分比（宪法第 4 条：归因必须带置信度） */
 export function confidenceText(confidence: number): string {
@@ -59,7 +60,7 @@ export function DiagnosisCard({ diagnosis, onExplain, onVariant }: Props) {
 
             {diagnosis.explanation && (
                 <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">
-                    {diagnosis.explanation}
+                    <MathText>{diagnosis.explanation}</MathText>
                 </p>
             )}
 

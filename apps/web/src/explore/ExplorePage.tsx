@@ -6,6 +6,7 @@
  *  - 「✍️ 记下我的发现」→ POST /api/v1/notes；下方列出我的研究笔记。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MathText } from '../ui/MathText'
 import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { Button, PageHeader } from '../ui'
@@ -299,7 +300,7 @@ export function ExplorePage() {
                                         : 'max-w-[85%] rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-2.5 text-sm text-slate-700 whitespace-pre-wrap'
                                 }
                             >
-                                {t.content}
+                                <MathText>{t.content}</MathText>
                                 {t.role === 'assistant' && (t.toolTrace?.length ?? 0) > 0 && (
                                     <div className="mt-1.5 text-[11px] text-slate-400">
                                         {t.toolTrace!.map((tt, j) => (
