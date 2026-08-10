@@ -8,6 +8,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { BatchPanel } from './BatchPanel'
 import type { BatchOutcome, PairingReport } from './BatchPanel'
 import { ReviewTab } from './ReviewTab'
+import { Button, PageHeader } from '../ui'
 import {
     ANSWER_TYPE_LABELS,
     extractErrorMessage,
@@ -157,6 +158,8 @@ export function IngestPage() {
 
     return (
         <div className="space-y-6">
+            <PageHeader title="题库录入" subtitle="上传讲义或粘贴题目，确认后进入孩子的题库" />
+
             {/* ── tab 切换：录入 / 抽检 ── */}
             <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">
                 {(
@@ -279,14 +282,9 @@ export function IngestPage() {
                                     )}
 
                                     <div className="flex justify-end">
-                                        <button
-                                            type="button"
-                                            disabled={!canExtract}
-                                            onClick={handleExtract}
-                                            className="rounded-full bg-sky-500 px-6 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-                                        >
+                                        <Button disabled={!canExtract} onClick={() => void handleExtract()}>
                                             {extracting ? '抽题中…' : '抽题'}
-                                        </button>
+                                        </Button>
                                     </div>
                                 </>
                             )}
@@ -345,14 +343,9 @@ export function IngestPage() {
                                 <h2 className="text-lg font-semibold text-slate-700">
                                     抽取到 {drafts.length} 道题 · 请核对后入库
                                 </h2>
-                                <button
-                                    type="button"
-                                    disabled={confirming}
-                                    onClick={handleConfirm}
-                                    className="rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-                                >
+                                <Button disabled={confirming} onClick={() => void handleConfirm()}>
                                     {confirming ? '入库中…' : '确认入库'}
-                                </button>
+                                </Button>
                             </div>
 
                             {drafts.map((d, idx) => (

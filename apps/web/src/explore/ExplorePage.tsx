@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
+import { Button, PageHeader } from '../ui'
 
 interface AtlasNodeLite {
     id: string
@@ -216,12 +217,11 @@ export function ExplorePage() {
 
     return (
         <div className="space-y-4">
+            <PageHeader
+                title="数学探索"
+                subtitle="挑一个知识点，跟着问题往深处走——答案要自己想出来"
+            />
             <LearnerSwitcher />
-
-            <div className="flex items-baseline justify-between px-1">
-                <h2 className="text-2xl font-bold text-slate-700">探索</h2>
-                <span className="text-sm text-slate-400">和伙伴一起在星图里漫游</span>
-            </div>
 
             {/* 选节点：掌握中的节点下拉 + 全图搜索 */}
             <div className="soft-glass p-4 space-y-3">
@@ -328,25 +328,20 @@ export function ExplorePage() {
                         placeholder="说说你的好奇…"
                         className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
                     />
-                    <button
-                        type="submit"
-                        disabled={sending || !input.trim()}
-                        className="px-5 py-2.5 rounded-2xl bg-sky-500 text-white font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 disabled:opacity-50 transition-colors"
-                    >
+                    <Button type="submit" disabled={sending || !input.trim()}>
                         发送
-                    </button>
+                    </Button>
                 </form>
 
                 <div className="flex items-center gap-3">
-                    <button
-                        type="button"
+                    <Button
+                        size="sm"
                         onClick={openNoteComposer}
                         disabled={turns.length === 0 || !nodeId}
                         title={!nodeId ? '先选一个知识点再记笔记' : undefined}
-                        className="px-4 py-2 rounded-2xl bg-violet-500 text-white text-sm font-bold shadow-lg shadow-violet-200 hover:bg-violet-600 disabled:opacity-40 transition-colors"
                     >
                         ✍️ 记下我的发现
-                    </button>
+                    </Button>
                     {!nodeId && turns.length > 0 && (
                         <span className="text-xs text-slate-400">先在上面选一个知识点，就能记笔记啦</span>
                     )}
@@ -371,21 +366,16 @@ export function ExplorePage() {
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-mono"
                     />
                     <div className="flex gap-2">
-                        <button
-                            type="button"
+                        <Button
+                            size="sm"
                             onClick={() => void saveNote()}
                             disabled={noteSaving || !noteTitle.trim() || !noteContent.trim()}
-                            className="px-5 py-2 rounded-2xl bg-violet-500 text-white text-sm font-bold hover:bg-violet-600 disabled:opacity-50 transition-colors"
                         >
                             {noteSaving ? '保存中…' : '保存笔记'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setNoteOpen(false)}
-                            className="px-5 py-2 rounded-2xl border border-slate-200 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-                        >
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setNoteOpen(false)}>
                             取消
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}

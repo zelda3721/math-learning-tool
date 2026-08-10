@@ -9,6 +9,7 @@ import { NodeDetail } from './NodeDetail'
 import { CoveragePanel, useCoverage } from './CoveragePanel'
 import { UnificationPanel } from './UnificationPanel'
 import { useLearner } from '../learner/LearnerContext'
+import { Button } from '../ui'
 import type { Graph, ProblemType } from './types'
 import localGraphRaw from './graph.local.json'
 import './atlas.css'
@@ -201,11 +202,12 @@ export function AtlasPage() {
                     </div>
                 )}
                 <div className="flex gap-2">
-                    <button
-                        type="button"
+                    <Button
+                        size="sm"
+                        variant="secondary"
                         onClick={() => setCoverageOpen((v) => !v)}
                         aria-expanded={coverageOpen}
-                        className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                        className="shadow-sm"
                     >
                         {coverageOpen ? '▾ 覆盖度' : '▸ 覆盖度'}
                         {coverage && (
@@ -213,16 +215,17 @@ export function AtlasPage() {
                                 {coverage.totals.covered}/{coverage.totals.nodes} 覆盖
                             </span>
                         )}
-                    </button>
+                    </Button>
                     {data?.problemTypes && data.problemTypes.length > 0 && (
-                        <button
-                            type="button"
+                        <Button
+                            size="sm"
+                            variant="secondary"
                             onClick={() => setUnificationOpen((v) => !v)}
                             aria-expanded={unificationOpen}
-                            className="rounded-full border border-slate-200 bg-white/90 backdrop-blur px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                            className="shadow-sm"
                         >
                             {unificationOpen ? '▾ 统一之路' : '▸ 统一之路'}
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>

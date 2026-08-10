@@ -56,7 +56,7 @@ mathtutor/
 #    SERVER_PORT（网关，默认 8080）· WEB_PORT（前端，默认 5173）· ENGINE_URL · DATA_DIR
 
 # 1) 安装与全量测试
-pnpm install && pnpm -r build && pnpm -r test                  # TS：180 测试
+pnpm install && pnpm -r build && pnpm -r test                  # TS：187 测试
 cd services/video-engine && uv sync --extra dev \
   && .venv/bin/python -m pytest -q tests && cd ../..           # 引擎：238 测试
 
@@ -73,7 +73,16 @@ cd apps/web && npx vite                                                 # 前端
 
 > 本机若开系统代理，curl 调试本地端口需加 `--noproxy '*'`（引擎与 llm-client 已对本地地址绕代理）。
 
+## 账户体系
+
+- **家长 = 管理员**：首次打开应用创建（唯一账号）。可见全部视图，管理孩子账号（重置密码 / 删除，删除只删账号、学习数据保留、名额释放）。
+- **孩子自注册**：登录页「我是新同学」，起名字 + 密码 + 年级即可开始，**最多 5 名**（名额实时显示，满员提示找家长）。
+- **数据隔离**：孩子会话在服务端强制绑定本人 learner——请求里传别人的 learnerId 也只会操作到自己的数据；家长面（家长中心 / 录题 / 节点核验 / 引擎讲解会话）孩子一律 403。
+- 会话为 HttpOnly cookie（30 天，可吊销）；密码 scrypt + 独立盐。
+
 ## 日常使用（七个视图）
+
+> 视图按角色显示：孩子看 练习/星图/错题本/探索；家长额外有 讲解/录题/家长。
 
 - **练习**（默认）：选人 → 今日组卷（到期复习 > 探针 > 弱点 > 新题 + 1 挑战）→ 键盘/拍照作答 →
   判卷 → 提示阶梯 → 仍错则归因 → 看讲解（动画默认，可生成高级视频）→ 变式做对点亮
@@ -81,12 +90,14 @@ cd apps/web && npx vite                                                 # 前端
 - **错题本**：根因 + 置信度 + 依据链，再看讲解 / 再练一道
 - **探索**：苏格拉底对话（只引导不给答案）+「记下我的发现」研究笔记挂到图谱节点
 - **录题**：粘贴 / 拍照 / PDF（单份或批量师生版配对）→ 抽题草稿 → 人工确认入库；抽检 tab 复核
-- **家长**：错因模式聚合、14 天趋势、判卷抽检裁决（裁决后才计掌握度证据）、归因纠错
+- **家长**：错因模式聚合、14 天趋势、判卷抽检裁决（裁决后才计掌握度证据）、归因纠错、孩子账号管理
 - **讲解**：直接给任意题目生成 Manim 教学视频（原引擎入口，含思考链观测台）
 
 ## 网关 API 速查（:8080，类型皆出自 packages/schema）
 
 ```
+GET  /api/v1/auth/state（免认证）            POST /api/v1/auth/setup-parent|register-child|login|logout
+GET  /api/v1/auth/children（家长）           POST/DELETE /api/v1/auth/children/:id[/reset-password]
 POST /api/v1/practice/today|submit|submit-photo|hint|variant     GET /api/v1/practice/next-step
 POST /api/v1/diagnosis/{attemptId}          GET  /api/v1/diagnosis/mistakes
 POST /api/v1/explain（默认 web 模式）        GET  /api/v1/explain/jobs/:id · /explain/specs/:id
@@ -104,11 +115,12 @@ GET  /api/v1/atlas · /api/v1/registry · /healthz                 （引擎 cha
 - **学习者层 DB-first**：`data/app.sqlite`（learners/attempts/mastery/mistakes/review_cards/
   learner_events append-only）；掌握度是事件的可重放投影，固定参数启发式——永不宣称精准诊断
 - **答案永不下发**：练习端点的题目 JSON 经 sanitize；家长抽检端点才含答案
+- **账户隔离在服务端强制**：孩子的 learnerId 由会话决定，不信任请求体（auth.test.ts 有专测）
 
 ## 测试与文档
 
 ```bash
-pnpm -r test                                          # TS 180（schema/knowledge/llm-client/explainer-web/server）
+pnpm -r test                                          # TS 187（schema/knowledge/llm-client/explainer-web/server）
 services/video-engine/.venv/bin/python -m pytest -q services/video-engine/tests   # 引擎 238
 ```
 
