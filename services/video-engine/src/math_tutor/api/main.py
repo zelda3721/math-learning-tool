@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings, setup_logging
 from ..config.dependencies import get_database, get_file_archive
-from .routes import chat, contract, grades, health, problems, sessions, skills, videos
+from .routes import chat, contract, grades, health, plan, problems, sessions, skills, videos
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     # Register routes
     app.include_router(health.router, prefix="/api", tags=["Health"])
     app.include_router(contract.router, prefix="/api/v1/contract", tags=["Contract"])
+    app.include_router(plan.router, prefix="/api/v1/plan", tags=["Plan"])
     app.include_router(grades.router, prefix="/api/v1/grades", tags=["Grades"])
     app.include_router(skills.router, prefix="/api/v1/skills", tags=["Skills"])
     app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problems"])

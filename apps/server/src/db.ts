@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS explain_jobs (
   question_id TEXT,
   focus_node_ids_json TEXT NOT NULL,
   status TEXT NOT NULL,            -- running | done | failed
+  mode TEXT NOT NULL DEFAULT 'video',  -- 'web'（plan-only spec）| 'video'（Manim）
   explanation_id TEXT,
   error TEXT,
   created_at TEXT NOT NULL,
@@ -139,16 +140,27 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 );
 `;
 
+/** 旧库容错迁移（P4：explain_jobs 加 mode 列；已存在则跳过） */
+function migrate(db: DatabaseSync): void {
+  try {
+    db.exec("ALTER TABLE explain_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'");
+  } catch {
+    // duplicate column — already migrated
+  }
+}
+
 export function openDb(dataDir: string): DatabaseSync {
   mkdirSync(dataDir, { recursive: true });
   const db = new sqlite.DatabaseSync(path.join(dataDir, "app.sqlite"));
   db.exec("PRAGMA journal_mode=WAL");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
 export function openMemoryDb(): DatabaseSync {
   const db = new sqlite.DatabaseSync(":memory:");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }

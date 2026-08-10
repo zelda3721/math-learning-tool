@@ -241,6 +241,7 @@ export class Repo {
     focusNodeIds: string[];
     engineSessionId: string;
     mode: "web" | "video";
+    specUrl?: string;
     videoUrl?: string;
     subtitleUrl?: string;
     quality: "good" | "acceptable";
@@ -249,8 +250,8 @@ export class Repo {
     this.db
       .prepare(
         `INSERT INTO explanations (id, question_id, focus_node_ids_json, engine_session_id, mode,
-          video_url, subtitle_url, quality, contract_version, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          spec_url, video_url, subtitle_url, quality, contract_version, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.id,
@@ -258,6 +259,7 @@ export class Repo {
         JSON.stringify(e.focusNodeIds),
         e.engineSessionId,
         e.mode,
+        e.specUrl ?? null,
         e.videoUrl ?? null,
         e.subtitleUrl ?? null,
         e.quality,
@@ -273,6 +275,7 @@ export class Repo {
       focusNodeIds: JSON.parse(String(r.focus_node_ids_json)) as string[],
       engineSessionId: String(r.engine_session_id),
       mode: String(r.mode) as "web" | "video",
+      specUrl: r.spec_url === null || r.spec_url === undefined ? undefined : String(r.spec_url),
       videoUrl: r.video_url === null ? undefined : String(r.video_url),
       subtitleUrl: r.subtitle_url === null ? undefined : String(r.subtitle_url),
       quality: String(r.quality) as "good" | "acceptable",
@@ -286,34 +289,50 @@ export class Repo {
     return r ? this.rowToExplanation(r as Record<string, unknown>) : undefined;
   }
 
-  /** 讲解缓存查找：优先同题，其次同根因节点 */
-  findExplanation(questionId: string | undefined, focusNodeId: string | undefined) {
+  /** 讲解缓存查找：优先同题，其次同根因节点；mode 指定时只命中该模式 */
+  findExplanation(questionId: string | undefined, focusNodeId: string | undefined, mode?: "web" | "video") {
     if (questionId) {
       const r = this.db
-        .prepare("SELECT * FROM explanations WHERE question_id = ? ORDER BY created_at DESC LIMIT 1")
-        .get(questionId);
+        .prepare(
+          `SELECT * FROM explanations WHERE question_id = ?${mode ? " AND mode = ?" : ""}
+           ORDER BY created_at DESC LIMIT 1`,
+        )
+        .get(...(mode ? [questionId, mode] : [questionId]));
       if (r) return this.rowToExplanation(r as Record<string, unknown>);
     }
     if (focusNodeId) {
       const rows = this.db.prepare("SELECT * FROM explanations ORDER BY created_at DESC LIMIT 50").all();
       for (const r of rows) {
         const e = this.rowToExplanation(r as Record<string, unknown>);
-        if (e.focusNodeIds.includes(focusNodeId)) return e;
+        if (e.focusNodeIds.includes(focusNodeId) && (!mode || e.mode === mode)) return e;
       }
     }
     return undefined;
   }
 
   // ---- explain jobs（P2 讲解生成队列） ----
-  createExplainJob(job: { learnerId?: string; questionId?: string; focusNodeIds: string[] }): string {
+  createExplainJob(job: {
+    learnerId?: string;
+    questionId?: string;
+    focusNodeIds: string[];
+    mode?: "web" | "video";
+  }): string {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO explain_jobs (id, learner_id, question_id, focus_node_ids_json, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'running', ?, ?)`,
+        `INSERT INTO explain_jobs (id, learner_id, question_id, focus_node_ids_json, status, mode, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'running', ?, ?, ?)`,
       )
-      .run(id, job.learnerId ?? null, job.questionId ?? null, JSON.stringify(job.focusNodeIds), now, now);
+      .run(
+        id,
+        job.learnerId ?? null,
+        job.questionId ?? null,
+        JSON.stringify(job.focusNodeIds),
+        job.mode ?? "video",
+        now,
+        now,
+      );
     return id;
   }
 
@@ -343,11 +362,13 @@ export class Repo {
     };
   }
 
-  /** 有 running 讲解任务时避免重复排队（同题去重） */
-  runningExplainJobForQuestion(questionId: string): string | undefined {
+  /** 有 running 讲解任务时避免重复排队（同题同模式去重） */
+  runningExplainJobForQuestion(questionId: string, mode?: "web" | "video"): string | undefined {
     const r = this.db
-      .prepare("SELECT id FROM explain_jobs WHERE question_id = ? AND status = 'running' LIMIT 1")
-      .get(questionId);
+      .prepare(
+        `SELECT id FROM explain_jobs WHERE question_id = ? AND status = 'running'${mode ? " AND mode = ?" : ""} LIMIT 1`,
+      )
+      .get(...(mode ? [questionId, mode] : [questionId]));
     return r ? String(r.id) : undefined;
   }
 
