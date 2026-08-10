@@ -1,8 +1,9 @@
 import type { MasteryBand, Slot } from './api'
 
-/** 今日题组槽位徽章：队列 / 弱点 / 新题 / 挑战 */
+/** 今日题组槽位徽章：复习 / 探针 / 弱点 / 新题 / 挑战 */
 const SLOT_META: Record<Slot, { label: string; cls: string }> = {
-    queue: { label: '队列', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+    review: { label: '复习', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+    queue: { label: '探针', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
     weak: { label: '弱点', cls: 'bg-rose-100 text-rose-600 border-rose-200' },
     new: { label: '新题', cls: 'bg-sky-100 text-sky-600 border-sky-200' },
     challenge: { label: '挑战', cls: 'bg-violet-100 text-violet-600 border-violet-200' },

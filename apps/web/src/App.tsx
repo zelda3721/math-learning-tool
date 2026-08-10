@@ -6,6 +6,8 @@ import { useAgentRun } from './hooks/useAgentRun'
 import { AtlasPage } from './atlas/AtlasPage'
 import { PracticePage } from './practice/PracticePage'
 import { IngestPage } from './ingest/IngestPage'
+import { MistakeBook } from './mistakes/MistakeBook'
+import { ParentPage } from './parent/ParentPage'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
 import {
@@ -20,10 +22,10 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'practice' | 'solve' | 'atlas' | 'ingest'
+type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'ingest' | 'parent'
 
 function App() {
-    const [view, setView] = useState<AppView>('solve')
+    const [view, setView] = useState<AppView>('practice')
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
     const [historyOpen, setHistoryOpen] = useState(false)
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
@@ -93,7 +95,9 @@ function App() {
                             ['practice', '练习'],
                             ['solve', '讲解'],
                             ['atlas', '星图'],
+                            ['mistakes', '错题本'],
                             ['ingest', '录题'],
+                            ['parent', '家长'],
                         ] as const
                     ).map(([key, label]) => (
                         <button
@@ -118,9 +122,21 @@ function App() {
                 </main>
             )}
 
+            {view === 'mistakes' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <MistakeBook />
+                </main>
+            )}
+
             {view === 'ingest' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <IngestPage />
+                </main>
+            )}
+
+            {view === 'parent' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <ParentPage />
                 </main>
             )}
 
