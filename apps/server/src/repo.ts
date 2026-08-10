@@ -372,6 +372,55 @@ export class Repo {
     return r ? String(r.id) : undefined;
   }
 
+  // ---- ask jobs（P6 自由提问 → 临时题目；产物是题目，不是讲解） ----
+  createAskJob(job: { learnerId?: string; questionId: string; problem: string }): string {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO ask_jobs (id, learner_id, question_id, problem, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'running', ?, ?)`,
+      )
+      .run(id, job.learnerId ?? null, job.questionId, job.problem, now, now);
+    return id;
+  }
+
+  finishAskJob(id: string, questionId: string): void {
+    this.db
+      .prepare("UPDATE ask_jobs SET status = 'done', question_id = ?, updated_at = ? WHERE id = ?")
+      .run(questionId, new Date().toISOString(), id);
+  }
+
+  failAskJob(id: string, error: string): void {
+    this.db
+      .prepare("UPDATE ask_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?")
+      .run(error, new Date().toISOString(), id);
+  }
+
+  getAskJob(id: string) {
+    const r = this.db.prepare("SELECT * FROM ask_jobs WHERE id = ?").get(id);
+    if (!r) return undefined;
+    return {
+      id: String(r.id),
+      learnerId: r.learner_id === null ? undefined : String(r.learner_id),
+      questionId: String(r.question_id),
+      problem: String(r.problem),
+      status: String(r.status) as "running" | "done" | "failed",
+      error: r.error === null ? undefined : String(r.error),
+    };
+  }
+
+  /**
+   * 同一个孩子问同一道题正在生成时不重复调引擎（plan 要几分钟）。
+   * 按 learner 限定：别人的任务不能拿来当自己的轮询句柄（轮询是按归属鉴权的）。
+   */
+  runningAskJobForQuestion(questionId: string, learnerId?: string): string | undefined {
+    const r = this.db
+      .prepare("SELECT id FROM ask_jobs WHERE question_id = ? AND status = 'running' AND learner_id IS ? LIMIT 1")
+      .get(questionId, learnerId ?? null);
+    return r ? String(r.id) : undefined;
+  }
+
   // ---- review cards（P3 SM-2） ----
   upsertReviewCard(learnerId: string, targetKind: "question" | "node", targetId: string, nextReviewAt: string): void {
     this.db

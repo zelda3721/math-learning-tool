@@ -2,7 +2,8 @@
 
 import type { validateSpec } from '@mathtutor/explainer-web'
 
-export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge'
+/** 'asked' 是前端专有槽位：孩子自由提问转成的临时题目，server 的今日题组不会返回它 */
+export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge' | 'asked'
 export type MasteryBand = 'dim' | 'glow' | 'lit'
 
 export interface PracticeQuestion {
@@ -136,6 +137,18 @@ export interface ExplainJobStatus {
 export type VariantResponse =
     | { kind: 'bank' | 'generated'; question: PracticeQuestion }
     | { kind: 'none'; message: string }
+
+/** 失败响应 → Error：优先用 server 的 error 文案，取不到退回 HTTP 状态码。 */
+async function httpError(res: Response): Promise<Error> {
+    let message = `HTTP ${res.status}`
+    try {
+        const data = (await res.json()) as { error?: string }
+        if (data.error) message = data.error
+    } catch {
+        /* 保留 HTTP 状态码信息 */
+    }
+    return new Error(message)
+}
 
 async function post<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(path, {
@@ -313,6 +326,43 @@ export function fetchHint(payload: {
     lastWrongAnswer?: string
 }): Promise<HintResult> {
     return post('/api/v1/practice/hint', payload)
+}
+
+/* ── 「问一道题」：自由输入 → 引擎解题验算 → 临时题目，之后全程复用练习端点 ── */
+
+/** 缓存命中直接给题（isNew=false 表示这题之前问过）；否则给 jobId 轮询 */
+export type AskResponse =
+    | { status: 'ready'; question: PracticeQuestion; isNew: boolean }
+    | { status: 'pending'; jobId: string }
+
+export interface AskJobStatus {
+    status: 'running' | 'done' | 'failed'
+    question?: PracticeQuestion
+    error?: string
+}
+
+/** POST /ask：202 给 jobId，200 给题（内容哈希命中缓存）。按字段判形，容忍 server 状态码微调。 */
+export async function askQuestion(payload: {
+    learnerId: string
+    problem: string
+    grade?: string
+}): Promise<AskResponse> {
+    const res = await fetch('/api/v1/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw await httpError(res)
+    const data = (await res.json()) as { jobId?: string; question?: PracticeQuestion; isNew?: boolean }
+    if (data.question) return { status: 'ready', question: data.question, isNew: data.isNew ?? true }
+    if (data.jobId) return { status: 'pending', jobId: data.jobId }
+    throw new Error('没读懂服务端的回复')
+}
+
+export async function fetchAskJob(jobId: string): Promise<AskJobStatus> {
+    const res = await fetch(`/api/v1/ask/jobs/${encodeURIComponent(jobId)}`)
+    if (!res.ok) throw await httpError(res)
+    return (await res.json()) as AskJobStatus
 }
 
 /** 小结页节点名映射（best-effort）：取 atlas graph 的 id → name，失败返回空表。 */

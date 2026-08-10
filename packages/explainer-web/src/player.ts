@@ -10,6 +10,13 @@
 import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
 import { solveScene, type Scene, type SceneIssue, type Shape } from "./render/scene.js";
+import {
+  layoutFlowed,
+  type PlacedBar,
+  type PlacedExtent,
+  type PlacedLabel,
+  type PlacedUnits,
+} from "./render/layout.js";
 import type { CoordSystem } from "./math/coords.js";
 
 export interface PlayerOptions {
@@ -35,6 +42,21 @@ const C = {
   wrong: "#d3453f",
   paper: "#f6f7fa",
 };
+
+/**
+ * 组身份通道：颜色 × 形状。两条维度一起用，色觉障碍与灰度打印下也分得清。
+ * 顺序与 layout.ts 的 COLOR_CHANNELS 一一对应（那边定语义，这边定长相）。
+ *
+ * 刻意避开金色 `--color-lit`：在这套设计里金色是「掌握状态」的数据色，
+ * 只属于"这个知识点点亮了"。讲解画面里再用一次，那个信号就不值钱了。
+ * 所以 spec 的 yellow / gold 落到青铜与石板灰——形状通道保证它们依然一眼可辨。
+ */
+const CHANNELS = ["#2b5ce6", "#8a6a20", "#d3453f", "#1f9d6b", "#e07b39", "#7b4fd1", "#0f8c94", "#5b6b8c"];
+type UnitShape = "circle" | "square" | "triangle" | "diamond";
+const SHAPES: UnitShape[] = ["circle", "square", "triangle", "diamond", "circle", "square", "triangle", "diamond"];
+
+/** 右上角计数/守恒事实条占用的高度：内容区绝不侵占它（画面不许自己压自己） */
+const FACTS_H = 58;
 
 const reduceMotion = (): boolean =>
   typeof window !== "undefined" &&
@@ -327,97 +349,242 @@ export class ExplainerPlayer {
     this.svg.appendChild(t);
   }
 
-  /** 数量记号：10 个一行便于数；同一单位跨拍飞行（守恒可见） */
+  /**
+   * 数量画面：坐标全部来自 render/layout.ts（可单测的纯函数），这里只负责涂色。
+   * 同一单位跨拍飞行（守恒可见）；组的形状与颜色由通道决定，跨拍稳定。
+   */
   private drawFlowed(scene: Scene): void {
-    const groups = scene.flowed.filter((s): s is Extract<Shape, { kind: "units" }> => s.kind === "units");
-    const labels = scene.flowed.filter((s): s is Extract<Shape, { kind: "label" }> => s.kind === "label");
-    if (groups.length === 0 && labels.length === 0) return;
+    if (scene.flowed.length === 0) return;
 
-    const startY = scene.coords ? this.height - 120 : 40;
-    const colW = Math.max(120, Math.floor((this.width - 40) / Math.max(1, groups.length)));
+    // 有数学图时，数量画面缩到下方；否则占满画布
+    const top = scene.coords ? Math.round(this.height * 0.62) : 34;
+    const { items } = layoutFlowed(scene, {
+      width: this.width,
+      height: this.height,
+      top,
+      bottom: FACTS_H,
+    });
     const nextPos = new Map<string, { x: number; y: number }>();
 
-    groups.forEach((g, gi) => {
-      const ox = 20 + gi * colW;
-      const label = el("text", { x: ox, y: startY - 10, "font-size": 11, fill: C.inkFaint });
-      label.textContent = `${g.label ?? g.id}${g.note ? `（${g.note}）` : ""}`;
-      this.svg.appendChild(label);
-
-      g.units.forEach((u, i) => {
-        const col = i % 10;
-        const row = Math.floor(i / 10);
-        const x = ox + col * 13 + 6;
-        const y = startY + row * 14 + 6;
-        nextPos.set(u.id, { x, y });
-
-        const dot = el("circle", {
-          cx: x, cy: y, r: 5,
-          fill: g.ghost ? "none" : u.swapped ? C.beam : u.kind === "unknown" ? C.lit : C.beam,
-          stroke: g.ghost ? C.inkFaint : "none",
-          "stroke-dasharray": g.ghost ? "2 2" : "0",
-          "fill-opacity": g.ghost ? 0 : 0.85,
-        });
-        this.svg.appendChild(dot);
-        if (u.weight > 1) {
-          const w = el("text", { x, y: y + 3, "text-anchor": "middle", "font-size": 8, fill: "#fff" });
-          w.textContent = String(u.weight);
-          this.svg.appendChild(w);
-        }
-
-        // FLIP：同一个单位从上一拍的位置飞到这一拍的位置
-        const prev = this.lastUnitPos.get(u.id);
-        if (prev && !reduceMotion() && (prev.x !== x || prev.y !== y)) {
-          dot.animate?.(
-            [{ transform: `translate(${prev.x - x}px, ${prev.y - y}px)` }, { transform: "translate(0,0)" }],
-            { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
-          );
-        }
-      });
-    });
-
-    labels.forEach((l, i) => {
-      const t = el("text", {
-        x: 20, y: startY + 60 + i * 18, "font-size": 12,
-        fill: l.placeholder ? C.inkFaint : C.ink,
-      });
-      t.textContent = l.placeholder ? `［${l.text}］` : l.text;
-      this.svg.appendChild(t);
-    });
+    for (const item of items) {
+      if (item.kind === "bar") this.paintBar(item);
+      else if (item.kind === "extent") this.paintExtent(item);
+      else if (item.kind === "label") this.paintLabel(item);
+      else this.paintUnits(item, nextPos);
+    }
 
     this.lastUnitPos = nextPos;
   }
 
-  /** 计数事实与守恒：一致就安静，不一致必须显眼——这正是验算的价值 */
+  /** 量：长度正比于数值的条。共享一把尺，差额那一截高亮——「差 24」是看出来的 */
+  private paintBar(bar: PlacedBar): void {
+    const tone = CHANNELS[bar.channel % CHANNELS.length]!;
+    const { box } = bar;
+    this.text(bar.label ?? bar.id, bar.labelAt.x, bar.labelAt.y, 12, C.ink, "start", 600);
+    // 空槽：让所有条的量程一致，短的那根一眼看出"还差一截"
+    this.svg.appendChild(
+      el("rect", {
+        x: box.x, y: box.y, width: box.w, height: box.h, rx: 6,
+        fill: "none", stroke: C.rule, "stroke-width": 1,
+      }),
+    );
+    const fill = el("rect", {
+      x: box.x, y: box.y, width: Math.max(0, bar.fillW), height: box.h, rx: 6,
+      fill: tone, "fill-opacity": 0.22, stroke: tone, "stroke-width": 1.5,
+    });
+    this.svg.appendChild(fill);
+    if (!reduceMotion()) {
+      fill.animate?.(
+        [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+        { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
+      );
+      (fill as SVGElement).style.transformOrigin = `${box.x}px ${box.y}px`;
+    }
+    for (const t of bar.ticks) {
+      this.svg.appendChild(
+        el("line", {
+          x1: box.x + t, y1: box.y + 6, x2: box.x + t, y2: box.y + box.h - 6,
+          stroke: tone, "stroke-width": 1, "stroke-opacity": 0.45,
+        }),
+      );
+    }
+    // 数值写在填充段内侧；条太短就挪到外面，绝不压在边框上
+    const inside = bar.fillW > 46;
+    this.text(
+      String(bar.value),
+      box.x + bar.fillW + (inside ? -10 : 8),
+      box.y + box.h / 2 + 4,
+      13,
+      tone,
+      inside ? "end" : "start",
+      700,
+    );
+    if (bar.delta) {
+      const w = bar.delta.toX - bar.delta.fromX;
+      this.svg.appendChild(
+        el("rect", {
+          x: box.x + bar.delta.fromX, y: box.y - 4, width: w, height: box.h + 8, rx: 4,
+          fill: C.beam, "fill-opacity": 0.12, stroke: C.beam,
+          "stroke-width": 1.5, "stroke-dasharray": "5 3",
+        }),
+      );
+      this.text(`差 ${bar.delta.value}`, box.x + bar.delta.fromX + w / 2, box.y - 9, 12, C.beam, "middle", 700);
+    }
+  }
+
+  /** 声明了宽高的矩形：按长宽比画出来，不降级成一行字 */
+  private paintExtent(ext: PlacedExtent): void {
+    const tone = CHANNELS[ext.channel % CHANNELS.length]!;
+    this.text(ext.label ?? ext.id, ext.labelAt.x, ext.labelAt.y, 12, C.ink, "start", 600);
+    this.svg.appendChild(
+      el("rect", {
+        x: ext.box.x, y: ext.box.y, width: ext.box.w, height: ext.box.h, rx: 4,
+        fill: tone, "fill-opacity": 0.14, stroke: tone, "stroke-width": 1.5,
+      }),
+    );
+  }
+
+  private paintLabel(l: PlacedLabel): void {
+    this.text(
+      l.placeholder ? `［${l.text}］` : l.text,
+      l.at.x, l.at.y, 12, l.placeholder ? C.inkFaint : C.ink, "start", 400,
+    );
+  }
+
+  /** 集：可数的记号。组身份 = 形状 × 颜色，被换过类别的记号换形状但不换位置 */
+  private paintUnits(g: PlacedUnits, nextPos: Map<string, { x: number; y: number }>): void {
+    const tone = CHANNELS[g.channel % CHANNELS.length]!;
+    const shape = SHAPES[g.channel % SHAPES.length]!;
+    const count = g.units.reduce((s, u) => s + u.weight, 0);
+    const head = g.label ?? g.id;
+    this.text(
+      `${head}${g.note ? `（${g.note}）` : ""}`,
+      g.labelAt.x, g.labelAt.y, 12, g.ghost ? C.inkFaint : C.ink, "start", 600,
+    );
+    if (!g.label?.includes(String(count))) {
+      this.text(`${count}`, g.labelAt.x + g.box.w, g.labelAt.y, 12, C.inkFaint, "end", 600);
+    }
+
+    for (const u of g.units) {
+      nextPos.set(u.id, { x: u.cx, y: u.cy });
+      // 被替换过的记号长成它变成的那一类的样子（换成兔就该像兔）；
+      // spec 没说变成什么时退到下一个通道，至少和原类别区分得开
+      const swappedCh = u.swappedChannel ?? (g.channel + 1) % CHANNELS.length;
+      const swappedTone = CHANNELS[swappedCh % CHANNELS.length]!;
+      const node = this.unitNode(
+        u.swapped ? SHAPES[swappedCh % SHAPES.length]! : shape,
+        u.cx, u.cy, u.r,
+        g.ghost ? "none" : u.swapped ? swappedTone : u.kind === "unknown" ? C.lit : tone,
+        g.ghost ? C.inkFaint : u.swapped ? swappedTone : tone,
+        g.ghost,
+      );
+      this.svg.appendChild(node);
+      if (u.weight > 1) {
+        this.text(String(u.weight), u.cx, u.cy + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
+      }
+      const prev = this.lastUnitPos.get(u.id);
+      if (prev && !reduceMotion() && (prev.x !== u.cx || prev.y !== u.cy)) {
+        node.animate?.(
+          [
+            { transform: `translate(${prev.x - u.cx}px, ${prev.y - u.cy}px)` },
+            { transform: "translate(0,0)" },
+          ],
+          { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
+        );
+      }
+    }
+  }
+
+  /** 形状通道：颜色之外再给一条区分维度（色觉障碍与灰度打印下仍分得清） */
+  private unitNode(
+    shape: UnitShape,
+    cx: number,
+    cy: number,
+    r: number,
+    fill: string,
+    stroke: string,
+    ghost = false,
+  ): SVGElement {
+    const common = {
+      fill,
+      "fill-opacity": ghost ? 0 : 0.85,
+      stroke,
+      "stroke-width": 1,
+      "stroke-dasharray": ghost ? "2 2" : "0",
+    };
+    if (shape === "square") {
+      return el("rect", { x: cx - r, y: cy - r, width: r * 2, height: r * 2, rx: r * 0.3, ...common });
+    }
+    if (shape === "triangle") {
+      const pts = `${cx},${cy - r} ${cx + r},${cy + r * 0.8} ${cx - r},${cy + r * 0.8}`;
+      return el("polygon", { points: pts, ...common });
+    }
+    if (shape === "diamond") {
+      const pts = `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`;
+      return el("polygon", { points: pts, ...common });
+    }
+    return el("circle", { cx, cy, r, ...common });
+  }
+
+  private text(
+    content: string,
+    x: number,
+    y: number,
+    size: number,
+    fill: string,
+    anchor: "start" | "middle" | "end" = "start",
+    weight = 400,
+  ): void {
+    const t = el("text", {
+      x, y, "font-size": size, fill, "text-anchor": anchor, "font-weight": weight,
+    });
+    t.textContent = content;
+    this.svg.appendChild(t);
+  }
+
+  /**
+   * 计数事实与守恒：一致就安静，不一致必须显眼——这正是验算的价值。
+   * 画在底部自己的条里（布局层已为它留了 FACTS_H），绝不压在内容上。
+   */
   private drawFacts(scene: Scene): void {
-    let y = 18;
+    const facts: { text: string; ok: boolean }[] = [];
     for (const c of scene.counts) {
       const ok = c.claimed === c.actual;
-      const t = el("text", {
-        x: this.width - 12, y, "text-anchor": "end", "font-size": 12,
-        fill: ok ? C.correct : C.wrong, "font-family": "ui-monospace,monospace",
+      facts.push({
+        text: ok ? `数一遍：${c.actual} ✓` : `说是 ${c.claimed}，数出来 ${c.actual} ✗`,
+        ok,
       });
-      t.textContent = ok ? `数一遍：${c.actual} ✓` : `说是 ${c.claimed}，数出来 ${c.actual} ✗`;
-      this.svg.appendChild(t);
-      y += 16;
     }
     if (scene.conservation) {
       const { before, after, ok } = scene.conservation;
-      const t = el("text", {
-        x: this.width - 12, y, "text-anchor": "end", "font-size": 12,
-        fill: ok ? C.correct : C.wrong, "font-family": "ui-monospace,monospace",
+      facts.push({
+        text: ok ? `总数没变：${before} → ${after} ✓` : `总数对不上：${before} → ${after} ✗`,
+        ok,
       });
-      t.textContent = ok ? `总数没变：${before} → ${after} ✓` : `总数对不上：${before} → ${after} ✗`;
-      this.svg.appendChild(t);
-      y += 16;
     }
     if (scene.equality) {
       const { left, right, ok } = scene.equality;
+      facts.push({ text: `${left} ${ok ? "=" : "≠"} ${right}`, ok });
+    }
+    if (facts.length === 0) return;
+
+    const stripY = this.height - FACTS_H;
+    this.svg.appendChild(
+      el("line", {
+        x1: 20, y1: stripY, x2: this.width - 20, y2: stripY,
+        stroke: C.rule, "stroke-width": 1,
+      }),
+    );
+    let x = 24;
+    for (const f of facts) {
       const t = el("text", {
-        x: this.width - 12, y, "text-anchor": "end", "font-size": 12,
-        fill: ok ? C.correct : C.wrong, "font-family": "ui-monospace,monospace",
+        x, y: stripY + 22, "font-size": 12,
+        fill: f.ok ? C.correct : C.wrong, "font-family": "ui-monospace,monospace",
       });
-      t.textContent = `${left} ${ok ? "=" : "≠"} ${right}`;
+      t.textContent = f.text;
       this.svg.appendChild(t);
+      // 等宽字体下按字符数估宽足够稳；条目少，不值得为此做一次 DOM 测量
+      x += f.text.length * 7.6 + 26;
     }
   }
 

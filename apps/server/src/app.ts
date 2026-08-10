@@ -21,6 +21,7 @@ import { parentRoutes } from "./routes/parent.js";
 import type { PhotoGrader } from "./photoGrader.js";
 import { ingestRoutes } from "./ingest/routes.js";
 import { exploreRoutes } from "./explore.js";
+import { askRoutes } from "./ask.js";
 import { notesRoutes } from "./notes.js";
 
 export interface AppState {
@@ -151,6 +152,8 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/parent", parentRoutes(state));
   app.route("/api/v1/ingest", ingestRoutes(state));
   app.route("/api/v1/explore", exploreRoutes(state));
+  // 自由提问（题库外的题）：转成临时题目，走和练习页一样的纪律（不喂答案）
+  app.route("/api/v1/ask", askRoutes(state));
   app.route("/api/v1/notes", notesRoutes(state));
 
   // 引擎透传（SSE 流式）

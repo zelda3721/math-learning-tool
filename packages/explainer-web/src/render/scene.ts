@@ -71,13 +71,43 @@ export interface UnitsShape {
   kind: "units";
   id: string;
   label?: string;
-  units: { id: string; weight: number; swapped?: boolean; kind?: string; side?: string }[];
+  units: { id: string; weight: number; swapped?: boolean; swappedTo?: string; kind?: string; side?: string }[];
   ghost?: boolean;
   emphasis?: boolean;
   note?: string;
   unitScale?: number;
+  /** spec 声明的语义色名；布局层映射到配色盘 */
+  color?: string;
+  /** 每个单位排几列（spec 的 columns），布局层据此分块 */
+  columns?: number;
   /** 天平：左右盘 */
   side?: "left" | "right";
+}
+
+/**
+ * 量：连续的大小，画成长度正比于数值的条。
+ * 与 UnitsShape 是两种东西——集要能一个个数出来，量要能一眼比出长短。
+ */
+export interface MagnitudeShape {
+  kind: "magnitude";
+  id: string;
+  label?: string;
+  value: number;
+  color?: string;
+  emphasis?: boolean;
+  note?: string;
+}
+
+/** 声明了宽高的几何矩形（题卡、缺口条…）：按声明的长宽比画出来，不降级成一行字 */
+export interface ExtentShape {
+  kind: "extent";
+  id: string;
+  label?: string;
+  /** 声明的宽高（相对单位，布局层按可用空间等比缩放） */
+  w: number;
+  h: number;
+  color?: string;
+  emphasis?: boolean;
 }
 
 export interface LabelShape {
@@ -95,6 +125,8 @@ export type Shape =
   | RectsShape
   | AxesShape
   | UnitsShape
+  | MagnitudeShape
+  | ExtentShape
   | LabelShape;
 
 export interface Scene {
@@ -108,6 +140,8 @@ export interface Scene {
   counts: BeatState["counts"];
   conservation?: BeatState["conservation"];
   equality?: BeatState["equality"];
+  /** 全体声明色（含未登场的组）：布局层解析"换成了哪一类"时要用 */
+  declaredColors: Record<string, string>;
 }
 
 const num = (v: unknown, fallback: number): number =>
@@ -140,6 +174,29 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
       // 数量型：展开成可数记号
       if (g.units.length > 0 || g.quantity !== undefined) {
         flowed.push(unitsShape(g));
+      } else if (g.magnitude !== undefined) {
+        // 量：画成条，长短即大小
+        flowed.push({
+          kind: "magnitude",
+          id: g.id,
+          value: g.magnitude,
+          ...(g.label !== undefined ? { label: g.label } : {}),
+          ...(g.color !== undefined ? { color: g.color } : {}),
+          ...(g.emphasis ? { emphasis: true as const } : {}),
+          ...(g.note !== undefined ? { note: g.note } : {}),
+        });
+      } else if (extentOf(g) !== null) {
+        // 声明了宽高的矩形：按长宽比画出来
+        const e = extentOf(g)!;
+        flowed.push({
+          kind: "extent",
+          id: g.id,
+          w: e[0],
+          h: e[1],
+          ...(g.label !== undefined ? { label: g.label } : {}),
+          ...(g.color !== undefined ? { color: g.color } : {}),
+          ...(g.emphasis ? { emphasis: true as const } : {}),
+        });
       } else if (g.primitive === "relation_node" || g.label) {
         flowed.push({ kind: "label", id: g.id, text: g.label ?? g.meaning ?? g.id });
       } else {
@@ -178,7 +235,15 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
     counts: beat.counts,
     conservation: beat.conservation,
     equality: beat.equality,
+    declaredColors: beat.declaredColors ?? {},
   };
+}
+
+/** 声明了正的宽高才算几何矩形；缺一个就不是（不猜） */
+function extentOf(g: GroupState): [number, number] | null {
+  const w = num(g.params?.width, Number.NaN);
+  const h = num(g.params?.height, Number.NaN);
+  return w > 0 && h > 0 ? [w, h] : null;
 }
 
 function unitsShape(g: GroupState): UnitsShape {
@@ -186,10 +251,12 @@ function unitsShape(g: GroupState): UnitsShape {
     kind: "units",
     id: g.id,
     label: g.label ?? g.meaning,
+    color: g.color,
     units: g.units.map((u) => ({
       id: u.id,
       weight: u.weight ?? 1,
       swapped: u.swapped,
+      swappedTo: u.swappedTo,
       kind: u.kind,
       side: u.side,
     })),
@@ -197,6 +264,10 @@ function unitsShape(g: GroupState): UnitsShape {
     emphasis: g.emphasis,
     note: g.note,
     unitScale: g.unitScale,
+    columns: (() => {
+      const c = num(g.params?.columns, Number.NaN);
+      return Number.isFinite(c) && c >= 1 ? Math.floor(c) : undefined;
+    })(),
     side: g.units[0]?.side,
   };
 }

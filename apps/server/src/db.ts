@@ -144,6 +144,20 @@ CREATE TABLE IF NOT EXISTS explain_jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+-- P6 提问任务（孩子自由提问 → 引擎 plan → 临时题目入库；产物是「题」不是「讲解」，
+-- 所以不复用 explain_jobs：那张表按 question_id 去重 running 讲解任务，
+-- 塞进来会让 explain 把提问任务当讲解任务返回给前端）
+CREATE TABLE IF NOT EXISTS ask_jobs (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT,
+  question_id TEXT NOT NULL,       -- 目标临时题 id（free-<stem hash>，成功后即入库题 id）
+  problem TEXT NOT NULL,
+  status TEXT NOT NULL,            -- running | done | failed
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ask_jobs_question ON ask_jobs(question_id, status);
 -- P1b 批量抽取任务（运行时状态；抽取结果草稿在 result_json，确认后才进 file-first 题库）
 CREATE TABLE IF NOT EXISTS ingest_jobs (
   id TEXT PRIMARY KEY,

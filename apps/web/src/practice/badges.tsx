@@ -9,6 +9,7 @@ const SLOT_META: Record<Slot, { label: string; tone: BadgeTone }> = {
     weak: { label: '弱点', tone: 'wrong' },
     new: { label: '新题', tone: 'beam' },
     challenge: { label: '挑战', tone: 'slate' },
+    asked: { label: '我问的', tone: 'beam' },
 }
 
 export function SlotBadge({ slot }: { slot: Slot }) {

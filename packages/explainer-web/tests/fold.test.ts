@@ -95,12 +95,11 @@ describe("foldBeats: 可见性与既有语义", () => {
 });
 
 describe("foldBeats: 单位展开", () => {
-  it("count / value / total 都能展开成有身份的单位；非数量图元不展开", () => {
+  it("count / total 展开成有身份的单位；非数量图元不展开", () => {
     const beats = foldBeats(
       parse({
         visual_objects: [
           { id: "grid", primitive: "unit_grid", params: { count: 4 } },
-          { id: "bar", primitive: "quantity_bar", params: { value: 3 } },
           { id: "box", primitive: "rectangle", params: { total: 2 } },
           { id: "half", primitive: "quantity_bar", params: { value: 2.5 } },
           { id: "axes", primitive: "axes", params: { total: 10 } },
@@ -116,11 +115,47 @@ describe("foldBeats: 单位展开", () => {
       "grid#3",
     ]);
     expect(group(beat, "grid").units.map((u) => u.index)).toEqual([0, 1, 2, 3]);
-    expect(group(beat, "bar").units).toHaveLength(3);
     expect(group(beat, "box").units).toHaveLength(2);
     // 小数量不是"几个一"，不许假装数得清
     expect(group(beat, "half").units).toEqual([]);
     expect(group(beat, "axes").units).toEqual([]);
+  });
+
+  it("quantity_bar 的 value 是「量」不是「集」：给 magnitude，不摊成一堆点", () => {
+    // 70 只脚摊成 70 个点，既数不清也比不出 70 与 94 的差——量的意义就在长短对比。
+    // 引擎 Manim 通道一直把 quantity_bar 画成长度正比于 value 的条，这里补齐同一语义。
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "baseline", primitive: "quantity_bar", params: { value: 70 } },
+          { id: "target", primitive: "quantity_bar", params: { value: 94 } },
+          // 条上明确给 count 时仍是可数的集：单位照常展开，take_from 才搬得动
+          { id: "countable", primitive: "quantity_bar", params: { count: 6 } },
+        ],
+        scenes: [{ actions: [] }],
+      }),
+    );
+    const beat = beats[0]!;
+    expect(group(beat, "baseline").magnitude).toBe(70);
+    expect(group(beat, "baseline").units).toEqual([]);
+    expect(group(beat, "baseline").quantity).toBeUndefined();
+    expect(group(beat, "target").magnitude).toBe(94);
+    expect(group(beat, "countable").magnitude).toBeUndefined();
+    expect(group(beat, "countable").units).toHaveLength(6);
+  });
+
+  it("spec 声明的语义色名传给播放器（播放器自己映射配色盘，不直接当 CSS 用）", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "a", primitive: "unit_grid", params: { count: 2 }, color: "yellow" },
+          { id: "b", primitive: "unit_grid", params: { count: 2 } },
+        ],
+        scenes: [{ actions: [] }],
+      }),
+    );
+    expect(group(beats[0]!, "a").color).toBe("yellow");
+    expect(group(beats[0]!, "b").color).toBeUndefined();
   });
 
   it("超过上限时聚合为「每单位代表 N」，且 Σweight 仍等于真实数量", () => {
@@ -599,5 +634,106 @@ describe("foldBeats: 旧播放器兼容视图", () => {
     expect(beats[2]!.objects[0]!.removedCount).toBe(6);
     // 派生出来的残影组不混进旧视图
     expect(beats[2]!.objects.map((o) => o.id)).toEqual(["apples"]);
+  });
+});
+
+describe("foldBeats: 分幕登场（讲解不能一开场就把答案摆出来）", () => {
+  it("spec 用了引入动词，被点名的对象就按拍登场；remove 真的收回去", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "card", primitive: "rectangle", params: {}, label: "题目" },
+          { id: "start", primitive: "unit_grid", params: { count: 5 } },
+          { id: "answer", primitive: "unit_grid", params: { count: 2 }, label: "答案" },
+        ],
+        scenes: [
+          {
+            actions: [
+              { op: "create", targets: ["card"] },
+              { op: "remove", targets: ["card"] },
+              { op: "create", targets: ["start"] },
+            ],
+          },
+          { actions: [{ op: "create", targets: ["answer"] }] },
+        ],
+      }),
+    );
+    // 第 0 拍：题目卡建了又收走，答案还没登场——屏幕上只有起点
+    expect(beats[0]!.groups.map((g) => g.id)).toEqual(["start"]);
+    // 答案在它自己那一拍才出现
+    expect(beats[1]!.groups.map((g) => g.id)).toEqual(["start", "answer"]);
+  });
+
+  it("spec 完全不用引入动词时，行为与从前一致（全部常驻）", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "a", primitive: "unit_grid", params: { count: 3 } },
+          { id: "b", primitive: "unit_grid", params: { count: 4 } },
+        ],
+        scenes: [{ actions: [{ op: "highlight", targets: ["a"] }] }],
+      }),
+    );
+    expect(beats[0]!.groups.map((g) => g.id)).toEqual(["a", "b"]);
+  });
+
+  it("一拍把东西收光了就把它放回来：宁可挤，不可白屏", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [{ id: "only", primitive: "unit_grid", params: { count: 3 } }],
+        scenes: [
+          { actions: [{ op: "create", targets: ["only"] }] },
+          { actions: [{ op: "remove", targets: ["only"] }] },
+        ],
+      }),
+    );
+    expect(beats[1]!.groups.map((g) => g.id)).toEqual(["only"]);
+  });
+});
+
+describe("foldBeats: 守恒只在可通约的组之间成立", () => {
+  it("不同种类的量不相加：假设法只断言被替换那一组的个体数不变", () => {
+    // 鸡兔同笼的真实形态：35 个头 + 70/94 只脚 + 12 兔 + 23 鸡。
+    // 若把它们全加起来，两边都是 234、永远"守恒"——那是一个把头和脚加在一起的假事实。
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "heads", primitive: "unit_grid", params: { count: 35 } },
+          { id: "feet_now", primitive: "quantity_bar", params: { value: 70 } },
+          { id: "feet_real", primitive: "quantity_bar", params: { value: 94 } },
+          { id: "rabbits", primitive: "unit_grid", params: { count: 12 } },
+        ],
+        scenes: [
+          {
+            actions: [
+              { op: "swap_units", targets: ["heads"], source: "heads", destination: "rabbits", count: 12 },
+            ],
+          },
+        ],
+      }),
+    );
+    // 守恒的是「头数」，不是满屏所有数字的和
+    expect(beats[0]!.conservation).toEqual({ before: 35, after: 35, ok: true });
+  });
+
+  it("单位真的流动过的组之间才算总量，且跨拍记住这层关系", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "apples", primitive: "unit_grid", params: { count: 9 } },
+          { id: "basket", primitive: "rectangle", params: {} },
+          { id: "unrelated", primitive: "unit_grid", params: { count: 100 } },
+        ],
+        scenes: [
+          { actions: [{ op: "take_from", source: "apples", destination: "basket", count: 4 }] },
+          { actions: [{ op: "take_from", source: "apples", count: 2 }] },
+        ],
+      }),
+    );
+    // 第 1 拍：苹果和篮子并成一个分量，9 = 5 + 4
+    expect(beats[0]!.conservation).toEqual({ before: 9, after: 9, ok: true });
+    // 第 2 拍只动苹果，但篮子仍在同一分量里算数（第 1 拍搬过去的没消失）；
+    // 与本拍无关的 unrelated 那 100 个始终不掺和进来
+    expect(beats[1]!.conservation).toEqual({ before: 9, after: 9, ok: true });
   });
 });
