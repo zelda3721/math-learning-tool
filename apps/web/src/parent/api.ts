@@ -52,6 +52,9 @@ export interface ExplanationSource {
     source: string
     quality: string
     count: number
+    /** 人工偏好票数：门禁只能判有没有画错，判不了讲没讲明白 */
+    clear_votes: number
+    confusing_votes: number
 }
 
 export interface ParentSummary {

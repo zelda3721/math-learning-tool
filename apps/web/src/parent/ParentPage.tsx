@@ -47,6 +47,7 @@ function StatsRow({ summary }: { summary: ParentSummary }) {
 /** 引擎里确定性构造器盖的章 → 人话；没盖章的一律是模型写的计划 */
 const SOURCE_LABEL: Record<string, string> = {
     llm_director: '模型导演',
+    llm_html: '模型直写页面',
     linear_mix_swap: '假设法（确定性）',
     quantity_story: '数量叙事（确定性）',
     linear_balance: '天平（确定性）',
@@ -62,11 +63,18 @@ const SOURCE_LABEL: Record<string, string> = {
 function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
     const total = rows.reduce((s, r) => s + r.count, 0)
     if (total === 0) return null
-    const bySource = new Map<string, number>()
-    for (const r of rows) bySource.set(r.source, (bySource.get(r.source) ?? 0) + r.count)
-    const sorted = [...bySource.entries()].sort((a, b) => b[1] - a[1])
-    const modelShare = Math.round(((bySource.get('llm_director') ?? 0) / total) * 100)
-    const degraded = bySource.get('minimal_narrative') ?? 0
+    const bySource = new Map<string, { count: number; clear: number; confusing: number }>()
+    for (const r of rows) {
+        const acc = bySource.get(r.source) ?? { count: 0, clear: 0, confusing: 0 }
+        acc.count += r.count
+        acc.clear += r.clear_votes ?? 0
+        acc.confusing += r.confusing_votes ?? 0
+        bySource.set(r.source, acc)
+    }
+    const sorted = [...bySource.entries()].sort((a, b) => b[1].count - a[1].count)
+    const modelShare = Math.round((((bySource.get('llm_director')?.count ?? 0) / total) * 100))
+    const degraded = bySource.get('minimal_narrative')?.count ?? 0
+    const votes = sorted.reduce((s, [, v]) => s + v.clear + v.confusing, 0)
 
     return (
         <section className="plate p-6 space-y-4">
@@ -79,9 +87,10 @@ function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
                 后者占比越高，画质越不稳定。
             </p>
             <ul className="space-y-3">
-                {sorted.map(([source, count]) => {
-                    const pct = Math.round((count / total) * 100)
-                    const isModel = source === 'llm_director'
+                {sorted.map(([source, v]) => {
+                    const pct = Math.round((v.count / total) * 100)
+                    const isModel = source === 'llm_director' || source === 'llm_html'
+                    const voted = v.clear + v.confusing
                     return (
                         <li key={source} className="space-y-1.5">
                             <div className="flex items-baseline justify-between gap-3">
@@ -89,7 +98,19 @@ function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
                                     {SOURCE_LABEL[source] ?? source}
                                 </span>
                                 <span className="numeric text-xs text-ink-faint shrink-0">
-                                    {count} 份 · {pct}%
+                                    {v.count} 份 · {pct}%
+                                    {voted > 0 && (
+                                        <>
+                                            {' · '}
+                                            <span className="text-[color:var(--color-correct)]">
+                                                清楚 {v.clear}
+                                            </span>
+                                            {' / '}
+                                            <span className="text-[color:var(--color-wrong)]">
+                                                没懂 {v.confusing}
+                                            </span>
+                                        </>
+                                    )}
                                 </span>
                             </div>
                             <div className="h-1.5 rounded-full bg-rule overflow-hidden">
@@ -105,6 +126,7 @@ function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
             <p className="text-xs text-ink-faint leading-relaxed">
                 {modelShare}% 的讲解由模型设计画面
                 {degraded > 0 ? ` · ${degraded} 份走了降级叙事` : ''}
+                {votes > 0 ? ` · 已收到 ${votes} 条「讲得清楚吗」的反馈` : ''}
             </p>
         </section>
     )

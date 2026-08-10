@@ -11,6 +11,7 @@ import {
 } from './api'
 import { Button } from '../ui'
 import { GeneratedExplanation } from './GeneratedExplanation'
+import { ExplanationCompare } from './ExplanationCompare'
 
 /**
  * 讲解视图：默认 mode:'web' 动态讲解——ready/job done 后拉 SceneSpec 挂 ExplainerPlayer；
@@ -21,9 +22,24 @@ import { GeneratedExplanation } from './GeneratedExplanation'
 type ViewState =
     | { kind: 'loading' }
     | { kind: 'video'; explanation: Explanation }
-    | { kind: 'web'; spec: SceneSpec; fallback: ExplainFallback; videoJobId?: string; videoNote?: string }
+    | {
+          kind: 'web'
+          spec: SceneSpec
+          fallback: ExplainFallback
+          videoJobId?: string
+          videoNote?: string
+          explanation?: Explanation
+          alternatives?: Explanation[]
+      }
     // 模型直写的页面：只拿 URL，内容放进 sandbox iframe，绝不同源执行
-    | { kind: 'html'; htmlUrl: string; quality?: string; fallback: ExplainFallback }
+    | {
+          kind: 'html'
+          htmlUrl: string
+          quality?: string
+          fallback: ExplainFallback
+          explanation: Explanation
+          alternatives?: Explanation[]
+      }
     | { kind: 'fallback'; fallback: ExplainFallback; jobId?: string; note?: string }
     | { kind: 'error'; message: string }
 
@@ -45,7 +61,9 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
     // request 是调用方内联对象：只在挂载时发一次，避免引用变化反复请求
     const requestRef = useRef(request)
     // applyExplanation 由挂载 effect 定义（共享其 cancelled 标志），轮询 effect 经 ref 复用
-    const applyRef = useRef<(explanation: Explanation, fallback: ExplainFallback) => void>(() => {})
+    const applyRef = useRef<
+        (explanation: Explanation, fallback: ExplainFallback, alternatives?: Explanation[]) => void
+    >(() => {})
     // 最近一次拿到的图文兜底：轮询 done 时作为 spec 异常的退路
     const fallbackRef = useRef<ExplainFallback>({})
 
@@ -53,7 +71,11 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
         let cancelled = false
 
         /** ready/done 拿到 explanation 后统一落地：web → 拉 spec 校验挂播放器；video → 原地放视频 */
-        const applyExplanation = (explanation: Explanation, fallback: ExplainFallback) => {
+        const applyExplanation = (
+            explanation: Explanation,
+            fallback: ExplainFallback,
+            alternatives: Explanation[] = [],
+        ) => {
             fallbackRef.current = fallback
             if (explanation.mode === 'web_html' && explanation.htmlUrl) {
                 setState({
@@ -61,6 +83,8 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                     htmlUrl: explanation.htmlUrl,
                     quality: explanation.quality,
                     fallback,
+                    explanation,
+                    alternatives,
                 })
             } else if (explanation.mode === 'web' && explanation.specUrl) {
                 void fetchSpec(explanation.specUrl)
@@ -68,7 +92,7 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                         if (cancelled) return
                         const { spec, errors } = validateSpec(raw)
                         if (spec && errors.length === 0) {
-                            setState({ kind: 'web', spec, fallback })
+                            setState({ kind: 'web', spec, fallback, explanation, alternatives })
                         } else {
                             setState({ kind: 'fallback', fallback, note: SPEC_BROKEN_NOTE })
                         }
@@ -89,7 +113,7 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                 if (cancelled) return
                 fallbackRef.current = res.fallback
                 if (res.status === 'ready') {
-                    applyExplanation(res.explanation, res.fallback)
+                    applyExplanation(res.explanation, res.fallback, res.alternatives ?? [])
                 } else if (res.status === 'generating') {
                     setState({ kind: 'fallback', fallback: res.fallback, jobId: res.jobId })
                 } else {
@@ -128,7 +152,7 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                 .then((job) => {
                     if (cancelled) return
                     if (job.status === 'done' && job.explanation) {
-                        applyRef.current(job.explanation, fallbackRef.current)
+                        applyRef.current(job.explanation, fallbackRef.current, job.alternatives ?? [])
                     } else if (job.status === 'failed') {
                         markFailed()
                     }
@@ -142,6 +166,15 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
             window.clearInterval(timer)
         }
     }, [pollJobId])
+
+    /** 换到另一份讲法：两份都已生成，纯本地切换，不再调引擎 */
+    const switchTo = (next: Explanation) => {
+        const current =
+            state.kind === 'html' ? state.explanation : state.kind === 'web' ? state.explanation : undefined
+        const others = (state.kind === 'html' || state.kind === 'web' ? state.alternatives : undefined) ?? []
+        const rest = [...others.filter((e) => e.id !== next.id), ...(current ? [current] : [])]
+        applyRef.current(next, fallbackRef.current, rest)
+    }
 
     // 「生成高级视频」：显式 mode:'video' 走原 Manim 流程；已有缓存（ready 且 videoUrl）直接切视频
     const requestVideo = () => {
@@ -201,6 +234,14 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
             {state.kind === 'web' && (
                 <div className="space-y-2">
                     <WebPlayer spec={state.spec} />
+                    {state.explanation && state.alternatives && state.alternatives.length > 0 && (
+                        <ExplanationCompare
+                            current={state.explanation}
+                            alternatives={state.alternatives}
+                            learnerId={requestRef.current.learnerId}
+                            onSelect={switchTo}
+                        />
+                    )}
                     <div className="flex items-center justify-center gap-3">
                         <Button
                             size="sm"
@@ -218,6 +259,14 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
             {state.kind === 'html' && (
                 <div className="space-y-2">
                     <GeneratedExplanation htmlUrl={state.htmlUrl} quality={state.quality} />
+                    {state.alternatives && state.alternatives.length > 0 && (
+                        <ExplanationCompare
+                            current={state.explanation}
+                            alternatives={state.alternatives}
+                            learnerId={requestRef.current.learnerId}
+                            onSelect={switchTo}
+                        />
+                    )}
                     <div className="flex items-center justify-center">
                         <Button size="sm" variant="secondary" onClick={requestVideo}>
                             🎬 生成高级视频
