@@ -8,6 +8,7 @@ import { applyAttempt, effectiveP, masteryBand } from "../mastery.js";
 import { makeHint } from "../hint.js";
 import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
+import { advanceReviewCard, ensureReviewCard } from "../review.js";
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（不喂答案从协议层做起） */
 function sanitize(q: Question) {
@@ -30,8 +31,9 @@ const SubmitSchema = z.object({
   answer: z.string().max(500),
   hintLevelUsed: z.number().int().min(0).max(3).default(0),
   durationS: z.number().nonnegative().optional(),
-  source: z.enum(["daily", "probe", "variant", "explore"]).default("daily"),
+  source: z.enum(["daily", "probe", "variant", "review", "explore"]).default("daily"),
   queueItemId: z.string().optional(),
+  reviewCardId: z.string().optional(),
 });
 const HintSchema = z.object({
   learnerId: z.string(),
@@ -53,8 +55,121 @@ export function practiceRoutes(state: AppState): Hono {
       items: composed.map((item) => ({
         slot: item.slot,
         queueItemId: item.queueItemId,
+        reviewCardId: item.reviewCardId,
         question: sanitize(item.question),
       })),
+    });
+  });
+
+  // 学生「下一步」一句话建议（元认知首版：点亮地图 + 一条下一步，设计 §04）
+  app.get("/next-step", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const dueReviews = state.repo.countDueReviews(learnerId);
+    if (dueReviews > 0) {
+      return c.json({ nextStep: `有 ${dueReviews} 张复习卡到期了——先把之前的错题用新题练一遍。`, kind: "review" });
+    }
+    const mastery = state.repo.allMastery(learnerId);
+    const weakest = mastery
+      .map((m) => ({ nodeId: m.nodeId, p: effectiveP(m), evidenceN: m.evidenceN }))
+      .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN) !== "lit")
+      .sort((a, b) => a.p - b.p)[0];
+    if (weakest && (state.questions.byNode.get(weakest.nodeId) ?? []).length) {
+      const name = state.knowledge.index.getNode(weakest.nodeId)?.name ?? weakest.nodeId;
+      return c.json({ nextStep: `「${name}」还差一点就点亮了，今天练它。`, kind: "weak", nodeId: weakest.nodeId });
+    }
+    return c.json({ nextStep: "开始今天的新题，探索一颗新星星。", kind: "new" });
+  });
+
+  // 拍照作答判卷（P3）：vision 识别手写 → 确定性判卷；低置信度进家长抽检
+  const PhotoSchema = z.object({
+    learnerId: z.string(),
+    questionId: z.string(),
+    /** 图片 base64（可带 data URL 前缀） */
+    image: z.string().min(1),
+    hintLevelUsed: z.number().int().min(0).max(3).default(0),
+    durationS: z.number().nonnegative().optional(),
+    source: z.enum(["daily", "probe", "variant", "review", "explore"]).default("daily"),
+    queueItemId: z.string().optional(),
+    reviewCardId: z.string().optional(),
+  });
+
+  app.post("/submit-photo", async (c) => {
+    const parsed = PhotoSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId/questionId/image" }, 400);
+    const body = parsed.data;
+    if (!state.photoGrader) return c.json({ error: "拍照判卷需配置 vision LLM 端点" }, 501);
+    if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    const question = state.questions.byId.get(body.questionId);
+    if (!question) return c.json({ error: "题目不存在" }, 404);
+
+    const m = /^data:([\w/+.-]+);base64,/.exec(body.image);
+    const base64 = m ? body.image.slice(m[0].length) : body.image;
+    const mime = m?.[1] ?? "image/jpeg";
+    let extracted: { answer: string; confident: boolean };
+    try {
+      extracted = await state.photoGrader.extractAnswer(base64, mime, question.stem);
+    } catch (err) {
+      return c.json({ error: `识别失败: ${String(err)}` }, 502);
+    }
+
+    const result = grade(question, extracted.answer);
+    // 低置信度识别：无论判对错都进家长抽检（识别错误不能污染掌握度证据）
+    const needsReview = !extracted.confident || result.method === "pending";
+    const attempt = state.repo.insertAttempt({
+      learnerId: body.learnerId,
+      questionId: body.questionId,
+      answer: extracted.answer,
+      correct: result.correct,
+      hintLevelUsed: body.hintLevelUsed as 0 | 1 | 2 | 3,
+      source: body.source,
+      durationS: body.durationS,
+      needsReview,
+    });
+    if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
+
+    const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
+    let review: { stage: number; mastered: boolean; nextReviewAt: string | null } | undefined;
+    if (!needsReview) {
+      for (const nodeId of question.nodeIds) {
+        const current = state.repo.getMastery(body.learnerId, nodeId);
+        const next = applyAttempt(
+          current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
+          result.correct,
+          body.hintLevelUsed as 0 | 1 | 2 | 3,
+        );
+        const row = {
+          learnerId: body.learnerId,
+          nodeId,
+          p: next.p,
+          evidenceN: next.evidenceN,
+          lastEvidenceAt: new Date().toISOString(),
+        };
+        state.repo.upsertMastery(row);
+        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN) });
+      }
+      if (body.source === "probe") backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
+      if (body.reviewCardId) review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
+      else if (!result.correct && body.source === "daily") ensureReviewCard(state.repo, body.learnerId, body.questionId);
+    }
+    state.repo.appendEvent(body.learnerId, "attempt", {
+      attemptId: attempt.id,
+      questionId: body.questionId,
+      correct: result.correct,
+      method: "photo",
+      extractedAnswer: extracted.answer,
+      confident: extracted.confident,
+    });
+
+    return c.json({
+      attemptId: attempt.id,
+      correct: result.correct,
+      extractedAnswer: extracted.answer,
+      confident: extracted.confident,
+      needsReview,
+      hintAvailable: !result.correct && !needsReview && body.hintLevelUsed < 3,
+      mastery: masteryChanges,
+      review,
     });
   });
 
@@ -115,6 +230,14 @@ export function practiceRoutes(state: AppState): Hono {
       backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
     }
 
+    // SM-2 推进（复习卡作答）；日常答错自动入复习（宪法第 3 条）
+    let review: { stage: number; mastered: boolean; nextReviewAt: string | null } | undefined;
+    if (body.reviewCardId && !pending) {
+      review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
+    } else if (!pending && !result.correct && body.source === "daily") {
+      ensureReviewCard(state.repo, body.learnerId, body.questionId);
+    }
+
     return c.json({
       attemptId: attempt.id,
       correct: result.correct,
@@ -122,6 +245,7 @@ export function practiceRoutes(state: AppState): Hono {
       needsReview: pending,
       hintAvailable: !result.correct && !pending && body.hintLevelUsed < 3,
       mastery: masteryChanges,
+      review,
     });
   });
 

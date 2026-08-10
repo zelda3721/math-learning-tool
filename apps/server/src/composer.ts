@@ -4,6 +4,7 @@ import type { GraphIndex } from "@mathtutor/knowledge";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
 import { effectiveP, masteryBand } from "./mastery.js";
+import { pickReviewQuestion } from "./review.js";
 
 const LEVEL_ORDER: EducationLevel[] = [
   "elementary_lower",
@@ -15,8 +16,10 @@ const LEVEL_ORDER: EducationLevel[] = [
 
 export interface ComposedQuestion {
   question: Question;
-  slot: "queue" | "weak" | "new" | "challenge";
+  slot: "review" | "queue" | "weak" | "new" | "challenge";
   queueItemId?: string;
+  /** SM-2 复习卡：submit 带回以推进间隔 */
+  reviewCardId?: string;
 }
 
 /**
@@ -37,20 +40,32 @@ export function composeToday(
   const picked: ComposedQuestion[] = [];
   const pickedIds = new Set<string>();
 
-  const take = (q: Question | undefined, slot: ComposedQuestion["slot"], queueItemId?: string) => {
+  const take = (
+    q: Question | undefined,
+    slot: ComposedQuestion["slot"],
+    queueItemId?: string,
+    reviewCardId?: string,
+  ) => {
     if (!q || pickedIds.has(q.id) || excluded.has(q.id)) return false;
-    picked.push({ question: q, slot, queueItemId });
+    picked.push({ question: q, slot, queueItemId, reviewCardId });
     pickedIds.add(q.id);
     return true;
   };
 
-  // 1) 队列（探针/复习）
+  // 1) 到期复习（SM-2，宪法第 3 条：换题再练——原题排除后由 pickReviewQuestion 找同组/同型新题）
+  for (const card of repo.dueReviewCards(learnerId, target)) {
+    if (picked.length >= target) break;
+    const q = pickReviewQuestion(store, card, new Set([...pickedIds, ...excluded]));
+    take(q, "review", undefined, card.id);
+  }
+
+  // 2) 探针队列（P2 诊断排入；作答结果回填归因证据）
   for (const item of repo.dueQueueQuestionIds(learnerId, target)) {
     if (picked.length >= target) break;
     take(store.byId.get(item.questionId), "queue", item.id);
   }
 
-  // 2) 弱点节点：有证据且有效掌握度最低的节点，取其未做对的题
+  // 3) 弱点节点：有证据且有效掌握度最低的节点，取其未做对的题
   const mastery = repo.allMastery(learnerId);
   const weakNodes = mastery
     .map((m) => ({ nodeId: m.nodeId, p: effectiveP(m), evidenceN: m.evidenceN }))
@@ -68,7 +83,7 @@ export function composeToday(
     }
   }
 
-  // 3) 新题：无任何证据的节点，按图谱学段内顺序
+  // 4) 新题：无任何证据的节点，按图谱学段内顺序
   const evidenced = new Set(mastery.filter((m) => m.evidenceN > 0).map((m) => m.nodeId));
   const orderedNodes = [...index.graph.nodes].sort(
     (a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.lane ?? 0) - (b.lane ?? 0),
@@ -83,7 +98,7 @@ export function composeToday(
     }
   }
 
-  // 4) 挑战题（合意难度）：高一档难度或下一年级段，1 道
+  // 5) 挑战题（合意难度）：高一档难度或下一年级段，1 道
   if (opts.challenge !== false) {
     const nextLevel = LEVEL_ORDER[LEVEL_ORDER.indexOf(learner.level) + 1];
     const challenge =

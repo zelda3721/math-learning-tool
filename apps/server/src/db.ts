@@ -64,6 +64,21 @@ CREATE TABLE IF NOT EXISTS queue_items (
   meta_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_queue_due ON queue_items(learner_id, due_at, consumed_at);
+-- P3 SM-2 复习卡：复习 = 同题型换题再练（宪法第 3 条）；答对进档、答错回退 2 档
+CREATE TABLE IF NOT EXISTS review_cards (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL,       -- 'question' | 'node'
+  target_id TEXT NOT NULL,
+  stage INTEGER NOT NULL DEFAULT 0,
+  ease REAL NOT NULL DEFAULT 2.5,
+  next_review_at TEXT NOT NULL,
+  lapse_count INTEGER NOT NULL DEFAULT 0,
+  mastered_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (learner_id, target_kind, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_review_due ON review_cards(learner_id, next_review_at, mastered_at);
 -- P2 错因归因：错因 = 图谱坐标 (root_node_id, misconception_id?)，附证据与置信度（宪法第 4 条）
 CREATE TABLE IF NOT EXISTS mistakes (
   id TEXT PRIMARY KEY,
