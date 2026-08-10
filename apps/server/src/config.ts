@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 /**
  * 读仓库根 .env 注入 process.env（已存在的真实环境变量优先，不覆盖）。
@@ -46,7 +47,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: Number(env.SERVER_PORT ?? 8080),
     host: env.SERVER_HOST ?? "0.0.0.0",
     engineUrl: (env.ENGINE_URL ?? "http://localhost:8000").replace(/\/$/, ""),
-    dataDir: env.DATA_DIR ?? new URL("../../../data", import.meta.url).pathname,
+    // 相对 DATA_DIR 锚定仓库根（共享 .env 里的 ./data：引擎解析到引擎根、网关解析到仓库根，各取各的存储）
+    dataDir: env.DATA_DIR
+      ? path.resolve(new URL("../../..", import.meta.url).pathname, env.DATA_DIR)
+      : new URL("../../../data", import.meta.url).pathname,
     allowEngineOffline: env.ALLOW_ENGINE_OFFLINE === "1",
   };
 }
