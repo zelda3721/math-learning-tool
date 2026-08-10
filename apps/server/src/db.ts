@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS explain_jobs (
   mode TEXT NOT NULL DEFAULT 'video',  -- 'web'（plan-only spec）| 'video'（Manim）
   explanation_id TEXT,
   error TEXT,
+  note TEXT,                       -- 非致命备注：如 both 模式下模型那份为何被弃用
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -181,6 +182,7 @@ const MIGRATIONS = [
   "ALTER TABLE explain_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'",
   "ALTER TABLE explanations ADD COLUMN grounding_source TEXT",
   "ALTER TABLE explanations ADD COLUMN html_url TEXT",
+  "ALTER TABLE explain_jobs ADD COLUMN note TEXT",
 ];
 
 function migrate(db: DatabaseSync): void {

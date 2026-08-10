@@ -73,6 +73,7 @@ async function runJob(app: ReturnType<typeof createApp>, body: unknown) {
   return (await jobRes.json()) as {
     status: string;
     error?: string;
+    note?: string;
     explanation?: { id: string; mode: string; htmlUrl?: string; specUrl?: string; quality: string };
     alternatives?: { id: string; mode: string; specUrl?: string; htmlUrl?: string }[];
   };
@@ -279,5 +280,90 @@ describe("并排对比与人工偏好", () => {
       body: JSON.stringify({ label: "还行吧" }),
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("both：已有旧的动画讲解时，仍要补生成模型那份", () => {
+  /** 先用 web 模式生成一份 SceneSpec 讲解，模拟"这题以前讲过" */
+  async function seedSpecOnly() {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC, html: null }));
+    await runJob(app, { questionId: "wq1", mode: "web" });
+    return { app, state };
+  }
+
+  it("旧的 web 讲解不算 both 的缓存命中——否则模型那份永远没机会生成", async () => {
+    const { app, state } = await seedSpecOnly();
+    expect(state.repo.findExplanation("wq1", undefined, "web")).toBeTruthy();
+
+    const res = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    // 必须是 202 去生成，而不是 200 直接把旧的那份还回来
+    expect(res.status).toBe(202);
+    expect(((await res.json()) as { status: string }).status).toBe("generating");
+  });
+
+  it("已有 SceneSpec 时只补跑 html，不重复生成计划", async () => {
+    const { app, state } = await seedSpecOnly();
+    let sent: unknown;
+    state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+
+    expect((sent as { route?: string }).route).toBe("html");
+    expect(job.status).toBe("done");
+    expect(job.explanation?.mode).toBe("web_html");
+    // 旧的那份作为对比项出现，而不是被重新生成一遍
+    expect(job.alternatives?.map((a) => a.mode)).toEqual(["web"]);
+  });
+
+  it("补跑的 html 没过门禁时，退回那份旧的动画讲解", async () => {
+    const { app, state } = await seedSpecOnly();
+    const before = state.repo.findExplanation("wq1", undefined, "web")!.id;
+    state.engineFetch = mockHtmlFetch({
+      spec: GOOD_SPEC,
+      gate: { ok: false, errors: ["答案不许画错"] },
+    });
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("done");
+    expect(job.explanation?.id).toBe(before);
+    expect(job.explanation?.mode).toBe("web");
+  });
+
+  it("模型那份已存在时才算缓存命中，直接秒回", async () => {
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    await runJob(app, { questionId: "wq1", mode: "both" });
+    const res = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; explanation?: { mode: string } };
+    expect(body.status).toBe("ready");
+    expect(body.explanation?.mode).toBe("web_html");
+  });
+});
+
+describe("退回时留下原因（否则只能靠猜）", () => {
+  it("both 里模型那份被弃用时，任务上留备注说明为什么", async () => {
+    const { app } = makeApp(
+      mockHtmlFetch({
+        spec: GOOD_SPEC,
+        gate: { ok: false, errors: ["heads 标着 35，画面上只有 0 个"] },
+      }),
+    );
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("done");
+    expect(job.explanation?.mode).toBe("web");
+    expect(job.note).toContain("模型直写那份未采用");
+    expect(job.note).toContain("只有 0 个");
+  });
+
+  it("两份都成功时不留噪音备注", async () => {
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.note).toBeFalsy();
   });
 });
