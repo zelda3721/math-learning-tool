@@ -25,6 +25,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..math_runtime import (
     evaluate_real_expression_at,
+    execute_math_request,
     extract_linear_balance_structure,
     extract_linear_mix_structure,
     sample_real_expression,
@@ -4846,6 +4847,13 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
             arithmetic_errors[:3],
         )
     normalized = _normalize_plan(candidate)
+    # Salvage keeps drawings, but never a fabricated one.  A curve computed
+    # from a real expression is worth preserving; the "tangent" whose slope the
+    # mathematics contradicts is dropped here, so the degraded plan shows the
+    # true curve and says less, instead of showing a false picture.
+    fabricated = _geometrically_false_object_ids(normalized)
+    if fabricated:
+        logger.warning("dropping geometrically false objects from salvage: %s", sorted(fabricated))
     objects = [
         item
         for item in (normalized.get("visual_objects") or [])
@@ -4853,6 +4861,7 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
         and item.get("id")
         and item.get("primitive") in _VISUAL_PRIMITIVES
         and item.get("meaning")
+        and str(item.get("id")) not in fabricated
     ]
     if len(objects) < 2:
         # Never recurse when we already hold the verified-arithmetic candidate:
@@ -5245,6 +5254,678 @@ def _member_series_violations(visual_objects: list[Any]) -> list[str]:
     return violations
 
 
+# --------------------------------------------------------------------------
+# Geometric truth gate
+#
+# Structural validation above proves a plan is well formed; it cannot prove
+# the drawing is true.  A plan may declare a curve, mark a point that lies on
+# neither curve, and label a horizontal segment "tangent" where the real slope
+# is 0.878 — every field present, every id resolved, and a child who reads the
+# slope learns something false.  The checks below recompute each geometric
+# claim from the very expression the plan carries, using the whitelisted SymPy
+# runtime (never eval).  They are source-agnostic: a deterministic constructor
+# and an LLM draft are held to the same standard.
+#
+# Asymmetry is deliberate: a claim that cannot be recomputed (unparsable
+# expression, undefined value) is skipped, never reported.  The gate only ever
+# fires on geometry it has actually contradicted.
+# --------------------------------------------------------------------------
+
+_ON_CURVE_HINTS = (
+    "曲线",
+    "曲線",
+    "图像",
+    "图象",
+    "函数上",
+    "切点",
+    "交点",
+    "curve",
+    "graph",
+    "tangency",
+    "intersection",
+)
+_TANGENT_HINTS = ("切线", "切線", "tangent")
+_SECANT_HINTS = ("割线", "割線", "secant")
+# "2x+1" / "3(x-1)" are frequent director spellings that the strict AST parser
+# rejects.  Rewriting them for the *check* only ever widens coverage: the
+# rewritten form still goes through the same whitelist, and a form that stays
+# unparsable is skipped rather than blamed.
+_IMPLICIT_PRODUCT_RE = re.compile(r"(?<=\d)\s*(?=[A-Za-z_(])")
+_EXPRESSION_FORM_CACHE: dict[tuple[str, str], str | None] = {}
+_DERIVATIVE_CACHE: dict[tuple[str, str], str | None] = {}
+_GEOMETRY_CACHE_LIMIT = 512
+
+
+def _params_of(item: dict[str, Any]) -> dict[str, Any]:
+    params = item.get("params")
+    return params if isinstance(params, dict) else {}
+
+
+def _finite_float(value: Any) -> float | None:
+    if isinstance(value, bool) or isinstance(value, (list, tuple, dict)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _point_pair(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    x = _finite_float(value[0])
+    y = _finite_float(value[1])
+    if x is None or y is None:
+        return None
+    return (x, y)
+
+
+def _expression_probe(expression: str, variable: str) -> bool:
+    """Can the safe runtime parse this expression in this variable at all?"""
+    try:
+        result = execute_math_request(
+            {
+                "engine": "sympy",
+                "symbols": {variable: {"domain": "real"}},
+                "operations": [
+                    {
+                        "id": "geometry_probe",
+                        "op": "evaluate",
+                        "expression": expression,
+                        "variable": variable,
+                    }
+                ],
+            }
+        )
+    except Exception:  # pragma: no cover - defensive around the runtime
+        return False
+    return bool(result.success and result.operations)
+
+
+def _computable_expression(expression: Any, variable: Any) -> str | None:
+    """A spelling of ``expression`` the safe runtime can evaluate, or None."""
+    text = str(expression or "").strip()
+    name = str(variable or "x").strip() or "x"
+    if not text or not name.isidentifier() or len(text) > 400:
+        return None
+    key = (text, name)
+    if key in _EXPRESSION_FORM_CACHE:
+        return _EXPRESSION_FORM_CACHE[key]
+    resolved: str | None = None
+    candidates = [text]
+    relaxed = _IMPLICIT_PRODUCT_RE.sub("*", text)
+    if relaxed != text:
+        candidates.append(relaxed)
+    for candidate in candidates:
+        if _expression_probe(candidate, name):
+            resolved = candidate
+            break
+    if len(_EXPRESSION_FORM_CACHE) > _GEOMETRY_CACHE_LIMIT:
+        _EXPRESSION_FORM_CACHE.clear()
+    _EXPRESSION_FORM_CACHE[key] = resolved
+    return resolved
+
+
+def _derivative_expression(expression: str, variable: str) -> str | None:
+    """Exact d/dvariable through the deterministic runtime, or None."""
+    key = (expression, variable)
+    if key in _DERIVATIVE_CACHE:
+        return _DERIVATIVE_CACHE[key]
+    derivative: str | None = None
+    try:
+        result = execute_math_request(
+            {
+                "engine": "sympy",
+                "symbols": {variable: {"domain": "real"}},
+                "operations": [
+                    {
+                        "id": "geometry_derivative",
+                        "op": "differentiate",
+                        "expression": expression,
+                        "variable": variable,
+                    }
+                ],
+            }
+        )
+    except Exception:  # pragma: no cover - defensive around the runtime
+        result = None
+    if result is not None and result.success and result.operations:
+        raw = result.operations[0].get("result")
+        if isinstance(raw, str) and raw.strip():
+            derivative = raw.strip()
+    if len(_DERIVATIVE_CACHE) > _GEOMETRY_CACHE_LIMIT:
+        _DERIVATIVE_CACHE.clear()
+    _DERIVATIVE_CACHE[key] = derivative
+    return derivative
+
+
+def _slope_value_at(expression: str, variable: str, point: float) -> float | None:
+    derivative = _derivative_expression(expression, variable)
+    if derivative is None:
+        return None
+    return _real_value_at(derivative, variable, point)
+
+
+def _plan_curves(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every function_curve whose expression can actually be recomputed."""
+    curves: list[dict[str, Any]] = []
+    for index, item in enumerate(plan.get("visual_objects") or [], start=1):
+        if not isinstance(item, dict) or item.get("primitive") != "function_curve":
+            continue
+        params = _params_of(item)
+        variable = str(params.get("variable") or "x").strip() or "x"
+        expression = _computable_expression(params.get("expression"), variable)
+        if expression is None:
+            continue
+        span = params.get("x_range")
+        x_range = None
+        if isinstance(span, (list, tuple)) and len(span) >= 2:
+            low, high = _finite_float(span[0]), _finite_float(span[1])
+            if low is not None and high is not None and high > low:
+                x_range = (low, high)
+        curves.append(
+            {
+                "index": index,
+                "id": str(item.get("id") or f"curve_{index}"),
+                "expression": expression,
+                "variable": variable,
+                "x_range": x_range,
+                "label": f"{item.get('label') or ''} {item.get('meaning') or ''}".strip(),
+            }
+        )
+    return curves
+
+
+def _curve_covers(curve: dict[str, Any], x: float) -> bool:
+    span = curve.get("x_range")
+    if span is None:
+        return True
+    return bool(span[0] - 1e-9 <= x <= span[1] + 1e-9)
+
+
+def _plan_value_scale(plan: dict[str, Any], curves: list[dict[str, Any]]) -> float:
+    """The vertical span the picture actually occupies (at least 1.0)."""
+    values: list[float] = []
+
+    def collect(value: Any) -> None:
+        number = _finite_float(value)
+        if number is not None and abs(number) < 1e9:
+            values.append(number)
+
+    for item in plan.get("visual_objects") or []:
+        if not isinstance(item, dict):
+            continue
+        params = _params_of(item)
+        span = params.get("y_range")
+        if isinstance(span, (list, tuple)) and len(span) >= 2:
+            collect(span[0])
+            collect(span[1])
+        collect(params.get("y"))
+        for key in ("start", "end"):
+            point = _point_pair(params.get(key))
+            if point is not None:
+                collect(point[1])
+        for key in ("positions", "points", "samples"):
+            for entry in params.get(key) or []:
+                point = _point_pair(entry)
+                if point is not None:
+                    collect(point[1])
+        for rect in params.get("rects") or []:
+            if isinstance(rect, (list, tuple)) and len(rect) >= 3:
+                collect(rect[2])
+    for curve in curves:
+        span = curve.get("x_range") or (-3.0, 3.0)
+        for x in _linear_space(span[0], span[1], 5):
+            collect(_real_value_at(curve["expression"], curve["variable"], x))
+    if not values:
+        return 1.0
+    return max(max(values) - min(values), 1.0)
+
+
+def _geometric_truth_findings(plan: dict[str, Any]) -> list[tuple[str, str]]:
+    """(object_id, message) for every geometric claim contradicted by math."""
+    if not isinstance(plan, dict):
+        return []
+    objects = [item for item in plan.get("visual_objects") or [] if isinstance(item, dict)]
+    curves = _plan_curves(plan)
+    scale = _plan_value_scale(plan, curves)
+    tol = max(1e-6, 0.02 * scale)
+    findings: list[tuple[str, str]] = []
+    for index, item in enumerate(objects, start=1):
+        primitive = str(item.get("primitive") or "")
+        params = _params_of(item)
+        text = f"{item.get('label') or ''} {item.get('meaning') or ''}"
+
+        if primitive == "dot" and curves:
+            findings.extend(_dot_violations(item, index, curves, tol, text))
+        elif primitive == "tangent_line":
+            findings.extend(_tangent_primitive_violations(item, index, tol))
+        elif primitive == "secant_line":
+            findings.extend(_secant_primitive_violations(item, index, tol))
+        elif primitive == "riemann_rects":
+            findings.extend(_riemann_violations(item, index, tol))
+        elif primitive == "line" and curves:
+            points = _line_points(params)
+            if points is None:
+                continue
+            if any(word in text for word in _TANGENT_HINTS):
+                findings.extend(_line_tangent_violations(item, index, points, curves, tol))
+            elif any(word in text for word in _SECANT_HINTS):
+                findings.extend(_line_secant_violations(item, index, points, curves, tol))
+    return findings
+
+
+def _dot_violations(
+    item: dict[str, Any],
+    index: int,
+    curves: list[dict[str, Any]],
+    tol: float,
+    text: str,
+) -> list[tuple[str, str]]:
+    """A point that claims the curve must sit on it, within tolerance."""
+    params = _params_of(item)
+    if params.get("open"):
+        # A hollow marker deliberately states "the function is not this value
+        # here" (removable discontinuity, limit height).  Checking it against
+        # the curve would punish an honest drawing.
+        return []
+    points: list[tuple[float, float]] = []
+    x = _finite_float(params.get("x"))
+    y = _finite_float(params.get("y"))
+    if x is not None and y is not None:
+        points.append((x, y))
+    for entry in params.get("positions") or []:
+        point = _point_pair(entry)
+        if point is not None:
+            points.append(point)
+    if not points:
+        return []
+    object_id = str(item.get("id") or f"dot_{index}")
+    hinted = any(word in text for word in _ON_CURVE_HINTS)
+    # A count-bearing dot is a group of interchangeable units laid out for
+    # counting, not a coordinate reading; only an explicit claim makes it one.
+    counted = (_declared_count(item) or 0) > 1
+    violations: list[tuple[str, str]] = []
+    for x0, y0 in points:
+        candidates = [curve for curve in curves if _curve_covers(curve, x0)]
+        if not candidates:
+            continue
+        # A dot claims the curve when it says so, or when the picture holds a
+        # single curve and the dot carries a non-zero height in that frame.
+        # A y=0 marker without such a claim is an x-axis annotation.
+        if not hinted and (counted or not (len(curves) == 1 and abs(y0) > tol)):
+            continue
+        readings: list[tuple[float, dict[str, Any]]] = []
+        for curve in candidates:
+            value = _real_value_at(curve["expression"], curve["variable"], x0)
+            if value is None:
+                continue
+            if abs(value - y0) <= tol:
+                readings = []
+                break
+            readings.append((value, curve))
+        if not readings:
+            continue
+        detail = "；".join(
+            f"{curve['id']} 在 {curve['variable']}={_format_number(x0)} 处的真实值是 "
+            f"{_format_number(value)}"
+            for value, curve in readings[:3]
+        )
+        violations.append(
+            (
+                object_id,
+                f"visual_objects[{index}]（{object_id}）标注的点 "
+                f"({_format_number(x0)}, {_format_number(y0)}) 不在任何函数曲线上："
+                f"{detail}（容差 {_format_number(tol)}）。"
+                "图上标注的坐标必须由函数本身算出，不能凑位置",
+            )
+        )
+    return violations
+
+
+def _line_points(params: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    raw = params.get("points")
+    if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+        first, second = _point_pair(raw[0]), _point_pair(raw[-1])
+        if first is not None and second is not None:
+            return (first, second)
+    first, second = _point_pair(params.get("start")), _point_pair(params.get("end"))
+    if first is not None and second is not None:
+        return (first, second)
+    coordinates = [_finite_float(params.get(key)) for key in ("x1", "y1", "x2", "y2")]
+    if all(value is not None for value in coordinates):
+        return ((coordinates[0], coordinates[1]), (coordinates[2], coordinates[3]))  # type: ignore[return-value]
+    return None
+
+
+def _segment_slope(
+    points: tuple[tuple[float, float], tuple[float, float]],
+) -> float | None:
+    (x1, y1), (x2, y2) = points
+    if abs(x2 - x1) <= 1e-9:
+        return None
+    return (y2 - y1) / (x2 - x1)
+
+
+def _tangent_primitive_violations(
+    item: dict[str, Any], index: int, tol: float
+) -> list[tuple[str, str]]:
+    params = _params_of(item)
+    variable = str(params.get("variable") or "x").strip() or "x"
+    expression = _computable_expression(params.get("expression"), variable)
+    at_x = _finite_float(params.get("at_x"))
+    if expression is None or at_x is None:
+        return []
+    value = _real_value_at(expression, variable, at_x)
+    true_slope = _slope_value_at(expression, variable, at_x)
+    if value is None or true_slope is None:
+        return []
+    object_id = str(item.get("id") or f"tangent_{index}")
+    slope_tol = max(tol, 1e-6)
+    violations: list[tuple[str, str]] = []
+    declared = _finite_float(params.get("slope"))
+    if declared is not None and abs(declared - true_slope) > slope_tol:
+        violations.append(
+            (
+                object_id,
+                f"visual_objects[{index}]（{object_id}）切线斜率是编的："
+                f"声称 {_format_number(declared)}，而 {expression} 在 "
+                f"{variable}={_format_number(at_x)} 处的导数是 "
+                f"{_format_number(true_slope)}",
+            )
+        )
+    points = _line_points(params)
+    if points is not None:
+        drawn_slope = _segment_slope(points)
+        if drawn_slope is None:
+            violations.append(
+                (
+                    object_id,
+                    f"visual_objects[{index}]（{object_id}）切线画成了竖直线段，"
+                    "无法表示有限斜率",
+                )
+            )
+        else:
+            if abs(drawn_slope - true_slope) > slope_tol:
+                violations.append(
+                    (
+                        object_id,
+                        f"visual_objects[{index}]（{object_id}）切线端点画出的斜率是 "
+                        f"{_format_number(drawn_slope)}，真实导数是 "
+                        f"{_format_number(true_slope)}；孩子照着读斜率会读到假的数",
+                    )
+                )
+            (x1, y1), _ = points
+            drawn_at_x = y1 + drawn_slope * (at_x - x1)
+            if abs(drawn_at_x - value) > tol:
+                violations.append(
+                    (
+                        object_id,
+                        f"visual_objects[{index}]（{object_id}）切线没有经过切点 "
+                        f"({_format_number(at_x)}, {_format_number(value)})："
+                        f"它在该处的高度是 {_format_number(drawn_at_x)}",
+                    )
+                )
+    return violations
+
+
+def _secant_primitive_violations(
+    item: dict[str, Any], index: int, tol: float
+) -> list[tuple[str, str]]:
+    params = _params_of(item)
+    variable = str(params.get("variable") or "x").strip() or "x"
+    expression = _computable_expression(params.get("expression"), variable)
+    x0 = _finite_float(params.get("x0"))
+    h = _finite_float(params.get("h"))
+    if expression is None or x0 is None or h is None or abs(h) <= 1e-12:
+        return []
+    start_value = _real_value_at(expression, variable, x0)
+    end_value = _real_value_at(expression, variable, x0 + h)
+    if start_value is None or end_value is None:
+        return []
+    true_slope = (end_value - start_value) / h
+    object_id = str(item.get("id") or f"secant_{index}")
+    slope_tol = max(tol, 1e-6)
+    violations: list[tuple[str, str]] = []
+    declared = _finite_float(params.get("slope"))
+    if declared is not None and abs(declared - true_slope) > slope_tol:
+        violations.append(
+            (
+                object_id,
+                f"visual_objects[{index}]（{object_id}）割线斜率是编的："
+                f"声称 {_format_number(declared)}，而两点平均变化率 "
+                f"(f({_format_number(x0 + h)})-f({_format_number(x0)}))/"
+                f"{_format_number(h)} = {_format_number(true_slope)}",
+            )
+        )
+    for key, expected_x, expected_y in (
+        ("start", x0, start_value),
+        ("end", x0 + h, end_value),
+    ):
+        point = _point_pair(params.get(key))
+        if point is None:
+            continue
+        if abs(point[0] - expected_x) > tol or abs(point[1] - expected_y) > tol:
+            violations.append(
+                (
+                    object_id,
+                    f"visual_objects[{index}]（{object_id}）割线端点 {key} 画在 "
+                    f"({_format_number(point[0])}, {_format_number(point[1])})，"
+                    f"真实曲线点是 ({_format_number(expected_x)}, "
+                    f"{_format_number(expected_y)})",
+                )
+            )
+    return violations
+
+
+def _riemann_violations(
+    item: dict[str, Any], index: int, tol: float
+) -> list[tuple[str, str]]:
+    params = _params_of(item)
+    variable = str(params.get("variable") or "x").strip() or "x"
+    expression = _computable_expression(params.get("expression"), variable)
+    if expression is None:
+        return []
+    side = str(params.get("side") or "mid").strip().lower()
+    if side not in {"left", "right", "mid"}:
+        side = "mid"
+    object_id = str(item.get("id") or f"riemann_{index}")
+    violations: list[tuple[str, str]] = []
+    rects = [
+        rect
+        for rect in params.get("rects") or []
+        if isinstance(rect, (list, tuple)) and len(rect) >= 3
+    ]
+    total = 0.0
+    checked = False
+    for order, rect in enumerate(rects, start=1):
+        left = _finite_float(rect[0])
+        right = _finite_float(rect[1])
+        height = _finite_float(rect[2])
+        if left is None or right is None or height is None or right <= left:
+            continue
+        sample = {"left": left, "right": right, "mid": (left + right) / 2}[side]
+        expected = _real_value_at(expression, variable, sample)
+        if expected is None:
+            continue
+        checked = True
+        total += height * (right - left)
+        if abs(expected - height) > tol:
+            violations.append(
+                (
+                    object_id,
+                    f"visual_objects[{index}]（{object_id}）第 {order} 个黎曼矩形高度是 "
+                    f"{_format_number(height)}，而 f({_format_number(sample)}) = "
+                    f"{_format_number(expected)}；矩形高度必须就是函数值",
+                )
+            )
+    declared_area = _finite_float(params.get("approx_area"))
+    if declared_area is not None and checked and not violations:
+        area_tol = max(1e-6, 0.02 * max(abs(declared_area), 1.0))
+        if abs(declared_area - total) > area_tol:
+            violations.append(
+                (
+                    object_id,
+                    f"visual_objects[{index}]（{object_id}）声称的近似面积 "
+                    f"{_format_number(declared_area)} 不等于画出的矩形面积和 "
+                    f"{_format_number(total)}",
+                )
+            )
+    elif declared_area is not None and not rects:
+        count = _finite_float(params.get("n"))
+        span = params.get("x_range")
+        if count is not None and isinstance(span, (list, tuple)) and len(span) >= 2:
+            low, high = _finite_float(span[0]), _finite_float(span[1])
+            if low is not None and high is not None and 1 <= count <= 512:
+                computed = _riemann_sum(
+                    expression, variable, low, high, int(count), side
+                )
+                if computed is not None:
+                    area_tol = max(1e-6, 0.02 * max(abs(declared_area), 1.0))
+                    if abs(declared_area - computed[0]) > area_tol:
+                        violations.append(
+                            (
+                                object_id,
+                                f"visual_objects[{index}]（{object_id}）声称的近似面积 "
+                                f"{_format_number(declared_area)} 与 n={int(count)} 的"
+                                f"真实黎曼和 {_format_number(computed[0])} 不一致",
+                            )
+                        )
+    return violations
+
+
+def _tangency_candidates(
+    item: dict[str, Any],
+    points: tuple[tuple[float, float], tuple[float, float]],
+    curve: dict[str, Any],
+) -> list[float]:
+    """The x values the drawing itself nominates as the point of tangency.
+
+    Only nominated points count: an explicit parameter, or an endpoint/midpoint
+    of the drawn segment.  Accepting any interior point would let a fabricated
+    slope pass on a coincidence — along a long enough segment a curved graph
+    takes almost every slope somewhere, which is exactly how a wrong tangent
+    survives a casual look.
+    """
+    params = _params_of(item)
+    nominated = [
+        value
+        for value in (
+            _finite_float(params.get(key)) for key in ("at_x", "x0", "tangent_at")
+        )
+        if value is not None
+    ]
+    (x1, _), (x2, _) = points
+    if not nominated:
+        nominated = [x1, x2, (x1 + x2) / 2]
+    span = curve.get("x_range")
+    candidates: list[float] = []
+    for value in nominated:
+        if span is not None and not (span[0] - 1e-9 <= value <= span[1] + 1e-9):
+            continue
+        if all(abs(value - existing) > 1e-9 for existing in candidates):
+            candidates.append(value)
+    return candidates
+
+
+def _line_tangent_violations(
+    item: dict[str, Any],
+    index: int,
+    points: tuple[tuple[float, float], tuple[float, float]],
+    curves: list[dict[str, Any]],
+    tol: float,
+) -> list[tuple[str, str]]:
+    """A segment labelled "tangent" must actually touch a curve tangentially."""
+    object_id = str(item.get("id") or f"line_{index}")
+    slope = _segment_slope(points)
+    if slope is None:
+        return []
+    slope_tol = max(tol, 1e-6)
+    (x1, y1), _ = points
+    diagnostics: list[str] = []
+    checked = False
+    for curve in curves:
+        candidates = _tangency_candidates(item, points, curve)
+        anchor_reading: str | None = None
+        for x in candidates:
+            value = _real_value_at(curve["expression"], curve["variable"], x)
+            true_slope = _slope_value_at(curve["expression"], curve["variable"], x)
+            if value is None or true_slope is None:
+                continue
+            checked = True
+            if abs(y1 + slope * (x - x1) - value) <= tol and abs(slope - true_slope) <= slope_tol:
+                return []
+            if anchor_reading is None:
+                anchor_reading = (
+                    f"{curve['id']} 在 {curve['variable']}={_format_number(x)} 处的"
+                    f"真实切线斜率是 {_format_number(true_slope)}，切点高度 "
+                    f"{_format_number(value)}"
+                )
+        if anchor_reading is not None:
+            diagnostics.append(anchor_reading)
+    if not checked:
+        return []
+    return [
+        (
+            object_id,
+            f"visual_objects[{index}]（{object_id}）被标注为切线，但斜率 "
+            f"{_format_number(slope)} 的这条线段与任何函数曲线都不相切："
+            + "；".join(diagnostics[:2])
+            + "。切线的斜率必须等于该点导数，否则图上读到的是假数",
+        )
+    ]
+
+
+def _line_secant_violations(
+    item: dict[str, Any],
+    index: int,
+    points: tuple[tuple[float, float], tuple[float, float]],
+    curves: list[dict[str, Any]],
+    tol: float,
+) -> list[tuple[str, str]]:
+    """A segment labelled "secant" must join two real points of one curve."""
+    object_id = str(item.get("id") or f"line_{index}")
+    checked = False
+    for curve in curves:
+        values: list[float] = []
+        for x, y in points:
+            if not _curve_covers(curve, x):
+                values = []
+                break
+            value = _real_value_at(curve["expression"], curve["variable"], x)
+            if value is None:
+                values = []
+                break
+            values.append(abs(value - y))
+        if not values:
+            continue
+        checked = True
+        if max(values) <= tol:
+            return []
+    if not checked:
+        return []
+    (x1, y1), (x2, y2) = points
+    return [
+        (
+            object_id,
+            f"visual_objects[{index}]（{object_id}）被标注为割线，但端点 "
+            f"({_format_number(x1)}, {_format_number(y1)}) 与 "
+            f"({_format_number(x2)}, {_format_number(y2)}) 并非同一条曲线上的两点",
+        )
+    ]
+
+
+def _geometric_truth_violations(plan: dict[str, Any]) -> list[str]:
+    """Every drawn claim the mathematics contradicts, as validation errors."""
+    return [message for _, message in _geometric_truth_findings(plan)]
+
+
+def _geometrically_false_object_ids(plan: dict[str, Any]) -> set[str]:
+    """Ids of objects whose geometry the mathematics contradicts."""
+    return {object_id for object_id, _ in _geometric_truth_findings(plan)}
+
+
 def _validate_plan(
     plan: dict[str, Any],
     grade: str,
@@ -5255,6 +5936,11 @@ def _validate_plan(
     """Validate a universal scene contract, never a problem-type taxonomy."""
     del grade, previous_pattern, is_replan
     errors: list[str] = []
+    # Geometric truth ranks with the structural contract, not below it: a plan
+    # whose drawing contradicts its own function is a defect of the same order
+    # as a missing scene, and must take the same repair/degrade path instead of
+    # reaching a child.
+    errors.extend(_geometric_truth_violations(plan))
     thesis = (plan.get("visual_thesis") or "").strip()
     if len(thesis) < 12:
         errors.append("visual_thesis 太短：请用一句完整的话描述观众最终要看懂的视觉论证")
