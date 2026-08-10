@@ -1,0 +1,128 @@
+<article data-explain="1">
+<style>
+  .mt { font-family: -apple-system, "PingFang SC", sans-serif; color: #16203a;
+        background: #f6f7fa; padding: 20px 22px 16px; border-radius: 12px; }
+  .mt h2 { font-size: 15px; margin: 0 0 12px; font-weight: 700; letter-spacing: -0.01em; }
+  .mt section { display: none; }
+  .mt section[data-active] { display: block; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px 0; margin: 8px 0 6px; }
+  .chunk { display: flex; gap: 5px; margin-right: 16px; }
+  .an { width: 24px; }
+  .head { width: 21px; height: 21px; border-radius: 50%; margin: 0 auto; background: #2b5ce6; }
+  .an[data-kind="rabbit"] .head { background: #d3453f; border-radius: 5px; }
+  .legs { display: flex; justify-content: center; gap: 3px; height: 12px; }
+  .legs i { width: 2px; background: #2b5ce6; border-radius: 1px; }
+  .an[data-kind="rabbit"] .legs i { background: #d3453f; }
+  .lbl { font-size: 12px; color: #4a5670; display: flex; justify-content: space-between;
+         margin-top: 10px; }
+  .bar { position: relative; height: 24px; border: 1px solid #dde2ec; border-radius: 6px;
+         background: #fff; margin: 4px 0 0; }
+  .bar > span { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 6px;
+                background: rgba(43,92,230,.2); border: 1px solid #2b5ce6; }
+  .bar.real > span { background: rgba(224,123,57,.18); border-color: #e07b39; }
+  .gap { position: absolute; top: -4px; bottom: -4px; border: 1.5px dashed #2b5ce6;
+         border-radius: 5px; background: rgba(43,92,230,.1); }
+  .gap b { position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+           font-size: 12px; color: #2b5ce6; white-space: nowrap; }
+  .teach { font-size: 13.5px; line-height: 1.6; margin: 12px 0 0; }
+  .two { display: flex; gap: 26px; flex-wrap: wrap; }
+  .two h3 { font-size: 12px; color: #4a5670; margin: 0 0 4px; font-weight: 600; }
+  .nav { display: flex; gap: 8px; margin-top: 14px; }
+  .nav button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 999px;
+                border: 1px solid #dde2ec; background: #fff; color: #4a5670; cursor: pointer; }
+  .nav button[aria-current="true"] { background: #2b5ce6; border-color: #2b5ce6;
+                                     color: #fff; font-weight: 600; }
+  .nav button:focus-visible { outline: 2px solid #2b5ce6; outline-offset: 2px; }
+  .fact { font-size: 12px; color: #1f9d6b; font-family: ui-monospace, monospace; margin-top: 10px; }
+</style>
+
+<div class="mt">
+  <h2>鸡兔同笼：35 个头，94 只脚</h2>
+
+  <section data-beat="0" data-teach="先假设 35 只全是鸡：每只 2 只脚，一共只有 70 只脚。" data-active>
+    <div class="row" data-claim="heads=35">
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+    </div>
+    <div class="lbl"><span>假设全是鸡</span><span data-measure="assumed_feet=70">70 只脚</span></div>
+    <div class="bar"><span style="width:74.5%"></span></div>
+    <div class="lbl"><span>实际</span><span data-measure="real_feet=94">94 只脚</span></div>
+    <div class="bar real"><span style="width:100%"></span></div>
+    <p class="teach">每个圆圈是一只动物，下面垂下的短线就是它的脚。35 × 2 = 70，比实际少。</p>
+  </section>
+
+  <section data-beat="1" data-teach="差 24 只脚；每把一只鸡换成兔就多 2 只脚，所以要换 12 只。">
+    <div class="row" data-claim="heads=35">
+      <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+    </div>
+    <div class="lbl"><span>缺口</span><span data-measure="gap_feet=24">94 − 70 = 24</span></div>
+    <div class="bar real">
+      <span style="width:100%"></span>
+      <i class="gap" style="left:74.5%; right:0"><b>差 24</b></i>
+    </div>
+    <p class="teach">红色方头的换成了兔，脚从 2 根变成 4 根。换一只补 2 只脚，补满 24 要换 12 只。</p>
+  </section>
+
+  <section data-beat="2" data-teach="12 只兔、23 只鸡：头 35 个，脚 12×4 + 23×2 = 94。">
+    <div class="two">
+      <div>
+        <h3>兔</h3>
+        <div class="row" data-claim="rabbits=12">
+          <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div><div class="an" data-unit="rabbit" data-kind="rabbit"><div class="head"></div><div class="legs"><i></i><i></i><i></i><i></i></div></div></div>
+        </div>
+      </div>
+      <div>
+        <h3>鸡</h3>
+        <div class="row" data-claim="chickens=23">
+          <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+      <div class="chunk"><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div><div class="an" data-unit="chicken" data-kind="chicken"><div class="head"></div><div class="legs"><i></i><i></i></div></div></div>
+        </div>
+      </div>
+    </div>
+    <p class="teach">数一遍：兔 12 只、鸡 23 只，头正好 35 个。</p>
+    <p class="fact">头 12 + 23 = 35 ✓　脚 12×4 + 23×2 = 94 ✓</p>
+  </section>
+
+  <nav class="nav" aria-label="选择步骤">
+    <button type="button" aria-current="true">1 假设</button>
+    <button type="button" aria-current="false">2 替换</button>
+    <button type="button" aria-current="false">3 核对</button>
+  </nav>
+</div>
+
+<script>
+(function () {
+  var root = document.currentScript.closest('article');
+  var sections = root.querySelectorAll('section[data-beat]');
+  var buttons = root.querySelectorAll('.nav button');
+  function go(n) {
+    for (var i = 0; i < sections.length; i++) {
+      if (i === n) sections[i].setAttribute('data-active', '');
+      else sections[i].removeAttribute('data-active');
+      buttons[i].setAttribute('aria-current', String(i === n));
+    }
+  }
+  for (var i = 0; i < buttons.length; i++) {
+    (function (n) {
+      buttons[n].addEventListener('click', function () { go(n); });
+    })(i);
+  }
+})();
+</script>
+</article>

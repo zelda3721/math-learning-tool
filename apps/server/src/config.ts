@@ -40,6 +40,13 @@ export interface ServerConfig {
   dataDir: string;
   /** 引擎离线时是否允许降级启动（开发用；生产按设计应拒绝启动） */
   allowEngineOffline: boolean;
+  /**
+   * Web 讲解默认走哪条路（请求显式带 mode 时以请求为准）：
+   * - `web`      SceneSpec + 固定播放器：画不出假话，但受图元词表限制
+   * - `web_html` 模型直写自足页面：表达上限最高，靠引擎侧契约门禁把住真实性
+   * 两条都会往引擎数据集追加记录，便于日后按通过率与人工反馈比较。
+   */
+  defaultWebExplainMode: "web" | "web_html";
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -52,5 +59,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       ? path.resolve(new URL("../../..", import.meta.url).pathname, env.DATA_DIR)
       : new URL("../../../data", import.meta.url).pathname,
     allowEngineOffline: env.ALLOW_ENGINE_OFFLINE === "1",
+    defaultWebExplainMode: env.EXPLAIN_WEB_MODE === "web_html" ? "web_html" : "web",
   };
 }

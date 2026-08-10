@@ -89,13 +89,18 @@ export interface MistakeSummary {
     createdAt: string
 }
 
-/** 讲解元数据（镜像 server explain/routes.ts explanationView）：web 模式给 specUrl，video 模式给 videoUrl */
+/**
+ * 讲解元数据（镜像 server explain/routes.ts explanationView）。
+ * mode 决定看哪个字段：web → specUrl（SceneSpec 交播放器）、
+ * web_html → htmlUrl（模型直写的页面，必须放进 sandbox iframe）、video → videoUrl。
+ */
 export interface Explanation {
     id: string
     questionId?: string
     focusNodeIds: string[]
     mode: string
     specUrl?: string
+    htmlUrl?: string
     videoUrl?: string
     subtitleUrl?: string
     quality: string
@@ -279,8 +284,11 @@ export async function fetchMistakes(learnerId: string): Promise<MistakeSummary[]
     }
 }
 
-/** 不传 mode 走 server 默认（web 动态讲解）；显式 'video' 才触发 Manim 高级视频流程 */
-export function requestExplain(payload: ExplainRequest, mode?: 'web' | 'video'): Promise<ExplainResponse> {
+/** 不传 mode 走 server 默认（EXPLAIN_WEB_MODE）；显式指定才覆盖 */
+export function requestExplain(
+    payload: ExplainRequest,
+    mode?: 'web' | 'web_html' | 'video',
+): Promise<ExplainResponse> {
     return post('/api/v1/explain', mode ? { ...payload, mode } : payload)
 }
 

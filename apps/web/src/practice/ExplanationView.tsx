@@ -10,6 +10,7 @@ import {
     type SceneSpec,
 } from './api'
 import { Button } from '../ui'
+import { GeneratedExplanation } from './GeneratedExplanation'
 
 /**
  * 讲解视图：默认 mode:'web' 动态讲解——ready/job done 后拉 SceneSpec 挂 ExplainerPlayer；
@@ -21,6 +22,8 @@ type ViewState =
     | { kind: 'loading' }
     | { kind: 'video'; explanation: Explanation }
     | { kind: 'web'; spec: SceneSpec; fallback: ExplainFallback; videoJobId?: string; videoNote?: string }
+    // 模型直写的页面：只拿 URL，内容放进 sandbox iframe，绝不同源执行
+    | { kind: 'html'; htmlUrl: string; quality?: string; fallback: ExplainFallback }
     | { kind: 'fallback'; fallback: ExplainFallback; jobId?: string; note?: string }
     | { kind: 'error'; message: string }
 
@@ -52,7 +55,14 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
         /** ready/done 拿到 explanation 后统一落地：web → 拉 spec 校验挂播放器；video → 原地放视频 */
         const applyExplanation = (explanation: Explanation, fallback: ExplainFallback) => {
             fallbackRef.current = fallback
-            if (explanation.mode === 'web' && explanation.specUrl) {
+            if (explanation.mode === 'web_html' && explanation.htmlUrl) {
+                setState({
+                    kind: 'html',
+                    htmlUrl: explanation.htmlUrl,
+                    quality: explanation.quality,
+                    fallback,
+                })
+            } else if (explanation.mode === 'web' && explanation.specUrl) {
                 void fetchSpec(explanation.specUrl)
                     .then((raw) => {
                         if (cancelled) return
@@ -201,6 +211,17 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
                             {state.videoJobId ? '🎬 视频生成中…' : '🎬 生成高级视频'}
                         </Button>
                         {state.videoNote && <span className="text-xs text-ink-faint">{state.videoNote}</span>}
+                    </div>
+                </div>
+            )}
+
+            {state.kind === 'html' && (
+                <div className="space-y-2">
+                    <GeneratedExplanation htmlUrl={state.htmlUrl} quality={state.quality} />
+                    <div className="flex items-center justify-center">
+                        <Button size="sm" variant="secondary" onClick={requestVideo}>
+                            🎬 生成高级视频
+                        </Button>
                     </div>
                 </div>
             )}
