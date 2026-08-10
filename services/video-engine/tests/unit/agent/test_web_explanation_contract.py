@@ -207,3 +207,65 @@ def test_参考实现能通过门禁_契约必须是写得出来的():
     assert by_name["heads"] == [(35, 35), (35, 35)]
     assert by_name["rabbits"] == [(12, 12)]
     assert by_name["chickens"] == [(23, 23)]
+
+
+def test_声明重复数就按重复数计_不必写35遍():
+    """逐个字面写出来实测会被输出上限截断，还数错过（宣称 35 写了 45）。
+
+    声明重复数之后，模型只写一个样板，实际克隆交给可信运行时——
+    数错在构造上不可能发生，输出也小了几倍。
+    """
+    doc = _doc(
+        _beat(0, "35 只全当鸡", '<div data-claim="heads=35"><span data-unit="chicken" data-repeat="35"></span></div>')
+        + _beat(1, "12 只换成兔",
+                '<div data-claim="rabbits=12"><span data-unit="rabbit" data-repeat="12"></span></div>')
+    )
+    report = verify_web_explanation(doc, EVIDENCE, REQUEST)
+    assert report.ok, report.errors
+    parsed = parse_web_explanation(doc)
+    assert parsed.units_total == 35 + 12
+    assert [(c.name, c.counted) for c in parsed.claims] == [("heads", 35), ("rabbits", 12)]
+
+
+def test_重复数与宣称数对不上照样被抓():
+    doc = _doc(
+        _beat(0, "标 35 却只重复 20 遍",
+              '<div data-claim="heads=35"><span data-unit="chicken" data-repeat="20"></span></div>')
+        + _beat(1, "再看", f'<div data-claim="rabbits=12">{_units(12, "rabbit")}</div>')
+    )
+    findings = verify_web_explanation(doc, EVIDENCE, REQUEST).errors
+    assert any("heads" in f and "20" in f for f in findings), findings
+
+
+def test_一组里混排两类各自重复():
+    """12 兔 + 23 鸡 合起来 35：外层 claim 数到 35，内层各数各的。"""
+    doc = _doc(
+        _beat(
+            0,
+            "混排",
+            '<div data-claim="heads=35">'
+            '<span data-unit="rabbit" data-repeat="12"></span>'
+            '<span data-unit="chicken" data-repeat="23"></span>'
+            "</div>",
+        )
+        + _beat(1, "核对", '<div data-claim="rabbits=12"><i data-unit="rabbit" data-repeat="12"></i></div>')
+    )
+    assert verify_web_explanation(doc, EVIDENCE, REQUEST).ok
+
+
+def test_输出被截断必须判失败():
+    """三次实机生成全部断在半个标签上，其中一次还恰好通过了门禁——
+    放走一个残缺页面比判错更糟。"""
+    truncated = (
+        '<article data-explain="1">'
+        '<section data-beat="0" data-teach="先假设全是鸡">'
+        '<div data-claim="heads=35"><span data-unit="chicken" data-repeat="35"></span></div>'
+        '</section>'
+        '<section data-beat="1" data-teach="换 12 只"><div class="bar'  # 断在这里
+    )
+    findings = verify_web_explanation(truncated, EVIDENCE, REQUEST).errors
+    assert any("截断" in f for f in findings), findings
+
+
+def test_完整收尾的不会被误判成截断():
+    assert verify_web_explanation(GOOD, EVIDENCE, REQUEST).ok

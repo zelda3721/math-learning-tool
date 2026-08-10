@@ -19,9 +19,9 @@ Manim 那条敢让模型写码，是因为成片审查会在像素上做连通�
 
 门禁只做一件事：**把画面上宣称的每个数，跟独立验证过的 Math IR 对账**。
 - `data-claim="x=n"` 的子树里必须真有 n 个 `data-unit`；差一个都不行。
-  个体必须**字面写在标记里**：门禁是静态解析，脚本造出来的元素它看不见，
-  允许脚本生成等于把这条规则整个让掉。（更强的做法是渲染后数真实 DOM，
-  代价是引擎要装一个无头浏览器；先用静态这条，它已经能挡住绝大多数走样。）
+  个体写一个样板加 `data-repeat="n"` 即可，由播放端的可信运行时克隆出 n 个——
+  模型不经手实际绘制，数错在构造上不可能发生。仍然禁止用脚本造元素：
+  门禁是静态解析，脚本造出来的它看不见，允许脚本生成等于把这条规则整个让掉。
 - 验证过的解出现在画面上时，值必须一致——答案不许画错。
 - 没有任何 unit/measure = 纯文字，直接拒（与 meaningless_visual_candidate 同口径）。
 - 外部资源一律拒：内网部署 + 沙箱 iframe，拉不到也不该拉。
@@ -39,6 +39,15 @@ from typing import Any
 
 #: 一个可数个体
 ATTR_UNIT = "data-unit"
+#: 「这个个体重复 N 遍」。写在 data-unit 元素上，由播放端的可信运行时展开。
+#:
+#: 为什么要有它：一开始要求把 N 个个体逐个字面写出来，实测三次生成全部被输出
+#: 长度上限截断（8192 token ≈ 12k 字符，35 个个体加样式就到顶了），还出现过
+#: 「宣称 35、写了 45」的数错。改成声明重复数之后，个体由可信运行时按这个数
+#: 克隆——数错在构造上不可能发生，输出也小了几倍。
+#: 真实性没有让步：门禁核对 data-repeat 与 data-claim 是否一致，
+#: 运行时保证画出来的个数严格等于 data-repeat，两头都不经过模型的手。
+ATTR_REPEAT = "data-repeat"
 #: 一处数量宣称：`名字=数值`，子树内的 data-unit 数必须等于它
 ATTR_CLAIM = "data-claim"
 #: 一处量的宣称（长度/大小类，不可数）：`名字=数值`
@@ -166,13 +175,21 @@ class _Parser(html.parser.HTMLParser):
                 )
 
         if ATTR_UNIT in a:
-            self.out.units_total += 1
+            # 声明了重复数就按重复数计；没声明就是它自己一个
+            repeat = 1
+            if ATTR_REPEAT in a:
+                try:
+                    repeat = int(float(str(a[ATTR_REPEAT]).strip()))
+                except ValueError:
+                    repeat = 1
+                repeat = max(0, repeat)
+            self.out.units_total += repeat
             # 归属给所有祖先 claim（含本元素自己开的，允许 claim 与 unit 同元素）
             for _, claim_ids, _ in self._stack:
                 for cid in claim_ids:
-                    self.out.claims[cid].counted += 1
+                    self.out.claims[cid].counted += repeat
             for cid in opened:
-                self.out.claims[cid].counted += 1
+                self.out.claims[cid].counted += repeat
 
         if tag not in self._void:
             self._stack.append((tag, opened, beat))
@@ -293,6 +310,10 @@ def verify_web_explanation(
 
     if not parsed.has_root:
         findings.append(f"缺少根标记 {ATTR_ROOT}")
+    # 截断是硬伤：残缺的 HTML 渲染出来是半张图，而且此前有一次恰好断在
+    # 单位画完之后、门禁还判它通过——放走一个残缺页面比判错更糟。
+    if "<article" in text.lower() and "</article" not in text.lower():
+        findings.append("输出被截断（缺少 </article> 收尾）：请把页面写短些再输出完整")
 
     # ── 必须真的有图形，不能是一篇作文 ──
     if parsed.units_total == 0 and not parsed.measures:
