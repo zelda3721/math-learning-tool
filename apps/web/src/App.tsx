@@ -9,6 +9,7 @@ import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
 import { PracticePage } from './practice/PracticePage'
+import { AskPage } from './ask/AskPage'
 import { IngestPage } from './ingest/IngestPage'
 import { MistakeBook } from './mistakes/MistakeBook'
 import { ExplorePage } from './explore/ExplorePage'
@@ -27,11 +28,12 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'parent'
+type AppView = 'practice' | 'ask' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'parent'
 
 /** 角色导航：孩子只看学习面，家长全量（管理员） */
 const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[] = [
     { key: 'practice', label: '练习', roles: ['parent', 'child'] },
+    { key: 'ask', label: '问一道题', roles: ['parent', 'child'] },
     { key: 'atlas', label: '星图', roles: ['parent', 'child'] },
     { key: 'mistakes', label: '错题本', roles: ['parent', 'child'] },
     { key: 'explore', label: '探索', roles: ['parent', 'child'] },
@@ -202,6 +204,12 @@ function AuthedApp() {
             {view === 'practice' && (
                 <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
                     <PracticePage />
+                </main>
+            )}
+
+            {view === 'ask' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <AskPage />
                 </main>
             )}
 

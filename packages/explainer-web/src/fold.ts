@@ -31,6 +31,9 @@ export interface Unit {
   weight?: number;
   /** swap_units（假设法）中被替换过：数量不变、类别变 */
   swapped?: boolean;
+  /** 换成了哪一类（目标组 id）。播放器照这个组的形状与颜色画——
+   *  「变成兔了」就该长得跟兔那一组一样，而不是随便换个颜色。 */
+  swappedTo?: string;
   /** 天平语义：这个单位在左盘还是右盘 */
   side?: "left" | "right";
   /** 天平语义：未知数方块 or 单位 */
@@ -52,8 +55,15 @@ export interface GroupState {
   ghost?: boolean;
   /** 单位总量（= 各单位 weight 之和）；无单位时省略 */
   quantity?: number;
+  /**
+   * 「量」的大小：这个组表达的是连续的量而非可数的集，应画成长度正比于它的条。
+   * 与 units 互斥——有 magnitude 就不会有 units，反之亦然。
+   */
+  magnitude?: number;
   /** 声明的数量（params.count/value/total），用于对照 */
   count?: number;
+  /** spec 声明的语义色名（blue/red/yellow…）；播放器按自己的配色盘映射，不直接当 CSS 用 */
+  color?: string;
   /** 一个 Unit 代表 N 个真实单位（> 1 表示超上限后的聚合显示） */
   unitScale?: number;
   /** 由折叠过程派生出的组（残影区、等分份、余数组…），不在 visual_objects 中 */
@@ -83,6 +93,12 @@ export interface BeatState {
   conservation?: { before: number; after: number; ok: boolean };
   /** 天平语义：两边的值与是否仍然相等（等式不变性可见） */
   equality?: { left: number; right: number; ok: boolean };
+  /**
+   * 全体声明组的语义色名——**包括这一拍还没登场的组**。
+   * 「换成兔了」要让记号长成兔的样子，可兔那一组往往还没出场，
+   * 只看在场对象就查不到它的颜色。
+   */
+  declaredColors: Record<string, string>;
   /**
    * @deprecated 旧播放器的兼容视图（仅含 visual_objects 声明过的可见对象）。
    * 新播放器请消费 groups/moves/counts/conservation。
@@ -114,6 +130,27 @@ const NON_QUANTITY_PRIMITIVES = new Set([
   "relation_node",
 ]);
 
+/**
+ * 「量」与「集」是两种东西，画法必须不同：
+ * 集是可数的个体（35 只动物），画成一个个能数的单位；
+ * 量是连续的大小（70 只脚），画成一根长度正比于数值的条。
+ * 把量摊成 70 个点，既数不清、也比不出 70 与 94 的差——量的意义恰恰在长短对比。
+ *
+ * 判据取自契约本身：`quantity_bar` 就是「条」。引擎的 Manim 通道一直这么画
+ * （宽度按全 spec 最大值归一化），visual_plan 提示词也明确要求总量超过 64 时
+ * 改用 `quantity_bar.value` 而非罗列单位——Web 播放器此前是唯一画错的消费者。
+ */
+const MAGNITUDE_PRIMITIVES = new Set(["quantity_bar"]);
+
+/**
+ * 引入类动作：spec 一旦用它们点名某个对象，该对象就要「按需登场」。
+ * 否则所有对象从第 0 拍就全摆在屏幕上——包括答案，讲解就成了先公布答案再解释。
+ */
+const INTRODUCE_OPS = new Set(["create", "appear", "reveal", "introduce", "show", "draw", "add"]);
+
+/** 退场类动作：讲完的题干卡、用过的中间量要收回去，屏幕才留得下重点 */
+const RETIRE_OPS = new Set(["remove", "hide", "erase", "dismiss"]);
+
 /** 真的会搬动单位、因而总量应当守恒的动作 */
 const UNIT_MOVING_OPS = new Set([
   "take_from",
@@ -134,6 +171,8 @@ interface WorkUnit {
   copy?: number;
   weight: number;
   swapped?: boolean;
+  /** 假设法换成了哪一类（目标组 id）：播放器据此让它长成那一类的样子 */
+  swappedTo?: string;
   side?: "left" | "right";
   kind?: "unit" | "unknown";
 }
@@ -156,6 +195,9 @@ interface WorkGroup {
   ghost: boolean;
   synthetic: boolean;
   declaredCount?: number;
+  /** 见 GroupState.magnitude */
+  magnitude?: number;
+  color?: string;
   unitScale: number;
   /** 兼容旧播放器：累计被 take_from 拿走的数量 */
   removed: number;
@@ -236,12 +278,45 @@ function expandUnits(
  */
 export function foldBeats(spec: SceneSpec): BeatState[] {
   const declared = spec.visual_objects;
-  const hasAppear = spec.scenes.some((beat) =>
-    beat.actions.some((a) => a.op === "appear" || a.op === "reveal"),
-  );
+  /**
+   * 被 spec 明确「引入」过的对象集合：这些对象一开始不在场，等到那一拍才登场。
+   * 从未被引入过的对象保持常驻（可能是坐标轴、背景这类环境构件），
+   * 于是不用引入动词的旧 spec 行为完全不变——这条规则只在 spec 自己分了幕时才生效。
+   */
+  const staged = new Set<string>();
+  for (const beat of spec.scenes) {
+    for (const action of beat.actions) {
+      if (!INTRODUCE_OPS.has(action.op)) continue;
+      for (const ref of collectRefs(action)) staged.add(ref);
+    }
+  }
 
   const groups = new Map<string, WorkGroup>();
   const order: string[] = [];
+  /** 全体声明色（不论是否登场）：跨拍不变，算一次即可 */
+  const declaredColors: Record<string, string> = {};
+
+  /**
+   * 「可通约」的组之间才谈得上守恒。判据是**单位真的在它们之间流动过**：
+   * 同一批个体既然能从 A 搬到 B，A 和 B 数的就是同一种东西。
+   * 跨拍累积（并查集），因为第 1 拍搬过去的东西，第 3 拍仍然在那边算数。
+   *
+   * 没有这层限制，守恒就会把满屏所有组加总——35 个头 + 70 只脚 + 12 只兔 + 23 只鸡
+   * ＝ 234，两边永远相等，却是一个把头和脚加在一起的假事实。
+   * 画面上写出来的每一个数都必须是真的，这条比"有个数好看"重要得多。
+   */
+  const commensurate = new Map<string, string>();
+  const findRoot = (id: string): string => {
+    let root = commensurate.get(id) ?? id;
+    while (root !== (commensurate.get(root) ?? root)) root = commensurate.get(root) ?? root;
+    commensurate.set(id, root);
+    return root;
+  };
+  const linkCommensurate = (a: string, b: string): void => {
+    const ra = findRoot(a);
+    const rb = findRoot(b);
+    if (ra !== rb) commensurate.set(rb, ra);
+  };
 
   const addGroup = (group: WorkGroup) => {
     groups.set(group.id, group);
@@ -256,7 +331,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       params,
       units: [],
       unitBearing: false,
-      visible: !hasAppear,
+      visible: !staged.has(obj.id),
       emphasis: false,
       ghost: false,
       synthetic: false,
@@ -265,6 +340,11 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
     };
     if (obj.label !== undefined) group.label = obj.label;
     if (obj.meaning !== undefined) group.meaning = obj.meaning;
+    const declaredColor = (obj as Record<string, unknown>).color;
+    if (typeof declaredColor === "string" && declaredColor.length > 0) {
+      group.color = declaredColor;
+      declaredColors[obj.id] = declaredColor;
+    }
 
     if (obj.primitive === "balance") {
       expandBalance(group);
@@ -272,10 +352,17 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       const n = declaredQuantity(params);
       if (n !== undefined) {
         group.declaredCount = n;
-        const { units, scale } = expandUnits(obj.id, n);
-        group.units = units;
-        group.unitScale = scale;
-        if (scale > 1) group.note = `每个单位代表 ${scale} 个`;
+        // 条 + value/total = 量（画成长短）；条 + count = 仍然是可数的集（单位照常展开）。
+        // 与引擎 Manim 通道同口径：那边也是 value 优先、count 兜底。
+        if (MAGNITUDE_PRIMITIVES.has(obj.primitive) && integerQuantity(params.count) === undefined) {
+          // 量：不展开成单位，交给播放器画成条（长短即大小）
+          group.magnitude = n;
+        } else {
+          const { units, scale } = expandUnits(obj.id, n);
+          group.units = units;
+          group.unitScale = scale;
+          if (scale > 1) group.note = `每个单位代表 ${scale} 个`;
+        }
       }
     }
     group.unitBearing = group.units.length > 0;
@@ -377,6 +464,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           if (unit.copy !== undefined) out.copy = unit.copy;
           if (unit.weight !== 1) out.weight = unit.weight;
           if (unit.swapped === true) out.swapped = true;
+          if (unit.swappedTo !== undefined) out.swappedTo = unit.swappedTo;
           if (unit.side !== undefined) out.side = unit.side;
           if (unit.kind !== undefined) out.kind = unit.kind;
           return out;
@@ -387,6 +475,8 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       if (group.emphasis) state.emphasis = true;
       if (group.ghost) state.ghost = true;
       if (group.units.length > 0) state.quantity = quantityOf(group);
+      if (group.magnitude !== undefined) state.magnitude = group.magnitude;
+      if (group.color !== undefined) state.color = group.color;
       if (group.declaredCount !== undefined) state.count = group.declaredCount;
       if (group.unitScale > 1) state.unitScale = group.unitScale;
       if (group.synthetic) state.synthetic = true;
@@ -422,6 +512,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       groups: groupStates,
       moves: beatMoves,
       counts: beatCounts,
+      declaredColors,
       objects,
     };
     return beat;
@@ -438,7 +529,17 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
     beatMoves = [];
     beatCounts = [];
 
-    const before = totalQuantity();
+    /**
+     * 逐组记下本拍开始时的量。守恒必须**限定在参与搬运的那几个组**里算：
+     * 把满屏所有组加总（头 + 脚 + 兔 + 鸡 = 234）得到的「守恒」两边永远相等，
+     * 却是一个把头和脚加在一起的假事实——画面上写着的每一个数都必须是真的。
+     */
+    const quantityBefore = new Map<string, number>();
+    for (const [id, group] of groups) quantityBefore.set(id, quantityOf(group));
+    /** 本拍真正参与了搬运/替换的组 */
+    const moveScope = new Set<string>();
+    /** 本拍被收走的对象；万一收成空屏，兜底放回来（宁可挤，不可白） */
+    const retiredThisBeat: WorkGroup[] = [];
     let sawUnitMove = false;
     let sawGrowth = false;
     let sawBalanceOp = false;
@@ -449,7 +550,13 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
     for (const action of beat.actions) {
       const rec = action as Record<string, unknown>;
       const refs = collectRefs(action);
-      if (UNIT_MOVING_OPS.has(action.op)) sawUnitMove = true;
+      if (UNIT_MOVING_OPS.has(action.op)) {
+        sawUnitMove = true;
+        // 只收动作直接点名的组；真正收到单位的目的地由 beatMoves 补齐（见下方守恒计算）。
+        // 不能凭 destination 字段就把目的组算进来：假设法（swap_units）是原地改类别，
+        // 目的组只是「换成什么」的名字，它自己声明的那份数量与源组是同一批个体。
+        for (const ref of refs) moveScope.add(ref);
+      }
       if (GROWING_OPS.has(action.op)) sawGrowth = true;
 
       switch (action.op) {
@@ -633,11 +740,13 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           const source = touch(str(rec.source) ?? str(rec.target) ?? refs[0]);
           if (!source) break;
           source.visible = true;
+          const becomes = str(rec.destination) ?? str(rec.into) ?? str(rec.result) ?? str(rec.b);
           let swapped = 0;
           for (const unit of source.units) {
             if (swapped >= count) break;
             if (unit.swapped === true) continue;
             unit.swapped = true;
+            if (becomes !== undefined) unit.swappedTo = becomes;
             swapped += 1;
           }
           if (source.unitBearing && swapped < count) {
@@ -671,6 +780,20 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           break;
         }
 
+        // 退场：讲完的题干卡、用过的中间量收回去，屏幕才留得下重点（数量不动）
+        case "remove":
+        case "hide":
+        case "erase":
+        case "dismiss": {
+          for (const ref of refs) {
+            const group = groups.get(ref);
+            if (!group || !group.visible) continue;
+            group.visible = false;
+            retiredThisBeat.push(group);
+          }
+          break;
+        }
+
         // 既有语义：只点亮，不改动数量
         case "move":
         case "highlight":
@@ -681,8 +804,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
         case "map":
         case "measure":
         case "verify":
-        case "balance_verify":
-        case "remove": {
+        case "balance_verify": {
           for (const ref of refs) touch(ref);
           break;
         }
@@ -694,6 +816,11 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
     }
 
     if (beat.attention_target !== undefined) touch(beat.attention_target);
+
+    // 空屏兜底：这一拍把所有东西都收走了，说明 spec 的收放不成对——放回刚收走的
+    if (retiredThisBeat.length > 0 && !order.some((id) => groups.get(id)?.visible)) {
+      for (const group of retiredThisBeat) group.visible = true;
+    }
 
     const after = totalQuantity();
     const state = snapshot(index, beat.teaching_line, beat.role);
@@ -711,7 +838,27 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
         ok: Math.abs(claimedTotal - actual) < 1e-9,
       };
     } else if (sawUnitMove && !sawGrowth) {
-      state.conservation = { before, after, ok: Math.abs(before - after) < 1e-9 };
+      // 本拍的流动把相关组并进同一个可通约分量（残影组也在其中——东西进了那里，没消失）
+      for (const move of beatMoves) linkCommensurate(move.from, move.to);
+      // 守恒的范围 = 本拍参与者所在的整个分量：第 1 拍搬进篮子的，第 3 拍仍要算进来
+      const roots = new Set<string>();
+      for (const id of moveScope) if (groups.has(id)) roots.add(findRoot(id));
+      for (const move of beatMoves) roots.add(findRoot(move.to));
+      let scopedBefore = 0;
+      let scopedAfter = 0;
+      for (const [id, group] of groups) {
+        if (!roots.has(findRoot(id))) continue;
+        scopedBefore += quantityBefore.get(id) ?? 0;
+        scopedAfter += quantityOf(group);
+      }
+      // 参与的组一个单位都没有（纯图形动作）时不谈守恒——没有量可守
+      if (scopedBefore > 0 || scopedAfter > 0) {
+        state.conservation = {
+          before: scopedBefore,
+          after: scopedAfter,
+          ok: Math.abs(scopedBefore - scopedAfter) < 1e-9,
+        };
+      }
     }
 
     if (sawBalanceOp) {
