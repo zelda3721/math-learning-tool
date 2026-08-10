@@ -76,7 +76,17 @@ function explanationView(e: NonNullable<ReturnType<AppState["repo"]["getExplanat
     videoUrl: e.videoUrl,
     subtitleUrl: e.subtitleUrl,
     quality: e.quality,
+    feedbackLabel: e.feedbackLabel,
   };
+}
+
+/**
+ * 同题的其它形态讲解。both 模式会同时产出模型直写与 SceneSpec 两份，
+ * 不把另一份交给前端，人就没法把它们摆在一起比——而「哪个讲得更清楚」
+ * 只有人能判断，门禁判不了。
+ */
+function alternativesOf(state: AppState, e: { id: string }) {
+  return state.repo.siblingExplanations(e.id).map(explanationView);
 }
 
 type WebJobMode = "web" | "web_html" | "both";
@@ -216,6 +226,14 @@ async function runWebJob(
   }
 }
 
+const FeedbackSchema = z.object({
+  /** clear=讲得清楚 / confusing=没看懂；只有这两个值，多了没人认真填 */
+  label: z.enum(["clear", "confusing"]),
+  learnerId: z.string().optional(),
+  /** both 模式下对比的是哪一份（另一种形态的讲解 id） */
+  comparedWith: z.string().optional(),
+});
+
 export function explainRoutes(state: AppState): Hono {
   const app = new Hono();
 
@@ -242,7 +260,12 @@ export function explainRoutes(state: AppState): Hono {
         : state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
     if (cached && (cached.videoUrl || cached.specUrl || cached.htmlUrl)) {
       if (body.mistakeId) state.repo.linkMistakeExplanation(body.mistakeId, cached.id);
-      return c.json({ status: "ready", explanation: explanationView(cached), fallback });
+      return c.json({
+        status: "ready",
+        explanation: explanationView(cached),
+        alternatives: alternativesOf(state, cached),
+        fallback,
+      });
     }
 
     // 2) 引擎离线：只有图文兜底（诚实降级）
@@ -343,6 +366,32 @@ export function explainRoutes(state: AppState): Hono {
     });
   });
 
+  /**
+   * 人工偏好：哪一份讲得更清楚。门禁只能判「有没有画错」，判不了「讲没讲明白」——
+   * 这条标签是后者唯一的来源，也是日后训练最值钱的那部分。
+   */
+  app.post("/:id/feedback", async (c) => {
+    const parsed = FeedbackSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
+    const id = c.req.param("id");
+    const explanation = state.repo.getExplanation(id);
+    if (!explanation) return c.json({ error: "讲解不存在" }, 404);
+    state.repo.setExplanationFeedback(id, parsed.data.label);
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
+    if (learnerId && state.repo.getLearner(learnerId)) {
+      state.repo.appendEvent(learnerId, "feedback", {
+        kind: "explanation",
+        explanationId: id,
+        label: parsed.data.label,
+        mode: explanation.mode,
+        // 对比来源：模型直写 vs 哪一个确定性构造器，日后按路线聚合就靠它
+        groundingSource: explanation.groundingSource,
+        comparedWith: parsed.data.comparedWith,
+      });
+    }
+    return c.json({ ok: true });
+  });
+
   app.get("/jobs/:id", (c) => {
     const job = state.repo.getExplainJob(c.req.param("id"));
     if (!job) return c.json({ error: "任务不存在" }, 404);
@@ -350,6 +399,7 @@ export function explainRoutes(state: AppState): Hono {
     return c.json({
       status: job.status,
       explanation: explanation ? explanationView(explanation) : undefined,
+      alternatives: explanation ? alternativesOf(state, explanation) : undefined,
       error: job.error,
     });
   });

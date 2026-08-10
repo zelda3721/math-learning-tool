@@ -104,6 +104,8 @@ export interface Explanation {
     videoUrl?: string
     subtitleUrl?: string
     quality: string
+    /** 已给过的人工偏好：clear / confusing */
+    feedbackLabel?: string
 }
 
 /** SceneSpec 类型从 explainer-web 契约推导：validateSpec 的非空 spec 即真源类型 */
@@ -129,14 +131,36 @@ export interface ExplainRequest {
 }
 
 export type ExplainResponse =
-    | { status: 'ready'; explanation: Explanation; fallback: ExplainFallback }
+    | {
+          status: 'ready'
+          explanation: Explanation
+          /** 同题的其它形态讲解（both 模式下的另一份），用于并排对比 */
+          alternatives?: Explanation[]
+          fallback: ExplainFallback
+      }
     | { status: 'generating'; jobId: string; mode?: string; fallback: ExplainFallback }
     | { status: 'offline'; fallback: ExplainFallback; message: string }
 
 export interface ExplainJobStatus {
     status: 'running' | 'done' | 'failed'
     explanation?: Explanation
+    alternatives?: Explanation[]
     error?: string
+}
+
+/**
+ * 「哪个讲得更清楚」。门禁只能判有没有画错，判不了讲没讲明白——
+ * 这条标签是后者唯一的来源，也是日后训练最值钱的那部分。
+ */
+export function sendExplanationFeedback(
+    explanationId: string,
+    label: 'clear' | 'confusing',
+    extra: { learnerId?: string; comparedWith?: string } = {},
+): Promise<{ ok: boolean }> {
+    return post(`/api/v1/explain/${encodeURIComponent(explanationId)}/feedback`, {
+        label,
+        ...extra,
+    })
 }
 
 export type VariantResponse =

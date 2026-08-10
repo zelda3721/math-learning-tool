@@ -73,7 +73,8 @@ async function runJob(app: ReturnType<typeof createApp>, body: unknown) {
   return (await jobRes.json()) as {
     status: string;
     error?: string;
-    explanation?: { mode: string; htmlUrl?: string; quality: string };
+    explanation?: { id: string; mode: string; htmlUrl?: string; specUrl?: string; quality: string };
+    alternatives?: { id: string; mode: string; specUrl?: string; htmlUrl?: string }[];
   };
 }
 
@@ -203,5 +204,80 @@ describe("both：两条都生成，模型那份没过就自动退回", () => {
     expect(body.status).toBe("ready");
     expect(body.explanation?.mode).toBe("web_html");
     expect(state.repo.findExplanation("wq1", undefined, "web")).toBeTruthy();
+  });
+});
+
+describe("并排对比与人工偏好", () => {
+  it("both 生成两份后，响应里带上另一份供切换", async () => {
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("done");
+    expect(job.explanation?.mode).toBe("web_html");
+    // 不给另一份，人就没法把两种讲法摆一起比
+    expect(job.alternatives?.map((a) => a.mode)).toEqual(["web"]);
+    expect(job.alternatives?.[0]?.specUrl).toBeTruthy();
+  });
+
+  it("只生成一份时没有备选，前端不会显示切换器", async () => {
+    const { app } = makeApp(mockHtmlFetch({}));
+    const job = await runJob(app, { questionId: "wq1", mode: "web_html" });
+    expect(job.alternatives).toEqual([]);
+  });
+
+  it("投票落库，并按路线可聚合——门禁判不了讲没讲明白", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    const id = job.explanation!.id;
+    const other = job.alternatives![0]!.id;
+
+    const res = await app.request(`/api/v1/explain/${id}/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "clear", comparedWith: other }),
+    });
+    expect(res.status).toBe(200);
+    expect(state.repo.getExplanation(id)?.feedbackLabel).toBe("clear");
+
+    const rows = state.repo.explanationSources();
+    const html = rows.find((r) => r.mode === "web_html");
+    expect(html?.clear_votes).toBe(1);
+    expect(html?.confusing_votes).toBe(0);
+    // 另一份没投票，不该被算进去
+    expect(rows.find((r) => r.mode === "web")?.clear_votes).toBe(0);
+  });
+
+  it("再次打开时带出已投的票，不会让人重复表态", async () => {
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    await app.request(`/api/v1/explain/${job.explanation!.id}/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "confusing" }),
+    });
+    const again = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    const body = (await again.json()) as { explanation?: { feedbackLabel?: string } };
+    expect(body.explanation?.feedbackLabel).toBe("confusing");
+  });
+
+  it("讲解不存在时 404，标签只认两个值", async () => {
+    const { app } = makeApp(mockHtmlFetch({}));
+    const miss = await app.request("/api/v1/explain/nope/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "clear" }),
+    });
+    expect(miss.status).toBe(404);
+
+    const job = await runJob(app, { questionId: "wq1", mode: "web_html" });
+    const bad = await app.request(`/api/v1/explain/${job.explanation!.id}/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "还行吧" }),
+    });
+    expect(bad.status).toBe(400);
   });
 });

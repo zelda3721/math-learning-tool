@@ -235,6 +235,44 @@ export class Repo {
   }
 
   // ---- explanations（P2 讲解产物登记） ----
+  /** 同一道题/同一根因的其它形态讲解（用于并排对比：模型直写 vs 固定播放器） */
+  siblingExplanations(explanationId: string) {
+    const self = this.getExplanation(explanationId);
+    if (!self) return [];
+    const rows = self.questionId
+      ? this.db
+          .prepare(
+            `SELECT * FROM explanations WHERE question_id = ? AND id != ?
+             ORDER BY created_at DESC`,
+          )
+          .all(self.questionId, explanationId)
+      : [];
+    const seen = new Set<string>();
+    const out: ReturnType<Repo["rowToExplanation"]>[] = [];
+    for (const row of rows as Record<string, unknown>[]) {
+      const item = this.rowToExplanation(row);
+      // 每种形态只留最新一份，避免重复生成把选择器撑满
+      if (item.mode === self.mode || seen.has(item.mode)) continue;
+      if (!item.specUrl && !item.htmlUrl && !item.videoUrl) continue;
+      seen.add(item.mode);
+      out.push(item);
+    }
+    return out;
+  }
+
+  /**
+   * 人工偏好：哪一份讲得更清楚。
+   *
+   * 这是最贵也最有价值的标签——门禁只能判「有没有画错」，判不了「讲没讲明白」。
+   * 与 grounding_source 一起看，就能回答「模型直写到底比确定性构造器好在哪」。
+   */
+  setExplanationFeedback(explanationId: string, label: string): boolean {
+    const info = this.db
+      .prepare("UPDATE explanations SET feedback_label = ? WHERE id = ?")
+      .run(label, explanationId);
+    return Number(info.changes ?? 0) > 0;
+  }
+
   /**
    * 讲解画面的来源分布：确定性构造器各接管了多少、多少掉到了 LLM 导演。
    * 画质波动到底来自哪条路径，只有这张表能回答——不统计就只能凭感觉调。
@@ -245,18 +283,29 @@ export class Repo {
     source: string;
     quality: string;
     count: number;
+    clear_votes: number;
+    confusing_votes: number;
   }[] {
     return this.db
       .prepare(
         `SELECT mode,
                 COALESCE(grounding_source, 'llm_director') AS source,
                 quality,
-                COUNT(*) AS count
+                COUNT(*) AS count,
+                SUM(CASE WHEN feedback_label = 'clear' THEN 1 ELSE 0 END) AS clear_votes,
+                SUM(CASE WHEN feedback_label = 'confusing' THEN 1 ELSE 0 END) AS confusing_votes
            FROM explanations
           GROUP BY mode, source, quality
           ORDER BY count DESC`,
       )
-      .all() as { mode: string; source: string; quality: string; count: number }[];
+      .all() as {
+      mode: string;
+      source: string;
+      quality: string;
+      count: number;
+      clear_votes: number;
+      confusing_votes: number;
+    }[];
   }
 
   insertExplanation(e: {
@@ -310,6 +359,14 @@ export class Repo {
       videoUrl: r.video_url === null ? undefined : String(r.video_url),
       subtitleUrl: r.subtitle_url === null ? undefined : String(r.subtitle_url),
       quality: String(r.quality) as "good" | "acceptable",
+      feedbackLabel:
+        r.feedback_label === null || r.feedback_label === undefined
+          ? undefined
+          : String(r.feedback_label),
+      groundingSource:
+        r.grounding_source === null || r.grounding_source === undefined
+          ? undefined
+          : String(r.grounding_source),
       contractVersion: String(r.contract_version),
       createdAt: String(r.created_at),
     };
