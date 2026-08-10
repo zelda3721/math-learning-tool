@@ -27,8 +27,10 @@ const ExplainSchema = z
     /** 模式 A（web，默认）：plan-only 秒级动画；模式 B（video）：Manim 高级成片 */
     // web=SceneSpec 交给固定播放器（画不出假话，受图元词表限制）
     // web_html=模型直写自足页面（表达上限最高，靠引擎侧契约门禁把住真实性）
+    // both=两条都生成：优先给模型那份，没过门禁就自动退回 SceneSpec 那份。
+    //      孩子始终有得看，同时攒下两条路的对比语料（生成成本翻倍）。
     // 不传时用配置里的默认（EXPLAIN_WEB_MODE），这样可以整机切换而不用改前端
-    mode: z.enum(["web", "web_html", "video"]).optional(),
+    mode: z.enum(["web", "web_html", "both", "video"]).optional(),
   })
   .refine((v) => v.questionId || v.focusNodeId || v.problem, {
     message: "需要 questionId、focusNodeId 或 problem",
@@ -77,136 +79,138 @@ function explanationView(e: NonNullable<ReturnType<AppState["repo"]["getExplanat
   };
 }
 
-/**
- * 模式 A2：让引擎的模型直接写一页自足讲解（route=html）。
- *
- * 真实性由引擎侧的契约门禁保证（宣称的数量必须真的画出来、答案不许画错），
- * 这里只做两件网关该做的事：**产物落盘**与**再核一次门禁结论**——
- * 引擎说不过就不登记，绝不把一份画着假数字的页面发到孩子面前。
- */
-async function runWebHtmlJob(
-  state: AppState,
-  jobId: string,
-  body: { learnerId?: string; questionId?: string; focusNodeId?: string; misconceptionId?: string; mistakeId?: string },
-  payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
-): Promise<void> {
-  const repo = state.repo;
-  const fetchImpl = state.engineFetch ?? fetch;
-  try {
-    const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...payload, route: "html" }),
-      signal: AbortSignal.timeout(600_000),
-    });
-    if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
-    const result = (await resp.json()) as {
-      status: string;
-      plan_id: string;
-      html?: string;
-      html_gate?: { ok?: boolean; errors?: string[]; warnings?: string[] };
-      error?: string;
-    };
-    const gate = result.html_gate;
-    if (result.status !== "ok" || !result.html) {
-      repo.failExplainJob(jobId, result.error ?? gate?.errors?.[0] ?? "模型未产出合规讲解页面");
-      return;
-    }
-    if (gate && gate.ok === false) {
-      // 引擎已经判定不合规却仍返回了内容——不登记（画着假数字比没有讲解糟糕得多）
-      repo.failExplainJob(jobId, `讲解未通过契约门禁：${(gate.errors ?? []).slice(0, 2).join("；")}`);
-      return;
-    }
-    const htmlId = randomUUID();
-    const htmlDir = path.join(state.config.dataDir, "explanations");
-    mkdirSync(htmlDir, { recursive: true });
-    writeFileSync(path.join(htmlDir, `${htmlId}.html`), result.html, "utf8");
+type WebJobMode = "web" | "web_html" | "both";
 
-    const explanationId = randomUUID();
-    repo.insertExplanation({
-      id: explanationId,
-      questionId: body.questionId,
-      focusNodeIds: body.focusNodeId
-        ? [body.focusNodeId]
-        : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []),
-      engineSessionId: result.plan_id,
-      mode: "web_html",
-      htmlUrl: `/api/v1/explain/html/${htmlId}`,
-      // 门禁全清才算 good；有建议未处理算 acceptable
-      quality: (gate?.warnings?.length ?? 0) > 0 ? "acceptable" : "good",
-      contractVersion: state.contract?.contract_version ?? "unknown",
-      groundingSource: "llm_html",
-    });
-    if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, explanationId);
-    repo.finishExplainJob(jobId, explanationId);
-  } catch (err) {
-    repo.failExplainJob(jobId, String(err));
-  }
+interface WebJobBody {
+  learnerId?: string;
+  questionId?: string;
+  focusNodeId?: string;
+  misconceptionId?: string;
+  mistakeId?: string;
 }
 
-/** 模式 A：plan-only 调引擎出 SceneSpec，存 data/specs/，登记 explanations */
-async function runWebModeJob(
+/**
+ * Web 讲解生成任务（三种模式共用一条链路）。
+ *
+ * - `web`      SceneSpec → 固定播放器渲染
+ * - `web_html` 模型直写自足页面 → sandbox iframe 渲染
+ * - `both`     两条都生成：**优先交付模型那份，没过门禁就自动退回 SceneSpec 那份**。
+ *              孩子始终有得看，同时攒下两条路的对比语料（生成成本翻倍）。
+ *
+ * 网关只做两件事：产物落盘、再核一次引擎的门禁结论。
+ * 引擎说不过就不登记——绝不把一份画着假数字的页面发到孩子面前。
+ */
+async function runWebJob(
   state: AppState,
   jobId: string,
-  body: { learnerId?: string; questionId?: string; focusNodeId?: string; misconceptionId?: string; mistakeId?: string },
+  body: WebJobBody,
   payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
+  mode: WebJobMode,
 ): Promise<void> {
   const repo = state.repo;
   const fetchImpl = state.engineFetch ?? fetch;
+  const engineRoute = mode === "web" ? "plan" : mode === "web_html" ? "html" : "both";
+  const focusNodeIds = body.focusNodeId
+    ? [body.focusNodeId]
+    : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []);
+
   try {
     const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(300_000),
+      body: JSON.stringify({ ...payload, route: engineRoute }),
+      // 模型写码比出 SceneSpec 慢得多（还可能重写两轮），给足时间
+      signal: AbortSignal.timeout(engineRoute === "plan" ? 300_000 : 600_000),
     });
     if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
     const result = (await resp.json()) as {
       status: string;
       plan_id: string;
       scene_spec?: unknown;
+      html?: string;
+      html_gate?: { ok?: boolean; errors?: string[]; warnings?: string[] };
       error?: string;
     };
-    if (result.status !== "ok" || !result.scene_spec) {
-      repo.failExplainJob(jobId, result.error ?? "plan-only 未产出 SceneSpec");
-      return;
-    }
-    const parsed = SceneSpecSchema.safeParse(result.scene_spec);
-    if (!parsed.success) {
-      repo.failExplainJob(jobId, `SceneSpec 校验失败: ${parsed.error.issues[0]?.message}`);
-      return;
-    }
-    // 确定性 spec 结构检查（宪法第 5 条 web 侧门槛）：有对象、有拍子才算合格讲解
-    const spec = parsed.data;
-    const structuralWarnings: string[] = [];
-    if (spec.visual_objects.length === 0) structuralWarnings.push("无可视对象");
-    if (spec.scenes.length === 0) structuralWarnings.push("无讲解拍子");
-    if (spec.visual_objects.length === 0 && spec.scenes.length === 0) {
-      repo.failExplainJob(jobId, "SceneSpec 为空（无对象且无拍子）");
-      return;
-    }
-    const specId = randomUUID();
-    const specsDir = path.join(state.config.dataDir, "specs");
-    mkdirSync(specsDir, { recursive: true });
-    writeFileSync(path.join(specsDir, `${specId}.json`), JSON.stringify(spec, null, 2), "utf8");
 
-    const explanationId = randomUUID();
-    repo.insertExplanation({
-      id: explanationId,
-      questionId: body.questionId,
-      focusNodeIds: body.focusNodeId
-        ? [body.focusNodeId]
-        : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []),
-      engineSessionId: result.plan_id,
-      mode: "web",
-      specUrl: `/api/v1/explain/specs/${specId}`,
-      quality: structuralWarnings.length ? "acceptable" : "good",
-      contractVersion: state.contract?.contract_version ?? "unknown",
-      // 确定性构造器会在计划上盖章；LLM 导演写的计划没有这个字段，留空即代表走了模型路径
-      groundingSource: groundingSourceOf(spec),
-    });
-    if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, explanationId);
-    repo.finishExplainJob(jobId, explanationId);
+    const problems: string[] = [];
+    if (result.error) problems.push(result.error);
+
+    /** 模型直写的页面：门禁没过一律不登记 */
+    let htmlExplanationId: string | undefined;
+    if (mode !== "web") {
+      const gate = result.html_gate;
+      if (!result.html) {
+        problems.push(gate?.errors?.[0] ?? "模型未产出讲解页面");
+      } else if (gate && gate.ok === false) {
+        problems.push(`未通过契约门禁：${(gate.errors ?? []).slice(0, 2).join("；")}`);
+      } else {
+        const htmlId = randomUUID();
+        const htmlDir = path.join(state.config.dataDir, "explanations");
+        mkdirSync(htmlDir, { recursive: true });
+        writeFileSync(path.join(htmlDir, `${htmlId}.html`), result.html, "utf8");
+        htmlExplanationId = randomUUID();
+        repo.insertExplanation({
+          id: htmlExplanationId,
+          questionId: body.questionId,
+          focusNodeIds,
+          engineSessionId: result.plan_id,
+          mode: "web_html",
+          htmlUrl: `/api/v1/explain/html/${htmlId}`,
+          // 门禁全清才算 good；有建议未处理算 acceptable
+          quality: (gate?.warnings?.length ?? 0) > 0 ? "acceptable" : "good",
+          contractVersion: state.contract?.contract_version ?? "unknown",
+          groundingSource: "llm_html",
+        });
+      }
+    }
+
+    /** SceneSpec：结构检查后落盘 */
+    let specExplanationId: string | undefined;
+    if (mode !== "web_html") {
+      const parsed = SceneSpecSchema.safeParse(result.scene_spec);
+      if (!result.scene_spec) {
+        problems.push("plan-only 未产出 SceneSpec");
+      } else if (!parsed.success) {
+        problems.push(`SceneSpec 校验失败: ${parsed.error.issues[0]?.message}`);
+      } else {
+        // 确定性 spec 结构检查（宪法第 5 条 web 侧门槛）：有对象、有拍子才算合格讲解
+        const spec = parsed.data;
+        const structuralWarnings: string[] = [];
+        if (spec.visual_objects.length === 0) structuralWarnings.push("无可视对象");
+        if (spec.scenes.length === 0) structuralWarnings.push("无讲解拍子");
+        if (structuralWarnings.length === 2) {
+          problems.push("SceneSpec 为空（无对象且无拍子）");
+        } else {
+          const specId = randomUUID();
+          const specsDir = path.join(state.config.dataDir, "specs");
+          mkdirSync(specsDir, { recursive: true });
+          writeFileSync(path.join(specsDir, `${specId}.json`), JSON.stringify(spec, null, 2), "utf8");
+          specExplanationId = randomUUID();
+          repo.insertExplanation({
+            id: specExplanationId,
+            questionId: body.questionId,
+            focusNodeIds,
+            engineSessionId: result.plan_id,
+            mode: "web",
+            specUrl: `/api/v1/explain/specs/${specId}`,
+            quality: structuralWarnings.length ? "acceptable" : "good",
+            contractVersion: state.contract?.contract_version ?? "unknown",
+            // 确定性构造器会在计划上盖章；LLM 导演写的计划没有这个字段，留空即代表走了模型路径
+            groundingSource: groundingSourceOf(spec),
+          });
+        }
+      }
+    }
+
+    // 交付优先级：模型那份 > SceneSpec 那份。both 模式下前者没过门禁就自动退回后者，
+    // 于是「试新路」不会让孩子这次没讲解看。
+    const delivered = htmlExplanationId ?? specExplanationId;
+    if (!delivered) {
+      repo.failExplainJob(jobId, problems[0] ?? "引擎未产出讲解");
+      return;
+    }
+    if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, delivered);
+    repo.finishExplainJob(jobId, delivered);
   } catch (err) {
     repo.failExplainJob(jobId, String(err));
   }
@@ -230,7 +234,12 @@ export function explainRoutes(state: AppState): Hono {
     const fallback = buildFallback(state, body);
 
     // 1) 缓存命中（同题优先，其次同根因节点；按模式命中）
-    const cached = state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
+    // both 是生成策略而不是产物形态：查缓存时按交付优先级找——先模型那份，再 SceneSpec
+    const cached =
+      body.mode === "both"
+        ? (state.repo.findExplanation(body.questionId, body.focusNodeId, "web_html") ??
+          state.repo.findExplanation(body.questionId, body.focusNodeId, "web"))
+        : state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
     if (cached && (cached.videoUrl || cached.specUrl || cached.htmlUrl)) {
       if (body.mistakeId) state.repo.linkMistakeExplanation(body.mistakeId, cached.id);
       return c.json({ status: "ready", explanation: explanationView(cached), fallback });
@@ -274,13 +283,9 @@ export function explainRoutes(state: AppState): Hono {
       }),
     };
     // 模式 A（web 默认）：plan-only 出 SceneSpec，秒级~分钟级、无渲染
-    if (body.mode === "web_html") {
-      void runWebHtmlJob(state, jobId, body, payload);
-      return c.json({ status: "generating", jobId, mode: "web_html", fallback }, 202);
-    }
-    if (body.mode === "web") {
-      void runWebModeJob(state, jobId, body, payload);
-      return c.json({ status: "generating", jobId, mode: "web", fallback }, 202);
+    if (body.mode === "web_html" || body.mode === "both" || body.mode === "web") {
+      void runWebJob(state, jobId, body, payload, body.mode);
+      return c.json({ status: "generating", jobId, mode: body.mode, fallback }, 202);
     }
 
     // 模式 B（video 高级）：Manim 完整五阶段
