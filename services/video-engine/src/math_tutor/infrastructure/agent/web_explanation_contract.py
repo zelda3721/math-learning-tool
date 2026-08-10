@@ -19,6 +19,9 @@ Manim 那条敢让模型写码，是因为成片审查会在像素上做连通�
 
 门禁只做一件事：**把画面上宣称的每个数，跟独立验证过的 Math IR 对账**。
 - `data-claim="x=n"` 的子树里必须真有 n 个 `data-unit`；差一个都不行。
+  个体必须**字面写在标记里**：门禁是静态解析，脚本造出来的元素它看不见，
+  允许脚本生成等于把这条规则整个让掉。（更强的做法是渲染后数真实 DOM，
+  代价是引擎要装一个无头浏览器；先用静态这条，它已经能挡住绝大多数走样。）
 - 验证过的解出现在画面上时，值必须一致——答案不许画错。
 - 没有任何 unit/measure = 纯文字，直接拒（与 meaningless_visual_candidate 同口径）。
 - 外部资源一律拒：内网部署 + 沙箱 iframe，拉不到也不该拉。
@@ -51,6 +54,11 @@ _NAME_VALUE = re.compile(r"^\s*([A-Za-z_][\w\-]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*$")
 #: 允许的内联资源协议（data: 用于内嵌小图；其余外链一律拒）
 _EXTERNAL = re.compile(r"""\b(?:src|href)\s*=\s*["']?\s*(?!#|data:)([a-zA-Z]+:)?//""", re.I)
 _SCRIPT_NET = re.compile(r"\b(?:fetch|XMLHttpRequest|WebSocket|importScripts)\s*\(", re.I)
+#: 用脚本造 DOM。门禁是静态解析，脚本造出来的个体它看不见——
+#: 于是「宣称多少就得画出多少」这条会被整个绕过。计数元素必须字面写在标记里。
+_SCRIPT_BUILD = re.compile(
+    r"\b(?:createElement|innerHTML|insertAdjacentHTML|outerHTML|cloneNode)\b", re.I
+)
 
 
 @dataclass
@@ -304,9 +312,14 @@ def verify_web_explanation(
             findings.append(f"{claim.name} 宣称 {expected}：可数的个体数必须是整数")
             continue
         if int(round(expected)) != claim.counted:
+            hint = ""
+            if claim.counted == 0 and _SCRIPT_BUILD.search(text):
+                # 最常见的写法错误：用脚本批量造元素。静态门禁看不见它们，
+                # 于是这条最要紧的规则被整个绕过——必须字面写出来。
+                hint = "；个体不能用脚本生成，必须逐个字面写在标记里"
             findings.append(
                 f"{claim.name} 标着 {int(round(expected))}，画面上只有 {claim.counted} 个"
-                f"（{ATTR_CLAIM} 的子树里必须真有那么多 {ATTR_UNIT}）"
+                f"（{ATTR_CLAIM} 的子树里必须真有那么多 {ATTR_UNIT}{hint}）"
             )
 
     # ── 答案不许画错：验证过的解里有这个符号，画面上标的值就必须等于它 ──

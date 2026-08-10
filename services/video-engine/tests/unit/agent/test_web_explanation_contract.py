@@ -178,3 +178,32 @@ def test_没有证据时只校验自洽不校验数值来源():
         + _beat(1, "再看", f'<div data-claim="things=7">{_units(7)}</div>')
     )
     assert any("只有 5 个" in f for f in verify_web_explanation(bad).errors)
+
+
+def test_参考实现能通过门禁_契约必须是写得出来的():
+    """一份按契约手写的完整讲解（鸡兔同笼三拍）必须通过。
+
+    门禁只会越收越紧，收到「谁都写不出来」就没意义了。这份参考实现同时是
+    「合规长什么样」的样板：35 个圆圈各垂 2 根线、12 个换成方头 4 条腿、
+    两根可比长短的条 + 缺口带、逐拍导航、自足无外链。
+    """
+    import pathlib
+
+    reference = (
+        pathlib.Path(__file__).parents[2] / "fixtures" / "web_explanation_reference.html"
+    ).read_text(encoding="utf-8")
+    report = verify_web_explanation(reference, EVIDENCE, REQUEST)
+    assert report.ok, report.errors
+    assert report.warnings == []
+
+    parsed = parse_web_explanation(reference)
+    # 个体是字面写出来的，不是脚本造的——静态门禁才数得到
+    assert parsed.units_total == 35 + 35 + 12 + 23
+    assert [b["index"] for b in parsed.beats] == [0, 1, 2]
+    assert all(b["teach"] for b in parsed.beats)
+    by_name = {}
+    for claim in parsed.claims:
+        by_name.setdefault(claim.name, []).append((int(claim.value), claim.counted))
+    assert by_name["heads"] == [(35, 35), (35, 35)]
+    assert by_name["rabbits"] == [(12, 12)]
+    assert by_name["chickens"] == [(23, 23)]

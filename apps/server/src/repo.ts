@@ -264,8 +264,9 @@ export class Repo {
     questionId?: string;
     focusNodeIds: string[];
     engineSessionId: string;
-    mode: "web" | "video";
+    mode: "web" | "web_html" | "video";
     specUrl?: string;
+    htmlUrl?: string;
     videoUrl?: string;
     subtitleUrl?: string;
     quality: "good" | "acceptable";
@@ -276,8 +277,9 @@ export class Repo {
     this.db
       .prepare(
         `INSERT INTO explanations (id, question_id, focus_node_ids_json, engine_session_id, mode,
-          spec_url, video_url, subtitle_url, quality, contract_version, grounding_source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          spec_url, html_url, video_url, subtitle_url, quality, contract_version,
+          grounding_source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.id,
@@ -286,6 +288,7 @@ export class Repo {
         e.engineSessionId,
         e.mode,
         e.specUrl ?? null,
+        e.htmlUrl ?? null,
         e.videoUrl ?? null,
         e.subtitleUrl ?? null,
         e.quality,
@@ -301,8 +304,9 @@ export class Repo {
       questionId: r.question_id === null ? undefined : String(r.question_id),
       focusNodeIds: JSON.parse(String(r.focus_node_ids_json)) as string[],
       engineSessionId: String(r.engine_session_id),
-      mode: String(r.mode) as "web" | "video",
+      mode: String(r.mode) as "web" | "web_html" | "video",
       specUrl: r.spec_url === null || r.spec_url === undefined ? undefined : String(r.spec_url),
+      htmlUrl: r.html_url === null || r.html_url === undefined ? undefined : String(r.html_url),
       videoUrl: r.video_url === null ? undefined : String(r.video_url),
       subtitleUrl: r.subtitle_url === null ? undefined : String(r.subtitle_url),
       quality: String(r.quality) as "good" | "acceptable",
@@ -317,7 +321,11 @@ export class Repo {
   }
 
   /** 讲解缓存查找：优先同题，其次同根因节点；mode 指定时只命中该模式 */
-  findExplanation(questionId: string | undefined, focusNodeId: string | undefined, mode?: "web" | "video") {
+  findExplanation(
+    questionId: string | undefined,
+    focusNodeId: string | undefined,
+    mode?: "web" | "web_html" | "video",
+  ) {
     if (questionId) {
       const r = this.db
         .prepare(
@@ -342,7 +350,7 @@ export class Repo {
     learnerId?: string;
     questionId?: string;
     focusNodeIds: string[];
-    mode?: "web" | "video";
+    mode?: "web" | "web_html" | "video";
   }): string {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -390,7 +398,10 @@ export class Repo {
   }
 
   /** 有 running 讲解任务时避免重复排队（同题同模式去重） */
-  runningExplainJobForQuestion(questionId: string, mode?: "web" | "video"): string | undefined {
+  runningExplainJobForQuestion(
+    questionId: string,
+    mode?: "web" | "web_html" | "video",
+  ): string | undefined {
     const r = this.db
       .prepare(
         `SELECT id FROM explain_jobs WHERE question_id = ? AND status = 'running'${mode ? " AND mode = ?" : ""} LIMIT 1`,

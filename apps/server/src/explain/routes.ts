@@ -25,7 +25,10 @@ const ExplainSchema = z
     problem: z.string().min(4).max(500).optional(),
     grade: EducationLevelSchema.optional(),
     /** 模式 A（web，默认）：plan-only 秒级动画；模式 B（video）：Manim 高级成片 */
-    mode: z.enum(["web", "video"]).default("web"),
+    // web=SceneSpec 交给固定播放器（画不出假话，受图元词表限制）
+    // web_html=模型直写自足页面（表达上限最高，靠引擎侧契约门禁把住真实性）
+    // 不传时用配置里的默认（EXPLAIN_WEB_MODE），这样可以整机切换而不用改前端
+    mode: z.enum(["web", "web_html", "video"]).optional(),
   })
   .refine((v) => v.questionId || v.focusNodeId || v.problem, {
     message: "需要 questionId、focusNodeId 或 problem",
@@ -67,10 +70,78 @@ function explanationView(e: NonNullable<ReturnType<AppState["repo"]["getExplanat
     focusNodeIds: e.focusNodeIds,
     mode: e.mode,
     specUrl: e.specUrl,
+    htmlUrl: e.htmlUrl,
     videoUrl: e.videoUrl,
     subtitleUrl: e.subtitleUrl,
     quality: e.quality,
   };
+}
+
+/**
+ * 模式 A2：让引擎的模型直接写一页自足讲解（route=html）。
+ *
+ * 真实性由引擎侧的契约门禁保证（宣称的数量必须真的画出来、答案不许画错），
+ * 这里只做两件网关该做的事：**产物落盘**与**再核一次门禁结论**——
+ * 引擎说不过就不登记，绝不把一份画着假数字的页面发到孩子面前。
+ */
+async function runWebHtmlJob(
+  state: AppState,
+  jobId: string,
+  body: { learnerId?: string; questionId?: string; focusNodeId?: string; misconceptionId?: string; mistakeId?: string },
+  payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
+): Promise<void> {
+  const repo = state.repo;
+  const fetchImpl = state.engineFetch ?? fetch;
+  try {
+    const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...payload, route: "html" }),
+      signal: AbortSignal.timeout(600_000),
+    });
+    if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
+    const result = (await resp.json()) as {
+      status: string;
+      plan_id: string;
+      html?: string;
+      html_gate?: { ok?: boolean; errors?: string[]; warnings?: string[] };
+      error?: string;
+    };
+    const gate = result.html_gate;
+    if (result.status !== "ok" || !result.html) {
+      repo.failExplainJob(jobId, result.error ?? gate?.errors?.[0] ?? "模型未产出合规讲解页面");
+      return;
+    }
+    if (gate && gate.ok === false) {
+      // 引擎已经判定不合规却仍返回了内容——不登记（画着假数字比没有讲解糟糕得多）
+      repo.failExplainJob(jobId, `讲解未通过契约门禁：${(gate.errors ?? []).slice(0, 2).join("；")}`);
+      return;
+    }
+    const htmlId = randomUUID();
+    const htmlDir = path.join(state.config.dataDir, "explanations");
+    mkdirSync(htmlDir, { recursive: true });
+    writeFileSync(path.join(htmlDir, `${htmlId}.html`), result.html, "utf8");
+
+    const explanationId = randomUUID();
+    repo.insertExplanation({
+      id: explanationId,
+      questionId: body.questionId,
+      focusNodeIds: body.focusNodeId
+        ? [body.focusNodeId]
+        : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []),
+      engineSessionId: result.plan_id,
+      mode: "web_html",
+      htmlUrl: `/api/v1/explain/html/${htmlId}`,
+      // 门禁全清才算 good；有建议未处理算 acceptable
+      quality: (gate?.warnings?.length ?? 0) > 0 ? "acceptable" : "good",
+      contractVersion: state.contract?.contract_version ?? "unknown",
+      groundingSource: "llm_html",
+    });
+    if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, explanationId);
+    repo.finishExplainJob(jobId, explanationId);
+  } catch (err) {
+    repo.failExplainJob(jobId, String(err));
+  }
 }
 
 /** 模式 A：plan-only 调引擎出 SceneSpec，存 data/specs/，登记 explanations */
@@ -151,6 +222,8 @@ export function explainRoutes(state: AppState): Hono {
     const raw = parsed.data;
     const body = {
       ...raw,
+      // 不传 mode 时用整机默认（EXPLAIN_WEB_MODE），前端不必知道当前跑哪条路
+      mode: raw.mode ?? state.config.defaultWebExplainMode,
       learnerId: effectiveLearnerId(c, state, raw.learnerId) ?? raw.learnerId,
       questionId: raw.questionId ?? (raw.problem ? `free-${contentHashOf(raw.problem, "")}` : undefined),
     };
@@ -158,7 +231,7 @@ export function explainRoutes(state: AppState): Hono {
 
     // 1) 缓存命中（同题优先，其次同根因节点；按模式命中）
     const cached = state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
-    if (cached && (cached.videoUrl || cached.specUrl)) {
+    if (cached && (cached.videoUrl || cached.specUrl || cached.htmlUrl)) {
       if (body.mistakeId) state.repo.linkMistakeExplanation(body.mistakeId, cached.id);
       return c.json({ status: "ready", explanation: explanationView(cached), fallback });
     }
@@ -201,6 +274,10 @@ export function explainRoutes(state: AppState): Hono {
       }),
     };
     // 模式 A（web 默认）：plan-only 出 SceneSpec，秒级~分钟级、无渲染
+    if (body.mode === "web_html") {
+      void runWebHtmlJob(state, jobId, body, payload);
+      return c.json({ status: "generating", jobId, mode: "web_html", fallback }, 202);
+    }
     if (body.mode === "web") {
       void runWebModeJob(state, jobId, body, payload);
       return c.json({ status: "generating", jobId, mode: "web", fallback }, 202);
@@ -241,6 +318,24 @@ export function explainRoutes(state: AppState): Hono {
     const file = path.join(state.config.dataDir, "specs", `${id}.json`);
     if (!existsSync(file)) return c.json({ error: "spec 不存在" }, 404);
     return c.body(readFileSync(file, "utf8"), 200, { "content-type": "application/json" });
+  });
+
+  /**
+   * 模型直写的讲解页面。以 text/html 返回，但**前端必须放进 sandbox iframe**——
+   * 这是模型生成的代码，不能与主站同源执行。响应头再上一道 CSP：
+   * 只允许内联样式与脚本，禁止任何网络请求，即使门禁漏了也拉不到外面去。
+   */
+  app.get("/html/:id", (c) => {
+    const id = c.req.param("id").replace(/[^\w-]/g, "");
+    const file = path.join(state.config.dataDir, "explanations", `${id}.html`);
+    if (!existsSync(file)) return c.json({ error: "讲解不存在" }, 404);
+    return c.body(readFileSync(file, "utf8"), 200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy":
+        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
+        "img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'",
+      "x-content-type-options": "nosniff",
+    });
   });
 
   app.get("/jobs/:id", (c) => {

@@ -120,8 +120,9 @@ CREATE TABLE IF NOT EXISTS explanations (
   question_id TEXT,
   focus_node_ids_json TEXT NOT NULL,
   engine_session_id TEXT NOT NULL,
-  mode TEXT NOT NULL,              -- 'web' | 'video'（P2 仅 video；web 是 P4）
+  mode TEXT NOT NULL,              -- 'web'(SceneSpec) | 'web_html'(模型直写页面) | 'video'
   spec_url TEXT,
+  html_url TEXT,                   -- web_html 模式的自足页面产物
   video_url TEXT,
   subtitle_url TEXT,
   quality TEXT NOT NULL,           -- good | acceptable
@@ -179,6 +180,7 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 const MIGRATIONS = [
   "ALTER TABLE explain_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'",
   "ALTER TABLE explanations ADD COLUMN grounding_source TEXT",
+  "ALTER TABLE explanations ADD COLUMN html_url TEXT",
 ];
 
 function migrate(db: DatabaseSync): void {

@@ -13,6 +13,7 @@ from .analyze_problem import AnalyzeProblemTool
 from .compile_video import CompileVideoTool
 from .direct_video import DirectVideoTool
 from .generate_manim_code import GenerateManimCodeTool
+from .generate_web_explanation import GenerateWebExplanationTool
 from .inspect_video import InspectVideoTool
 from .match_skill import MatchSkillTool
 from .run_manim import RunManimTool
@@ -66,6 +67,11 @@ def build_default_registry(
     # but are deliberately absent from the production registry.  Exposing
     # them to the controller encouraged type routing and injected single-task
     # examples into unseen problems.
+    # 模型直写 Web 讲解：与 Manim 通道的 model_codegen 同构，但门禁更严
+    # （生成物是标记语言，可以直接数元素，不必在 JPEG 上做连通域计数）。
+    # 内部注册——由 /api/v1/plan?route=html 直接调用；控制器看到的仍是五个阶段，
+    # 否则它可能在出视频的中途拐去写网页。
+    registry.register_internal(GenerateWebExplanationTool(llm=llm, prompts=prompts))
     writer = GenerateManimCodeTool(
         llm=llm,
         prompts=prompts,
