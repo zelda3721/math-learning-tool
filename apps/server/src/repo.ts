@@ -350,7 +350,7 @@ export class Repo {
     learnerId?: string;
     questionId?: string;
     focusNodeIds: string[];
-    mode?: "web" | "web_html" | "video";
+    mode?: "web" | "web_html" | "both" | "video";
   }): string {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -400,7 +400,7 @@ export class Repo {
   /** 有 running 讲解任务时避免重复排队（同题同模式去重） */
   runningExplainJobForQuestion(
     questionId: string,
-    mode?: "web" | "web_html" | "video",
+    mode?: "web" | "web_html" | "both" | "video",
   ): string | undefined {
     const r = this.db
       .prepare(

@@ -19,9 +19,17 @@ const GOOD_HTML =
   "</article>";
 
 /** mock 引擎 plan-only（route=html 分支） */
+const GOOD_SPEC = {
+  visual_thesis: "周长是四条边的总长",
+  visual_objects: [{ id: "rect", primitive: "rectangle", params: { width: 8, height: 5 } }],
+  scenes: [{ role: "setup", actions: [], teaching_line: "看这个长方形" }],
+  grounding_source: "verified_solution_arithmetic",
+};
+
 function mockHtmlFetch(opts: {
   status?: string;
   html?: string | null;
+  spec?: unknown;
   gate?: { ok: boolean; errors?: string[]; warnings?: string[] };
   error?: string;
   onBody?: (body: unknown) => void;
@@ -34,6 +42,7 @@ function mockHtmlFetch(opts: {
         status: opts.status ?? "ok",
         plan_id: "plan-html1",
         html: opts.html === undefined ? GOOD_HTML : opts.html,
+        scene_spec: opts.spec,
         html_gate: opts.gate ?? { ok: true, errors: [], warnings: [] },
         error: opts.error,
       }),
@@ -133,5 +142,66 @@ describe("P6 模型直写讲解页面（web_html）", () => {
     const { app } = makeApp(mockHtmlFetch({}));
     const res = await app.request("/api/v1/explain/html/nope");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("both：两条都生成，模型那份没过就自动退回", () => {
+  it("发给引擎的是 route=both，而不是只跑一条", async () => {
+    let sent: unknown;
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) }));
+    await runJob(app, { questionId: "wq1", mode: "both" });
+    expect((sent as { route?: string }).route).toBe("both");
+  });
+
+  it("两份都登记下来——对比语料要的就是这个", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(state.repo.findExplanation("wq1", undefined, "web_html")?.htmlUrl).toBeTruthy();
+    expect(state.repo.findExplanation("wq1", undefined, "web")?.specUrl).toBeTruthy();
+  });
+
+  it("模型那份合规时优先交付它", async () => {
+    const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("done");
+    expect(job.explanation?.mode).toBe("web_html");
+  });
+
+  it("模型那份没过门禁就退回 SceneSpec，孩子这次仍有讲解看", async () => {
+    const { app, state } = makeApp(
+      mockHtmlFetch({
+        spec: GOOD_SPEC,
+        gate: { ok: false, errors: ["heads 标着 35，画面上只有 0 个"] },
+      }),
+    );
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("done");
+    expect(job.explanation?.mode).toBe("web");
+    expect(job.explanation?.specUrl).toBeTruthy();
+    // 不合规的那份绝不登记
+    expect(state.repo.findExplanation("wq1", undefined, "web_html")).toBeUndefined();
+  });
+
+  it("两条都不成才算失败，且报出具体原因", async () => {
+    const { app } = makeApp(
+      mockHtmlFetch({ spec: undefined, gate: { ok: false, errors: ["答案不许画错"] } }),
+    );
+    const job = await runJob(app, { questionId: "wq1", mode: "both" });
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("答案不许画错");
+  });
+
+  it("缓存按交付优先级命中：先模型那份，没有再退 SceneSpec", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    await runJob(app, { questionId: "wq1", mode: "both" });
+    const res = await app.request("/api/v1/explain", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: "wq1", mode: "both" }),
+    });
+    const body = (await res.json()) as { status: string; explanation?: { mode: string } };
+    expect(body.status).toBe("ready");
+    expect(body.explanation?.mode).toBe("web_html");
+    expect(state.repo.findExplanation("wq1", undefined, "web")).toBeTruthy();
   });
 });
