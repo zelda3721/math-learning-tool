@@ -9,7 +9,7 @@ export const LearnerSchema = z.object({
 });
 export type Learner = z.infer<typeof LearnerSchema>;
 
-export const AttemptSourceSchema = z.enum(["daily", "probe", "variant", "explore"]);
+export const AttemptSourceSchema = z.enum(["daily", "probe", "variant", "review", "explore"]);
 
 export const AttemptSchema = z.object({
   id: z.string(),

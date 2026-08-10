@@ -14,6 +14,8 @@ import { practiceRoutes } from "./routes/practice.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
 import { diagnosisRoutes } from "./routes/diagnosis.js";
 import { explainRoutes } from "./explain/routes.js";
+import { parentRoutes } from "./routes/parent.js";
+import type { PhotoGrader } from "./photoGrader.js";
 import { ingestRoutes } from "./ingest/routes.js";
 
 export interface AppState {
@@ -29,6 +31,8 @@ export interface AppState {
   jobs?: JobStore;
   /** 可注入的引擎 fetch（测试 mock 引擎 SSE 用）；缺省 globalThis.fetch */
   engineFetch?: typeof fetch;
+  /** 拍照作答判卷（vision）；未配置时 submit-photo 返回 501 */
+  photoGrader?: PhotoGrader | null;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
@@ -83,6 +87,7 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/knowledge", knowledgeRoutes(state));
   app.route("/api/v1/diagnosis", diagnosisRoutes(state));
   app.route("/api/v1/explain", explainRoutes(state));
+  app.route("/api/v1/parent", parentRoutes(state));
   app.route("/api/v1/ingest", ingestRoutes(state));
 
   // 引擎透传（SSE 流式）

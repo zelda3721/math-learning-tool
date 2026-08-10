@@ -93,7 +93,7 @@ export async function getVariant(args: {
     }
   }
 
-  // ③ 降级：点亮推迟到复习队列（明天同组题再练）
-  repo.pushQueueItem(learnerId, "review", original.id, new Date(Date.now() + 20 * 3600_000).toISOString());
+  // ③ 降级：点亮推迟到 SM-2 复习卡（明天同组换题再练）
+  repo.upsertReviewCard(learnerId, "question", original.id, new Date(Date.now() + 20 * 3600_000).toISOString());
   return { kind: "none" };
 }

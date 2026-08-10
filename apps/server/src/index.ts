@@ -11,6 +11,7 @@ import { createQuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
 import { JobStore } from "./ingest/jobs.js";
+import { createPhotoGrader } from "./photoGrader.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -79,6 +80,14 @@ async function main(): Promise<void> {
     hintProvider: buildHintProvider(),
     extraction: buildExtractionProvider(),
     jobs: new JobStore(db),
+    photoGrader: (() => {
+      try {
+        return createPhotoGrader(process.env);
+      } catch (err) {
+        console.warn(`[photo] vision 判卷不可用: ${String(err)}`);
+        return null;
+      }
+    })(),
   });
   serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     console.log(`MathTutor server listening on http://${info.address}:${info.port}`);

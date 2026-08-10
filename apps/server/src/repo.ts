@@ -2,6 +2,18 @@ import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Attempt, EducationLevel, Learner } from "@mathtutor/schema";
 
+export interface ReviewCardRow {
+  id: string;
+  learnerId: string;
+  targetKind: "question" | "node";
+  targetId: string;
+  stage: number;
+  ease: number;
+  nextReviewAt: string;
+  lapseCount: number;
+  masteredAt?: string;
+}
+
 export interface MasteryRow {
   learnerId: string;
   nodeId: string;
@@ -337,6 +349,122 @@ export class Repo {
       .prepare("SELECT id FROM explain_jobs WHERE question_id = ? AND status = 'running' LIMIT 1")
       .get(questionId);
     return r ? String(r.id) : undefined;
+  }
+
+  // ---- review cards（P3 SM-2） ----
+  upsertReviewCard(learnerId: string, targetKind: "question" | "node", targetId: string, nextReviewAt: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO review_cards (id, learner_id, target_kind, target_id, stage, next_review_at, created_at)
+         VALUES (?, ?, ?, ?, 0, ?, ?)
+         ON CONFLICT(learner_id, target_kind, target_id) DO UPDATE SET
+           mastered_at = NULL,
+           next_review_at = CASE WHEN review_cards.next_review_at > excluded.next_review_at
+                                 THEN excluded.next_review_at ELSE review_cards.next_review_at END`,
+      )
+      .run(randomUUID(), learnerId, targetKind, targetId, nextReviewAt, new Date().toISOString());
+  }
+
+  private rowToReviewCard(r: Record<string, unknown>): ReviewCardRow {
+    return {
+      id: String(r.id),
+      learnerId: String(r.learner_id),
+      targetKind: String(r.target_kind) as "question" | "node",
+      targetId: String(r.target_id),
+      stage: Number(r.stage),
+      ease: Number(r.ease),
+      nextReviewAt: String(r.next_review_at),
+      lapseCount: Number(r.lapse_count),
+      masteredAt: r.mastered_at === null ? undefined : String(r.mastered_at),
+    };
+  }
+
+  getReviewCard(id: string): ReviewCardRow | undefined {
+    const r = this.db.prepare("SELECT * FROM review_cards WHERE id = ?").get(id);
+    return r ? this.rowToReviewCard(r as Record<string, unknown>) : undefined;
+  }
+
+  dueReviewCards(learnerId: string, limit: number): ReviewCardRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?
+         ORDER BY next_review_at LIMIT ?`,
+      )
+      .all(learnerId, new Date().toISOString(), limit)
+      .map((r) => this.rowToReviewCard(r as Record<string, unknown>));
+  }
+
+  countDueReviews(learnerId: string): number {
+    const r = this.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?",
+      )
+      .get(learnerId, new Date().toISOString());
+    return Number(r?.n ?? 0);
+  }
+
+  updateReviewCard(id: string, patch: { stage: number; nextReviewAt: string; lapseCount?: number }): void {
+    this.db
+      .prepare(
+        `UPDATE review_cards SET stage = ?, next_review_at = ?${patch.lapseCount !== undefined ? ", lapse_count = ?" : ""} WHERE id = ?`,
+      )
+      .run(
+        ...(patch.lapseCount !== undefined
+          ? [patch.stage, patch.nextReviewAt, patch.lapseCount, id]
+          : [patch.stage, patch.nextReviewAt, id]),
+      );
+  }
+
+  masterReviewCard(id: string): void {
+    this.db
+      .prepare("UPDATE review_cards SET mastered_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+  }
+
+  // ---- 家长裁决（判卷抽检队列，P3） ----
+  pendingReviewAttempts(learnerId: string, limit = 50) {
+    return this.db
+      .prepare(
+        `SELECT * FROM attempts WHERE learner_id = ? AND needs_review = 1 AND parent_verdict IS NULL
+         ORDER BY at DESC LIMIT ?`,
+      )
+      .all(learnerId, limit)
+      .map((r) => this.getAttempt(String((r as Record<string, unknown>).id))!)
+      .filter(Boolean);
+  }
+
+  setAttemptVerdict(attemptId: string, verdict: "correct" | "incorrect", note?: string): void {
+    this.db
+      .prepare("UPDATE attempts SET parent_verdict = ?, parent_note = ?, needs_review = 0, correct = ? WHERE id = ?")
+      .run(verdict, note ?? null, verdict === "correct" ? 1 : 0, attemptId);
+  }
+
+  correctMistake(mistakeId: string, newRootNodeId?: string): void {
+    this.db
+      .prepare(
+        `UPDATE mistakes SET corrected_by_parent = 1${newRootNodeId ? ", root_node_id = ?" : ""} WHERE id = ?`,
+      )
+      .run(...(newRootNodeId ? [newRootNodeId, mistakeId] : [mistakeId]));
+  }
+
+  /** 近 N 天逐日作答统计（家长趋势） */
+  dailyStats(learnerId: string, days: number): { date: string; attempts: number; correct: number; hints: number }[] {
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT substr(at, 1, 10) AS d,
+                COUNT(*) AS attempts,
+                SUM(correct) AS correct,
+                SUM(CASE WHEN hint_level_used > 0 THEN 1 ELSE 0 END) AS hints
+         FROM attempts WHERE learner_id = ? AND at >= ? GROUP BY d ORDER BY d`,
+      )
+      .all(learnerId, since);
+    return rows.map((r) => ({
+      date: String((r as Record<string, unknown>).d),
+      attempts: Number((r as Record<string, unknown>).attempts),
+      correct: Number((r as Record<string, unknown>).correct),
+      hints: Number((r as Record<string, unknown>).hints),
+    }));
   }
 
   // ---- queue（P1a 只消费；P2 探针、P3 复习开始生产） ----
