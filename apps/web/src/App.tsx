@@ -61,6 +61,19 @@ function AuthedApp() {
         if (!navItems.some((item) => item.key === view)) setView('practice')
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [role])
+
+    // 页面内跳转（如小结页的「去星图看看」）：只接受当前角色可见的视图
+    useEffect(() => {
+        const onNavigate = (e: Event) => {
+            const target = (e as CustomEvent<{ view?: string }>).detail?.view
+            if (target && NAV_ITEMS.some((i) => i.key === target && i.roles.includes(role))) {
+                setView(target as AppView)
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+            }
+        }
+        window.addEventListener('mathtutor:navigate', onNavigate)
+        return () => window.removeEventListener('mathtutor:navigate', onNavigate)
+    }, [role])
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
     // 讲解 tab 的双模式：⚡ 动画（web 默认，秒级）/ 🎬 视频（Manim 高级成片）
     const [explainMode, setExplainMode] = useState<'anim' | 'video'>('anim')

@@ -85,9 +85,9 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
     }, [records])
 
     const handleGoAtlas = () => {
-        // App.tsx 不在本模块修改范围内：先派事件（未来 App 可监听），同时给出可操作提示。
+        // App 监听 mathtutor:navigate 完成切换；若因角色不可见而未切走，才提示手动点标签
         window.dispatchEvent(new CustomEvent('mathtutor:navigate', { detail: { view: 'atlas' } }))
-        setAtlasTip(true)
+        setTimeout(() => setAtlasTip(true), 400)
     }
 
     return (
