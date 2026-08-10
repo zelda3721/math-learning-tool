@@ -239,6 +239,36 @@ async function runWebJob(
   }
 }
 
+
+/**
+ * 注入到模型页面里的可信运行时：把 `data-repeat="n"` 的样板精确克隆成 n 个。
+ *
+ * 关键在于「可信」——这段代码是我们写的，不经模型的手，所以画出来的个数
+ * 严格等于声明的数；门禁那头核对声明数与 data-claim 是否一致。两头都锁住，
+ * 中间那段「模型自由发挥」就不可能在数量上撒谎。
+ *
+ * 之所以要它：一开始要求模型把 n 个个体逐个写出来，实测三次生成全部被
+ * 输出长度上限截断，还出现过「宣称 35、写了 45」的数错。
+ */
+const REPEAT_RUNTIME = `<script>(function(){
+  var hosts = document.querySelectorAll('[data-unit][data-repeat]');
+  for (var i = 0; i < hosts.length; i++) {
+    var tpl = hosts[i];
+    var n = parseInt(tpl.getAttribute('data-repeat'), 10);
+    if (!isFinite(n) || n < 1) continue;
+    if (n > 400) n = 400;             // 一屏画不下更多，也防写错一个巨大的数
+    tpl.removeAttribute('data-repeat');
+    tpl.setAttribute('data-i', '0');
+    var frag = document.createDocumentFragment();
+    for (var k = 1; k < n; k++) {
+      var copy = tpl.cloneNode(true);
+      copy.setAttribute('data-i', String(k));
+      frag.appendChild(copy);
+    }
+    if (tpl.parentNode) tpl.parentNode.insertBefore(frag, tpl.nextSibling);
+  }
+})();</script>`;
+
 /** 超过这个时长仍在 running 的讲解任务判定为死掉（引擎客户端上限 20 分钟 + 余量） */
 const STALE_JOB_MS = 25 * 60_000;
 
@@ -381,7 +411,8 @@ export function explainRoutes(state: AppState): Hono {
     const id = c.req.param("id").replace(/[^\w-]/g, "");
     const file = path.join(state.config.dataDir, "explanations", `${id}.html`);
     if (!existsSync(file)) return c.json({ error: "讲解不存在" }, 404);
-    return c.body(readFileSync(file, "utf8"), 200, {
+    // 存的是模型的原始产物（数据集要的是原样）；克隆运行时在发出时才拼上
+    return c.body(readFileSync(file, "utf8") + REPEAT_RUNTIME, 200, {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy":
         "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +

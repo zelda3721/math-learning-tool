@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EngineContract } from "@mathtutor/schema";
 import { createApp } from "../src/app.js";
 import { makeQuestion, tempFixtureEnv, NODE_A } from "./helpers.js";
@@ -101,7 +103,8 @@ describe("P6 模型直写讲解页面（web_html）", () => {
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("default-src 'none'");
     expect(page.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(await page.text()).toBe(GOOD_HTML);
+    // 原始产物原样在前，克隆运行时拼在后面（见「data-repeat 由可信运行时展开」一节）
+    expect(await page.text()).toContain(GOOD_HTML);
   });
 
   it("引擎判定门禁不过时不登记——画着假数字比没有讲解糟糕得多", async () => {
@@ -411,3 +414,37 @@ describe("僵尸任务不许永久占位", () => {
     expect(state.repo.getExplainJob(fresh)?.status).toBe("running");
   });
 });
+
+describe("data-repeat 由可信运行时展开，不经模型的手", () => {
+  it("发出的页面拼上了克隆运行时", async () => {
+    const { app } = makeApp(mockHtmlFetch({}));
+    const job = await runJob(app, { questionId: "wq1", mode: "web_html" });
+    const page = await (await app.request(job.explanation!.htmlUrl!)).text();
+    // 原始产物原样保留（数据集与排查要的是模型真正写了什么）
+    expect(page.startsWith(GOOD_HTML)).toBe(true);
+    // 运行时在末尾拼上
+    expect(page).toContain("data-unit][data-repeat");
+    expect(page).toContain("cloneNode");
+  });
+
+  it("落盘的是模型原始产物，不含运行时", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({}));
+    await runJob(app, { questionId: "wq1", mode: "web_html" });
+    const url = state.repo.findExplanation("wq1", undefined, "web_html")!.htmlUrl!;
+    const id = url.split("/").pop()!;
+    const raw = readFileSync(join(state.config.dataDir, "explanations", `${id}.html`), "utf8");
+    expect(raw).toBe(GOOD_HTML);
+    expect(raw).not.toContain("cloneNode");
+  });
+})
+
+it("SceneSpec 端点仍返回纯 JSON——克隆运行时只属于 HTML 那条", async () => {
+  const { app } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+  const job = await runJob(app, { questionId: "wq1", mode: "both" });
+  const specUrl = job.alternatives!.find((a) => a.mode === "web")!.specUrl!;
+  const res = await app.request(specUrl);
+  expect(res.headers.get("content-type")).toContain("application/json");
+  const text = await res.text();
+  expect(text).not.toContain("cloneNode");
+  expect(() => JSON.parse(text)).not.toThrow();
+})
