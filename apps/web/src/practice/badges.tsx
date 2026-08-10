@@ -1,37 +1,35 @@
 import type { MasteryBand, Slot } from './api'
+import { Badge, type BadgeTone } from '../ui'
 
-/** 今日题组槽位徽章：复习 / 探针 / 弱点 / 新题 / 挑战 */
-const SLOT_META: Record<Slot, { label: string; cls: string }> = {
-    review: { label: '复习', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    queue: { label: '探针', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
-    weak: { label: '弱点', cls: 'bg-rose-100 text-rose-600 border-rose-200' },
-    new: { label: '新题', cls: 'bg-sky-100 text-sky-600 border-sky-200' },
-    challenge: { label: '挑战', cls: 'bg-violet-100 text-violet-600 border-violet-200' },
+/** 今日题组槽位徽章：复习 / 探针 / 弱点 / 新题 / 挑战
+ *  语义色纪律：金色只留给「学会了」，槽位是中性分类，弱点用 wrong。 */
+const SLOT_META: Record<Slot, { label: string; tone: BadgeTone }> = {
+    review: { label: '复习', tone: 'slate' },
+    queue: { label: '探针', tone: 'beam' },
+    weak: { label: '弱点', tone: 'wrong' },
+    new: { label: '新题', tone: 'beam' },
+    challenge: { label: '挑战', tone: 'slate' },
 }
 
 export function SlotBadge({ slot }: { slot: Slot }) {
     const meta = SLOT_META[slot]
-    return (
-        <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.cls}`}
-        >
-            {meta.label}
-        </span>
-    )
+    return <Badge tone={meta.tone}>{meta.label}</Badge>
 }
 
-/** 掌握度亮度徽章：暗 → 微光 → 点亮 */
+/** 掌握度亮度徽章：暗 → 微光 → 点亮。
+ *  这里是「点亮」语义本身，所以是唯一允许用金色系的徽章：
+ *  暗=中性、微光=glow（半亮的金）、点亮=lit（满亮的金）。 */
 const BAND_META: Record<MasteryBand, { label: string; cls: string }> = {
-    dim: { label: '暗', cls: 'bg-slate-100 text-slate-500 border-slate-200' },
-    glow: { label: '微光', cls: 'bg-amber-100 text-amber-600 border-amber-200' },
-    lit: { label: '点亮', cls: 'bg-sky-100 text-sky-600 border-sky-200' },
+    dim: { label: '暗', cls: 'bg-paper text-ink-faint border-rule' },
+    glow: { label: '微光', cls: 'bg-lit-wash text-glow border-glow/35' },
+    lit: { label: '点亮', cls: 'bg-lit-wash text-lit border-lit/25' },
 }
 
 export function BandBadge({ band }: { band: MasteryBand }) {
     const meta = BAND_META[band]
     return (
         <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.cls}`}
+            className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${meta.cls}`}
         >
             {meta.label}
         </span>

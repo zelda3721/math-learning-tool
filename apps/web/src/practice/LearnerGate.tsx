@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useLearner } from '../learner/LearnerContext'
+import { Button, Field } from '../ui'
 
 export const LEVEL_OPTIONS = [
     ['elementary_lower', '小学低年级'],
@@ -24,13 +25,13 @@ export function LearnerGate() {
     const [error, setError] = useState<string | null>(null)
 
     if (loading) {
-        return <div className="text-center text-slate-400 py-16">正在加载学习档案……</div>
+        return <div className="text-center text-ink-faint py-16">正在加载学习档案……</div>
     }
 
     // 孩子理论上不会到这（learner 恒为本人）；万一档案缺失给明确提示而非建档表单
     if (user?.role === 'child') {
         return (
-            <div className="soft-glass p-8 max-w-lg mx-auto text-center text-slate-500">
+            <div className="plate p-8 max-w-lg mx-auto text-center text-ink-soft">
                 你的学习档案暂时加载不出来，刷新一下试试；还不行就找家长看看。
             </div>
         )
@@ -52,64 +53,59 @@ export function LearnerGate() {
     }
 
     return (
-        <div className="soft-glass p-8 max-w-lg mx-auto space-y-6">
+        <div className="plate p-8 max-w-lg mx-auto space-y-6">
             <div className="text-center space-y-1">
-                <h2 className="text-2xl font-bold text-slate-700">今天谁来练习?</h2>
-                <p className="text-slate-500 text-sm">选一个名字，或者建一个新档案。</p>
+                <h2 className="text-2xl font-bold text-ink tracking-tight">今天谁来练习?</h2>
+                <p className="text-ink-soft text-sm">选一个名字，或者建一个新档案。</p>
             </div>
 
             {learners.length > 0 && (
                 <div className="space-y-2">
                     <div className="flex flex-wrap gap-2 justify-center">
                         {learners.map((l) => (
-                            <button
-                                key={l.id}
-                                type="button"
-                                onClick={() => select(l)}
-                                className="px-5 py-2.5 rounded-2xl bg-white border-2 border-slate-100 hover:border-sky-300 hover:bg-sky-50 transition-colors text-slate-700 font-semibold shadow-sm"
-                            >
-                                {l.name}
-                                <span className="ml-2 text-xs font-normal text-slate-400">
+                            <Button key={l.id} variant="secondary" onClick={() => select(l)}>
+                                <span className="font-semibold text-ink">{l.name}</span>
+                                <span className="ml-2 text-xs font-normal text-ink-faint">
                                     {levelLabel(l.level)}
                                 </span>
-                            </button>
+                            </Button>
                         ))}
                     </div>
                     <div className="flex items-center gap-3 pt-2">
-                        <div className="flex-1 h-px bg-slate-200" />
-                        <span className="text-xs text-slate-400">或建新档案</span>
-                        <div className="flex-1 h-px bg-slate-200" />
+                        <div className="flex-1 h-px bg-rule" />
+                        <span className="eyebrow">或建新档案</span>
+                        <div className="flex-1 h-px bg-rule" />
                     </div>
                 </div>
             )}
 
-            <form onSubmit={handleCreate} className="space-y-3">
-                <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="你的名字"
-                    className="w-full px-4 py-3 text-lg bg-white border-2 border-slate-100 rounded-2xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 transition-all"
-                />
-                <select
-                    value={level}
-                    onChange={(e) => setLevel(e.target.value)}
-                    className="w-full px-4 py-3 text-lg bg-white border-2 border-slate-100 rounded-2xl text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 transition-all"
-                >
-                    {LEVEL_OPTIONS.map(([key, label]) => (
-                        <option key={key} value={key}>
-                            {label}
-                        </option>
-                    ))}
-                </select>
-                <button
-                    type="submit"
-                    disabled={!name.trim() || creating}
-                    className="w-full py-3 rounded-2xl bg-sky-500 text-white text-lg font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
+            <form onSubmit={handleCreate} className="space-y-4">
+                <Field label="名字">
+                    <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="你的名字"
+                        className="input-hero"
+                    />
+                </Field>
+                <Field label="学段">
+                    <select
+                        value={level}
+                        onChange={(e) => setLevel(e.target.value)}
+                        className="input-hero"
+                    >
+                        {LEVEL_OPTIONS.map(([key, label]) => (
+                            <option key={key} value={key}>
+                                {label}
+                            </option>
+                        ))}
+                    </select>
+                </Field>
+                <Button type="submit" size="lg" disabled={!name.trim() || creating} className="w-full">
                     {creating ? '创建中……' : '开始学习'}
-                </button>
-                {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+                </Button>
+                {error && <p className="text-sm text-wrong text-center">{error}</p>}
             </form>
         </div>
     )
@@ -123,20 +119,20 @@ export function LearnerSwitcher({ disabled }: { disabled?: boolean }) {
     const others = user?.role === 'child' ? [] : learners.filter((l) => l.id !== learner.id)
     return (
         <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
-            <span className="px-4 py-1.5 rounded-full bg-sky-500 text-white text-sm font-semibold shadow">
+            <span className="inline-flex items-baseline gap-1.5 rounded-[10px] bg-beam px-3.5 py-1.5 text-sm font-semibold text-white">
                 {learner.name}
-                <span className="ml-1.5 text-sky-100 font-normal text-xs">{levelLabel(learner.level)}</span>
+                <span className="text-xs font-normal text-white/75">{levelLabel(learner.level)}</span>
             </span>
             {others.map((l) => (
-                <button
+                <Button
                     key={l.id}
-                    type="button"
+                    size="sm"
+                    variant="secondary"
                     disabled={disabled}
                     onClick={() => select(l)}
-                    className="px-4 py-1.5 rounded-full bg-white/80 border border-slate-200 text-sm text-slate-500 hover:text-slate-800 hover:border-sky-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                     {l.name}
-                </button>
+                </Button>
             ))}
         </div>
     )

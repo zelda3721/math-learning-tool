@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
-import { Button, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
+import { Badge, Button, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
 import { fetchLitCount, fetchNextStep, fetchToday, type NextStep, type TodayItem } from './api'
 import { LearnerGate, LearnerSwitcher } from './LearnerGate'
 import { QuestionCard, type QuestionRecord } from './QuestionCard'
@@ -90,30 +90,32 @@ export function PracticePage() {
             <LearnerSwitcher disabled={inSession} />
 
             {phase.kind === 'idle' && (
-                <div className="soft-glass p-10 max-w-lg mx-auto text-center space-y-5">
-                    <h2 className="text-2xl font-bold text-slate-700">
+                <div className="plate p-10 max-w-lg mx-auto text-center space-y-5">
+                    <h2 className="text-2xl font-bold text-ink tracking-tight">
                         {learner.name}，准备好了吗?
                     </h2>
-                    <p className="text-slate-500">
+                    <p className="text-ink-soft">
                         每天一小组题，把知识星图一颗颗点亮。
                     </p>
                     {nextStep && (
-                        <div className="rounded-2xl bg-sky-50/80 border border-sky-100 px-4 py-3 flex items-start gap-3 text-left">
+                        <div className="rounded-[10px] bg-beam-wash border border-beam/20 px-4 py-3 flex items-start gap-3 text-left">
                             <span className="text-2xl leading-none mt-0.5">
                                 {NEXT_STEP_ICON[nextStep.kind]}
                             </span>
                             <div>
-                                <p className="text-xs font-bold text-sky-400 mb-0.5">下一步</p>
-                                <p className="text-slate-600 font-medium leading-relaxed">
+                                <p className="eyebrow mb-1">下一步</p>
+                                <p className="text-ink font-medium leading-relaxed">
                                     {nextStep.nextStep}
                                 </p>
                             </div>
                         </div>
                     )}
                     {litCount !== null && litCount > 0 && (
-                        <p className="text-sm text-slate-400">
-                            ⭐ 已点亮 <span className="font-bold text-amber-500">{litCount}</span> 颗星星
-                        </p>
+                        <div className="flex justify-center">
+                            <Badge tone="lit">
+                                已点亮 <span className="numeric mx-1 text-sm">{litCount}</span> 颗星
+                            </Badge>
+                        </div>
                     )}
                     <Button size="lg" onClick={() => void startSession()}>
                         开始今日练习

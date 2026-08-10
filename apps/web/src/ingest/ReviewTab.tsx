@@ -3,6 +3,7 @@
  * 每题可「核验通过」（支持先内联编辑 stem/answer/难度，带 patch）、「剔除」或「跳过」。
  */
 import { useCallback, useEffect, useState } from 'react'
+import { Button } from '../ui'
 import { extractErrorMessage, inputCls, LEVEL_LABELS } from './shared'
 import type { Level } from './shared'
 
@@ -70,7 +71,7 @@ function QuestionCard({
     }
 
     return (
-        <div className="rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm space-y-3">
+        <div className="plate p-5 space-y-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 space-y-2">
                     {editing ? (
@@ -81,55 +82,67 @@ function QuestionCard({
                             className={`${inputCls} resize-y`}
                         />
                     ) : (
-                        <p className="whitespace-pre-wrap text-sm text-slate-700">{stem}</p>
+                        <p className="whitespace-pre-wrap text-sm text-ink">{stem}</p>
                     )}
                     {q.options && q.options.length > 0 && (
-                        <p className="text-xs text-slate-500">选项：{q.options.join(' / ')}</p>
+                        <p className="text-xs text-ink-soft">选项：{q.options.join(' / ')}</p>
                     )}
                 </div>
                 <button
                     type="button"
                     onClick={() => setEditing((v) => !v)}
-                    className="shrink-0 text-xs text-sky-500 hover:text-sky-700"
+                    className="shrink-0 text-xs font-semibold text-beam hover:text-beam-deep transition-colors"
                 >
                     {editing ? '收起编辑' : '编辑'}
                 </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-soft">
                 <span className="flex items-center gap-1.5">
-                    答案：
+                    <span className="eyebrow">答案</span>
                     {editing ? (
                         <input
                             type="text"
                             value={answer}
                             onChange={(e) => setAnswer(e.target.value)}
-                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            className={`${inputCls} numeric w-40`}
                         />
                     ) : (
-                        <span className="font-medium text-emerald-600">{answer || '（无）'}</span>
+                        <span className="numeric font-semibold text-ink">{answer || '（无）'}</span>
                     )}
                 </span>
                 <span className="flex items-center gap-1.5">
-                    难度：
+                    <span className="eyebrow">难度</span>
                     {editing ? (
                         <select
                             value={difficulty}
                             onChange={(e) => setDifficulty(Number(e.target.value))}
-                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            className={`${inputCls} numeric w-28`}
                         >
                             {[1, 2, 3, 4, 5].map((n) => (
                                 <option key={n} value={n}>
-                                    {'★'.repeat(n)}
+                                    {n} · {'★'.repeat(n)}
                                 </option>
                             ))}
                         </select>
                     ) : (
-                        <span className="text-amber-500">{'★'.repeat(difficulty)}</span>
+                        <span className="numeric text-ink">
+                            {difficulty} <span className="text-ink-faint">{'★'.repeat(difficulty)}</span>
+                        </span>
                     )}
                 </span>
-                {q.level && <span>学段：{LEVEL_LABELS[q.level]}</span>}
-                {q.sourceFile && <span>来源：{q.sourceFile}</span>}
+                {q.level && (
+                    <span className="flex items-center gap-1.5">
+                        <span className="eyebrow">学段</span>
+                        {LEVEL_LABELS[q.level]}
+                    </span>
+                )}
+                {q.sourceFile && (
+                    <span className="flex items-center gap-1.5">
+                        <span className="eyebrow">来源</span>
+                        {q.sourceFile}
+                    </span>
+                )}
             </div>
 
             {q.nodeIds.length > 0 && (
@@ -137,7 +150,7 @@ function QuestionCard({
                     {q.nodeIds.map((n) => (
                         <span
                             key={n}
-                            className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs text-sky-700"
+                            className="inline-flex items-center rounded-md border border-beam/20 bg-beam-wash px-2.5 py-1 text-xs text-beam"
                         >
                             {n}
                         </span>
@@ -145,33 +158,18 @@ function QuestionCard({
                 </div>
             )}
 
-            {q.analysis && <p className="text-xs text-slate-400">解析：{q.analysis}</p>}
+            {q.analysis && <p className="text-xs text-ink-faint">解析：{q.analysis}</p>}
 
             <div className="flex justify-end gap-2 pt-1">
-                <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onSkip}
-                    className="rounded-full border border-slate-200 px-4 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
+                <Button size="sm" variant="ghost" disabled={busy} onClick={onSkip}>
                     跳过
-                </button>
-                <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onReject}
-                    className="rounded-full border border-red-200 px-4 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
+                </Button>
+                <Button size="sm" variant="danger" disabled={busy} onClick={onReject}>
                     剔除
-                </button>
-                <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleVerify}
-                    className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
+                </Button>
+                <Button size="sm" disabled={busy} onClick={handleVerify}>
                     核验通过
-                </button>
+                </Button>
             </div>
         </div>
     )
@@ -243,36 +241,29 @@ export function ReviewTab() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-ink-soft">
                     {list ? (
                         <>
-                            题库共 <span className="font-semibold text-slate-700">{list.total}</span> 题 · 待抽检{' '}
-                            <span className="font-semibold text-amber-600">{list.extracted}</span> 题
+                            题库共 <span className="numeric font-semibold text-ink">{list.total}</span> 题 · 待抽检{' '}
+                            <span className="numeric font-semibold text-beam">{list.extracted}</span> 题
                         </>
                     ) : (
                         '加载中…'
                     )}
                 </p>
-                <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => void load()}
-                    className="rounded-full border border-slate-200 px-4 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
+                <Button size="sm" variant="secondary" disabled={loading} onClick={() => void load()}>
                     {loading ? '刷新中…' : '刷新'}
-                </button>
+                </Button>
             </div>
 
             {error && (
-                <div className="rounded-xl border-l-4 border-red-400 bg-red-50/70 p-4">
-                    <p className="text-sm text-red-600">{error}</p>
+                <div className="rounded-[10px] border border-wrong/25 bg-wrong-wash p-4">
+                    <p className="text-sm text-wrong">{error}</p>
                 </div>
             )}
 
             {!loading && list && visible.length === 0 && (
-                <p className="rounded-2xl border border-slate-200 bg-white/60 py-10 text-center text-sm text-slate-400">
-                    没有待抽检的题
-                </p>
+                <p className="plate py-10 text-center text-sm text-ink-faint">没有待抽检的题</p>
             )}
 
             {visible.map((q) => (

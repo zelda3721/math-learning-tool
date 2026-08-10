@@ -62,7 +62,7 @@ export function UnificationPanel({ problemTypes, graph }: UnificationPanelProps)
     )
 
     if (rows.length === 0) {
-        return <div className="p-4 text-sm text-slate-400">暂无统一之路数据</div>
+        return <div className="p-4 text-sm text-ink-faint">暂无统一之路数据</div>
     }
 
     // 按学段分组（保持 graph.stages 顺序）
@@ -79,38 +79,35 @@ export function UnificationPanel({ problemTypes, graph }: UnificationPanelProps)
 
     return (
         <div className="p-4 space-y-4">
-            <p className="text-[11px] leading-relaxed text-slate-400">
+            <p className="text-[11px] leading-relaxed text-ink-faint">
                 这些经典题型不是孤立的技巧——每一个都会在更高学段被更强的工具「统一」。
                 点节点名可在星图中定位。
             </p>
             {groups.map(([stage, items]) => (
                 <section key={stage}>
-                    <h3 className="text-xs font-extrabold tracking-wide text-slate-600 mb-2">
-                        {stageName(stage)}（{items.length}）
+                    <h3 className="eyebrow mb-2">
+                        {stageName(stage)}（<span className="numeric">{items.length}</span>）
                     </h3>
                     <ul className="space-y-2">
                         {items.map((r) => (
-                            <li
-                                key={r.id}
-                                className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2"
-                            >
+                            <li key={r.id} className="rounded-[10px] border border-rule bg-paper px-3 py-2">
                                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                                    <span className="font-bold text-slate-700">{r.name}</span>
-                                    <span className="text-slate-300">→</span>
+                                    <span className="font-bold text-ink">{r.name}</span>
+                                    <span className="text-ink-faint">→</span>
                                     {r.nodeId ? (
                                         <button
                                             type="button"
                                             onClick={() => focusNode(r.nodeId!)}
                                             title="在星图中定位"
-                                            className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-bold text-indigo-600 hover:bg-indigo-100 transition-colors"
+                                            className="rounded-md border border-beam/20 bg-beam-wash px-2 py-0.5 font-bold text-beam hover:border-beam/40 transition-colors"
                                         >
                                             {r.nodeName}
                                         </button>
                                     ) : (
-                                        <span className="text-slate-400 italic">更高级的统一工具</span>
+                                        <span className="text-ink-faint italic">更高级的统一工具</span>
                                     )}
                                 </div>
-                                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{r.note}</p>
+                                <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">{r.note}</p>
                             </li>
                         ))}
                     </ul>

@@ -6,7 +6,7 @@ import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
 import { useAuth } from './auth/AuthContext'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
-import { Badge } from './ui'
+import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
 import { PracticePage } from './practice/PracticePage'
 import { IngestPage } from './ingest/IngestPage'
@@ -43,7 +43,7 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
 function App() {
     const { status } = useAuth()
     if (status === 'loading') {
-        return <div className="min-h-screen flex items-center justify-center text-slate-400">正在启动……</div>
+        return <div className="min-h-screen flex items-center justify-center text-ink-faint">正在启动……</div>
     }
     if (status === 'setup') return <SetupPage />
     if (status === 'anon') return <AuthGate />
@@ -128,28 +128,28 @@ function AuthedApp() {
 
     return (
         <div className="min-h-screen flex flex-col relative overflow-hidden">
-            {/* 统一顶栏：logo · 角色导航 · 用户区 */}
-            <header className="sticky top-4 z-50 px-4 mb-4">
-                <div className="soft-glass mx-auto max-w-6xl px-4 md:px-6 py-2.5 flex items-center gap-3">
+            {/* 统一顶栏：贴合纸面的横轨 —— logo · 角色导航 · 用户区 */}
+            <header className="top-rail sticky top-0 z-50 mb-6">
+                <div className="mx-auto max-w-6xl px-4 md:px-6 h-14 flex items-center gap-3">
                     <div className="flex items-center gap-2.5 shrink-0">
-                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-200">
-                            <span className="text-white font-bold text-lg">M</span>
+                        <div className="w-8 h-8 rounded-[10px] bg-beam flex items-center justify-center">
+                            <span className="text-white font-bold text-lg leading-none">M</span>
                         </div>
-                        <span className="hidden sm:inline font-bold text-lg text-slate-700 tracking-tight">
-                            Math<span className="text-sky-500">Tutor</span>
+                        <span className="hidden sm:inline font-bold text-lg text-ink tracking-tight">
+                            Math<span className="text-beam">Tutor</span>
                         </span>
                     </div>
 
-                    <nav className="flex-1 flex items-center justify-center gap-0.5 overflow-x-auto">
+                    <nav className="flex-1 flex items-center justify-center gap-1 overflow-x-auto">
                         {navItems.map(({ key, label }) => (
                             <button
                                 key={key}
                                 type="button"
                                 onClick={() => setView(key)}
-                                className={`px-3.5 md:px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+                                className={`px-3.5 md:px-4 py-1.5 rounded-[10px] text-sm font-semibold whitespace-nowrap transition-colors ${
                                     view === key
-                                        ? 'bg-sky-500 text-white shadow'
-                                        : 'text-slate-500 hover:text-slate-800'
+                                        ? 'bg-beam text-white'
+                                        : 'text-ink-soft hover:text-ink hover:bg-paper'
                                 }`}
                             >
                                 {label}
@@ -162,21 +162,21 @@ function AuthedApp() {
                             <button
                                 type="button"
                                 onClick={() => setHistoryOpen(true)}
-                                className="p-2 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-full transition-all"
+                                className="p-2 text-ink-faint hover:text-beam hover:bg-beam-wash rounded-[10px] transition-colors"
                                 aria-label="历史记录"
                                 title="历史记录"
                             >
                                 <History size={17} />
                             </button>
                         )}
-                        <span className="hidden md:inline text-sm font-semibold text-slate-600">{user?.username}</span>
-                        <Badge tone={role === 'parent' ? 'amber' : 'sky'}>
+                        <span className="hidden md:inline text-sm font-semibold text-ink-soft">{user?.username}</span>
+                        <Badge tone={role === 'parent' ? 'beam' : 'slate'}>
                             {role === 'parent' ? '家长' : '同学'}
                         </Badge>
                         <button
                             type="button"
                             onClick={() => void logout()}
-                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                            className="p-2 text-ink-faint hover:text-wrong hover:bg-wrong-wash rounded-[10px] transition-colors"
                             aria-label="退出登录"
                             title="退出登录"
                         >
@@ -222,118 +222,90 @@ function AuthedApp() {
                 </main>
             )}
 
-            <main className={`flex-1 w-full max-w-5xl mx-auto px-4 py-8 md:py-12 flex-col gap-8 relative z-10 ${view === 'solve' ? 'flex' : 'hidden'}`}>
+            <main className={`flex-1 w-full max-w-5xl mx-auto px-4 py-8 flex-col relative z-10 ${view === 'solve' ? 'flex' : 'hidden'}`}>
+                <PageHeader title="讲解" subtitle="任意一道题，先看动画讲解；需要成片再生成视频" />
+
                 {!isViewingHistory && (
-                    <>
-                        <section className="flex flex-col items-center text-center space-y-6 max-w-3xl mx-auto mt-8">
-                            <div className="space-y-2">
-                                <h1 className="text-hero leading-tight">
-                                    让数学变得<br />
-                                    <span className="text-sky-500">简单又有趣</span>
-                                </h1>
-                                <p className="text-slate-500 text-lg md:text-xl max-w-xl mx-auto">
-                                    选择年级，输入题目，AI 老师一步步把它演成动画。
-                                </p>
-                            </div>
-
-                            <div className="w-full h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent my-4" />
-
-                            <div className="w-full">
+                    <div className="space-y-6 pb-16">
+                        {/* 工作台：年级 + 模式 + 题目，一张图版里说清一件事 */}
+                        <div className="plate p-5 md:p-6 space-y-4">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
                                 <GradeSelector
                                     grades={gradesQuery.data || []}
                                     selectedGrade={selectedGrade}
                                     onSelect={setSelectedGrade}
                                     isLoading={gradesQuery.isLoading}
                                 />
-                            </div>
-                        </section>
 
-                        <section className="w-full max-w-3xl mx-auto space-y-4">
-                            {/* 讲解双模式：动画（web 默认，秒级）/ 视频（Manim 高级成片） */}
-                            <div className="flex justify-center">
-                                <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1">
-                                    {(
-                                        [
-                                            ['anim', '⚡ 动画讲解（秒级）'],
-                                            ['video', '🎬 视频讲解（Manim 高级）'],
-                                        ] as const
-                                    ).map(([m, label]) => (
-                                        <button
-                                            key={m}
-                                            type="button"
-                                            onClick={() => setExplainMode(m)}
-                                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                                                explainMode === m
-                                                    ? 'bg-slate-800 text-white shadow'
-                                                    : 'text-slate-500 hover:text-slate-800'
-                                            }`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
+                                {/* 讲解双模式：动画（web 默认，秒级）/ 视频（Manim 高级成片） */}
+                                <div className="space-y-1.5">
+                                    <span className="eyebrow block">讲解形式</span>
+                                    <div className="inline-flex items-center gap-1 rounded-[10px] border border-rule bg-paper p-1">
+                                        {(
+                                            [
+                                                ['anim', '动画 · 秒级'],
+                                                ['video', '视频 · Manim'],
+                                            ] as const
+                                        ).map(([m, label]) => (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => setExplainMode(m)}
+                                                className={`px-3.5 py-1.5 rounded-[8px] text-sm font-medium transition-colors ${
+                                                    explainMode === m
+                                                        ? 'bg-beam text-white'
+                                                        : 'text-ink-faint hover:text-ink'
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="soft-glass p-1">
-                                <div className="bg-white/50 rounded-[1.4rem] p-6 md:p-8 backdrop-blur-sm">
-                                    <ProblemInput
-                                        onSubmit={(problem) => handleSubmit(problem)}
-                                        isLoading={isRunning}
-                                        selectedGrade={selectedGrade}
-                                        onGradeChange={setSelectedGrade}
-                                        grades={gradesQuery.data || []}
-                                    />
-                                </div>
-                            </div>
-                            {explainMode === 'anim' && animRequest && (
-                                <FreeExplainPanel
-                                    key={`${animRequest.problem}-${animRequest.grade}`}
-                                    problem={animRequest.problem}
-                                    grade={animRequest.grade}
-                                />
-                            )}
-                        </section>
 
-                        <section className="w-full pb-20 space-y-6">
-                            {isRunning && agentState.items.length === 0 && (
-                                <div className="flex justify-center py-12">
-                                    <LoadingAnimation />
-                                </div>
-                            )}
+                            <ProblemInput
+                                onSubmit={(problem) => handleSubmit(problem)}
+                                isLoading={isRunning}
+                                selectedGrade={selectedGrade}
+                                onGradeChange={setSelectedGrade}
+                                grades={gradesQuery.data || []}
+                            />
+                        </div>
 
-                            {(isRunning || isFinished) && <AgentTimeline state={agentState} />}
+                        {explainMode === 'anim' && animRequest && (
+                            <FreeExplainPanel
+                                key={`${animRequest.problem}-${animRequest.grade}`}
+                                problem={animRequest.problem}
+                                grade={animRequest.grade}
+                            />
+                        )}
 
-                            {isFinished && <LiveResult state={agentState} onReset={handleNewProblem} />}
+                        {isRunning && agentState.items.length === 0 && <LoadingAnimation />}
 
-                            {isFinished && agentState.sessionId && agentState.status === 'done' && (
-                                <FeedbackBar
-                                    sessionId={agentState.sessionId}
-                                    hasManimCode={liveManimCodePresent}
-                                    grade={selectedGrade}
-                                />
-                            )}
-                        </section>
-                    </>
+                        {(isRunning || isFinished) && <AgentTimeline state={agentState} />}
+
+                        {isFinished && <LiveResult state={agentState} onReset={handleNewProblem} />}
+
+                        {isFinished && agentState.sessionId && agentState.status === 'done' && (
+                            <FeedbackBar
+                                sessionId={agentState.sessionId}
+                                hasManimCode={liveManimCodePresent}
+                                grade={selectedGrade}
+                            />
+                        )}
+                    </div>
                 )}
 
                 {isViewingHistory && historicalSession && (
-                    <section className="pt-8 pb-20">
-                        <HistoricalSessionView
-                            detail={historicalSession}
-                            onBack={handleNewProblem}
-                        />
-                    </section>
+                    <div className="pb-16">
+                        <HistoricalSessionView detail={historicalSession} onBack={handleNewProblem} />
+                    </div>
                 )}
 
-                {historicalLoading && (
-                    <div className="flex justify-center py-12">
-                        <LoadingAnimation />
-                    </div>
-                )}
+                {historicalLoading && <LoadingAnimation text="正在打开历史会话" />}
                 {historicalLoadError && (
-                    <div className="soft-glass-panel p-6 border-l-4 border-red-400 bg-red-50/50">
-                        <h3 className="font-semibold text-red-600 mb-1">加载历史失败</h3>
-                        <p className="text-slate-600">{historicalLoadError}</p>
-                    </div>
+                    <ErrorState message={`加载历史失败：${historicalLoadError}`} />
                 )}
             </main>
 
@@ -344,7 +316,7 @@ function AuthedApp() {
                 refreshKey={historyRefreshKey}
             />
 
-            <footer className="py-6 text-center text-slate-400 text-sm">
+            <footer className="py-6 text-center text-ink-faint text-sm">
                 <p>© 2026 AI Math Tutor</p>
             </footer>
         </div>

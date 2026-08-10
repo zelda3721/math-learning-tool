@@ -1,7 +1,5 @@
-export { Header } from './Header'
 export { GradeSelector } from './GradeSelector'
 export { ProblemInput } from './ProblemInput'
-export { ResultDisplay } from './ResultDisplay'
 export { LoadingAnimation } from './LoadingAnimation'
 export { AgentTimeline } from './AgentTimeline'
 export { FeedbackBar } from './FeedbackBar'

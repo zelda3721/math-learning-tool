@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
-import { MathText } from '../ui/MathText'
+import { Button, MathText } from '../ui'
 import {
     diagnoseAttempt,
     fetchHint,
@@ -232,18 +232,20 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
     }
 
     return (
-        <div className="soft-glass p-6 md:p-8 space-y-6">
+        <div className="plate p-6 md:p-8 space-y-6">
             {/* 进度 + 槽位 */}
             <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-400">
-                    第 <span className="text-sky-500 text-lg">{index + 1}</span> / {total} 题
+                <span className="text-sm text-ink-faint">
+                    第{' '}
+                    <span className="numeric text-base font-semibold text-beam">{index + 1}</span>
+                    <span className="numeric"> / {total}</span> 题
                 </span>
                 <SlotBadge slot={item.slot} />
             </div>
 
             {/* 错后闭环：归因中 / 归因卡 / 讲解 / 变式 */}
             {flow.kind === 'diagnosing' && (
-                <div className="text-center text-slate-400 py-10">正在看看你卡在哪儿……</div>
+                <div className="text-center text-ink-faint py-10">正在看看你卡在哪儿……</div>
             )}
             {flow.kind === 'diagnosed' && (
                 <DiagnosisCard
@@ -277,18 +279,17 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {flow.kind === 'answering' && (
                 <>
             {/* 题干 */}
-            <p className="text-xl md:text-2xl font-semibold text-slate-700 leading-relaxed whitespace-pre-wrap">
-                {q.stem}
-            </p>
+            <p className="stem whitespace-pre-wrap">{q.stem}</p>
 
-            {/* 提示气泡 */}
+            {/* 提示气泡：克制——纸面上的一条注记，不抢题干 */}
             {hints.map((h) => (
-                <div
-                    key={h.level}
-                    className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-amber-800"
-                >
-                    <span className="text-xs font-bold text-amber-500 mr-2">提示 {h.level}</span>
-                    <MathText>{h.hint}</MathText>
+                <div key={h.level} className="rounded-[10px] bg-paper border border-rule px-4 py-3">
+                    <p className="eyebrow mb-1">
+                        提示 <span className="numeric">{h.level}</span>
+                    </p>
+                    <div className="text-ink-soft leading-relaxed">
+                        <MathText>{h.hint}</MathText>
+                    </div>
                 </div>
             ))}
 
@@ -296,19 +297,16 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {q.options && q.options.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {q.options.map((opt) => (
-                        <button
+                        <Button
                             key={opt}
-                            type="button"
+                            size="lg"
+                            variant={answer === opt ? 'primary' : 'secondary'}
                             disabled={finished || submitting}
                             onClick={() => setAnswer(opt)}
-                            className={`px-4 py-3 rounded-2xl border-2 text-left text-lg font-medium transition-colors disabled:cursor-not-allowed ${
-                                answer === opt
-                                    ? 'border-sky-400 bg-sky-50 text-sky-700'
-                                    : 'border-slate-100 bg-white text-slate-600 hover:border-sky-200'
-                            }`}
+                            className="text-left"
                         >
                             {opt}
-                        </button>
+                        </Button>
                     ))}
                 </div>
             ) : (
@@ -321,28 +319,28 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                     onChange={(e) => setAnswer(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={q.answerType === 'steps' ? '写下你的做法和结果' : '在这里写答案，按回车提交'}
-                    className="w-full px-5 py-4 text-xl bg-white border-2 border-slate-100 rounded-2xl placeholder:text-slate-300 text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100 transition-all disabled:bg-slate-50"
+                    className="input-hero disabled:bg-paper disabled:text-ink-faint"
                 />
             )}
 
             {/* 反馈条 */}
             {feedback?.kind === 'correct' && (
-                <div className="rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-emerald-700 font-semibold">
+                <div className="rounded-[10px] bg-correct-wash border border-correct/25 px-4 py-3 text-[var(--color-correct)] font-semibold">
                     答对啦！真棒！
                 </div>
             )}
             {feedback?.kind === 'review' && (
-                <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-slate-600 font-medium">
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
                     这道题已交给家长确认，先继续下一题吧。
                 </div>
             )}
             {feedback?.kind === 'wrong' && (
-                <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-red-600 font-semibold">
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong font-semibold">
                     {wrongExhausted ? '还是不太对，这道题先放一放。' : '再想想，你可以改一改答案再交。'}
                 </div>
             )}
             {error && (
-                <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-red-500 text-sm">
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong text-sm">
                     出了点小问题：{error}，请再试一次。
                 </div>
             )}
@@ -350,14 +348,13 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {/* 操作区 */}
             <div className="flex flex-wrap gap-3">
                 {!finished && (
-                    <button
-                        type="button"
+                    <Button
+                        size="lg"
                         onClick={() => void handleSubmit()}
                         disabled={!answer.trim() || submitting}
-                        className="px-8 py-3 rounded-2xl bg-sky-500 text-white text-lg font-bold shadow-lg shadow-sky-200 hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                         {submitting ? '批改中……' : feedback?.kind === 'wrong' ? '再交一次' : '交卷'}
-                    </button>
+                    </Button>
                 )}
                 {!finished && photoEnabled && (
                     <>
@@ -369,43 +366,41 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                             className="hidden"
                             onChange={(e) => void handlePhotoChange(e)}
                         />
-                        <button
-                            type="button"
+                        <Button
+                            size="lg"
+                            variant="secondary"
                             onClick={() => fileRef.current?.click()}
                             disabled={submitting || photoSubmitting}
-                            className="px-6 py-3 rounded-2xl bg-white border-2 border-slate-100 text-slate-600 text-lg font-bold hover:border-sky-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                             {photoSubmitting ? '识别中……' : '📷 拍照上传'}
-                        </button>
+                        </Button>
                     </>
                 )}
                 {feedback?.kind === 'wrong' && feedback.canHint && hintLevel < 3 && (
-                    <button
-                        type="button"
+                    <Button
+                        size="lg"
+                        variant="secondary"
                         onClick={() => void handleHint()}
                         disabled={hintLoading}
-                        className="px-6 py-3 rounded-2xl bg-amber-400 text-white text-lg font-bold shadow-lg shadow-amber-200 hover:bg-amber-500 disabled:opacity-40 transition-colors"
                     >
-                        {hintLoading ? '提示生成中……' : `要提示吗 (${hintLevel + 1}/3)`}
-                    </button>
+                        {hintLoading ? (
+                            '提示生成中……'
+                        ) : (
+                            <>
+                                要提示吗 <span className="numeric">({hintLevel + 1}/3)</span>
+                            </>
+                        )}
+                    </Button>
                 )}
                 {finished && (
-                    <button
-                        type="button"
-                        onClick={() => onDone(makeRecord(false))}
-                        className="px-8 py-3 rounded-2xl bg-emerald-500 text-white text-lg font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-colors"
-                    >
+                    <Button size="lg" onClick={() => onDone(makeRecord(false))}>
                         下一题
-                    </button>
+                    </Button>
                 )}
                 {wrongExhausted && (
-                    <button
-                        type="button"
-                        onClick={() => void startDiagnosis()}
-                        className="px-6 py-3 rounded-2xl bg-slate-400 text-white text-lg font-bold shadow-lg shadow-slate-200 hover:bg-slate-500 transition-colors"
-                    >
+                    <Button size="lg" variant="ghost" onClick={() => void startDiagnosis()}>
                         先跳过
-                    </button>
+                    </Button>
                 )}
             </div>
                 </>

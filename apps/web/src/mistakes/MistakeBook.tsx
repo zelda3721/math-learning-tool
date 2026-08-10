@@ -64,7 +64,9 @@ export function MistakeBook() {
                 subtitle="每道错题都标好了根因，讲解和再练一道都在这"
                 actions={
                     state.kind === 'ready' && state.mistakes.length > 0 ? (
-                        <span className="text-sm text-slate-400">共 {state.mistakes.length} 道</span>
+                        <span className="text-sm text-ink-faint">
+                            共 <span className="numeric">{state.mistakes.length}</span> 道
+                        </span>
                     ) : undefined
                 }
             />
@@ -79,7 +81,7 @@ export function MistakeBook() {
             {state.kind === 'ready' &&
                 groupByDate(state.mistakes).map(([date, items]) => (
                     <section key={date} className="space-y-3">
-                        <h3 className="text-sm font-bold text-slate-400 px-1 pt-2">{date}</h3>
+                        <h3 className="eyebrow px-1 pt-3">{date}</h3>
                         {items.map((m) => (
                             <MistakeItem
                                 key={m.id}
@@ -106,25 +108,25 @@ interface ItemProps {
 
 function MistakeItem({ mistake: m, learnerId, active, onOpen, onClose }: ItemProps) {
     return (
-        <div className="soft-glass p-5 md:p-6 space-y-3">
+        <div className="plate p-5 md:p-6 space-y-3">
             {m.questionStem && (
-                <p className="text-lg font-semibold text-slate-700 leading-relaxed whitespace-pre-wrap">
+                <p className="text-lg font-medium text-ink leading-relaxed whitespace-pre-wrap">
                     {m.questionStem}
                 </p>
             )}
 
             {/* 根因坐标 + 置信度文案（宪法第 4 条：归因必须带置信度） */}
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-slate-400">卡住的地方</span>
-                <span className="font-bold text-indigo-600">{m.rootNodeName}</span>
+                <span className="eyebrow">卡住的地方</span>
+                <span className="font-bold text-ink">{m.rootNodeName}</span>
                 <ConfidenceBadge confidence={m.confidence} />
-                {!m.eligible && <Badge tone="sky">待探针确认</Badge>}
+                {!m.eligible && <Badge tone="beam">待探针确认</Badge>}
             </div>
 
             {m.chainNames.length > 0 && (
-                <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100 px-4 py-2.5">
-                    <span className="text-xs font-bold text-indigo-400 mr-2">依据链</span>
-                    <span className="text-sm text-indigo-700">{m.chainNames.join(' → ')}</span>
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-2.5">
+                    <span className="eyebrow mr-2">依据链</span>
+                    <span className="text-sm text-ink-soft">{m.chainNames.join(' → ')}</span>
                 </div>
             )}
 
@@ -138,7 +140,7 @@ function MistakeItem({ mistake: m, learnerId, active, onOpen, onClose }: ItemPro
             )}
 
             {active === 'explain' && (
-                <div className="border-t border-slate-100 pt-4">
+                <div className="border-t border-rule pt-4">
                     <ExplanationView
                         request={{
                             learnerId,
@@ -154,7 +156,7 @@ function MistakeItem({ mistake: m, learnerId, active, onOpen, onClose }: ItemPro
             )}
 
             {active === 'variant' && (
-                <div className="border-t border-slate-100 pt-4">
+                <div className="border-t border-rule pt-4">
                     <VariantGate
                         learnerId={learnerId}
                         questionId={m.questionId}

@@ -129,12 +129,12 @@ export function ChildrenPanel() {
     }
 
     return (
-        <section className="soft-glass p-6 space-y-4">
+        <section className="plate p-6 space-y-4">
             <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-bold text-slate-700">孩子账号</h3>
+                <h3 className="text-section">孩子账号</h3>
                 {state.kind === 'ready' && (
-                    <Badge tone={state.children.length >= state.childLimit ? 'amber' : 'sky'}>
-                        名额 {state.children.length}/{state.childLimit}
+                    <Badge tone={state.children.length >= state.childLimit ? 'wrong' : 'beam'}>
+                        名额 <span className="numeric">{state.children.length}/{state.childLimit}</span>
                     </Badge>
                 )}
             </div>
@@ -146,7 +146,7 @@ export function ChildrenPanel() {
             )}
 
             {state.kind === 'ready' && state.children.length === 0 && (
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-ink-faint">
                     还没有孩子账号——在登录页用「注册孩子账号」创建。
                 </p>
             )}
@@ -156,11 +156,11 @@ export function ChildrenPanel() {
                     {state.children.map((child) => (
                         <li
                             key={child.id}
-                            className="rounded-2xl border border-slate-100 bg-white/60 p-4 flex flex-wrap items-center justify-between gap-3"
+                            className="rounded-[10px] border border-rule bg-paper p-4 flex flex-wrap items-center justify-between gap-3"
                         >
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-slate-700 truncate">
+                                    <span className="font-semibold text-ink truncate">
                                         {child.username}
                                     </span>
                                     {child.learner?.level && (
@@ -169,8 +169,8 @@ export function ChildrenPanel() {
                                         </Badge>
                                     )}
                                 </div>
-                                <p className="text-xs text-slate-400 mt-0.5">
-                                    注册于 {formatDate(child.createdAt)}
+                                <p className="text-xs text-ink-faint mt-1">
+                                    注册于 <span className="numeric">{formatDate(child.createdAt)}</span>
                                 </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -197,7 +197,11 @@ export function ChildrenPanel() {
             )}
 
             {notice && (
-                <p className={`text-sm ${notice.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                <p
+                    className={`text-sm ${
+                        notice.ok ? 'text-[color:var(--color-correct)]' : 'text-wrong'
+                    }`}
+                >
                     {notice.text}
                 </p>
             )}

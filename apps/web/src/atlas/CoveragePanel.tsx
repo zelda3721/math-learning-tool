@@ -5,6 +5,8 @@
 //    mathtutor:atlas-focus 事件让星图选中该节点
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { Button } from '../ui'
+
 // ── 与 server knowledgeAdmin.ts 输出对齐的本地类型（server 未经 schema 包导出） ──
 export interface CoverageRow {
     nodeId: string
@@ -97,9 +99,9 @@ interface CoveragePanelProps {
 
 function StatCell({ label, value }: { label: string; value: number }) {
     return (
-        <div className="rounded-xl bg-slate-50 border border-slate-100 px-2 py-1.5 text-center">
-            <div className="text-lg font-extrabold text-slate-800 leading-tight">{value}</div>
-            <div className="text-[11px] text-slate-400">{label}</div>
+        <div className="rounded-[10px] bg-paper border border-rule px-2 py-1.5 text-center">
+            <div className="numeric text-lg font-bold text-ink leading-tight">{value}</div>
+            <div className="eyebrow mt-0.5">{label}</div>
         </div>
     )
 }
@@ -140,12 +142,12 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
 
     if (failed && !report) {
         return (
-            <div className="p-4 text-sm text-slate-400">
+            <div className="p-4 text-sm text-ink-faint">
                 覆盖度数据加载失败
                 <button
                     type="button"
                     onClick={onReload}
-                    className="ml-2 text-indigo-500 hover:text-indigo-600 font-semibold"
+                    className="ml-2 font-semibold text-beam hover:text-beam-deep transition-colors"
                 >
                     重试
                 </button>
@@ -153,7 +155,7 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
         )
     }
     if (!report) {
-        return <div className="p-4 text-sm text-slate-400">覆盖度加载中…</div>
+        return <div className="p-4 text-sm text-ink-faint">覆盖度加载中…</div>
     }
 
     const nameOf = new Map(report.nodes.map((r) => [r.nodeId, r.name]))
@@ -173,10 +175,10 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
             {notice && (
                 <div
                     role="status"
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                    className={`rounded-[10px] px-3 py-1.5 text-xs font-semibold ${
                         notice.kind === 'ok'
-                            ? 'bg-emerald-50 text-emerald-600'
-                            : 'bg-red-50 text-red-500'
+                            ? 'bg-correct-wash text-[color:var(--color-correct)]'
+                            : 'bg-wrong-wash text-wrong'
                     }`}
                 >
                     {notice.text}
@@ -184,11 +186,9 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
             )}
 
             <section>
-                <h3 className="text-xs font-extrabold tracking-wide text-slate-600 mb-2">
-                    核验候选 TOP
-                </h3>
+                <h3 className="eyebrow mb-2">核验候选 TOP</h3>
                 {report.topUnverified.length === 0 ? (
-                    <p className="text-xs text-slate-400">暂无待核验节点</p>
+                    <p className="text-xs text-ink-faint">暂无待核验节点</p>
                 ) : (
                     <ul className="space-y-1.5">
                         {report.topUnverified.map((row) => (
@@ -197,27 +197,28 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
                                     type="button"
                                     onClick={() => focusNode(row.nodeId)}
                                     title="在星图中查看"
-                                    className="w-[110px] shrink-0 truncate text-left text-xs font-semibold text-slate-700 hover:text-indigo-600"
+                                    className="w-[110px] shrink-0 truncate text-left text-xs font-semibold text-ink hover:text-beam transition-colors"
                                 >
                                     {row.name}
                                 </button>
-                                <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="flex-1 h-2 rounded-full bg-rule overflow-hidden">
                                     <div
-                                        className="h-full rounded-full bg-amber-400"
+                                        className="h-full rounded-full bg-beam"
                                         style={{ width: `${Math.max(6, (row.questionCount / maxHits) * 100)}%` }}
                                     />
                                 </div>
-                                <span className="w-6 text-right text-[11px] tabular-nums text-slate-400">
+                                <span className="numeric w-6 [text-align:right] text-[11px] text-ink-faint">
                                     {row.questionCount}
                                 </span>
-                                <button
-                                    type="button"
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
                                     disabled={busyId === row.nodeId}
-                                    onClick={() => verify(row)}
-                                    className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                                    onClick={() => void verify(row)}
+                                    className="shrink-0"
                                 >
                                     {busyId === row.nodeId ? '提交中…' : '标记已核验'}
-                                </button>
+                                </Button>
                             </li>
                         ))}
                     </ul>
@@ -225,18 +226,20 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
             </section>
 
             <details>
-                <summary className="cursor-pointer text-xs font-extrabold tracking-wide text-slate-600 select-none">
-                    图谱缺口（{stageEntries.reduce((n, [, ids]) => n + ids.length, 0)} 个节点无题目）
+                <summary className="eyebrow cursor-pointer select-none">
+                    图谱缺口（
+                    <span className="numeric">
+                        {stageEntries.reduce((n, [, ids]) => n + ids.length, 0)}
+                    </span>{' '}
+                    个节点无题目）
                 </summary>
                 <div className="mt-2 space-y-2.5">
                     {stageEntries.length === 0 && (
-                        <p className="text-xs text-slate-400">所有节点均已有题目覆盖</p>
+                        <p className="text-xs text-ink-faint">所有节点均已有题目覆盖</p>
                     )}
                     {stageEntries.map(([stage, ids]) => (
                         <div key={stage}>
-                            <div className="text-[11px] font-bold text-slate-400 mb-1">
-                                {stageLabel(stage)}
-                            </div>
+                            <div className="eyebrow mb-1">{stageLabel(stage)}</div>
                             <div className="flex flex-wrap gap-1">
                                 {ids.map((id) => (
                                     <button
@@ -244,7 +247,7 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
                                         key={id}
                                         onClick={() => focusNode(id)}
                                         title="在星图中定位"
-                                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+                                        className="rounded-md border border-rule bg-plate px-2 py-0.5 text-[11px] text-ink-soft hover:border-beam hover:text-beam transition-colors"
                                     >
                                         {nameOf.get(id) ?? id}
                                     </button>

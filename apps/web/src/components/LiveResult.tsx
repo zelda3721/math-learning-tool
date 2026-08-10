@@ -1,10 +1,10 @@
 /**
- * LiveResult — final video + summary + manim code, derived from a live
- * AgentRunState. Shown after the agent finishes (done / exhausted / failed).
+ * LiveResult — 跑完之后的成片 + 小结 + Manim 代码，数据来自实时 AgentRunState。
  */
-import { CheckCircle2, FileCode2, Play, RotateCcw } from 'lucide-react'
+import { Play } from 'lucide-react'
 
 import type { AgentRunState } from '../types/agent'
+import { Button, MathText } from '../ui'
 
 interface LiveResultProps {
     state: AgentRunState
@@ -18,69 +18,50 @@ export function LiveResult({ state, onReset }: LiveResultProps) {
     const video = state.finalVideoUrl
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 animate-fade-in-up">
-            <div
-                className={`bento-card ${code ? 'md:col-span-8' : 'md:col-span-12'} min-h-[320px] bg-slate-900 border-none relative overflow-hidden group`}
-            >
-                {video ? (
-                    <>
-                        <video
-                            src={video}
-                            controls
-                            className="w-full h-full object-contain rounded-xl z-10 relative"
-                        >
+        <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div className={`plate p-3 ${code ? 'md:col-span-8' : 'md:col-span-12'}`}>
+                    {video ? (
+                        <video src={video} controls className="w-full rounded-[10px] bg-ink">
                             {state.subtitleUrl && (
-                                <track
-                                    kind="captions"
-                                    src={state.subtitleUrl}
-                                    srcLang="zh"
-                                    label="中文讲解"
-                                />
+                                <track kind="captions" src={state.subtitleUrl} srcLang="zh" label="中文讲解" />
                             )}
                         </video>
-                        <div className="absolute inset-0 bg-blue-500/20 blur-3xl group-hover:bg-blue-500/30 transition-all duration-500" />
-                    </>
-                ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-4 py-12">
-                        <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-                            <Play size={24} className="ml-1 text-slate-600" />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                            <span className="w-12 h-12 rounded-full border border-rule bg-paper flex items-center justify-center text-ink-faint">
+                                <Play size={20} className="ml-0.5" />
+                            </span>
+                            <p className="text-sm text-ink-soft">未生成视频</p>
+                            {state.error && <p className="text-xs text-wrong max-w-md">{state.error}</p>}
                         </div>
-                        <p>未生成视频</p>
-                        {state.error && <p className="text-xs text-red-300 max-w-md text-center">{state.error}</p>}
+                    )}
+                </div>
+
+                {code && (
+                    <div className="plate p-4 md:col-span-4 min-w-0">
+                        <p className="eyebrow mb-2">生成的 Manim 代码</p>
+                        <pre className="text-[11px] leading-relaxed text-ink-soft bg-paper border border-rule rounded-[10px] p-3 overflow-auto max-h-72 whitespace-pre-wrap">
+                            {code}
+                        </pre>
                     </div>
                 )}
             </div>
 
-            {code && (
-                <div className="bento-card md:col-span-4 bg-slate-50/80 border border-slate-200">
-                    <div className="flex items-center gap-2 text-slate-700 mb-2">
-                        <FileCode2 size={18} />
-                        <h3 className="font-bold">生成的 Manim 代码</h3>
-                    </div>
-                    <pre className="text-[11px] leading-relaxed text-slate-700 bg-white/80 border border-slate-200 rounded-lg p-3 overflow-auto max-h-72 whitespace-pre-wrap">
-                        {code}
-                    </pre>
-                </div>
-            )}
-
             {state.finalText.trim() && (
-                <div className="bento-card md:col-span-12 bg-emerald-50/40 border-l-4 border-emerald-300">
-                    <div className="flex items-center gap-2 text-emerald-700 mb-2">
-                        <CheckCircle2 size={20} />
-                        <h3 className="font-bold">小结</h3>
-                    </div>
-                    <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{state.finalText}</p>
+                <div className="plate border-l-[3px] border-l-beam p-5">
+                    <p className="eyebrow mb-2">小结</p>
+                    <p className="text-ink leading-relaxed">
+                        <MathText>{state.finalText}</MathText>
+                    </p>
                 </div>
             )}
 
             {onReset && (
-                <div className="md:col-span-12 flex justify-end">
-                    <button
-                        onClick={onReset}
-                        className="btn-secondary inline-flex items-center gap-2"
-                    >
-                        <RotateCcw size={14} /> 出新一题
-                    </button>
+                <div className="flex justify-end">
+                    <Button variant="secondary" size="sm" onClick={onReset}>
+                        出新一题
+                    </Button>
                 </div>
             )}
         </div>

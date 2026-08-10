@@ -10,6 +10,7 @@ import {
     requestExplain,
     type Explanation,
 } from '../practice/api'
+import { LoadingState } from '../ui'
 
 type Phase =
     | { kind: 'generating'; jobId?: string }
@@ -58,14 +59,14 @@ export function FreeExplainPanel({ problem, grade }: { problem: string; grade: s
     }, [phase])
 
     return (
-        <div className="soft-glass p-6 space-y-3">
+        <div className="plate p-5 space-y-3">
             {phase.kind === 'generating' && (
-                <p className="text-slate-500 text-sm animate-pulse">
-                    ⚡ 动画讲解生成中（解题 → 验算 → 视觉导演，通常一两分钟）……
-                </p>
+                <LoadingState text="动画讲解生成中（解题 → 验算 → 视觉导演，通常一两分钟）" />
             )}
             {phase.kind === 'failed' && (
-                <p className="text-sm text-red-500">动画生成失败：{phase.message}，可切换「🎬 视频」模式重试。</p>
+                <p className="text-sm text-wrong">
+                    动画生成失败：{phase.message}，可切换「视频」模式重试。
+                </p>
             )}
             {phase.kind === 'ready' && phase.explanation.specUrl && (
                 <SpecPlayer specUrl={phase.explanation.specUrl} />
@@ -102,13 +103,13 @@ function SpecPlayer({ specUrl }: { specUrl: string }) {
         }
     }, [specUrl])
 
-    if (error) return <p className="text-sm text-red-500">动画数据异常：{error}</p>
+    if (error) return <p className="text-sm text-wrong">动画数据异常：{error}</p>
     return (
         <div>
             <div ref={containerRef} className="w-full" />
             {beat && (
-                <p className="text-xs text-slate-400 mt-2 text-center">
-                    第 {beat.i + 1}/{beat.total} 拍
+                <p className="text-xs text-ink-faint mt-2 text-center">
+                    第 <span className="numeric">{beat.i + 1}/{beat.total}</span> 拍
                 </p>
             )}
         </div>

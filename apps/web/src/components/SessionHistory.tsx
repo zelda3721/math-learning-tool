@@ -1,14 +1,14 @@
 /**
- * SessionHistory — drawer-style sidebar listing past chat sessions.
+ * SessionHistory — 右侧抽屉，列出历史会话。
  *
- * Lets the user filter by feedback label and reopen any session as a
- * read-only view (caller decides what to do on selection).
+ * 支持按反馈标签过滤，点击任一条以只读方式重新打开（由调用方决定后续动作）。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { History, X, Filter, RefreshCw, ThumbsUp, ThumbsDown, Trash2 } from 'lucide-react'
+import { X, RefreshCw, Trash2 } from 'lucide-react'
 
 import { api } from '../services/api'
 import type { PersistedSession } from '../types/agent'
+import { LoadingState } from '../ui'
 
 interface SessionHistoryProps {
     open: boolean
@@ -21,8 +21,8 @@ type FilterLabel = 'all' | 'good' | 'bad'
 
 const FILTER_OPTIONS: Array<{ value: FilterLabel; label: string }> = [
     { value: 'all', label: '全部' },
-    { value: 'good', label: '👍 好的' },
-    { value: 'bad', label: '👎 差的' },
+    { value: 'good', label: '好的' },
+    { value: 'bad', label: '差的' },
 ]
 
 export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionHistoryProps) {
@@ -79,100 +79,94 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
 
     return (
         <>
-            {/* Backdrop */}
             {open && (
-                <div
-                    className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-40"
-                    onClick={onClose}
-                    aria-hidden
-                />
+                <div className="fixed inset-0 bg-ink/25 z-40" onClick={onClose} aria-hidden />
             )}
 
             <aside
-                className={`fixed top-0 right-0 h-full w-full sm:w-[420px] z-50 transform transition-transform duration-300 ease-out
-                            bg-white shadow-2xl ${open ? 'translate-x-0' : 'translate-x-full'}`}
+                className={`fixed top-0 right-0 h-full w-full sm:w-[420px] z-50 flex flex-col
+                            bg-plate border-l border-rule transform transition-transform duration-300 ease-out
+                            ${open ? 'translate-x-0' : 'translate-x-full'}`}
             >
-                <header className="px-5 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
-                    <div className="flex items-center gap-2 text-slate-700">
-                        <History size={18} />
-                        <h2 className="font-bold">历史会话</h2>
-                    </div>
+                <header className="px-5 py-4 border-b border-rule flex items-center justify-between shrink-0">
+                    <h2 className="text-lg font-bold text-ink tracking-tight">历史会话</h2>
                     <button
+                        type="button"
                         onClick={onClose}
-                        className="text-slate-400 hover:text-slate-700 transition"
+                        className="p-1.5 rounded-[10px] text-ink-faint hover:text-ink hover:bg-paper transition-colors"
                         aria-label="关闭"
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </header>
 
-                <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 text-xs">
-                    <Filter size={14} className="text-slate-400" />
-                    <div className="flex gap-1">
-                        {FILTER_OPTIONS.map((opt) => (
-                            <button
-                                key={opt.value}
-                                onClick={() => setFilter(opt.value)}
-                                className={`px-2 py-1 rounded-full transition ${filter === opt.value
-                                    ? 'bg-sky-500 text-white'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                    }`}
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
+                <div className="px-5 py-3 border-b border-rule flex items-center gap-1.5 shrink-0">
+                    {FILTER_OPTIONS.map((opt) => (
+                        <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setFilter(opt.value)}
+                            className={`px-3 py-1 rounded-[10px] border text-xs font-medium transition-colors ${
+                                filter === opt.value
+                                    ? 'border-beam bg-beam-wash text-beam'
+                                    : 'border-rule bg-plate text-ink-faint hover:text-ink'
+                            }`}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
                     <button
+                        type="button"
                         onClick={() => setRefreshNonce((value) => value + 1)}
-                        className="ml-auto text-slate-400 hover:text-slate-700"
+                        className="ml-auto p-1.5 rounded-[10px] text-ink-faint hover:text-beam hover:bg-paper transition-colors"
                         aria-label="刷新"
                     >
                         <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
                 </div>
 
-                <div className="overflow-y-auto h-[calc(100%-110px)] px-3 py-2 space-y-4">
-                    {loading && sessions.length === 0 && (
-                        <div className="text-center text-slate-400 text-sm py-8">加载中...</div>
-                    )}
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
+                    {loading && sessions.length === 0 && <LoadingState text="正在读取历史……" />}
                     {error && (
-                        <div className="px-3 py-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                        <p className="mx-2 px-3 py-2 rounded-[10px] bg-wrong-wash border border-wrong/20 text-xs text-wrong">
                             {error}
-                        </div>
+                        </p>
                     )}
                     {!loading && sessions.length === 0 && !error && (
-                        <div className="text-center text-slate-400 text-sm py-8">暂无历史</div>
+                        <p className="py-12 text-center text-sm text-ink-faint">暂无历史会话</p>
                     )}
+
                     {grouped.map(({ date, items }) => (
                         <section key={date}>
-                            <h3 className="text-[11px] uppercase font-bold text-slate-400 mb-2 px-2">
-                                {date}
-                            </h3>
+                            <h3 className="eyebrow numeric px-2 mb-2">{date}</h3>
                             <ul className="space-y-1.5">
                                 {items.map((s) => (
                                     <li key={s.id} className="group/row relative">
                                         <button
+                                            type="button"
                                             onClick={() => onSelect(s)}
-                                            className="w-full text-left pl-3 pr-10 py-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
+                                            className="w-full text-left pl-3 pr-10 py-2.5 rounded-[10px] border border-transparent
+                                                       hover:bg-paper hover:border-rule transition-colors"
                                         >
                                             <div className="flex items-start gap-2">
-                                                <SessionStatusBadge status={s.status} />
+                                                <SessionStatusDot status={s.status} />
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-sm text-slate-700 line-clamp-2">
-                                                        {s.problem}
-                                                    </p>
-                                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                                                    <p className="text-sm text-ink line-clamp-2">{s.problem}</p>
+                                                    <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
                                                         <span>{s.grade}</span>
                                                         <span>·</span>
-                                                        <span>{formatTime(s.created_at)}</span>
+                                                        <span className="numeric">{formatTime(s.created_at)}</span>
                                                     </div>
                                                 </div>
                                             </div>
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={(e) => handleDelete(s, e)}
                                             disabled={deleting === s.id}
-                                            className="absolute top-2 right-2 p-1.5 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover/row:opacity-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="absolute top-2 right-2 p-1.5 rounded-[8px] text-ink-faint hover:text-wrong hover:bg-wrong-wash
+                                                       opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 transition
+                                                       disabled:opacity-50 disabled:cursor-not-allowed"
                                             aria-label="删除会话"
                                             title="删除会话"
                                         >
@@ -193,23 +187,16 @@ export function SessionHistory({ open, onClose, onSelect, refreshKey }: SessionH
     )
 }
 
-function SessionStatusBadge({ status }: { status: string }) {
-    let dot = 'bg-slate-300'
-    let icon: React.ReactNode = null
-    if (status === 'done') {
-        dot = 'bg-emerald-400'
-        icon = <ThumbsUp size={10} className="text-emerald-700" />
-    } else if (status === 'running') {
-        dot = 'bg-blue-400 animate-pulse'
-    } else if (status === 'failed') {
-        dot = 'bg-red-400'
-        icon = <ThumbsDown size={10} className="text-red-700" />
-    }
-    return (
-        <span className={`mt-1 inline-flex items-center justify-center w-3 h-3 rounded-full ${dot}`}>
-            {icon}
-        </span>
-    )
+function SessionStatusDot({ status }: { status: string }) {
+    const cls =
+        status === 'done'
+            ? 'bg-[color:var(--color-correct)]'
+            : status === 'running'
+                ? 'bg-beam animate-pulse'
+                : status === 'failed'
+                    ? 'bg-wrong'
+                    : 'bg-rule'
+    return <span className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${cls}`} aria-label={status} />
 }
 
 interface DateGroup {

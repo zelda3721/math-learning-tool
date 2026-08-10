@@ -3,7 +3,8 @@
  * → 1s 轮询 /api/v1/ingest/jobs/:id 展示进度 → done 后把 drafts 交回父组件复用草稿确认流程。
  */
 import { useEffect, useRef, useState } from 'react'
-import { extractErrorMessage, normalizeDraft, readFileAsDataUrl } from './shared'
+import { Button, Lightline } from '../ui'
+import { dropzoneCls, extractErrorMessage, fileInputCls, normalizeDraft, readFileAsDataUrl } from './shared'
 import type { Draft } from './shared'
 
 type FileRole = 'teacher' | 'student' | 'auto'
@@ -210,7 +211,7 @@ export function BatchPanel({
 
     return (
         <div className="space-y-4">
-            <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white/60 p-6 text-center">
+            <div className={dropzoneCls}>
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -218,9 +219,9 @@ export function BatchPanel({
                     accept=".txt,.md,.pdf"
                     disabled={running}
                     onChange={(e) => addFiles(e.target.files)}
-                    className="mx-auto block text-sm text-slate-500 file:mr-3 file:rounded-full file:border-0 file:bg-sky-100 file:px-4 file:py-1.5 file:text-sm file:font-medium file:text-sky-700 hover:file:bg-sky-200"
+                    className={fileInputCls}
                 />
-                <p className="mt-2 text-xs text-slate-400">
+                <p className="mt-2 text-xs text-ink-faint">
                     支持 .txt / .md / .pdf，可多选。教师版（含答案/详解）与学生版会自动配对。
                 </p>
             </div>
@@ -230,9 +231,9 @@ export function BatchPanel({
                     {entries.map((e) => (
                         <li
                             key={e.id}
-                            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                            className="flex items-center gap-3 rounded-[10px] border border-rule bg-plate px-3 py-2"
                         >
-                            <span className="min-w-0 flex-1 truncate text-sm text-slate-700" title={e.file.name}>
+                            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={e.file.name}>
                                 {e.file.name}
                             </span>
                             <select
@@ -243,7 +244,7 @@ export function BatchPanel({
                                         es.map((x) => (x.id === e.id ? { ...x, role: ev.target.value as FileRole } : x))
                                     )
                                 }
-                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                                className="rounded-[10px] border border-rule bg-plate px-2 py-1 text-xs text-ink-soft focus:outline-none focus:border-beam focus:ring-2 focus:ring-beam-wash transition-colors"
                             >
                                 {(Object.keys(ROLE_LABELS) as FileRole[]).map((r) => (
                                     <option key={r} value={r}>
@@ -256,7 +257,7 @@ export function BatchPanel({
                                 disabled={running}
                                 onClick={() => setEntries((es) => es.filter((x) => x.id !== e.id))}
                                 aria-label={`移除 ${e.file.name}`}
-                                className="text-slate-300 hover:text-red-500"
+                                className="text-ink-faint hover:text-wrong transition-colors"
                             >
                                 ×
                             </button>
@@ -266,55 +267,43 @@ export function BatchPanel({
             )}
 
             {running && (
-                <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 text-sm text-sky-700">
-                    <p className="font-medium">
+                <div className="rounded-[10px] border border-rule bg-paper p-4 space-y-2">
+                    <p className="text-sm font-medium text-ink">
                         批量抽题进行中…
                         {progress && (
-                            <>
+                            <span className="text-ink-soft">
                                 {' '}
-                                {STAGE_LABELS[progress.stage] ?? progress.stage} · {progress.current}/{progress.total}
+                                {STAGE_LABELS[progress.stage] ?? progress.stage} ·{' '}
+                                <span className="numeric">
+                                    {progress.current}/{progress.total}
+                                </span>
                                 {progress.file ? ` · ${progress.file}` : ''}
-                            </>
+                            </span>
                         )}
                     </p>
                     {progress && progress.total > 0 && (
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-sky-100">
-                            <div
-                                className="h-full rounded-full bg-sky-500 transition-all"
-                                style={{
-                                    width: `${Math.min(100, Math.round((progress.current / progress.total) * 100))}%`,
-                                }}
-                            />
-                        </div>
+                        <Lightline value={progress.current} max={progress.total} />
                     )}
                 </div>
             )}
 
             {error && (
-                <div className="rounded-xl border-l-4 border-red-400 bg-red-50/70 p-4">
-                    <p className="text-sm text-red-600">{error}</p>
+                <div className="rounded-[10px] border border-wrong/25 bg-wrong-wash p-4">
+                    <p className="text-sm text-wrong">{error}</p>
                     {lastPayloadRef.current && (
-                        <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={handleRetry}
-                            className="mt-2 rounded-full border border-red-300 px-4 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            重试
-                        </button>
+                        <div className="mt-2.5">
+                            <Button size="sm" variant="secondary" disabled={submitting} onClick={handleRetry}>
+                                重试
+                            </Button>
+                        </div>
                     )}
                 </div>
             )}
 
             <div className="flex justify-end">
-                <button
-                    type="button"
-                    disabled={!canStart}
-                    onClick={handleStart}
-                    className="rounded-full bg-sky-500 px-6 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
+                <Button disabled={!canStart} onClick={() => void handleStart()}>
                     {submitting ? '提交中…' : running ? '抽题中…' : '开始批量抽题'}
-                </button>
+                </Button>
             </div>
         </div>
     )

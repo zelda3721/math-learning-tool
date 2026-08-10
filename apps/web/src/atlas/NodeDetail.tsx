@@ -2,6 +2,7 @@
 // chip 点击 → 跳转选中对应节点
 // P1b：status 徽章（未核验/已核验）+「标记已核验」入口 + 命中题数
 import { useState, type CSSProperties } from 'react'
+import { Badge, Button } from '../ui'
 import type { GraphIndex } from './graphIndex'
 import type { KnowledgeNode } from './types'
 import { verifyNodeApi } from './CoveragePanel'
@@ -66,22 +67,22 @@ export function NodeDetail({
 
     return (
         <aside
-            className="absolute top-3 right-3 bottom-3 z-20 w-[340px] max-w-[86%] overflow-y-auto rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-xl p-5"
+            className="plate absolute top-3 right-3 bottom-3 z-20 w-[340px] max-w-[86%] overflow-y-auto p-5"
             aria-label={`${node.name} 详情`}
         >
             <button
                 type="button"
                 onClick={onClose}
                 aria-label="关闭详情"
-                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors"
+                className="absolute top-3 right-3 w-8 h-8 rounded-[10px] bg-paper text-ink-faint hover:bg-wrong-wash hover:text-wrong transition-colors"
             >
                 ✕
             </button>
 
-            <div className="flex flex-wrap gap-1.5 mb-2 pr-8">
+            <div className="flex flex-wrap items-center gap-1.5 mb-2 pr-8">
                 {stage && (
                     <span
-                        className="text-[11px] font-bold text-white px-2.5 py-0.5 rounded-full"
+                        className="text-[11px] font-bold text-white px-2 py-0.5 rounded-md"
                         style={{ background: stage.accent }}
                     >
                         {stage.name}
@@ -89,59 +90,51 @@ export function NodeDetail({
                 )}
                 {strand && (
                     <span
-                        className="text-[11px] font-bold text-white px-2.5 py-0.5 rounded-full"
+                        className="text-[11px] font-bold text-white px-2 py-0.5 rounded-md"
                         style={{ background: strand.color }}
                     >
                         {strand.icon} {strand.name}
                     </span>
                 )}
                 {isVerified ? (
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
-                        ✓ 已核验
-                    </span>
+                    <Badge tone="correct">✓ 已核验</Badge>
                 ) : (
-                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                        未核验
-                    </span>
+                    <Badge tone="slate">未核验</Badge>
                 )}
             </div>
 
-            <h2 className="text-xl font-extrabold text-slate-800 leading-tight">
+            <h2 className="text-xl font-bold text-ink leading-tight tracking-tight">
                 {node.name}
                 {node.nameEn && (
-                    <span className="ml-2 text-xs font-medium text-slate-400">{node.nameEn}</span>
+                    <span className="ml-2 text-xs font-medium text-ink-faint">{node.nameEn}</span>
                 )}
             </h2>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">{node.summary}</p>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">{node.summary}</p>
 
             {(questionCount !== undefined || !isVerified) && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     {questionCount !== undefined && (
-                        <span className="text-xs text-slate-400">
-                            命中题目 <b className="text-slate-600 tabular-nums">{questionCount}</b> 道
+                        <span className="text-xs text-ink-faint">
+                            命中题目 <b className="numeric text-ink">{questionCount}</b> 道
                         </span>
                     )}
                     {!isVerified && (
-                        <button
-                            type="button"
+                        <Button
+                            size="sm"
+                            variant="secondary"
                             disabled={verifying}
-                            onClick={markVerified}
-                            className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                            onClick={() => void markVerified()}
                         >
                             {verifying ? '提交中…' : '标记已核验'}
-                        </button>
+                        </Button>
                     )}
-                    {verifyError && (
-                        <span className="text-[11px] text-red-500">{verifyError}</span>
-                    )}
+                    {verifyError && <span className="text-[11px] text-wrong">{verifyError}</span>}
                 </div>
             )}
 
             {prereqs.length > 0 && (
                 <section className="mt-4">
-                    <h3 className="text-xs font-extrabold tracking-wide text-slate-600 mb-2">
-                        前置知识
-                    </h3>
+                    <h3 className="eyebrow mb-2">前置知识</h3>
                     <div className="chips">
                         {prereqs.map((p) => (
                             <button
@@ -161,9 +154,7 @@ export function NodeDetail({
 
             {evolves.length > 0 && (
                 <section className="mt-4">
-                    <h3 className="text-xs font-extrabold tracking-wide text-slate-600 mb-2">
-                        演化方向
-                    </h3>
+                    <h3 className="eyebrow mb-2">演化方向</h3>
                     <div className="chips">
                         {evolves.map((e) => (
                             <button
@@ -180,9 +171,7 @@ export function NodeDetail({
                         ))}
                     </div>
                     {evolves[0]?.how && (
-                        <p className="mt-2 text-xs leading-relaxed text-violet-700/80">
-                            {evolves[0].how}
-                        </p>
+                        <p className="mt-2 text-xs leading-relaxed text-ink-soft">{evolves[0].how}</p>
                     )}
                 </section>
             )}

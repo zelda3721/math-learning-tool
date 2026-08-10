@@ -1,11 +1,12 @@
 /**
- * HistoricalSessionView — read-only display for a previously persisted
- * session, loaded from `GET /sessions/{id}`.
+ * HistoricalSessionView — 已归档会话的只读视图，数据来自 `GET /sessions/{id}`。
  */
 import { useMemo } from 'react'
-import { ArrowLeft, FileCode2, MessageSquare, ThumbsDown, ThumbsUp, Wrench } from 'lucide-react'
+import { ArrowLeft, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import type { SessionDetail } from '../types/agent'
+import { Badge, Button, MathText } from '../ui'
+import type { BadgeTone } from '../ui'
 
 interface Props {
     detail: SessionDetail
@@ -16,8 +17,7 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
     const { session, quality, messages, tool_calls, artifacts, feedback } = detail
     const deliveryPassed = session.status === 'done' && quality?.quality_gate_passed === true
 
-    // Retries append artifacts in chronological order. Always show the final
-    // render that passed the quality gate, not the first failed attempt.
+    // 重试会按时间追加产物。永远展示最终通过门禁的那次渲染，而不是第一次失败的尝试。
     const videoArtifact = useMemo(
         () => deliveryPassed
             ? [...artifacts].reverse().find((a) => a.kind === 'video')
@@ -38,29 +38,42 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
         : null
 
     return (
-        <div className="space-y-4 animate-fade-in-up">
-            <div className="flex items-center justify-between">
-                <button
-                    onClick={onBack}
-                    className="inline-flex items-center gap-1 text-slate-500 hover:text-sky-600 text-sm transition"
-                >
+        <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+                <Button variant="ghost" size="sm" onClick={onBack} className="inline-flex items-center gap-1.5">
                     <ArrowLeft size={14} /> 返回新问题
-                </button>
-                <span className="text-xs text-slate-400">会话 {session.id.slice(0, 8)}</span>
+                </Button>
+                <span className="text-xs text-ink-faint">
+                    会话 <span className="numeric">{session.id.slice(0, 8)}</span>
+                </span>
+            </div>
+
+            <div className="plate p-5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-ink-faint mb-2">
+                    <span>{session.grade}</span>
+                    <span>·</span>
+                    <span className="numeric">{new Date(session.created_at).toLocaleString()}</span>
+                    <StatusBadge status={session.status} />
+                </div>
+                <p className="stem">
+                    <MathText>{session.problem}</MathText>
+                </p>
+                {session.error && (
+                    <p className="mt-3 px-3 py-2 rounded-[10px] bg-wrong-wash border border-wrong/20 text-xs text-wrong">
+                        {session.error}
+                    </p>
+                )}
             </div>
 
             {quality && (
-                <div className="bento-card bg-white/70">
+                <div className="plate p-5">
                     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                        <h3 className="font-bold text-sm text-slate-700">成片质量报告</h3>
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${quality.quality_gate_passed
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
-                            }`}>
-                            {quality.overall_quality} · B {quality.b_total ?? '—'}/12
-                        </span>
+                        <p className="eyebrow">成片质量报告</p>
+                        <Badge tone={quality.quality_gate_passed ? 'correct' : 'slate'}>
+                            {quality.overall_quality} · B <span className="numeric">{quality.b_total ?? '—'}/12</span>
+                        </Badge>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                         <Metric label="首轮通过" value={quality.first_pass_success ? '是' : '否'} />
                         <Metric label="数学一致性" value={`${quality.math_consistency ?? '—'}/2`} />
                         <Metric label="本质兑现" value={`${quality.essence_delivery ?? '—'}/2`} />
@@ -88,82 +101,55 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                 </div>
             )}
 
-            <div className="bento-card bg-white/70">
-                <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
-                    <span>{session.grade}</span>
-                    <span>·</span>
-                    <span>{new Date(session.created_at).toLocaleString()}</span>
-                    <span>·</span>
-                    <StatusPill status={session.status} />
-                </div>
-                <p className="text-lg text-slate-800 leading-relaxed">{session.problem}</p>
-                {session.error && (
-                    <p className="mt-2 text-xs text-red-600 bg-red-50 rounded px-2 py-1">{session.error}</p>
-                )}
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div
-                    className={`bento-card ${manimArtifact ? 'md:col-span-8' : 'md:col-span-12'} bg-slate-900 min-h-[260px] border-none relative`}
-                >
+                <div className={`plate p-3 ${manimArtifact ? 'md:col-span-8' : 'md:col-span-12'}`}>
                     {videoUrl ? (
-                        <video src={videoUrl} controls className="w-full h-full object-contain rounded-xl">
+                        <video src={videoUrl} controls className="w-full rounded-[10px] bg-ink">
                             {subtitleUrl && (
-                                <track
-                                    kind="captions"
-                                    src={subtitleUrl}
-                                    srcLang="zh"
-                                    label="中文讲解"
-                                />
+                                <track kind="captions" src={subtitleUrl} srcLang="zh" label="中文讲解" />
                             )}
                         </video>
                     ) : (
-                        <div className="text-center text-slate-500 py-12">
+                        <p className="py-14 text-center text-sm text-ink-faint">
                             {session.status === 'done'
                                 ? '视频未通过质量门禁，候选未交付'
                                 : '任务未完成，候选视频不作为成品展示'}
-                        </div>
+                        </p>
                     )}
                 </div>
                 {manimArtifact && (
-                    <div className="bento-card md:col-span-4 bg-slate-50/80">
-                        <div className="flex items-center gap-2 text-slate-600 mb-2">
-                            <FileCode2 size={16} />
-                            <h3 className="font-bold text-sm">代码归档路径</h3>
-                        </div>
-                        <p className="text-xs text-slate-600 break-all font-mono">
-                            {manimArtifact.path}
-                        </p>
+                    <div className="plate p-4 md:col-span-4 min-w-0">
+                        <p className="eyebrow mb-2">代码归档路径</p>
+                        <p className="text-xs text-ink-soft break-all font-mono">{manimArtifact.path}</p>
                     </div>
                 )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bento-card bg-white/70">
-                    <div className="flex items-center gap-2 text-slate-700 mb-3">
-                        <Wrench size={16} />
-                        <h3 className="font-bold text-sm">工具调用 ({tool_calls.length})</h3>
-                    </div>
+                <div className="plate p-5">
+                    <p className="eyebrow mb-3">
+                        工具调用 <span className="numeric">{tool_calls.length}</span>
+                    </p>
                     {tool_calls.length === 0 ? (
-                        <p className="text-xs text-slate-400">无</p>
+                        <p className="text-xs text-ink-faint">无</p>
                     ) : (
                         <ul className="space-y-1.5 text-xs">
                             {tool_calls.map((tc) => (
                                 <li
                                     key={tc.id}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-slate-100 bg-slate-50/40"
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-[10px] border border-rule bg-paper"
                                 >
                                     <span
-                                        className={`w-2 h-2 rounded-full ${tc.status === 'success'
-                                            ? 'bg-emerald-400'
+                                        className={`w-2 h-2 rounded-full shrink-0 ${tc.status === 'success'
+                                            ? 'bg-[color:var(--color-correct)]'
                                             : tc.status === 'failed'
-                                                ? 'bg-red-400'
-                                                : 'bg-slate-300'
+                                                ? 'bg-wrong'
+                                                : 'bg-rule'
                                             }`}
                                     />
-                                    <code className="font-mono text-slate-700">{tc.name}</code>
+                                    <code className="font-mono text-ink-soft truncate">{tc.name}</code>
                                     {tc.duration_ms != null && (
-                                        <span className="text-slate-400 ml-auto">{tc.duration_ms} ms</span>
+                                        <span className="numeric text-ink-faint ml-auto shrink-0">{tc.duration_ms} ms</span>
                                     )}
                                 </li>
                             ))}
@@ -171,24 +157,19 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                     )}
                 </div>
 
-                <div className="bento-card bg-white/70">
-                    <div className="flex items-center gap-2 text-slate-700 mb-3">
-                        <MessageSquare size={16} />
-                        <h3 className="font-bold text-sm">对话消息 ({messages.length})</h3>
-                    </div>
+                <div className="plate p-5">
+                    <p className="eyebrow mb-3">
+                        对话消息 <span className="numeric">{messages.length}</span>
+                    </p>
                     <ul className="space-y-1.5 text-xs max-h-60 overflow-auto">
                         {messages.map((m) => (
                             <li key={m.id} className="flex items-start gap-2">
                                 <span
-                                    className={`mt-1 inline-block w-2 h-2 rounded-full ${m.role === 'user'
-                                        ? 'bg-sky-400'
-                                        : m.role === 'assistant'
-                                            ? 'bg-violet-400'
-                                            : 'bg-slate-300'
+                                    className={`mt-1 inline-block w-2 h-2 rounded-full shrink-0 ${m.role === 'user' ? 'bg-beam' : m.role === 'assistant' ? 'bg-ink-faint' : 'bg-rule'
                                         }`}
                                 />
-                                <span className="font-mono text-slate-400 w-10 shrink-0">{m.role}</span>
-                                <span className="text-slate-600 line-clamp-2 flex-1">{m.content || '(空)'}</span>
+                                <span className="font-mono text-ink-faint w-10 shrink-0">{m.role}</span>
+                                <span className="text-ink-soft line-clamp-2 flex-1">{m.content || '(空)'}</span>
                             </li>
                         ))}
                     </ul>
@@ -196,20 +177,17 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
             </div>
 
             {feedback.length > 0 && (
-                <div className="bento-card bg-white/70">
-                    <h3 className="font-bold text-sm text-slate-700 mb-3">反馈记录</h3>
+                <div className="plate p-5">
+                    <p className="eyebrow mb-3">反馈记录</p>
                     <ul className="space-y-2">
                         {feedback.map((f) => (
-                            <li
-                                key={f.id}
-                                className="flex items-start gap-3 p-2 rounded-lg border border-slate-100"
-                            >
+                            <li key={f.id} className="flex items-start gap-3 p-2.5 rounded-[10px] border border-rule bg-paper">
                                 <span
-                                    className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${f.label === 'good'
-                                        ? 'bg-emerald-100 text-emerald-700'
+                                    className={`inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0 ${f.label === 'good'
+                                        ? 'bg-correct-wash text-correct'
                                         : f.label === 'bad'
-                                            ? 'bg-red-100 text-red-700'
-                                            : 'bg-slate-100 text-slate-500'
+                                            ? 'bg-wrong-wash text-wrong'
+                                            : 'bg-plate text-ink-faint border border-rule'
                                         }`}
                                 >
                                     {f.label === 'good' ? (
@@ -220,9 +198,9 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
                                         '·'
                                     )}
                                 </span>
-                                <div className="flex-1">
-                                    <p className="text-sm text-slate-700">{f.notes || '（无备注）'}</p>
-                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-ink">{f.notes || '（无备注）'}</p>
+                                    <p className="numeric text-[11px] text-ink-faint mt-0.5">
                                         {new Date(f.created_at).toLocaleString()}
                                     </p>
                                 </div>
@@ -237,27 +215,21 @@ export function HistoricalSessionView({ detail, onBack }: Props) {
 
 function Metric({ label, value }: { label: string; value: string }) {
     return (
-        <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-            <p className="text-slate-400 mb-0.5">{label}</p>
-            <p className="font-semibold text-slate-700">{value}</p>
+        <div className="rounded-[10px] border border-rule bg-paper px-3 py-2">
+            <p className="eyebrow mb-1">{label}</p>
+            <p className="numeric text-sm font-semibold text-ink">{value}</p>
         </div>
     )
 }
 
-function StatusPill({ status }: { status: string }) {
-    const cls =
-        status === 'done'
-            ? 'bg-emerald-100 text-emerald-700'
-            : status === 'failed'
-                ? 'bg-red-100 text-red-700'
-                : status === 'running'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-slate-100 text-slate-600'
-    return (
-        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${cls}`}>
-            {status}
-        </span>
-    )
+const SESSION_TONE: Record<string, BadgeTone> = {
+    done: 'correct',
+    failed: 'wrong',
+    running: 'beam',
+}
+
+function StatusBadge({ status }: { status: string }) {
+    return <Badge tone={SESSION_TONE[status] ?? 'slate'}>{status}</Badge>
 }
 
 function pickVideoUrl(path: string | undefined, meta: Record<string, unknown> | undefined): string | null {

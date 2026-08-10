@@ -6,7 +6,7 @@ import {
     type MasteryBand,
     type MistakeSummary,
 } from './api'
-import { Button } from '../ui'
+import { Badge, Button, Lightline } from '../ui'
 import type { QuestionRecord } from './QuestionCard'
 import { BandBadge } from './badges'
 import { confidenceText } from './DiagnosisCard'
@@ -91,56 +91,60 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
     }
 
     return (
-        <div className="soft-glass p-8 max-w-xl mx-auto space-y-6 text-center">
-            <h2 className="text-2xl font-bold text-slate-700">今日练习完成!</h2>
+        <div className="plate p-8 max-w-xl mx-auto space-y-6 text-center">
+            <h2 className="text-2xl font-bold text-ink tracking-tight">今日练习完成!</h2>
 
             <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-2xl bg-emerald-50 border border-emerald-100 py-4">
-                    <div className="text-3xl font-bold text-emerald-500">{correct}</div>
-                    <div className="text-sm text-slate-500 mt-1">答对</div>
+                <div className="rounded-[10px] bg-correct-wash border border-correct/20 py-4">
+                    <div className="numeric text-3xl font-bold text-[var(--color-correct)]">{correct}</div>
+                    <div className="eyebrow mt-1.5">答对</div>
                 </div>
-                <div className="rounded-2xl bg-red-50 border border-red-100 py-4">
-                    <div className="text-3xl font-bold text-red-400">{wrong}</div>
-                    <div className="text-sm text-slate-500 mt-1">没对</div>
+                <div className="rounded-[10px] bg-wrong-wash border border-wrong/20 py-4">
+                    <div className="numeric text-3xl font-bold text-wrong">{wrong}</div>
+                    <div className="eyebrow mt-1.5">没对</div>
                 </div>
-                <div className="rounded-2xl bg-amber-50 border border-amber-100 py-4">
-                    <div className="text-3xl font-bold text-amber-500">{hintsUsed}</div>
-                    <div className="text-sm text-slate-500 mt-1">用提示</div>
+                <div className="rounded-[10px] bg-paper border border-rule py-4">
+                    <div className="numeric text-3xl font-bold text-ink-soft">{hintsUsed}</div>
+                    <div className="eyebrow mt-1.5">用提示</div>
                 </div>
             </div>
             {review > 0 && (
-                <p className="text-sm text-slate-500">另有 {review} 题已交给家长确认。</p>
+                <p className="text-sm text-ink-soft">
+                    另有 <span className="numeric">{review}</span> 题已交给家长确认。
+                </p>
             )}
             {variantLit > 0 && (
-                <p className="text-sm text-emerald-600 font-medium">
-                    ⭐ 其中 {variantLit} 题通过变式题重新点亮！
-                </p>
+                <div className="flex justify-center">
+                    <Badge tone="lit">
+                        ⭐ 变式题重新点亮 <span className="numeric mx-1">{variantLit}</span> 题
+                    </Badge>
+                </div>
             )}
 
             {wrongRecords.length > 0 && (
                 <div className="text-left space-y-2">
-                    <h3 className="text-sm font-semibold text-slate-500 text-center">错题回顾</h3>
+                    <h3 className="eyebrow text-center">错题回顾</h3>
                     <ul className="space-y-2">
                         {wrongRecords.map(({ record, mistake }, i) => (
                             <li
                                 key={`${record.questionId}-${i}`}
-                                className="rounded-2xl bg-white/70 border border-slate-100 px-4 py-3 space-y-1.5"
+                                className="rounded-[10px] bg-paper border border-rule px-4 py-3 space-y-1.5"
                             >
-                                <p className="text-sm text-slate-600 line-clamp-2">
+                                <p className="text-sm text-ink-soft line-clamp-2">
                                     {mistake?.questionStem ?? record.questionId}
                                 </p>
                                 <div className="flex items-center justify-between gap-3">
                                     {mistake ? (
                                         <span className="text-sm min-w-0 truncate">
-                                            <span className="font-semibold text-indigo-600">
+                                            <span className="font-semibold text-ink">
                                                 {mistake.rootNodeName}
                                             </span>
-                                            <span className="text-slate-400 ml-2">
+                                            <span className="text-ink-faint ml-2">
                                                 {confidenceText(mistake.confidence)}
                                             </span>
                                         </span>
                                     ) : (
-                                        <span className="text-sm text-slate-400">还没归因</span>
+                                        <span className="text-sm text-ink-faint">还没归因</span>
                                     )}
                                     <Button
                                         size="sm"
@@ -167,25 +171,35 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
 
             {nodeChanges.length > 0 && (
                 <div className="text-left space-y-2">
-                    <h3 className="text-sm font-semibold text-slate-500 text-center">知识点亮度变化</h3>
+                    <h3 className="eyebrow text-center">知识点亮度变化</h3>
                     <ul className="space-y-2">
                         {nodeChanges.map((c) => (
                             <li
                                 key={c.nodeId}
-                                className="flex items-center justify-between gap-3 rounded-2xl bg-white/70 border border-slate-100 px-4 py-2.5"
+                                className="rounded-[10px] bg-paper border border-rule px-4 py-3 space-y-2"
                             >
-                                <span className="text-slate-700 font-medium truncate">
-                                    {nodeNames[c.nodeId] ?? c.nodeId}
-                                </span>
-                                <span className="flex items-center gap-1.5 shrink-0">
-                                    {c.firstBand !== c.lastBand && (
-                                        <>
-                                            <BandBadge band={c.firstBand} />
-                                            <span className="text-slate-300">→</span>
-                                        </>
-                                    )}
-                                    <BandBadge band={c.lastBand} />
-                                </span>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-ink font-medium truncate">
+                                        {nodeNames[c.nodeId] ?? c.nodeId}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 shrink-0">
+                                        {c.firstBand !== c.lastBand && (
+                                            <>
+                                                <BandBadge band={c.firstBand} />
+                                                <span className="text-ink-faint">→</span>
+                                            </>
+                                        )}
+                                        <BandBadge band={c.lastBand} />
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2.5">
+                                    <div className="flex-1">
+                                        <Lightline value={c.lastP} max={1} />
+                                    </div>
+                                    <span className="numeric text-xs text-ink-faint shrink-0">
+                                        {Math.round(c.lastP * 100)}%
+                                    </span>
+                                </div>
                             </li>
                         ))}
                     </ul>
@@ -199,13 +213,13 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
                 </Button>
             </div>
             {atlasTip && (
-                <p className="text-sm text-sky-600">点击页面上方的「星图」标签，看看哪些星星亮起来了。</p>
+                <p className="text-sm text-beam">点击页面上方的「星图」标签，看看哪些星星亮起来了。</p>
             )}
 
             {/* 再看讲解：浮层复用 ExplanationView，key 保证换题时重新请求 */}
             {explainReq && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-                    <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 text-left shadow-2xl">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+                    <div className="plate w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 text-left">
                         <ExplanationView
                             key={explainReq.questionId ?? explainReq.mistakeId ?? 'explain'}
                             request={explainReq}
