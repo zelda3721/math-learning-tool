@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
-import { fetchToday, type TodayItem } from './api'
+import { fetchLitCount, fetchNextStep, fetchToday, type NextStep, type TodayItem } from './api'
 import { LearnerGate, LearnerSwitcher } from './LearnerGate'
 import { QuestionCard, type QuestionRecord } from './QuestionCard'
 import { SessionSummary } from './SessionSummary'
@@ -17,14 +17,42 @@ type Phase =
     | { kind: 'session'; items: TodayItem[]; index: number; records: QuestionRecord[] }
     | { kind: 'summary'; records: QuestionRecord[] }
 
+/** 下一步建议的类型图标：复习 / 弱点 / 新题 */
+const NEXT_STEP_ICON: Record<NextStep['kind'], string> = {
+    review: '🔁',
+    weak: '🎯',
+    new: '✨',
+}
+
 export function PracticePage() {
     const { learner } = useLearner()
     const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+    const [nextStep, setNextStep] = useState<NextStep | null>(null)
+    const [litCount, setLitCount] = useState<number | null>(null)
 
     // 换人后回到起点，避免题组串档
     useEffect(() => {
         setPhase({ kind: 'idle' })
     }, [learner?.id])
+
+    // idle 态拉「下一步」建议 + 已点亮统计（都是 best-effort，失败不显示）
+    const learnerId = learner?.id
+    const idle = phase.kind === 'idle'
+    useEffect(() => {
+        if (!learnerId || !idle) return
+        let cancelled = false
+        setNextStep(null)
+        setLitCount(null)
+        void fetchNextStep(learnerId).then((r) => {
+            if (!cancelled) setNextStep(r)
+        })
+        void fetchLitCount(learnerId).then((r) => {
+            if (!cancelled) setLitCount(r)
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [learnerId, idle])
 
     if (!learner) return <LearnerGate />
 
@@ -67,6 +95,24 @@ export function PracticePage() {
                     <p className="text-slate-500">
                         每天一小组题，把知识星图一颗颗点亮。
                     </p>
+                    {nextStep && (
+                        <div className="rounded-2xl bg-sky-50/80 border border-sky-100 px-4 py-3 flex items-start gap-3 text-left">
+                            <span className="text-2xl leading-none mt-0.5">
+                                {NEXT_STEP_ICON[nextStep.kind]}
+                            </span>
+                            <div>
+                                <p className="text-xs font-bold text-sky-400 mb-0.5">下一步</p>
+                                <p className="text-slate-600 font-medium leading-relaxed">
+                                    {nextStep.nextStep}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                    {litCount !== null && litCount > 0 && (
+                        <p className="text-sm text-slate-400">
+                            ⭐ 已点亮 <span className="font-bold text-amber-500">{litCount}</span> 颗星星
+                        </p>
+                    )}
                     <button
                         type="button"
                         onClick={() => void startSession()}

@@ -1,6 +1,6 @@
 /** 练习页 API 直连层：照 LearnerContext 的 fetch 风格，类型对齐 server routes/practice.ts 的响应。 */
 
-export type Slot = 'queue' | 'weak' | 'new' | 'challenge'
+export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge'
 export type MasteryBand = 'dim' | 'glow' | 'lit'
 
 export interface PracticeQuestion {
@@ -17,6 +17,8 @@ export interface PracticeQuestion {
 export interface TodayItem {
     slot: Slot
     queueItemId?: string
+    /** 复习槽位携带：submit 带上它推进 SM-2 */
+    reviewCardId?: string
     question: PracticeQuestion
 }
 
@@ -26,6 +28,13 @@ export interface MasteryChange {
     band: MasteryBand
 }
 
+/** SM-2 复习卡推进结果（submit 带 reviewCardId 时返回） */
+export interface ReviewProgress {
+    stage: number
+    mastered: boolean
+    nextReviewAt: string | null
+}
+
 export interface SubmitResult {
     attemptId: string
     correct: boolean
@@ -33,6 +42,7 @@ export interface SubmitResult {
     needsReview: boolean
     hintAvailable: boolean
     mastery: MasteryChange[]
+    review?: ReviewProgress
 }
 
 export interface HintResult {
@@ -148,9 +158,87 @@ export function submitAnswer(payload: {
     hintLevelUsed: number
     durationS: number
     queueItemId?: string
-    source?: 'daily' | 'probe' | 'variant' | 'explore'
+    reviewCardId?: string
+    source?: 'daily' | 'probe' | 'variant' | 'review' | 'explore'
 }): Promise<SubmitResult> {
     return post('/api/v1/practice/submit', payload)
+}
+
+/** 学生「下一步」一句话建议（GET /practice/next-step） */
+export interface NextStep {
+    nextStep: string
+    kind: 'review' | 'weak' | 'new'
+    nodeId?: string
+}
+
+/** best-effort：失败返回 null，idle 卡片直接不显示。 */
+export async function fetchNextStep(learnerId: string): Promise<NextStep | null> {
+    try {
+        const res = await fetch(`/api/v1/practice/next-step?learnerId=${encodeURIComponent(learnerId)}`)
+        if (!res.ok) return null
+        return (await res.json()) as NextStep
+    } catch {
+        return null
+    }
+}
+
+/** 已点亮星星数（best-effort）：atlas mastery 中 band === 'lit' 的个数，失败返回 null 不显示。 */
+export async function fetchLitCount(learnerId: string): Promise<number | null> {
+    try {
+        const res = await fetch(`/api/v1/atlas?learnerId=${encodeURIComponent(learnerId)}`)
+        if (!res.ok) return null
+        const data = (await res.json()) as { mastery?: Record<string, { band?: string }> }
+        return Object.values(data.mastery ?? {}).filter((m) => m.band === 'lit').length
+    } catch {
+        return null
+    }
+}
+
+/** 拍照作答判卷结果（POST /practice/submit-photo） */
+export interface PhotoSubmitResult {
+    attemptId: string
+    correct: boolean
+    extractedAnswer: string
+    confident: boolean
+    needsReview: boolean
+    hintAvailable: boolean
+    mastery: MasteryChange[]
+    review?: ReviewProgress
+}
+
+/** 501 = server 未配置 vision LLM：调用方隐藏拍照入口，不当异常抛。 */
+export type PhotoSubmitResponse =
+    | { status: 'ok'; result: PhotoSubmitResult }
+    | { status: 'unconfigured' }
+
+export async function submitPhoto(payload: {
+    learnerId: string
+    questionId: string
+    /** dataURL（data:image/...;base64,...） */
+    image: string
+    hintLevelUsed?: number
+    durationS?: number
+    queueItemId?: string
+    reviewCardId?: string
+    source?: 'daily' | 'probe' | 'variant' | 'review' | 'explore'
+}): Promise<PhotoSubmitResponse> {
+    const res = await fetch('/api/v1/practice/submit-photo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+    if (res.status === 501) return { status: 'unconfigured' }
+    if (!res.ok) {
+        let message = `HTTP ${res.status}`
+        try {
+            const data = (await res.json()) as { error?: string }
+            if (data.error) message = data.error
+        } catch {
+            /* 保留 HTTP 状态码信息 */
+        }
+        throw new Error(message)
+    }
+    return { status: 'ok', result: (await res.json()) as PhotoSubmitResult }
 }
 
 export function diagnoseAttempt(attemptId: string): Promise<DiagnosisResult> {

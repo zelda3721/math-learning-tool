@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import {
     diagnoseAttempt,
     fetchHint,
     submitAnswer,
+    submitPhoto,
     type DiagnosisResult,
     type HintResult,
     type MasteryChange,
@@ -35,6 +36,18 @@ type Feedback =
     | { kind: 'wrong'; canHint: boolean }
     | null
 
+/** 501 后整个会话隐藏拍照入口（内存 flag，刷新页面重试） */
+let photoUnavailable = false
+
+function readAsDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'))
+        reader.readAsDataURL(file)
+    })
+}
+
 /** 错后闭环阶段：answering →（先跳过）diagnosing → diagnosed → explaining/variant → done */
 type Flow =
     | { kind: 'answering' }
@@ -66,6 +79,9 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
     const lastWrongRef = useRef<string | undefined>(undefined)
     const lastAttemptIdRef = useRef<string | undefined>(undefined)
     const inputRef = useRef<HTMLInputElement | null>(null)
+    const fileRef = useRef<HTMLInputElement | null>(null)
+    const [photoEnabled, setPhotoEnabled] = useState(!photoUnavailable)
+    const [photoSubmitting, setPhotoSubmitting] = useState(false)
 
     // 换题时整体重置（key 由父组件保证，这里兜底同步计时起点）
     useEffect(() => {
@@ -88,6 +104,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                 hintLevelUsed: hintLevel,
                 durationS: Math.round((performance.now() - startRef.current) / 100) / 10,
                 queueItemId: item.queueItemId,
+                reviewCardId: item.reviewCardId,
             })
             masteryRef.current.push(...result.mastery)
             if (result.needsReview) {
@@ -103,6 +120,49 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             setError(err instanceof Error ? err.message : String(err))
         } finally {
             setSubmitting(false)
+        }
+    }
+
+    /** 拍照作答：dataURL → vision 判卷。confident 结果同键入作答；低置信度进家长抽检。 */
+    const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (!file || photoSubmitting || submitting || finished) return
+        setPhotoSubmitting(true)
+        setError(null)
+        try {
+            const image = await readAsDataURL(file)
+            const res = await submitPhoto({
+                learnerId,
+                questionId: q.id,
+                image,
+                hintLevelUsed: hintLevel,
+                durationS: Math.round((performance.now() - startRef.current) / 100) / 10,
+                queueItemId: item.queueItemId,
+                reviewCardId: item.reviewCardId,
+            })
+            if (res.status === 'unconfigured') {
+                photoUnavailable = true
+                setPhotoEnabled(false)
+                setError('拍照判卷需要配置视觉模型')
+                return
+            }
+            const result = res.result
+            masteryRef.current.push(...result.mastery)
+            if (result.extractedAnswer) setAnswer(result.extractedAnswer)
+            if (result.needsReview) {
+                setFeedback({ kind: 'review' })
+            } else if (result.correct) {
+                setFeedback({ kind: 'correct' })
+            } else {
+                lastWrongRef.current = result.extractedAnswer || undefined
+                lastAttemptIdRef.current = result.attemptId
+                setFeedback({ kind: 'wrong', canHint: result.hintAvailable })
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err))
+        } finally {
+            setPhotoSubmitting(false)
         }
     }
 
@@ -297,6 +357,26 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                     >
                         {submitting ? '批改中……' : feedback?.kind === 'wrong' ? '再交一次' : '交卷'}
                     </button>
+                )}
+                {!finished && photoEnabled && (
+                    <>
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                            onChange={(e) => void handlePhotoChange(e)}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => fileRef.current?.click()}
+                            disabled={submitting || photoSubmitting}
+                            className="px-6 py-3 rounded-2xl bg-white border-2 border-slate-100 text-slate-600 text-lg font-bold hover:border-sky-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {photoSubmitting ? '识别中……' : '📷 拍照上传'}
+                        </button>
+                    </>
                 )}
                 {feedback?.kind === 'wrong' && feedback.canHint && hintLevel < 3 && (
                     <button
