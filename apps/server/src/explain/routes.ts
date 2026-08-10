@@ -7,6 +7,7 @@ import { EducationLevelSchema, SceneSpecSchema } from "@mathtutor/schema";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
+import { groundingSourceOf } from "./grounding.js";
 
 /**
  * P2 讲解管线（模式 B · Manim）：缓存命中直接返回；未命中建生成任务，
@@ -130,6 +131,8 @@ async function runWebModeJob(
       specUrl: `/api/v1/explain/specs/${specId}`,
       quality: structuralWarnings.length ? "acceptable" : "good",
       contractVersion: state.contract?.contract_version ?? "unknown",
+      // 确定性构造器会在计划上盖章；LLM 导演写的计划没有这个字段，留空即代表走了模型路径
+      groundingSource: groundingSourceOf(spec),
     });
     if (body.mistakeId) repo.linkMistakeExplanation(body.mistakeId, explanationId);
     repo.finishExplainJob(jobId, explanationId);

@@ -9,6 +9,7 @@ import {
     fetchParentSummary,
     postCorrectMistake,
     postVerdict,
+    type ExplanationSource,
     type ParentSummary,
     type PendingVerdict,
     type RecentMistake,
@@ -39,6 +40,73 @@ function StatsRow({ summary }: { summary: ParentSummary }) {
                 </div>
             ))}
         </div>
+    )
+}
+
+
+/** 引擎里确定性构造器盖的章 → 人话；没盖章的一律是模型写的计划 */
+const SOURCE_LABEL: Record<string, string> = {
+    llm_director: '模型导演',
+    linear_mix_swap: '假设法（确定性）',
+    quantity_story: '数量叙事（确定性）',
+    linear_balance: '天平（确定性）',
+    verified_solution_arithmetic: '验算算式（确定性）',
+    minimal_narrative: '最小叙事（降级）',
+    graph_transform: '图像变换（确定性）',
+}
+
+/**
+ * 讲解画面来源：同一道题，走确定性构造器和掉到模型导演，画出来的东西不是一回事。
+ * 不记这一笔就只能凭感觉判断画质波动；这里把比例摊开，调哪一端有据可依。
+ */
+function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
+    const total = rows.reduce((s, r) => s + r.count, 0)
+    if (total === 0) return null
+    const bySource = new Map<string, number>()
+    for (const r of rows) bySource.set(r.source, (bySource.get(r.source) ?? 0) + r.count)
+    const sorted = [...bySource.entries()].sort((a, b) => b[1] - a[1])
+    const modelShare = Math.round(((bySource.get('llm_director') ?? 0) / total) * 100)
+    const degraded = bySource.get('minimal_narrative') ?? 0
+
+    return (
+        <section className="plate p-6 space-y-4">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <h3 className="text-section">讲解画面来源</h3>
+                <span className="numeric text-xs text-ink-faint">共 {total} 份</span>
+            </div>
+            <p className="text-sm text-ink-soft leading-relaxed">
+                画面由确定性构造器从已验证的算式直接算出，还是由模型自己设计——
+                后者占比越高，画质越不稳定。
+            </p>
+            <ul className="space-y-3">
+                {sorted.map(([source, count]) => {
+                    const pct = Math.round((count / total) * 100)
+                    const isModel = source === 'llm_director'
+                    return (
+                        <li key={source} className="space-y-1.5">
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="font-semibold text-ink text-sm">
+                                    {SOURCE_LABEL[source] ?? source}
+                                </span>
+                                <span className="numeric text-xs text-ink-faint shrink-0">
+                                    {count} 份 · {pct}%
+                                </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-rule overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full ${isModel ? 'bg-ink-faint' : 'bg-beam'}`}
+                                    style={{ width: `${Math.max(2, pct)}%` }}
+                                />
+                            </div>
+                        </li>
+                    )
+                })}
+            </ul>
+            <p className="text-xs text-ink-faint leading-relaxed">
+                {modelShare}% 的讲解由模型设计画面
+                {degraded > 0 ? ` · ${degraded} 份走了降级叙事` : ''}
+            </p>
+        </section>
     )
 }
 
@@ -427,6 +495,7 @@ export function ParentPage() {
                 <MistakePatterns summary={summary} />
                 <RecentMistakes items={summary.recentMistakes} onCorrected={handleMistakeCorrected} />
                 <TrendChart trend={summary.trend} />
+                <ExplanationSources rows={summary.explanationSources ?? []} />
             </div>
         )
     }, [
