@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useAuth } from '../auth/AuthContext'
 import { useLearner } from '../learner/LearnerContext'
 
 export const LEVEL_OPTIONS = [
@@ -13,8 +14,9 @@ export function levelLabel(level: string): string {
     return LEVEL_OPTIONS.find(([key]) => key === level)?.[1] ?? level
 }
 
-/** 无 learner 时的选人 / 建档卡。 */
+/** 无 learner 时的选人 / 建档卡（孩子会话恒有本人档案，此卡只对家长出现）。 */
 export function LearnerGate() {
+    const { user } = useAuth()
     const { learners, loading, select, create } = useLearner()
     const [name, setName] = useState('')
     const [level, setLevel] = useState('elementary_upper')
@@ -23,6 +25,15 @@ export function LearnerGate() {
 
     if (loading) {
         return <div className="text-center text-slate-400 py-16">正在加载学习档案……</div>
+    }
+
+    // 孩子理论上不会到这（learner 恒为本人）；万一档案缺失给明确提示而非建档表单
+    if (user?.role === 'child') {
+        return (
+            <div className="soft-glass p-8 max-w-lg mx-auto text-center text-slate-500">
+                你的学习档案暂时加载不出来，刷新一下试试；还不行就找家长看看。
+            </div>
+        )
     }
 
     const handleCreate = async (e: FormEvent) => {
@@ -104,11 +115,12 @@ export function LearnerGate() {
     )
 }
 
-/** 已有 learner 时的顶部切换条。 */
+/** 已有 learner 时的顶部切换条（孩子只显示本人，不可切换）。 */
 export function LearnerSwitcher({ disabled }: { disabled?: boolean }) {
+    const { user } = useAuth()
     const { learner, learners, select } = useLearner()
     if (!learner) return null
-    const others = learners.filter((l) => l.id !== learner.id)
+    const others = user?.role === 'child' ? [] : learners.filter((l) => l.id !== learner.id)
     return (
         <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
             <span className="px-4 py-1.5 rounded-full bg-sky-500 text-white text-sm font-semibold shadow">
