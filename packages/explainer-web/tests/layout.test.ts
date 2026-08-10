@@ -296,3 +296,99 @@ describe("换成什么就长成什么样（假设法的类别变化必须可追�
     for (const u of swapped) expect(u.swappedChannel).toBeUndefined();
   });
 });
+
+describe("从属即结构：count_per_unit 挂在宿主身上，不是另一堆东西", () => {
+  /** 引擎确定性构造器 build_mix_swap_visual_plan 的真实产物形态 */
+  const mixSwap = {
+    visual_objects: [
+      { id: "mix_units", primitive: "circle", label: "35 个", color: "blue", params: { count: 35, columns: 6 } },
+      { id: "mix_marks", primitive: "line", color: "blue", params: { count_per_unit: 2 } },
+    ],
+    scenes: [
+      {
+        teaching_line: "每个圆圈是一个个体，下面垂 2 根线；先假设全部相同：35 × 2 = 70。",
+        actions: [
+          { op: "create", targets: ["mix_units"] },
+          { op: "create", targets: ["mix_marks"] },
+        ],
+      },
+      {
+        teaching_line: "实际总量是 94，差 24；每换一个补 2，要换 12 个。",
+        actions: [
+          { op: "swap_units", targets: ["mix_units"], source: "mix_units", count: 12, expect: 4, expect_total: 94 },
+        ],
+      },
+    ],
+  };
+
+  it("附属组不自成一堆，而是变成宿主单位身上的记号", () => {
+    const beats = foldBeats(parse(mixSwap));
+    const scene = solveScene(beats[0]!, W, H);
+    // 屏幕上只有宿主这一组，没有第二堆散点
+    expect(scene.flowed.filter((s) => s.kind === "units")).toHaveLength(1);
+    const layout = layoutFlowed(scene, OPTS);
+    expect(units(layout.items)).toHaveLength(1);
+  });
+
+  it("记号数 = 单位数 × 每单位数，且每个都锚在自己宿主附近", () => {
+    const beats = foldBeats(parse(mixSwap));
+    const layout = layoutFlowed(solveScene(beats[0]!, W, H), OPTS);
+    const host = units(layout.items)[0]!;
+    const total = host.units.reduce((s, u) => s + (u.markXs?.length ?? 0), 0);
+    expect(total).toBe(35 * 2);
+    // 锚定：记号的横向偏移不超过一个单位直径，纵向紧贴单位下沿
+    for (const u of host.units) {
+      expect(u.markXs).toHaveLength(2);
+      for (const dx of u.markXs!) expect(Math.abs(dx)).toBeLessThanOrEqual(u.r * 2);
+      expect(u.markLen).toBeGreaterThan(0);
+    }
+  });
+
+  it("换了类别的单位记号数跟着变：12 × 4 + 23 × 2 = 94，能一根根数出来", () => {
+    const beats = foldBeats(parse(mixSwap));
+    const layout = layoutFlowed(solveScene(beats[1]!, W, H), OPTS);
+    const all = units(layout.items).flatMap((g) => g.units);
+    const swapped = all.filter((u) => u.swapped);
+    expect(swapped).toHaveLength(12);
+    for (const u of swapped) expect(u.markXs).toHaveLength(4);
+    for (const u of all.filter((u) => !u.swapped)) expect(u.markXs).toHaveLength(2);
+    expect(all.reduce((s, u) => s + (u.markXs?.length ?? 0), 0)).toBe(94);
+    // 个体数没变——守恒说的是头，不是腿
+    expect(beats[1]!.conservation).toEqual({ before: 35, after: 35, ok: true });
+  });
+
+  it("宿主 = 在场单位最多的那一组（与引擎 Manim 通道同一条规则）", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "few", primitive: "circle", params: { count: 3 } },
+          { id: "many", primitive: "circle", params: { count: 9 } },
+          { id: "marks", primitive: "line", params: { count_per_unit: 2 } },
+        ],
+        scenes: [{ actions: [] }],
+      }),
+    );
+    const layout = layoutFlowed(solveScene(beats[0]!, W, H), OPTS);
+    const byId = new Map(units(layout.items).map((g) => [g.id, g]));
+    expect(byId.get("many")!.units.every((u) => u.markXs?.length === 2)).toBe(true);
+    expect(byId.get("few")!.units.every((u) => u.markXs === undefined)).toBe(true);
+  });
+
+  it("有腿的行要留出垂下的高度，腿不许插进下一行", () => {
+    const beats = foldBeats(parse(mixSwap));
+    const layout = layoutFlowed(solveScene(beats[0]!, W, H), OPTS);
+    const host = units(layout.items)[0]!;
+    const rows = new Map<number, typeof host.units>();
+    for (const u of host.units) {
+      const key = Math.round(u.cy);
+      rows.set(key, [...(rows.get(key) ?? []), u]);
+    }
+    const ys = [...rows.keys()].sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i += 1) {
+      const above = rows.get(ys[i - 1]!)![0]!;
+      const legBottom = above.cy + above.r * 0.8 + (above.markLen ?? 0);
+      const belowTop = ys[i]! - above.r;
+      expect(legBottom).toBeLessThanOrEqual(belowTop);
+    }
+  });
+});

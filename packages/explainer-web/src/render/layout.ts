@@ -38,6 +38,14 @@ export interface PlacedUnit {
   swappedChannel?: number;
   /** 一个记号代表 N 个真实单位（> 1 时画法要提示这是聚合） */
   weight: number;
+  /**
+   * 挂在这个单位下方的附属记号 x 偏移（相对 cx）。
+   * 「每个个体垂下 2 根线」必须画成挂在它身上的结构——
+   * 摊成独立的一堆，「每个几」就没了，而那正是乘法的意思。
+   */
+  markXs?: number[];
+  /** 附属记号的长度 */
+  markLen?: number;
   kind?: string;
 }
 
@@ -333,7 +341,15 @@ function placeUnitGroups(
   },
 ): PlacedUnits[] {
   const { r, usableW } = ctx;
+  // 有附属记号时每行要多留出垂下的高度，否则腿会插进下一行
+  const maxMarks = groups.reduce(
+    (m, g) =>
+      Math.max(m, g.perUnitMarks ?? 0, ...g.units.map((u) => u.marks ?? 0)),
+    0,
+  );
+  const markLen = maxMarks > 0 ? Math.max(4, r * 1.1) : 0;
   const cell = r * 2 + Math.max(3, r * 0.7);
+  const rowStep = cell + markLen;
   const chunkGap = Math.max(6, r * 1.2);
   const out: PlacedUnits[] = [];
 
@@ -347,7 +363,7 @@ function placeUnitGroups(
     const columns = columnsFor(n, g.columns, maxColumns);
     const rows = Math.max(1, Math.ceil(n / columns));
     const blockW = rowWidth(columns, cell, chunkGap);
-    const blockH = rows * cell + LABEL_H;
+    const blockH = rows * rowStep + LABEL_H;
 
     if (x > PAD_X && x + blockW > PAD_X + usableW) {
       x = PAD_X;
@@ -362,10 +378,19 @@ function placeUnitGroups(
       const unit: PlacedUnit = {
         id: u.id,
         cx: x + chunkedX(col, cell, chunkGap) + cell / 2,
-        cy: y + LABEL_H + row * cell + cell / 2,
+        cy: y + LABEL_H + row * rowStep + cell / 2,
         r,
         weight: u.weight,
       };
+      const marks = u.marks ?? g.perUnitMarks;
+      if (marks !== undefined && marks > 0) {
+        const span = r * 1.5;
+        const step = marks > 1 ? span / (marks - 1) : 0;
+        unit.markXs = Array.from({ length: marks }, (_, k) =>
+          marks > 1 ? -span / 2 + k * step : 0,
+        );
+        unit.markLen = markLen;
+      }
       if (u.swapped) unit.swapped = true;
       if (u.swappedTo !== undefined) {
         const ch = ctx.channelFor(u.swappedTo);

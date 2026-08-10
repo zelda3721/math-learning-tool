@@ -71,7 +71,12 @@ export interface UnitsShape {
   kind: "units";
   id: string;
   label?: string;
-  units: { id: string; weight: number; swapped?: boolean; swappedTo?: string; kind?: string; side?: string }[];
+  units: {
+    id: string; weight: number; swapped?: boolean; swappedTo?: string;
+    /** 这个单位身上挂几个记号（换类后可能与全组默认值不同） */
+    marks?: number;
+    kind?: string; side?: string;
+  }[];
   ghost?: boolean;
   emphasis?: boolean;
   note?: string;
@@ -80,6 +85,13 @@ export interface UnitsShape {
   color?: string;
   /** 每个单位排几列（spec 的 columns），布局层据此分块 */
   columns?: number;
+  /**
+   * 每个单位默认挂几个附属记号（宿主身上的结构，不是另一堆东西）。
+   * 由声明了 count_per_unit 的附属组解析而来。
+   */
+  perUnitMarks?: number;
+  /** 附属记号的语义色名 */
+  markColor?: string;
   /** 天平：左右盘 */
   side?: "left" | "right";
 }
@@ -169,11 +181,32 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
   const flowed: Shape[] = [];
   const extentParts: Partial<Extents>[] = [];
 
+  /**
+   * 从属记号（count_per_unit）不是独立的一堆，而是挂在宿主单位身上的结构。
+   * 宿主 = 在场单位最多的那一组——与引擎 Manim 通道同一条规则
+   * （compile_video.attach_per_unit_marks），两个渲染器画出同一个意思。
+   */
+  const attachments = beat.groups.filter((g) => g.attachPerUnit !== undefined);
+  const hostId = attachments.length
+    ? beat.groups.reduce<GroupState | null>(
+        (best, g) =>
+          g.units.length > 0 && (best === null || g.units.length > best.units.length) ? g : best,
+        null,
+      )?.id
+    : undefined;
+  const attachment = hostId !== undefined ? attachments[0] : undefined;
+
   for (const g of beat.groups) {
+    if (g.attachPerUnit !== undefined) continue; // 已经变成宿主身上的结构
     if (!PLOTTED_PRIMITIVES.has(g.primitive)) {
       // 数量型：展开成可数记号
       if (g.units.length > 0 || g.quantity !== undefined) {
-        flowed.push(unitsShape(g));
+        const shape = unitsShape(g);
+        if (attachment !== undefined && g.id === hostId) {
+          shape.perUnitMarks = attachment.attachPerUnit;
+          if (attachment.color !== undefined) shape.markColor = attachment.color;
+        }
+        flowed.push(shape);
       } else if (g.magnitude !== undefined) {
         // 量：画成条，长短即大小
         flowed.push({
@@ -257,6 +290,7 @@ function unitsShape(g: GroupState): UnitsShape {
       weight: u.weight ?? 1,
       swapped: u.swapped,
       swappedTo: u.swappedTo,
+      marks: u.marks,
       kind: u.kind,
       side: u.side,
     })),
