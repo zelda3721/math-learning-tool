@@ -14,6 +14,7 @@ from .visual_plan import (
     VisualPlanTool,
     build_composition_visual_plan,
     build_derivative_visual_plan,
+    build_graph_transform_visual_plan,
     build_grounded_math_visual_plan,
     build_integral_visual_plan,
     build_limit_visual_plan,
@@ -92,7 +93,10 @@ class DirectVideoTool(ITool):
             # curve-and-focus lowering only runs when none of those apply,
             # and the composite-function chain runs last because it is a
             # structural reading of the expression rather than of the asked
-            # operation.
+            # operation. A graph transformation sits just above it for the
+            # same reason in reverse: "how did this graph move" reads the
+            # expression *and* commits to a route between two curves, which
+            # is more specific than "how is this expression built".
             grounded_plan = (
                 build_quantity_story_visual_plan(ctx)
                 or build_mix_swap_visual_plan(ctx)
@@ -100,6 +104,7 @@ class DirectVideoTool(ITool):
                 or build_derivative_visual_plan(ctx)
                 or build_integral_visual_plan(ctx)
                 or build_limit_visual_plan(ctx)
+                or build_graph_transform_visual_plan(ctx)
                 or build_composition_visual_plan(ctx)
                 or build_grounded_math_visual_plan(ctx)
             )

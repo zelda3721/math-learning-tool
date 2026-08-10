@@ -1233,6 +1233,14 @@ def _validate_essence_rationale(text: str) -> list[str]:
 
 def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
     """Build Visual IR from literal equalities in independently verified steps."""
+    if _quantity_semantics_refused(ctx):
+        # Arithmetic appears inside almost every worked solution, including
+        # solutions about a function's graph. Counting graphics would then
+        # narrate "how many" about a question that asks "where did the curve
+        # go", which is how a graph-transformation session ended up showing two
+        # empty rectangles labelled "product". Abstaining hands the session to
+        # the constructors and gates that can tell the truth about it.
+        return None
     answer_text = _strip_decorations(str(ctx.state.get("solution_answer") or ""))
     answer_numbers = [float(item) for item in re.findall(r"-?\d+(?:\.\d+)?", answer_text)]
     if not answer_numbers:
@@ -2504,6 +2512,13 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
         # curves and zero-crossings exceed the elementary level. Quantity
         # graphics (story/arithmetic-chain builders) or the grade-guided
         # director own this audience.
+        return None
+    if _graph_transform_intent(ctx) and _graph_transform_target(ctx) is not None:
+        # The question is about how a graph moved, not about the height this
+        # generic lowering would draw. Abstain so the graph-transformation
+        # constructor (or, if it declined, the director under the geometric
+        # truth gate) owns the picture instead of a neighbourhood curve that
+        # answers a question nobody asked.
         return None
     request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
     evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
@@ -4600,6 +4615,725 @@ def build_composition_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
         if accepted is not None:
             return accepted
     return None
+
+
+# --------------------------------------------------------------------------
+# Graph transformation constructor.
+#
+# "How does y = f(ax + b) come from y = f(x)?" is a core high-school reading of
+# a function, and it had no drawable vocabulary at all: the question declares
+# no operation a solver can execute, so every structural constructor abstained
+# and the session fell through to generic quantity boxes.  Everything below is
+# recomputed here — the linear inner map is measured from the expression, the
+# horizontal shift is derived as b/a (the exact place students go wrong), and
+# every plotted point is evaluated with the same safe runtime.  No number and
+# no direction is copied from a model sentence.
+# --------------------------------------------------------------------------
+
+_GRAPH_TRANSFORM_INTENT_WORDS = (
+    "平移",
+    "左移",
+    "右移",
+    "上移",
+    "下移",
+    "伸缩",
+    "压缩",
+    "拉伸",
+    "伸长",
+    "缩短",
+    "横坐标",
+    "纵坐标",
+    "变换",
+    "图像",
+    "图象",
+    "翻折",
+    "对称",
+    "shift",
+    "translate",
+    "stretch",
+    "compress",
+    "transform",
+    "graph",
+)
+# Operations whose output is another expression rather than a measured amount.
+# ``solve`` is deliberately absent: an equation's roots are still a numeric
+# story and the quantity/balance constructors legitimately own it.
+_SYMBOLIC_MATH_OPS = {
+    "differentiate",
+    "integrate",
+    "limit",
+    "simplify",
+    "expand",
+    "factor",
+    "series",
+}
+_TEXT_FUNCTION_CALL_RE = re.compile(
+    r"(?:" + "|".join(_COMPOSITION_OUTER_FUNCTIONS) + r")\s*\([^()]*\)"
+)
+_TEXT_ASSIGNED_EXPRESSION_RE = re.compile(
+    r"(?:(?<![A-Za-z0-9_])y|f\s*\(\s*[A-Za-z]\s*\))\s*=\s*([^\n]+)"
+)
+_EXPRESSION_CHARS_RE = re.compile(r"[A-Za-z0-9_+\-*/^(). ]+")
+
+
+def _graph_transform_intent(ctx: ToolContext) -> bool:
+    """Whether the asked question is about moving/scaling a graph at all."""
+    text = " ".join(
+        (
+            str(ctx.problem or ""),
+            str(ctx.state.get("solution_answer") or ""),
+        )
+    ).lower()
+    return any(word.lower() in text for word in _GRAPH_TRANSFORM_INTENT_WORDS)
+
+
+def _balanced_expression_prefix(text: str) -> str:
+    """The longest parenthesis-balanced expression-shaped prefix of ``text``."""
+    match = _EXPRESSION_CHARS_RE.match(text.strip())
+    if match is None:
+        return ""
+    candidate = match.group(0)
+    depth = 0
+    end = 0
+    for index, char in enumerate(candidate):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                break
+        if depth == 0:
+            end = index + 1
+    return candidate[:end].strip().rstrip("+-*/^ ")
+
+
+def _text_expression_candidates(text: str) -> list[str]:
+    """Expression spellings literally present in prose, never invented ones.
+
+    Only two shapes are read: an explicit ``y = …`` / ``f(x) = …`` assignment
+    and a whole named-function call such as ``sin(2x+1)``.  Anything that does
+    not survive the safe parser later is dropped, so a sentence that merely
+    mentions mathematics contributes nothing.
+    """
+    found: list[str] = []
+    for raw in _TEXT_ASSIGNED_EXPRESSION_RE.findall(text or ""):
+        candidate = _balanced_expression_prefix(str(raw))
+        if candidate:
+            found.append(candidate)
+    for raw in _TEXT_FUNCTION_CALL_RE.findall(text or ""):
+        candidate = str(raw).strip()
+        if candidate:
+            found.append(candidate)
+    return list(dict.fromkeys(found))
+
+
+def _linear_inner_transform(
+    expression: str, variable: str
+) -> tuple[str, float, float] | None:
+    """Read ``expression`` as ``base(a*variable + b)``, or return ``None``.
+
+    The outer/inner split is structural (the same one the composition builder
+    uses); ``a`` and ``b`` are then *measured* from the inner expression and
+    re-checked at several points, so a non-linear inner map can never be
+    mistaken for a translation or a scaling.
+    """
+    decomposed = _decompose_composition(expression, variable)
+    if decomposed is None:
+        return None
+    outer, inner = decomposed
+    intercept = _real_value_at(inner, variable, 0.0)
+    at_one = _real_value_at(inner, variable, 1.0)
+    if intercept is None or at_one is None:
+        return None
+    scale = at_one - intercept
+    if abs(scale) < 1e-9:
+        return None
+    for probe in (-2.3, -0.7, 1.7, 3.1):
+        actual = _real_value_at(inner, variable, probe)
+        if actual is None or abs(actual - (scale * probe + intercept)) > 1e-7:
+            return None
+    scale = round(scale, 6)
+    intercept = round(intercept, 6)
+    if abs(scale - 1.0) < 1e-9 and abs(intercept) < 1e-9:
+        return None
+    base = re.sub(r"(?<![A-Za-z0-9_])u(?![A-Za-z0-9_])", variable, outer)
+    if base == outer and "u" in outer:
+        return None
+    if _computable_expression(base, variable) is None:
+        return None
+    for probe in (-1.9, -0.4, 0.6, 2.2):
+        composed = _real_value_at(expression, variable, probe)
+        through_base = _real_value_at(base, variable, scale * probe + intercept)
+        if composed is None or through_base is None:
+            continue
+        if abs(composed - through_base) > 1e-7:
+            return None
+    return (base, float(scale), float(intercept))
+
+
+def _graph_transform_target(
+    ctx: ToolContext,
+) -> tuple[str, str, str, float, float] | None:
+    """(expression, variable, base, a, b) for the graph this session moves.
+
+    Math IR first, prose second.  Prose is only ever used as a *spelling*
+    source: the candidate must still parse in the safe runtime and must still
+    reduce to ``base(a*x + b)`` numerically before anything is drawn.
+    """
+    candidates: list[tuple[str, str]] = []
+    for row in _verified_math_operations(ctx):
+        variable = row["variable"] or "x"
+        for raw in (row["expression"], row["result"]):
+            text = str(raw or "").strip()
+            if text:
+                candidates.append((text, variable))
+    prose = " ".join(
+        (str(ctx.problem or ""), str(ctx.state.get("solution_answer") or ""))
+    )
+    for text in _text_expression_candidates(prose):
+        candidates.append((text, "x"))
+    for raw_expression, variable in dict.fromkeys(candidates):
+        if not variable.isidentifier():
+            continue
+        expression = _computable_expression(raw_expression, variable)
+        if expression is None:
+            continue
+        decomposed = _linear_inner_transform(expression, variable)
+        if decomposed is None:
+            continue
+        base, scale, intercept = decomposed
+        return (expression, variable, base, scale, intercept)
+    return None
+
+
+def _symbolic_function_evidence(ctx: ToolContext) -> bool:
+    """Whether the verified evidence operates on a function, not on an amount.
+
+    Conservative on purpose: only a symbolic operation whose expression still
+    carries its *free* variable counts.  Once the variable has been given a
+    value the evidence is again a concrete number and the quantity vocabulary
+    may legitimately claim it.
+    """
+    for row in _verified_math_operations(ctx):
+        if row["op"] not in _SYMBOLIC_MATH_OPS:
+            continue
+        variable = row["variable"] or "x"
+        expression = row["expression"]
+        if not expression or not variable.isidentifier():
+            continue
+        if not re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(variable)}(?![A-Za-z0-9_])", expression
+        ):
+            continue
+        if row["substitutions"].get(variable) is not None:
+            continue
+        return True
+    return False
+
+
+def _quantity_semantics_refused(ctx: ToolContext) -> bool:
+    """Whether counting graphics would misrepresent this session outright.
+
+    Quantity bars and unit boxes narrate "how many". When the verified
+    evidence is a function being reshaped (a graph transformation asked in
+    prose, or a symbolic operation still carrying a free variable), that
+    vocabulary has nothing true to say, and drawing it anyway produces the
+    empty "product" rectangles this guard exists to prevent.
+    """
+    if _graph_transform_intent(ctx) and _graph_transform_target(ctx) is not None:
+        return True
+    return _symbolic_function_evidence(ctx)
+
+
+def _ratio_text(value: float) -> str:
+    """A small exact fraction when there is one, otherwise a decimal."""
+    for denominator in (1, 2, 3, 4, 5, 6, 8, 10, 12):
+        numerator = value * denominator
+        if abs(numerator - round(numerator)) < 1e-9:
+            whole = int(round(numerator))
+            return f"{whole}" if denominator == 1 else f"{whole}/{denominator}"
+    return _format_number(value)
+
+
+def _signed_ratio_text(value: float) -> str:
+    """``+ 1/2`` / ``- 1/2``: a term that can be pasted into an expression."""
+    sign = "-" if value < 0 else "+"
+    return f"{sign} {_ratio_text(abs(value))}"
+
+
+def _substitute_variable(text: str, variable: str, replacement: str) -> str:
+    """Replace the free variable token only, never a letter inside a name."""
+    return re.sub(
+        rf"(?<![A-Za-z0-9_]){re.escape(variable)}(?![A-Za-z0-9_])", replacement, text
+    )
+
+
+def _substituted_label(text: str, variable: str, replacement: str) -> str:
+    """The same substitution, spelled for a human reader.
+
+    The replacement stays parenthesized so precedence survives (``x**2`` must
+    read ``(2x)**2``, never ``2x**2``); only the doubled bracket a function
+    call produces (``sin((2x))``) is flattened, and only in display text.
+    """
+    result = _substitute_variable(text, variable, f"({replacement})")
+    index = 0
+    while index < len(result) - 1:
+        if result[index] == "(" and result[index + 1] == "(":
+            close = _matching_parenthesis(result, index + 1)
+            if close != -1 and close + 1 < len(result) and result[close + 1] == ")":
+                result = result[:index] + result[index + 1 : close + 1] + result[close + 2 :]
+                continue
+        index += 1
+    return result
+
+
+def build_graph_transform_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Show how y = f(ax + b) is built by moving the graph of y = f(x).
+
+    The drawn route is *scale first, then slide*, because that is where the
+    decisive subtlety lives: after the horizontal scaling the remaining slide
+    is b/a, not b.  That number is computed here from the identity
+    ``f(ax + b) = f(a(x + b/a))``, every curve is a real sample of a real
+    expression, and each tracked point is carried across the two steps so the
+    student sees which point went where.
+    """
+    if str(ctx.grade or "").startswith("elementary"):
+        return None
+    rows = _verified_math_operations(ctx)
+    if any(row["op"] == "solve" for row in rows):
+        # "Where does it vanish" is a different question about the same
+        # expression; the zero-crossing argument owns that evidence.
+        return None
+    target = _graph_transform_target(ctx)
+    if target is None:
+        return None
+    expression, variable, base, scale, intercept = target
+    shift = round(intercept / scale, 6)
+    scaled_expression = _substitute_variable(
+        base, variable, f"(({_format_number(scale)})*{variable})"
+    )
+    if _computable_expression(scaled_expression, variable) is None:
+        return None
+    scaling = abs(round(scale, 6)) != 1.0 or scale < 0
+    if scaling:
+        for probe in (-1.4, 0.3, 1.9):
+            direct = _real_value_at(scaled_expression, variable, probe)
+            through_base = _real_value_at(base, variable, scale * probe)
+            if direct is None or through_base is None:
+                continue
+            if abs(direct - through_base) > 1e-7:
+                return None
+
+    half_width = round(3.0 + abs(shift), 4)
+    x_start, x_end = -half_width, half_width
+
+    def _interval_of_base_window() -> tuple[float, float]:
+        low = (x_start - intercept) / scale
+        high = (x_end - intercept) / scale
+        return (min(low, high), max(low, high))
+
+    base_low, base_high = _interval_of_base_window()
+    window_low = max(x_start, base_low, x_start - shift)
+    window_high = min(x_end, base_high, x_end - shift)
+    if window_high - window_low < 0.5:
+        return None
+    tracked: list[tuple[float, float, float, float]] = []
+    for ratio in (0.2, 0.5, 0.8):
+        final_x = round(window_low + (window_high - window_low) * ratio, 4)
+        source_x = round(scale * final_x + intercept, 4)
+        middle_x = round(final_x + shift, 4)
+        height = _real_value_at(base, variable, source_x)
+        if height is None:
+            continue
+        through_final = _real_value_at(expression, variable, final_x)
+        if through_final is None or abs(through_final - height) > 1e-6:
+            continue
+        if scaling:
+            through_middle = _real_value_at(scaled_expression, variable, middle_x)
+            if through_middle is None or abs(through_middle - height) > 1e-6:
+                continue
+        tracked.append((source_x, middle_x, final_x, round(height, 4)))
+    if len(tracked) < 2:
+        return None
+
+    sample_xs = _linear_space(x_start, x_end, 21)
+    frame_values = [height for *_, height in tracked]
+    for curve_expression in (
+        [base, scaled_expression, expression] if scaling else [base, expression]
+    ):
+        points = _real_curve_points(curve_expression, variable, sample_xs)
+        if len(points) < 8:
+            return None
+        frame_values.extend(point[1] for point in points)
+    y_start, y_end = _value_frame(frame_values)
+    curve_specs = (
+        [base, scaled_expression, expression] if scaling else [base, expression]
+    )
+    if not all(
+        _curve_is_drawable(item, variable, x_start, x_end, y_start, y_end)
+        for item in curve_specs
+    ):
+        return None
+
+    direction = "左" if shift > 0 else "右"
+    shift_text = _ratio_text(abs(shift))
+    intercept_text = _ratio_text(abs(intercept))
+    scale_text = _ratio_text(scale)
+    factor_text = _ratio_text(abs(1.0 / scale))
+    flip_text = "并关于 y 轴翻折" if scale < 0 else ""
+    stretch_word = "压缩" if abs(scale) > 1 else "拉伸"
+    # ``f(ax + b) = f(a(x + b/a))``: the identity the whole beat turns on,
+    # spelled out with the *computed* shift so the picture and the sentence
+    # can never disagree about which number moves the graph.
+    scaled_label = _substituted_label(base, variable, f"{scale_text}{variable}")
+    inner_shift_label = _substituted_label(
+        base, variable, f"{scale_text}({variable} {_signed_ratio_text(shift)})"
+    )
+    slide_first_label = _substituted_label(
+        base, variable, f"{variable} {_signed_ratio_text(intercept)}"
+    )
+    argument_label = f"{scale_text}{variable} {_signed_ratio_text(intercept)}"
+
+    objects: list[dict[str, Any]] = [
+        {
+            "id": "graph_transform_axes",
+            "primitive": "axes",
+            "meaning": "基本函数与变换后函数共用的同一坐标参照",
+            "label": "",
+            "color": "gray",
+            "params": {
+                "x_range": [x_start, x_end],
+                "y_range": [y_start, y_end],
+            },
+        },
+        {
+            "id": "graph_transform_base",
+            "primitive": "function_curve",
+            "meaning": "变换的起点：基本函数的图像",
+            "label": f"y = {base}",
+            "color": "blue",
+            "params": {
+                "expression": base,
+                "variable": variable,
+                "x_range": [x_start, x_end],
+            },
+        },
+        {
+            "id": "graph_transform_base_points",
+            "primitive": "dot",
+            "meaning": "基本函数曲线上被全程跟踪的代表点",
+            "label": "",
+            "color": "blue",
+            "params": {
+                "positions": [[source_x, height] for source_x, _, _, height in tracked]
+            },
+        },
+    ]
+    if scaling:
+        objects.append(
+            {
+                "id": "graph_transform_scaled",
+                "primitive": "function_curve",
+                "meaning": (
+                    f"只做横向{stretch_word}后的中间图像：横坐标变为原来的 {factor_text}"
+                ),
+                "label": f"y = {scaled_label}",
+                "color": "yellow",
+                "params": {
+                    "expression": scaled_expression,
+                    "variable": variable,
+                    "x_range": [x_start, x_end],
+                    "scale": scale,
+                },
+            }
+        )
+        objects.append(
+            {
+                "id": "graph_transform_scaled_points",
+                "primitive": "dot",
+                "meaning": "同一批代表点在中间曲线上的位置，纵坐标不变",
+                "label": "",
+                "color": "yellow",
+                "params": {
+                    "positions": [
+                        [middle_x, height] for _, middle_x, _, height in tracked
+                    ]
+                },
+            }
+        )
+    objects.append(
+        {
+            "id": "graph_transform_result",
+            "primitive": "function_curve",
+            "meaning": "变换终点：题目给出的函数图像",
+            "label": f"y = {expression}",
+            "color": "green",
+            "params": {
+                "expression": expression,
+                "variable": variable,
+                "x_range": [x_start, x_end],
+                "scale": scale,
+                "shift": shift,
+            },
+        }
+    )
+    objects.append(
+        {
+            "id": "graph_transform_result_points",
+            "primitive": "dot",
+            "meaning": "代表点最终落在结果曲线上的位置",
+            "label": "",
+            "color": "green",
+            "params": {
+                "positions": [[final_x, height] for _, _, final_x, height in tracked],
+                "shift": shift,
+            },
+        }
+    )
+    suffixes = ("a", "b", "c")
+    scale_arrow_ids: list[str] = []
+    slide_arrow_ids: list[str] = []
+    for index, (source_x, middle_x, final_x, height) in enumerate(tracked):
+        suffix = suffixes[index] if index < len(suffixes) else f"p{index}"
+        # A fixed point (the scaling centre, or a point the slide happens to
+        # return) really does not move; drawing a zero-length arrow there
+        # would claim a displacement that the mathematics denies.
+        if scaling and abs(middle_x - source_x) > 1e-6:
+            arrow_id = f"graph_transform_squeeze_{suffix}"
+            scale_arrow_ids.append(arrow_id)
+            objects.append(
+                {
+                    "id": arrow_id,
+                    "primitive": "arrow",
+                    "meaning": (
+                        f"横坐标 {_format_number(source_x)} → "
+                        f"{_format_number(middle_x)}，高度保持 "
+                        f"{_format_number(height)}"
+                    ),
+                    "label": "",
+                    "color": "yellow",
+                    "params": {
+                        "start": [source_x, height],
+                        "end": [middle_x, height],
+                    },
+                }
+            )
+        slide_from = middle_x if scaling else source_x
+        if abs(final_x - slide_from) <= 1e-6:
+            continue
+        arrow_id = f"graph_transform_slide_{suffix}"
+        slide_arrow_ids.append(arrow_id)
+        objects.append(
+            {
+                "id": arrow_id,
+                "primitive": "arrow",
+                "meaning": (
+                    f"整体向{direction}平移 {shift_text}：横坐标 "
+                    f"{_format_number(slide_from)} → {_format_number(final_x)}"
+                ),
+                "label": "",
+                "color": "green",
+                "params": {
+                    "start": [slide_from, height],
+                    "end": [final_x, height],
+                    "shift": shift,
+                },
+            }
+        )
+
+    scenes: list[dict[str, Any]] = [
+        {
+            "role": "setup",
+            "anchor_zone": "A1-F6",
+            "key_objects": "坐标系、基本函数曲线与三个代表点",
+            "action": "建立坐标参照，画出基本函数并标出几个被全程跟踪的点。",
+            "invariant": "基本函数表达式全片不变，代表点的纵坐标始终是它的函数值",
+            "attention_target": f"曲线 y = {base} 上被标记的代表点",
+            "exit_condition": "基本函数曲线与代表点同屏可见",
+            "teaching_line": (
+                f"先看出发点：y = {base} 的图像。"
+                f"在它上面盯住几个点，接下来看它们各自跑到哪里去。"
+            ),
+            "duration_s": 6,
+            "actions": [
+                {
+                    "op": "create",
+                    "targets": [
+                        "graph_transform_axes",
+                        "graph_transform_base",
+                        "graph_transform_base_points",
+                    ],
+                    "result": "",
+                    "meaning": "建立坐标参照与被跟踪的代表点",
+                }
+            ],
+        }
+    ]
+    if scaling:
+        scenes.append(
+            {
+                "role": "transform",
+                "anchor_zone": "A1-F6",
+                "key_objects": "横向伸缩中的曲线与代表点",
+                "action": (
+                    f"把每个点的横坐标变为原来的 {factor_text}，纵坐标保持不变，"
+                    f"曲线整体横向{stretch_word}。"
+                ),
+                "invariant": "每个代表点的纵坐标不变，只有横坐标被同一个倍数改写",
+                "attention_target": "代表点沿水平方向移动的距离",
+                "exit_condition": f"中间曲线 y = {scaled_label} 与新点位同屏可见",
+                "teaching_line": (
+                    f"第一步只做横向{stretch_word}：把 {variable} 换成 "
+                    f"{scale_text}{variable}，得到 y = {scaled_label}；"
+                    f"每个点的横坐标变成原来的 {factor_text}，高度一点没变{flip_text}。"
+                ),
+                "duration_s": 7,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": ["graph_transform_base"],
+                        "result": "graph_transform_scaled",
+                        "meaning": "把基本函数横向伸缩成中间曲线",
+                    },
+                    {
+                        "op": "create",
+                        "targets": [
+                            "graph_transform_scaled_points",
+                            *scale_arrow_ids,
+                        ],
+                        "result": "",
+                        "meaning": "显示每个代表点横坐标的真实去向",
+                    },
+                ],
+            }
+        )
+    scenes.append(
+        {
+            "role": "transform",
+            "anchor_zone": "A1-F6",
+            "key_objects": "整体平移中的曲线与代表点",
+            "action": (
+                f"把整条曲线沿横轴向{direction}平移 {shift_text} 个单位，形状不变。"
+            ),
+            "invariant": "平移不改变曲线形状，只改变它在横轴上的位置",
+            "attention_target": f"平移量 {shift_text} 对应的水平位移",
+            "exit_condition": "结果曲线与代表点的最终位置同屏可见",
+            "teaching_line": (
+                (
+                    f"第二步向{direction}平移 {shift_text} 个单位。"
+                    f"为什么平移量是 b ÷ a = {intercept_text} ÷ "
+                    f"{_ratio_text(abs(scale))} = {shift_text}，而不是 b = "
+                    f"{intercept_text}？因为 {expression} = {inner_shift_label}："
+                    f"括号里对 {variable} 的平移量本来就是 {shift_text}，"
+                    f"横坐标此刻已经被{stretch_word}成原来的 {factor_text}，"
+                    f"平移量当然要跟着除以 {_ratio_text(abs(scale))}。"
+                    f"等价的另一条路是先向{direction}平移 {intercept_text} 个单位"
+                    f"得到 y = {slide_first_label}，再横向{stretch_word}，"
+                    f"结果同样是 {expression}。"
+                )
+                if scaling
+                else (
+                    f"把整条曲线向{direction}平移 {shift_text} 个单位，"
+                    f"每个点的横坐标都加了同一个数，形状完全没变。"
+                )
+            ),
+            "duration_s": 8,
+            "actions": [
+                {
+                    "op": "transform",
+                    "targets": [
+                        "graph_transform_scaled" if scaling else "graph_transform_base"
+                    ],
+                    "result": "graph_transform_result",
+                    "meaning": "把中间曲线整体平移到结果位置",
+                },
+                {
+                    "op": "create",
+                    "targets": [
+                        "graph_transform_result_points",
+                        *slide_arrow_ids,
+                    ],
+                    "result": "",
+                    "meaning": "显示平移后每个代表点的落点",
+                },
+            ],
+        }
+    )
+    scenes.append(
+        {
+            "role": "verify",
+            "anchor_zone": "A1-F6",
+            "key_objects": "结果曲线与落点",
+            "action": "逐点核对：变换后的落点是否正好落在题目函数的图像上。",
+            "invariant": "每个落点的纵坐标始终等于最初那个点的函数值",
+            "attention_target": "落点与结果曲线是否重合",
+            "exit_condition": "落点与结果曲线在同屏完成核对",
+            "teaching_line": (
+                f"核对一下：横坐标 {_format_number(tracked[0][2])} 处，"
+                f"y = {expression} 的值是 {_format_number(tracked[0][3])}，"
+                f"正是出发点 {variable} = {_format_number(tracked[0][0])} 时的高度——"
+                "点没有被改高度，只是被搬了位置。"
+            ),
+            "duration_s": 6,
+            "actions": [
+                {
+                    "op": "measure",
+                    "targets": ["graph_transform_result_points"],
+                    "result": "",
+                    "meaning": "读出落点的坐标",
+                },
+                {
+                    "op": "compare",
+                    "targets": [
+                        "graph_transform_result",
+                        "graph_transform_result_points",
+                    ],
+                    "result": "",
+                    "meaning": "比较落点与结果曲线的位置",
+                },
+                {
+                    "op": "verify",
+                    "targets": [
+                        "graph_transform_result",
+                        "graph_transform_result_points",
+                    ],
+                    "result": "",
+                    "meaning": "确认落点确实在结果曲线上",
+                },
+            ],
+        }
+    )
+
+    plan = {
+        "visual_thesis": (
+            f"盯住 y = {base} 上的几个点，看它们先被横向{stretch_word}、"
+            f"再整体平移 {shift_text} 个单位，最后落到 y = {expression} 上。"
+        ),
+        "essence_rationale": (
+            f"因为 {expression} 就是把 {variable} 换成 {argument_label} 的结果，"
+            f"而 {expression} = {inner_shift_label}，所以它等价于先横向伸缩、"
+            f"再平移 b ÷ a = {shift_text}；学生看到每个代表点的高度自始至终没变、"
+            "只有横坐标被改写，就明白图像变换是对自变量做替换，"
+            f"平移量因此要除以伸缩倍数，而不是照抄 {intercept_text}。"
+        ),
+        "symbol_ledger": [
+            f"蓝色曲线与蓝点 = 出发的基本函数 y = {base} 及其代表点",
+            (
+                f"黄色曲线与黄点 = 只做横向{stretch_word}后的中间状态"
+                if scaling
+                else f"黄色箭头 = 每个代表点的水平位移 {shift_text}"
+            ),
+            f"绿色曲线与绿点 = 结果函数 y = {expression} 及代表点的落点",
+            "箭头 = 同一个点在每一步中横坐标的真实去向（纵坐标不变）",
+        ],
+        "visual_objects": objects,
+        "scenes": scenes,
+        "forbidden": [
+            "只写出平移伸缩的结论而不显示点的真实位移",
+            f"把平移量画成 {intercept_text} 而不是 b/a = {shift_text}",
+        ],
+    }
+    return _accepted_calculus_plan(plan, ctx, "graph_transform")
 
 
 def ground_visual_plan_from_math_execution(
