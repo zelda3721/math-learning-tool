@@ -51,6 +51,40 @@ _VISUAL_PRIMITIVES = {
     # A two-pan balance holding unknown boxes and unit dots; equality made
     # physical. params: coefficient/constant/total/solution/variable.
     "balance",
+    # Calculus vocabulary.  math_runtime already differentiates, integrates
+    # and takes limits; without drawable constructs those verified results
+    # could only degrade into generic boxes.  Every one of these carries the
+    # expression it is derived from, so a renderer recomputes the geometry
+    # instead of receiving decorative shapes.
+    # params: expression/variable/at_x/slope (+ grounded start/end).
+    "tangent_line",
+    # params: expression/variable/x0/h (+ grounded slope/start/end).
+    "secant_line",
+    # params: expression/variable/x_range/n/side ('left'|'right'|'mid').
+    "riemann_rects",
+    # params: expression/variable/target/from ('left'|'right'|'both').
+    "limit_approach",
+    # params: outer/inner/variable/x_range (x →(inner)→ u →(outer)→ y).
+    "composition_chain",
+}
+# Calculus constructs are continuous relationships, not unit collections:
+# they never carry a unit count and must not be pulled into the quantity
+# ledger by a param named ``count``.
+_CALCULUS_PRIMITIVES = {
+    "tangent_line",
+    "secant_line",
+    "riemann_rects",
+    "limit_approach",
+    "composition_chain",
+}
+# Graphics that express a relationship between other objects rather than a
+# standalone quantity; revealing one against an existing object is itself a
+# causal step in a visual argument.
+_RELATIONSHIP_PRIMITIVES = {
+    "line",
+    "arrow",
+    "function_curve",
+    *_CALCULUS_PRIMITIVES,
 }
 _VISUAL_ACTIONS = {
     "create",
@@ -3070,6 +3104,1503 @@ def build_grounded_math_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
     }
 
 
+# --------------------------------------------------------------------------
+# Calculus constructors.
+#
+# math_runtime executes diff/integrate/limit exactly, but until now a verified
+# calculus result had no drawable vocabulary, so those sessions fell through to
+# generic boxes.  Everything below is derived from *already verified* Math IR:
+# expressions are copied from the request, derivative/limit/area values are
+# copied from the evidence, and every coordinate is recomputed from those
+# expressions with the same safe evaluator.  No number is authored by a model.
+# --------------------------------------------------------------------------
+
+_EVIDENCE_REFERENCE_RE = re.compile(
+    r"^\$(?P<id>[A-Za-z_][A-Za-z0-9_]*)(?:\[(?P<index>\d+)\])?$"
+)
+_EVIDENCE_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+_CALCULUS_OP_ALIASES = {
+    "derivative": "differentiate",
+    "diff": "differentiate",
+    "integral": "integrate",
+    "subs": "substitute",
+    "define": "evaluate",
+}
+_COMPOSITION_OUTER_FUNCTIONS = (
+    "sin",
+    "cos",
+    "tan",
+    "exp",
+    "log",
+    "sqrt",
+    "Abs",
+    "asin",
+    "acos",
+    "atan",
+)
+_LIMIT_DIVERGENT_RESULTS = {"oo", "+oo", "-oo", "zoo", "inf", "-inf", "+inf"}
+
+
+def _resolve_evidence_reference(value: Any, results: dict[str, Any]) -> Any:
+    """Replace a ``$id`` / ``$id[k]`` token with the executed result."""
+    if not isinstance(value, str):
+        return value
+    match = _EVIDENCE_REFERENCE_RE.fullmatch(value.strip())
+    if match is None:
+        return value
+    resolved = results.get(match.group("id"))
+    index = match.group("index")
+    if index is None:
+        return resolved
+    if not isinstance(resolved, list):
+        return None
+    try:
+        return resolved[int(index)]
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def _referenced_operation_ids(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return set(_EVIDENCE_TOKEN_RE.findall(value))
+    if isinstance(value, list):
+        return {item for element in value for item in _referenced_operation_ids(element)}
+    if isinstance(value, dict):
+        return {item for element in value.values() for item in _referenced_operation_ids(element)}
+    return set()
+
+
+def _constant_evidence_number(value: Any) -> float | None:
+    """Parse a verified scalar (``2``, ``"8/3"``, ``"pi/2"``) exactly.
+
+    Anything still carrying a free symbol is rejected, so an expression can
+    never be silently read as a number.
+    """
+    if isinstance(value, bool) or isinstance(value, (list, dict)):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(float(value)) else None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    probes: list[float] = []
+    for point in (0.0, 1.0):
+        try:
+            probe = evaluate_real_expression_at(text, variable="_probe_symbol", point=point)
+        except (ArithmeticError, AttributeError, TypeError, ValueError):
+            return None
+        if probe is None or not math.isfinite(probe):
+            return None
+        probes.append(float(probe))
+    if abs(probes[0] - probes[1]) > 1e-12:
+        return None
+    return probes[0]
+
+
+def _verified_math_operations(ctx: ToolContext) -> list[dict[str, Any]]:
+    """Rows of independently verified Math IR, with references resolved.
+
+    Returns an empty list unless the executed evidence reports success and all
+    claims passed, so no builder can start from unverified mathematics.
+    """
+    request = ctx.state.get("verify_math_request") or ctx.state.get("solve_math_request")
+    evidence = ctx.state.get("verify_math_evidence") or ctx.state.get("solve_math_evidence")
+    if not isinstance(request, dict) or not isinstance(evidence, dict):
+        return []
+    if not evidence.get("success") or evidence.get("all_claims_passed") is not True:
+        return []
+    results: dict[str, Any] = {
+        str(item.get("id")): item.get("result")
+        for item in evidence.get("operations") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    rows: list[dict[str, Any]] = []
+    for operation in request.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        operation_id = str(operation.get("id") or "")
+        raw_expression = _resolve_evidence_reference(operation.get("expression"), results)
+        expression = (
+            "" if isinstance(raw_expression, (list, dict)) else str(raw_expression or "").strip()
+        )
+        raw_result = results.get(operation_id)
+        raw_op = str(operation.get("op") or "").strip().lower()
+        substitutions: dict[str, float] = {}
+        raw_substitutions = operation.get("substitutions")
+        if isinstance(raw_substitutions, dict):
+            for name, raw in raw_substitutions.items():
+                number = _constant_evidence_number(_resolve_evidence_reference(raw, results))
+                if number is not None:
+                    substitutions[str(name)] = number
+        rows.append(
+            {
+                "id": operation_id,
+                "op": _CALCULUS_OP_ALIASES.get(raw_op, raw_op),
+                "expression": expression,
+                "variable": str(operation.get("variable") or "").strip(),
+                "result": (
+                    "" if isinstance(raw_result, (list, dict)) else str(raw_result or "").strip()
+                ),
+                "raw_result": raw_result,
+                "substitutions": substitutions,
+                "references": _referenced_operation_ids(operation.get("expression")),
+                "operation": operation,
+            }
+        )
+    return rows
+
+
+def _format_number(value: float) -> str:
+    return f"{round(float(value), 4):g}"
+
+
+def _real_value_at(expression: str, variable: str, point: float) -> float | None:
+    """A finite real function value, or ``None`` when it does not exist."""
+    if not expression or not variable.isidentifier() or not math.isfinite(float(point)):
+        return None
+    try:
+        value = evaluate_real_expression_at(
+            expression, variable=variable, point=float(point)
+        )
+    except (ArithmeticError, AttributeError, TypeError, ValueError):
+        return None
+    if value is None or not math.isfinite(float(value)):
+        return None
+    return float(value)
+
+
+def _real_curve_points(
+    expression: str, variable: str, xs: list[float]
+) -> list[list[float]]:
+    points: list[list[float]] = []
+    for x in xs:
+        y = _real_value_at(expression, variable, x)
+        if y is None:
+            continue
+        points.append([round(float(x), 4), round(y, 4)])
+    return points
+
+
+def _linear_space(start: float, end: float, count: int) -> list[float]:
+    if count < 2 or end <= start:
+        return [start]
+    return [start + (end - start) * index / (count - 1) for index in range(count)]
+
+
+def _value_frame(values: list[float], *, minimum_span: float = 1.0) -> tuple[float, float]:
+    """A y-window that actually contains the computed values, with margin."""
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    if not finite:
+        return (-1.0, 1.0)
+    low, high = min(finite), max(finite)
+    span = max(high - low, minimum_span)
+    pad = span * 0.25 + 0.4
+    return (round(low - pad, 4), round(high + pad, 4))
+
+
+def _curve_is_drawable(
+    expression: str,
+    variable: str,
+    x_start: float,
+    x_end: float,
+    y_start: float,
+    y_end: float,
+) -> bool:
+    try:
+        return bool(
+            sample_real_expression(
+                expression,
+                variable=variable,
+                start=x_start,
+                end=x_end,
+                y_min=y_start,
+                y_max=y_end,
+            )
+        )
+    except (ArithmeticError, TypeError, ValueError):
+        return False
+
+
+def _accepted_calculus_plan(
+    plan: dict[str, Any], ctx: ToolContext, source: str
+) -> dict[str, Any] | None:
+    """Normalize, self-validate and stamp provenance on a calculus plan."""
+    plan["grounded_from_math_execution"] = True
+    plan["grounding_source"] = source
+    # The Web player renders these primitives directly. The deterministic
+    # Manim IR renderer only knows the finite legacy primitive set, so it
+    # would silently drop every calculus construct and leave narration that
+    # describes graphics nobody can see. The plan carries fully grounded
+    # coordinates, so the code-writing stage can implement the continuous
+    # geometry instead of rendering a contradiction.
+    plan["compile_strategy"] = "model_codegen"
+    normalized = _normalize_plan(plan)
+    violations = _validate_plan(normalized, ctx.grade)
+    if violations:
+        logger.debug("calculus plan %s rejected by internal contract: %s", source, violations)
+        return None
+    return normalized
+
+
+def _derivative_reading_point(rows: list[dict[str, Any]], row: dict[str, Any]) -> float:
+    """Where the verified derivative is actually read, taken from evidence.
+
+    Priority: an explicit point on the differentiate operation, then the
+    substitution that a later verified operation applies to this derivative.
+    Only when the evidence names no point at all does the builder fall back to
+    a neutral viewing position, which is a framing choice, not a claim.
+    """
+    operation = row["operation"]
+    for key in ("point", "at", "at_x"):
+        value = _constant_evidence_number(operation.get(key))
+        if value is not None:
+            return value
+    variable = row["variable"] or "x"
+    for other in rows:
+        if row["id"] and row["id"] in other["references"]:
+            value = other["substitutions"].get(variable)
+            if value is not None:
+                return float(value)
+    for other in rows:
+        value = other["substitutions"].get(variable)
+        if value is not None:
+            return float(value)
+    return 1.0
+
+
+def build_derivative_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Turn a verified derivative into secants collapsing onto the tangent.
+
+    The h-ladder, every secant slope and the tangent slope are recomputed from
+    the verified expression and its verified derivative, so the picture is the
+    proof: the student watches the average rate of change stabilize.
+    """
+    if str(ctx.grade or "").startswith("elementary"):
+        return None
+    rows = _verified_math_operations(ctx)
+    for row in rows:
+        if row["op"] != "differentiate":
+            continue
+        expression = row["expression"]
+        derivative = row["result"]
+        variable = row["variable"] or "x"
+        if not expression or not derivative or not variable.isidentifier():
+            continue
+        at_x = _derivative_reading_point(rows, row)
+        value_at = _real_value_at(expression, variable, at_x)
+        slope = _real_value_at(derivative, variable, at_x)
+        if value_at is None or slope is None:
+            continue
+        steps: list[tuple[float, float, float]] = []
+        for offset in (1.0, 0.5, 0.25, 0.125, 0.0625):
+            neighbour = _real_value_at(expression, variable, at_x + offset)
+            if neighbour is None:
+                continue
+            steps.append((offset, neighbour, (neighbour - value_at) / offset))
+            if len(steps) == 3:
+                break
+        if len(steps) < 2:
+            continue
+        widest = steps[0][0]
+        radius = widest * 1.6 + 0.4
+        x_start, x_end = round(at_x - radius, 4), round(at_x + radius, 4)
+        reach = radius * 0.8
+        tangent_start = [round(at_x - reach, 4), round(value_at - slope * reach, 4)]
+        tangent_end = [round(at_x + reach, 4), round(value_at + slope * reach, 4)]
+        frame_values = [
+            value_at,
+            tangent_start[1],
+            tangent_end[1],
+            *[neighbour for _, neighbour, _ in steps],
+            *[
+                point[1]
+                for point in _real_curve_points(
+                    expression, variable, _linear_space(x_start, x_end, 9)
+                )
+            ],
+        ]
+        y_start, y_end = _value_frame(frame_values)
+        if not _curve_is_drawable(expression, variable, x_start, x_end, y_start, y_end):
+            continue
+
+        secant_ids = [f"derivative_secant_{index + 1}" for index in range(len(steps))]
+        secant_objects = [
+            {
+                "id": secant_id,
+                "primitive": "secant_line",
+                "meaning": f"间隔 h={_format_number(offset)} 的两点割线，斜率是平均变化率",
+                "label": (
+                    f"h = {_format_number(offset)}，斜率 {_format_number(secant_slope)}"
+                ),
+                "color": "yellow",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "x0": round(at_x, 4),
+                    "h": round(offset, 6),
+                    "slope": round(secant_slope, 6),
+                    "start": [round(at_x, 4), round(value_at, 4)],
+                    "end": [round(at_x + offset, 4), round(neighbour, 4)],
+                },
+            }
+            for secant_id, (offset, neighbour, secant_slope) in zip(secant_ids, steps)
+        ]
+        scenes: list[dict[str, Any]] = [
+            {
+                "role": "setup",
+                "anchor_zone": "A1-F6",
+                "key_objects": "坐标系、函数曲线与观察点",
+                "action": "建立统一坐标参照，画出函数并固定要考察的那一点。",
+                "invariant": "函数表达式来自已验证 Math IR，全程不变",
+                "attention_target": f"曲线在 {variable} = {_format_number(at_x)} 处的位置",
+                "exit_condition": "曲线与观察点同屏可见",
+                "teaching_line": (
+                    f"先看函数本身：在 {variable} = {_format_number(at_x)} 处，"
+                    f"函数值是 {_format_number(value_at)}。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": [
+                            "derivative_axes",
+                            "derivative_curve",
+                            "derivative_point",
+                        ],
+                        "result": "",
+                        "meaning": "建立坐标参照与考察点",
+                    }
+                ],
+            },
+            {
+                "role": "reveal",
+                "anchor_zone": "A1-F6",
+                "key_objects": "第一条割线",
+                "action": "连接考察点与右侧间隔 h 的点，显出这段的平均变化率。",
+                "invariant": "割线始终经过考察点",
+                "attention_target": "割线相对曲线的倾斜程度",
+                "exit_condition": "割线与两个端点清楚可见",
+                "teaching_line": (
+                    f"取 h = {_format_number(steps[0][0])}，"
+                    f"两点连线的斜率是 {_format_number(steps[0][2])}，"
+                    "这是这一段的平均变化率。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": [secant_ids[0]],
+                        "result": "",
+                        "meaning": "显示间隔最大的一条割线",
+                    }
+                ],
+            },
+        ]
+        for index in range(1, len(steps)):
+            previous_offset, _, previous_slope = steps[index - 1]
+            offset, _, secant_slope = steps[index]
+            scenes.append(
+                {
+                    "role": "transform",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "正在变短的割线",
+                    "action": "把间隔 h 缩小一半，割线跟着转到新的位置。",
+                    "invariant": "割线仍然经过同一个考察点，函数没有变",
+                    "attention_target": "割线斜率的变化量越来越小",
+                    "exit_condition": "新的割线取代旧割线并保持可见",
+                    "teaching_line": (
+                        f"h 从 {_format_number(previous_offset)} 缩到 "
+                        f"{_format_number(offset)}，斜率从 "
+                        f"{_format_number(previous_slope)} 变成 "
+                        f"{_format_number(secant_slope)}，越来越靠近一个固定值。"
+                    ),
+                    "duration_s": 6,
+                    "actions": [
+                        {
+                            "op": "transform",
+                            "targets": [secant_ids[index - 1]],
+                            "result": secant_ids[index],
+                            "meaning": "把割线的间隔缩小到下一档",
+                        }
+                    ],
+                }
+            )
+        scenes.append(
+            {
+                "role": "reveal",
+                "anchor_zone": "A1-F6",
+                "key_objects": "割线的极限位置：切线",
+                "action": "让间隔继续趋于 0，割线停在唯一的极限位置上。",
+                "invariant": "极限位置只与考察点处的函数走势有关",
+                "attention_target": "切线与曲线在考察点处贴合的方向",
+                "exit_condition": "切线取代最后一条割线",
+                "teaching_line": (
+                    "当 h 趋于 0，割线的极限位置就是切线；"
+                    f"它的斜率 {_format_number(slope)} 就是导数在这一点的值。"
+                ),
+                "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": [secant_ids[-1]],
+                        "result": "derivative_tangent",
+                        "meaning": "割线趋于极限位置成为切线",
+                    }
+                ],
+            }
+        )
+        scenes.append(
+            {
+                "role": "verify",
+                "anchor_zone": "A1-F6",
+                "key_objects": "切线与考察点",
+                "action": "量出切线的陡峭程度，并与独立求导的结果核对。",
+                "invariant": "导数表达式由确定性求导独立得到",
+                "attention_target": f"切线斜率 {_format_number(slope)}",
+                "exit_condition": "图上的斜率与求导结果同屏一致",
+                "teaching_line": (
+                    f"导数 {derivative} 在 {variable} = {_format_number(at_x)} 处等于 "
+                    f"{_format_number(slope)}，正是这条切线的陡峭程度。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "measure",
+                        "targets": ["derivative_tangent"],
+                        "result": "",
+                        "meaning": "量取切线斜率",
+                    },
+                    {
+                        "op": "verify",
+                        "targets": ["derivative_tangent", "derivative_point"],
+                        "result": "",
+                        "meaning": "核对图上斜率与确定性求导结果",
+                    },
+                ],
+            }
+        )
+        plan = {
+            "visual_thesis": (
+                "让割线随间隔缩小转成切线，把导数显示为曲线在一点的瞬时陡峭程度。"
+            ),
+            "essence_rationale": (
+                "因为割线斜率就是两点之间的平均变化率，间隔不断缩小时它稳定地趋向同一个数；"
+                "学生看到割线转到切线的位置，就明白导数是瞬时变化率，而不是一条求导规则。"
+            ),
+            "symbol_ledger": [
+                "蓝色曲线 = 已验证 Math IR 中被求导的函数",
+                "黄色割线 = 间隔 h 的平均变化率，h 每拍减半",
+                "绿色切线 = h 趋于 0 的极限位置，其斜率等于导数值",
+            ],
+            "visual_objects": [
+                {
+                    "id": "derivative_axes",
+                    "primitive": "axes",
+                    "meaning": "承载函数、割线与切线的同一坐标参照",
+                    "label": "",
+                    "color": "gray",
+                    "params": {
+                        "x_range": [x_start, x_end],
+                        "y_range": [y_start, y_end],
+                    },
+                },
+                {
+                    "id": "derivative_curve",
+                    "primitive": "function_curve",
+                    "meaning": "已验证 Math IR 中被求导的函数",
+                    "label": f"f({variable}) = {expression}",
+                    "color": "blue",
+                    "params": {
+                        "expression": expression,
+                        "variable": variable,
+                        "x_range": [x_start, x_end],
+                    },
+                },
+                {
+                    "id": "derivative_point",
+                    "primitive": "dot",
+                    "meaning": "考察导数的那一点，割线始终经过它",
+                    "label": f"{variable} = {_format_number(at_x)}",
+                    "color": "green",
+                    "params": {"x": round(at_x, 4), "y": round(value_at, 4)},
+                },
+                *secant_objects,
+                {
+                    "id": "derivative_tangent",
+                    "primitive": "tangent_line",
+                    "meaning": "割线在间隔趋于 0 时的极限位置，斜率等于导数值",
+                    "label": (
+                        f"f'({_format_number(at_x)}) = {_format_number(slope)}"
+                    ),
+                    "color": "green",
+                    "params": {
+                        "expression": expression,
+                        "variable": variable,
+                        "at_x": round(at_x, 4),
+                        "slope": round(slope, 6),
+                        "derivative": derivative,
+                        "start": tangent_start,
+                        "end": tangent_end,
+                    },
+                },
+            ],
+            "scenes": scenes,
+            "forbidden": [
+                "直接给出导数公式而不显示割线趋近过程",
+                "画一条与函数无关的装饰性直线充当切线",
+            ],
+        }
+        accepted = _accepted_calculus_plan(plan, ctx, "calculus_derivative")
+        if accepted is not None:
+            return accepted
+    return None
+
+
+def _riemann_sum(
+    expression: str,
+    variable: str,
+    start: float,
+    end: float,
+    count: int,
+    side: str = "mid",
+) -> tuple[float, list[list[float]]] | None:
+    """Exact Riemann sum plus the rectangles it is made of, or ``None``."""
+    if count < 1 or end <= start:
+        return None
+    width = (end - start) / count
+    total = 0.0
+    rectangles: list[list[float]] = []
+    for index in range(count):
+        left = start + index * width
+        if side == "left":
+            sample = left
+        elif side == "right":
+            sample = left + width
+        else:
+            sample = left + width / 2
+        height = _real_value_at(expression, variable, sample)
+        if height is None:
+            return None
+        total += height * width
+        rectangles.append([round(left, 6), round(left + width, 6), round(height, 6)])
+    return round(total, 6), rectangles
+
+
+def build_integral_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Turn a verified definite integral into an accumulating rectangle sum.
+
+    The rectangle counts rise 4 → 8 → 16 and every partial sum printed in a
+    beat is the sum actually computed from the verified integrand, converging
+    on the verified exact value.
+    """
+    if str(ctx.grade or "").startswith("elementary"):
+        return None
+    for row in _verified_math_operations(ctx):
+        if row["op"] != "integrate":
+            continue
+        expression = row["expression"]
+        variable = row["variable"] or "x"
+        if not expression or not variable.isidentifier():
+            continue
+        bounds = row["operation"].get("bounds")
+        if not isinstance(bounds, list) or len(bounds) != 2:
+            continue
+        lower = _constant_evidence_number(bounds[0])
+        upper = _constant_evidence_number(bounds[1])
+        exact = _constant_evidence_number(row["result"])
+        if lower is None or upper is None or exact is None or upper <= lower:
+            continue
+        sums = []
+        for count in (4, 8, 16):
+            computed = _riemann_sum(expression, variable, lower, upper, count, "mid")
+            if computed is None:
+                break
+            sums.append((count, computed[0], computed[1]))
+        if len(sums) < 2:
+            continue
+        pad = (upper - lower) * 0.25 + 0.3
+        x_start, x_end = round(lower - pad, 4), round(upper + pad, 4)
+        frame_values = [
+            0.0,
+            *[height for _, _, rectangles in sums for _, _, height in rectangles],
+            *[
+                point[1]
+                for point in _real_curve_points(
+                    expression, variable, _linear_space(x_start, x_end, 11)
+                )
+            ],
+        ]
+        y_start, y_end = _value_frame(frame_values)
+        if not _curve_is_drawable(expression, variable, x_start, x_end, y_start, y_end):
+            continue
+
+        rect_ids = [f"integral_rects_{count}" for count, _, _ in sums]
+        rect_objects = [
+            {
+                "id": rect_id,
+                "primitive": "riemann_rects",
+                "meaning": f"把区间等分成 {count} 份后，用矩形累积出的面积近似",
+                "label": f"n = {count}，累积 ≈ {_format_number(approximate)}",
+                "color": "yellow" if index < len(sums) - 1 else "green",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "x_range": [round(lower, 4), round(upper, 4)],
+                    "n": count,
+                    "side": "mid",
+                    "approx_area": approximate,
+                    "rects": rectangles,
+                },
+            }
+            for index, (rect_id, (count, approximate, rectangles)) in enumerate(
+                zip(rect_ids, sums)
+            )
+        ]
+        scenes: list[dict[str, Any]] = [
+            {
+                "role": "setup",
+                "anchor_zone": "A1-F6",
+                "key_objects": "坐标系与被积函数曲线",
+                "action": "建立坐标参照，画出被积函数并标出积分区间。",
+                "invariant": "被积函数与积分区间来自已验证 Math IR",
+                "attention_target": (
+                    f"曲线与 {variable} 轴在 {_format_number(lower)} 到 "
+                    f"{_format_number(upper)} 之间围出的区域"
+                ),
+                "exit_condition": "曲线与区间同屏可见",
+                "teaching_line": (
+                    f"定积分要量的是曲线与横轴在 {_format_number(lower)} 到 "
+                    f"{_format_number(upper)} 之间围成的面积。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["integral_axes", "integral_curve"],
+                        "result": "",
+                        "meaning": "建立坐标参照并显示被积函数",
+                    }
+                ],
+            },
+            {
+                "role": "reveal",
+                "anchor_zone": "A1-F6",
+                "key_objects": f"{sums[0][0]} 个近似矩形",
+                "action": "把区间等分，用矩形先粗略地把这块面积堆出来。",
+                "invariant": "矩形高度由被积函数在取样点的真实值决定",
+                "attention_target": "矩形与曲线之间剩下的空隙",
+                "exit_condition": "全部矩形与曲线同屏可见",
+                "teaching_line": (
+                    f"先分成 {sums[0][0]} 份，矩形面积加起来是 "
+                    f"{_format_number(sums[0][1])}，还看得见空隙。"
+                ),
+                "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": [rect_ids[0]],
+                        "result": "",
+                        "meaning": "用粗分割的矩形近似面积",
+                    }
+                ],
+            },
+        ]
+        for index in range(1, len(sums)):
+            previous_count, previous_sum, _ = sums[index - 1]
+            count, approximate, _ = sums[index]
+            scenes.append(
+                {
+                    "role": "transform",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": f"细分成 {count} 份的矩形",
+                    "action": "把每个矩形再对半分，重新按函数值贴合曲线。",
+                    "invariant": "积分区间与被积函数不变，只有分割变细",
+                    "attention_target": "矩形顶部与曲线之间的空隙在缩小",
+                    "exit_condition": "更细的矩形取代原来的矩形",
+                    "teaching_line": (
+                        f"从 {previous_count} 份细分到 {count} 份，累积面积由 "
+                        f"{_format_number(previous_sum)} 变成 {_format_number(approximate)}，"
+                        f"正在逼近 {_format_number(exact)}。"
+                    ),
+                    "duration_s": 6,
+                    "actions": [
+                        {
+                            "op": "transform",
+                            "targets": [rect_ids[index - 1]],
+                            "result": rect_ids[index],
+                            "meaning": "把分割加密一倍",
+                        }
+                    ],
+                }
+            )
+        scenes.append(
+            {
+                "role": "verify",
+                "anchor_zone": "A1-F6",
+                "key_objects": "最细的矩形堆与曲线",
+                "action": "量出最细分割的累积面积，与确定性积分结果核对。",
+                "invariant": "精确值由确定性积分独立得到",
+                "attention_target": f"累积面积 {_format_number(sums[-1][1])}",
+                "exit_condition": "近似值与精确值同屏比较完成",
+                "teaching_line": (
+                    f"分得越细越贴合：{_format_number(sums[-1][1])} 已经很接近确定性积分给出的 "
+                    f"{_format_number(exact)}。"
+                ),
+                "duration_s": 6,
+                "actions": [
+                    {
+                        "op": "measure",
+                        "targets": [rect_ids[-1]],
+                        "result": "",
+                        "meaning": "量取最细分割的累积面积",
+                    },
+                    {
+                        "op": "compare",
+                        "targets": [rect_ids[-1], "integral_curve"],
+                        "result": "",
+                        "meaning": "比较矩形堆与曲线下方区域",
+                    },
+                    {
+                        "op": "verify",
+                        "targets": [rect_ids[-1], "integral_curve"],
+                        "result": "",
+                        "meaning": "核对近似面积与确定性积分结果",
+                    },
+                ],
+            }
+        )
+        plan = {
+            "visual_thesis": (
+                "用越来越细的矩形把曲线下的面积堆出来，让定积分的数值从累积过程里长出来。"
+            ),
+            "essence_rationale": (
+                "因为每个矩形的高都取自被积函数的真实值，所以它们的面积和就是这块区域的近似；"
+                "分割越细空隙越小，学生看到累积值稳定地趋向同一个数，就明白积分是累积的极限。"
+            ),
+            "symbol_ledger": [
+                "蓝色曲线 = 已验证 Math IR 中的被积函数",
+                "黄色矩形 = 当前分割下的累积面积近似",
+                "绿色矩形 = 最细分割，其累积值最接近确定性积分结果",
+            ],
+            "visual_objects": [
+                {
+                    "id": "integral_axes",
+                    "primitive": "axes",
+                    "meaning": "承载被积函数与全部矩形的同一坐标参照",
+                    "label": "",
+                    "color": "gray",
+                    "params": {
+                        "x_range": [x_start, x_end],
+                        "y_range": [y_start, y_end],
+                    },
+                },
+                {
+                    "id": "integral_curve",
+                    "primitive": "function_curve",
+                    "meaning": "已验证 Math IR 中的被积函数",
+                    "label": f"f({variable}) = {expression}",
+                    "color": "blue",
+                    "params": {
+                        "expression": expression,
+                        "variable": variable,
+                        "x_range": [x_start, x_end],
+                    },
+                },
+                *rect_objects,
+            ],
+            "scenes": scenes,
+            "forbidden": [
+                "直接写出积分数值而不显示累积过程",
+                "让矩形高度脱离被积函数的真实取值",
+            ],
+        }
+        accepted = _accepted_calculus_plan(plan, ctx, "calculus_integral")
+        if accepted is not None:
+            return accepted
+    return None
+
+
+def build_limit_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Show a verified limit as function values marching in from both sides.
+
+    Convergence is drawn as heights settling onto one horizontal line;
+    divergence is drawn as heights that never settle. Both readings come from
+    real function values at the approach points, never from the answer text.
+    """
+    if str(ctx.grade or "").startswith("elementary"):
+        return None
+    for row in _verified_math_operations(ctx):
+        if row["op"] != "limit":
+            continue
+        expression = row["expression"]
+        variable = row["variable"] or "x"
+        if not expression or not variable.isidentifier():
+            continue
+        target = _constant_evidence_number(row["operation"].get("point"))
+        if target is None:
+            continue
+        limit_value = _constant_evidence_number(row["result"])
+        divergent = (
+            limit_value is None
+            and row["result"].replace(" ", "") in _LIMIT_DIVERGENT_RESULTS
+        )
+        if limit_value is None and not divergent:
+            continue
+        direction = str(row["operation"].get("direction") or "+-").strip()
+        side = {"+": "right", "-": "left"}.get(direction, "both")
+        far_offsets = [0.8, 0.4]
+        near_offsets = [0.2, 0.1, 0.05]
+
+        def ladder(offsets: list[float]) -> dict[str, list[list[float]]]:
+            approach: dict[str, list[list[float]]] = {}
+            if side in {"left", "both"}:
+                approach["left"] = _real_curve_points(
+                    expression, variable, [target - offset for offset in offsets]
+                )
+            if side in {"right", "both"}:
+                approach["right"] = _real_curve_points(
+                    expression, variable, [target + offset for offset in offsets]
+                )
+            return approach
+
+        far_points = ladder(far_offsets)
+        near_points = ladder(near_offsets)
+        if not far_points or not near_points:
+            continue
+        if any(len(points) < 2 for points in far_points.values()):
+            continue
+        if any(len(points) < 2 for points in near_points.values()):
+            continue
+        radius = max(far_offsets) * 1.8 + 0.2
+        x_start, x_end = round(target - radius, 4), round(target + radius, 4)
+        ladder_values = [
+            point[1]
+            for group in (far_points, near_points)
+            for points in group.values()
+            for point in points
+        ]
+        frame_values = [*ladder_values]
+        if limit_value is not None:
+            frame_values.append(limit_value)
+        y_start, y_end = _value_frame(frame_values)
+        if not _curve_is_drawable(expression, variable, x_start, x_end, y_start, y_end):
+            continue
+        value_at_target = _real_value_at(expression, variable, target)
+        nearest = near_points.get("right") or near_points.get("left") or []
+        nearest_value = nearest[-1][1] if nearest else None
+
+        visual_objects: list[dict[str, Any]] = [
+            {
+                "id": "limit_axes",
+                "primitive": "axes",
+                "meaning": "承载函数与两侧逼近点的同一坐标参照",
+                "label": "",
+                "color": "gray",
+                "params": {"x_range": [x_start, x_end], "y_range": [y_start, y_end]},
+            },
+            {
+                "id": "limit_curve",
+                "primitive": "function_curve",
+                "meaning": "已验证 Math IR 中被取极限的函数",
+                "label": f"f({variable}) = {expression}",
+                "color": "blue",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "x_range": [x_start, x_end],
+                },
+            },
+            {
+                "id": "limit_far",
+                "primitive": "limit_approach",
+                "meaning": "离目标还较远时，自变量与对应函数值的位置",
+                "label": f"{variable} → {_format_number(target)}（远处取样）",
+                "color": "yellow",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "target": round(target, 4),
+                    "from": side,
+                    "offsets": far_offsets,
+                    "points": far_points,
+                },
+            },
+            {
+                "id": "limit_near",
+                "primitive": "limit_approach",
+                "meaning": "自变量逼到目标近旁时，函数值实际停在哪里",
+                "label": f"{variable} → {_format_number(target)}（近处取样）",
+                "color": "green",
+                "params": {
+                    "expression": expression,
+                    "variable": variable,
+                    "target": round(target, 4),
+                    "from": side,
+                    "offsets": near_offsets,
+                    "points": near_points,
+                    "divergent": divergent,
+                    **(
+                        {"limit_value": round(limit_value, 6)}
+                        if limit_value is not None
+                        else {}
+                    ),
+                },
+            },
+        ]
+        if limit_value is not None:
+            visual_objects.extend(
+                [
+                    {
+                        "id": "limit_line",
+                        "primitive": "line",
+                        "meaning": "两侧函数值共同压向的那个高度",
+                        "label": f"y = {_format_number(limit_value)}",
+                        "color": "green",
+                        "params": {
+                            "points": [
+                                [x_start, round(limit_value, 4)],
+                                [x_end, round(limit_value, 4)],
+                            ],
+                            "start": [x_start, round(limit_value, 4)],
+                            "end": [x_end, round(limit_value, 4)],
+                        },
+                    },
+                    {
+                        "id": "limit_marker",
+                        "primitive": "dot",
+                        "meaning": "目标位置上的极限高度；空心表示该点函数值本身未定义",
+                        "label": "",
+                        "color": "green",
+                        "params": {
+                            "x": round(target, 4),
+                            "y": round(limit_value, 4),
+                            "open": value_at_target is None
+                            or abs(value_at_target - limit_value) > 1e-8,
+                        },
+                    },
+                ]
+            )
+        approach_words = {
+            "left": "从左侧",
+            "right": "从右侧",
+            "both": "从左右两侧",
+        }[side]
+        scenes: list[dict[str, Any]] = [
+            {
+                "role": "setup",
+                "anchor_zone": "A1-F6",
+                "key_objects": "坐标系、函数曲线与远处取样点",
+                "action": "建立坐标参照，先在离目标较远处取自变量并描出函数值。",
+                "invariant": "函数表达式与目标位置来自已验证 Math IR",
+                "attention_target": f"{approach_words}取样点的高度",
+                "exit_condition": "远处取样点与曲线同屏可见",
+                "teaching_line": (
+                    f"先{approach_words}离 {variable} = {_format_number(target)} 还远的地方取值，"
+                    "把函数值描出来。"
+                ),
+                "duration_s": 5,
+                "actions": [
+                    {
+                        "op": "create",
+                        "targets": ["limit_axes", "limit_curve", "limit_far"],
+                        "result": "",
+                        "meaning": "建立坐标参照并显示远处取样",
+                    }
+                ],
+            },
+            {
+                "role": "transform",
+                "anchor_zone": "A1-F6",
+                "key_objects": "正在逼近目标的取样点",
+                "action": "把自变量一步步挪到目标近旁，取样点跟着走。",
+                "invariant": "函数没有变，只有自变量离目标越来越近",
+                "attention_target": "取样点高度是否稳定下来",
+                "exit_condition": "近处取样点取代远处取样点",
+                "teaching_line": (
+                    f"把 {variable} 一路挪到离 {_format_number(target)} 只差 0.05 的地方，"
+                    + (
+                        "函数值一路涨到 "
+                        f"{_format_number(nearest_value)}，没有停下来的意思。"
+                        if divergent and nearest_value is not None
+                        else f"函数值稳定在 {_format_number(nearest_value)} 附近。"
+                        if nearest_value is not None
+                        else "看函数值往哪里走。"
+                    )
+                ),
+                "duration_s": 7,
+                "actions": [
+                    {
+                        "op": "transform",
+                        "targets": ["limit_far"],
+                        "result": "limit_near",
+                        "meaning": "自变量继续逼近目标",
+                    }
+                ],
+            },
+        ]
+        if limit_value is not None:
+            scenes.append(
+                {
+                    "role": "reveal",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "极限高度线与目标点",
+                    "action": "画出两侧共同压向的那条水平线并标出目标位置。",
+                    "invariant": "极限值由确定性求极限独立得到",
+                    "attention_target": f"高度 {_format_number(limit_value)}",
+                    "exit_condition": "水平线与取样点贴合可见",
+                    "teaching_line": (
+                        f"{approach_words}挤过来的函数值都压向同一条水平线 y = "
+                        f"{_format_number(limit_value)}，这就是极限。"
+                    ),
+                    "duration_s": 5,
+                    "actions": [
+                        {
+                            "op": "create",
+                            "targets": ["limit_line", "limit_marker"],
+                            "result": "",
+                            "meaning": "显示确定性求得的极限高度",
+                        }
+                    ],
+                }
+            )
+            scenes.append(
+                {
+                    "role": "verify",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "近处取样点与极限线",
+                    "action": "把近处取样点的高度与极限线直接比较。",
+                    "invariant": "比较的两边分别来自图形取样与确定性计算",
+                    "attention_target": "取样点与水平线的贴合",
+                    "exit_condition": "两者同屏核对完成",
+                    "teaching_line": (
+                        f"越靠近 {_format_number(target)}，函数值与 "
+                        f"{_format_number(limit_value)} 的差就越小，极限成立。"
+                    ),
+                    "duration_s": 5,
+                    "actions": [
+                        {
+                            "op": "compare",
+                            "targets": ["limit_near", "limit_line"],
+                            "result": "",
+                            "meaning": "比较逼近点高度与极限值",
+                        },
+                        {
+                            "op": "verify",
+                            "targets": ["limit_near", "limit_line", "limit_marker"],
+                            "result": "",
+                            "meaning": "核对图形逼近与确定性极限结果",
+                        },
+                    ],
+                }
+            )
+        else:
+            scenes.append(
+                {
+                    "role": "reveal",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "不断抬高的取样点",
+                    "action": "继续逼近，让取样点冲出画面上沿。",
+                    "invariant": "函数表达式不变",
+                    "attention_target": "取样点没有停在任何固定高度",
+                    "exit_condition": "取样点越过画面范围",
+                    "teaching_line": "越靠近目标，函数值越大，没有停在任何高度上。",
+                    "duration_s": 5,
+                    "actions": [
+                        {
+                            "op": "highlight",
+                            "targets": ["limit_near"],
+                            "result": "",
+                            "meaning": "强调取样点持续发散",
+                        }
+                    ],
+                }
+            )
+            scenes.append(
+                {
+                    "role": "verify",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "取样点与曲线",
+                    "action": "量出逼近过程中的函数值并与曲线走向核对。",
+                    "invariant": "发散结论由确定性求极限独立得到",
+                    "attention_target": "函数值持续增大的走向",
+                    "exit_condition": "发散过程同屏核对完成",
+                    "teaching_line": (
+                        f"确定性计算给出的结果是 {row['result']}：函数值不收敛到任何有限高度。"
+                    ),
+                    "duration_s": 5,
+                    "actions": [
+                        {
+                            "op": "measure",
+                            "targets": ["limit_near"],
+                            "result": "",
+                            "meaning": "量取逼近点的函数值",
+                        },
+                        {
+                            "op": "verify",
+                            "targets": ["limit_near", "limit_curve"],
+                            "result": "",
+                            "meaning": "核对图形走向与确定性极限结果",
+                        },
+                    ],
+                }
+            )
+        plan = {
+            "visual_thesis": (
+                "让自变量一步步逼近目标，用函数值的实际高度显示极限存在还是发散。"
+            ),
+            "essence_rationale": (
+                "因为极限说的是自变量靠近目标时函数值的去向，而不是它在目标点的取值；"
+                "学生看到两侧取样点的高度一起稳定下来，就明白极限为什么与该点是否有定义无关。"
+            ),
+            "symbol_ledger": [
+                "蓝色曲线 = 已验证 Math IR 中被取极限的函数",
+                "黄色取样点 = 离目标还远时的函数值",
+                "绿色取样点与水平线 = 逼近目标时函数值的去向",
+            ],
+            "visual_objects": visual_objects,
+            "scenes": scenes,
+            "forbidden": [
+                "直接写出极限值而不显示逼近过程",
+                "把目标点的函数值当成极限值",
+            ],
+        }
+        accepted = _accepted_calculus_plan(plan, ctx, "calculus_limit")
+        if accepted is not None:
+            return accepted
+    return None
+
+
+def _matching_parenthesis(text: str, start: int) -> int:
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _decompose_composition(expression: str, variable: str) -> tuple[str, str] | None:
+    """Split ``f(g(x))`` into an outer form in ``u`` and an inner form in x.
+
+    Structural, not textual pattern-matching on the problem: a whole-string
+    function call with a non-atomic argument, or a parenthesized base raised
+    to a power. ``sin(x)`` is not a composition and is rejected.
+    """
+    text = str(expression or "").strip().replace("^", "**")
+    if not text or not variable.isidentifier() or variable not in text:
+        return None
+    for name in _COMPOSITION_OUTER_FUNCTIONS:
+        if not text.startswith(f"{name}("):
+            continue
+        close = _matching_parenthesis(text, len(name))
+        if close != len(text) - 1:
+            continue
+        inner = text[len(name) + 1 : close].strip()
+        if inner and inner != variable and variable in inner:
+            return f"{name}(u)", inner
+    if text.startswith("("):
+        close = _matching_parenthesis(text, 0)
+        if close > 0:
+            power = re.fullmatch(r"\*\*\s*(-?\d+)", text[close + 1 :].strip())
+            inner = text[1:close].strip()
+            if power and inner and inner != variable and variable in inner:
+                return f"u**{power.group(1)}", inner
+    return None
+
+
+def build_composition_visual_plan(ctx: ToolContext) -> dict[str, Any] | None:
+    """Show a composite function as the two-step machine x → u → y.
+
+    The inner curve, the outer curve over the *actual* range of u, and the
+    composed curve share one coordinate frame, and the sampled chain triples
+    are checked against the composed expression before they are emitted.
+    """
+    if str(ctx.grade or "").startswith("elementary"):
+        return None
+    rows = _verified_math_operations(ctx)
+    if any(row["op"] == "solve" for row in rows):
+        # The question is "where does this vanish", not "how is this function
+        # built": the zero-crossing argument owns that evidence.
+        return None
+    center = 0.0
+    for row in rows:
+        for name, value in row["substitutions"].items():
+            if name == (row["variable"] or "x"):
+                center = value
+        point = _constant_evidence_number(row["operation"].get("point"))
+        if point is not None:
+            center = point
+    for row in rows:
+        expression = row["expression"]
+        variable = row["variable"] or "x"
+        decomposed = _decompose_composition(expression, variable)
+        if decomposed is None:
+            continue
+        outer, inner = decomposed
+        x_start, x_end = round(center - 3.0, 4), round(center + 3.0, 4)
+        sample_xs = _linear_space(x_start, x_end, 13)
+        inner_points = _real_curve_points(inner, variable, sample_xs)
+        composed_points = _real_curve_points(expression, variable, sample_xs)
+        if len(inner_points) < 5 or len(composed_points) < 5:
+            continue
+        inner_values = [point[1] for point in inner_points]
+        u_low, u_high = min(inner_values), max(inner_values)
+        if u_high - u_low < 1e-9:
+            continue
+        u_pad = (u_high - u_low) * 0.1
+        u_range = [round(u_low - u_pad, 4), round(u_high + u_pad, 4)]
+        outer_points = _real_curve_points(
+            outer, "u", _linear_space(u_range[0], u_range[1], 13)
+        )
+        if len(outer_points) < 5:
+            continue
+        chain: list[dict[str, float]] = []
+        for ratio in (0.3, 0.5, 0.7):
+            x = round(x_start + (x_end - x_start) * ratio, 4)
+            u = _real_value_at(inner, variable, x)
+            if u is None:
+                continue
+            y_outer = _real_value_at(outer, "u", u)
+            y_composed = _real_value_at(expression, variable, x)
+            if y_outer is None or y_composed is None:
+                continue
+            if abs(y_outer - y_composed) > 1e-6:
+                # The two routes must agree; if they do not, this is not the
+                # decomposition of that expression and nothing may be drawn.
+                chain = []
+                break
+            chain.append(
+                {"x": x, "u": round(u, 4), "y": round(y_composed, 4)}
+            )
+        if len(chain) < 2:
+            continue
+        axis_start = round(min(x_start, u_range[0]), 4)
+        axis_end = round(max(x_end, u_range[1]), 4)
+        frame_values = [
+            *inner_values,
+            *[point[1] for point in outer_points],
+            *[point[1] for point in composed_points],
+        ]
+        y_start, y_end = _value_frame(frame_values)
+        if not all(
+            _curve_is_drawable(
+                curve_expression, curve_variable, curve_start, curve_end, y_start, y_end
+            )
+            for curve_expression, curve_variable, curve_start, curve_end in (
+                (inner, variable, x_start, x_end),
+                (outer, "u", u_range[0], u_range[1]),
+                (expression, variable, x_start, x_end),
+            )
+        ):
+            continue
+        check_points = [
+            [item["x"], item["y"]] for item in chain if y_start <= item["y"] <= y_end
+        ]
+        if len(check_points) < 2:
+            continue
+
+        plan = {
+            "visual_thesis": (
+                "把复合函数拆成两台机器：先看内层把 x 变成 u，"
+                "再看外层把 u 变成 y，最后合成同一条曲线。"
+            ),
+            "essence_rationale": (
+                "因为复合函数的每个函数值都要走 x → u → y 两步，"
+                "学生看到中间量 u 的高度被送进外层再变成 y，就明白合成曲线的形状是两步映射的结果，"
+                "而不是一个需要背下来的新公式。"
+            ),
+            "symbol_ledger": [
+                "蓝色曲线 = 内层 u = g(x)，把 x 变成中间量 u",
+                "黄色曲线 = 外层 y = f(u)，横轴此刻读作中间量 u",
+                "绿色曲线与链条 = 合成结果 y = f(g(x)) 及其 x→u→y 对应关系",
+            ],
+            "visual_objects": [
+                {
+                    "id": "composition_axes",
+                    "primitive": "axes",
+                    "meaning": "内层、外层与合成结果共用的同一坐标参照",
+                    "label": "",
+                    "color": "gray",
+                    "params": {
+                        "x_range": [axis_start, axis_end],
+                        "y_range": [y_start, y_end],
+                    },
+                },
+                {
+                    "id": "composition_inner",
+                    "primitive": "function_curve",
+                    "meaning": "内层函数：把自变量 x 变成中间量 u",
+                    "label": f"u = {inner}",
+                    "color": "blue",
+                    "params": {
+                        "expression": inner,
+                        "variable": variable,
+                        "x_range": [x_start, x_end],
+                    },
+                },
+                {
+                    "id": "composition_outer",
+                    "primitive": "function_curve",
+                    "meaning": "外层函数：把中间量 u 变成最终值 y，横轴读作 u",
+                    "label": f"y = {outer}",
+                    "color": "yellow",
+                    "params": {
+                        "expression": outer,
+                        "variable": "u",
+                        "x_range": u_range,
+                    },
+                },
+                {
+                    "id": "composition_result",
+                    "primitive": "function_curve",
+                    "meaning": "两步接起来的合成函数",
+                    "label": f"y = {expression}",
+                    "color": "green",
+                    "params": {
+                        "expression": expression,
+                        "variable": variable,
+                        "x_range": [x_start, x_end],
+                    },
+                },
+                {
+                    "id": "composition_chain",
+                    "primitive": "composition_chain",
+                    "meaning": "取几个 x，显示 x →(内层)→ u →(外层)→ y 的完整对应",
+                    "label": "x → u → y",
+                    "color": "green",
+                    "params": {
+                        "outer": outer,
+                        "inner": inner,
+                        "variable": variable,
+                        "x_range": [x_start, x_end],
+                        "u_range": u_range,
+                        "samples": chain,
+                    },
+                },
+                {
+                    "id": "composition_check",
+                    "primitive": "dot",
+                    "meaning": "沿链条算出的 y 值，落在合成曲线上",
+                    "label": "",
+                    "color": "green",
+                    "params": {"positions": check_points},
+                },
+            ],
+            "scenes": [
+                {
+                    "role": "setup",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "坐标系与内层曲线",
+                    "action": "建立坐标参照，先只画内层：x 走进去，出来的是中间量 u。",
+                    "invariant": "内层表达式来自已验证 Math IR",
+                    "attention_target": "内层曲线的高度就是中间量 u",
+                    "exit_condition": "内层曲线清楚可见",
+                    "teaching_line": f"第一步：x 先经过内层，得到中间量 u = {inner}。",
+                    "duration_s": 6,
+                    "actions": [
+                        {
+                            "op": "create",
+                            "targets": ["composition_axes", "composition_inner"],
+                            "result": "",
+                            "meaning": "建立坐标参照并显示内层函数",
+                        }
+                    ],
+                },
+                {
+                    "role": "transform",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "外层曲线",
+                    "action": "把内层输出的 u 交给外层，横轴改读作 u，画出外层函数。",
+                    "invariant": "外层作用的自变量正是内层的输出 u",
+                    "attention_target": "外层曲线在 u 取值范围上的走势",
+                    "exit_condition": "外层曲线取代内层曲线并可见",
+                    "teaching_line": f"第二步：把中间量 u 交给外层，得到 y = {outer}。",
+                    "duration_s": 7,
+                    "actions": [
+                        {
+                            "op": "map",
+                            "targets": ["composition_inner"],
+                            "result": "composition_outer",
+                            "meaning": "把内层输出作为外层的自变量",
+                        }
+                    ],
+                },
+                {
+                    "role": "reveal",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "合成曲线与 x→u→y 链条",
+                    "action": "把两步接起来，画出合成曲线并标出每个 x 的两级映射。",
+                    "invariant": "链条上的 u 与 y 都由内外层真实取值算出",
+                    "attention_target": "链条从 x 到 u 再到 y 的走向",
+                    "exit_condition": "合成曲线与链条同屏可见",
+                    "teaching_line": (
+                        f"第三步：两步接起来就是 y = {expression}；"
+                        f"例如 x = {_format_number(chain[0]['x'])} 时先变成 u = "
+                        f"{_format_number(chain[0]['u'])}，再变成 y = "
+                        f"{_format_number(chain[0]['y'])}。"
+                    ),
+                    "duration_s": 7,
+                    "actions": [
+                        {
+                            "op": "transform",
+                            "targets": ["composition_outer"],
+                            "result": "composition_result",
+                            "meaning": "把两级映射合成为一条曲线",
+                        },
+                        {
+                            "op": "create",
+                            "targets": ["composition_chain"],
+                            "result": "",
+                            "meaning": "标出 x→u→y 的对应关系",
+                        },
+                    ],
+                },
+                {
+                    "role": "verify",
+                    "anchor_zone": "A1-F6",
+                    "key_objects": "链条终点与合成曲线",
+                    "action": "把沿链条算出的点描到合成曲线上核对。",
+                    "invariant": "两条路径（先内后外 / 直接合成）必须给出同一个值",
+                    "attention_target": "链条终点是否落在合成曲线上",
+                    "exit_condition": "描点与曲线同屏核对完成",
+                    "teaching_line": "沿着 x→u→y 一路算出的点，正好落在合成曲线上。",
+                    "duration_s": 6,
+                    "actions": [
+                        {
+                            "op": "create",
+                            "targets": ["composition_check"],
+                            "result": "",
+                            "meaning": "描出沿链条算得的函数值",
+                        },
+                        {
+                            "op": "measure",
+                            "targets": ["composition_result"],
+                            "result": "",
+                            "meaning": "量取合成曲线在这些位置的高度",
+                        },
+                        {
+                            "op": "verify",
+                            "targets": ["composition_check", "composition_result"],
+                            "result": "",
+                            "meaning": "核对两条路径给出同一结果",
+                        },
+                    ],
+                },
+            ],
+            "forbidden": [
+                "只画最终曲线而不显示内层与外层两步",
+                "让外层曲线脱离内层实际输出的 u 取值范围",
+            ],
+        }
+        accepted = _accepted_calculus_plan(plan, ctx, "calculus_composition")
+        if accepted is not None:
+            return accepted
+    return None
+
+
 def ground_visual_plan_from_math_execution(
     plan: dict[str, Any], ctx: ToolContext
 ) -> dict[str, Any]:
@@ -3765,6 +5296,22 @@ def _validate_plan(
             params = item.get("params") or {}
             if not str(params.get("expression") or "").strip():
                 errors.append(f"visual_objects[{index}] 的 function_curve 缺少 params.expression")
+        if primitive in _CALCULUS_PRIMITIVES:
+            params = item.get("params") or {}
+            required = {
+                "tangent_line": ("expression", "variable", "at_x"),
+                "secant_line": ("expression", "variable", "x0", "h"),
+                "riemann_rects": ("expression", "variable", "x_range", "n"),
+                "limit_approach": ("expression", "variable", "target"),
+                "composition_chain": ("outer", "inner", "variable"),
+            }[primitive]
+            missing = [key for key in required if params.get(key) in (None, "")]
+            if missing:
+                errors.append(
+                    f"visual_objects[{index}] 的 {primitive} 缺少 params."
+                    + "/params.".join(missing)
+                    + "；微积分构件必须携带它所依据的表达式，渲染端才能自行重算"
+                )
         if primitive == "balance":
             params = item.get("params") or {}
             for field_name in ("coefficient", "total", "solution"):
@@ -4158,12 +5705,12 @@ def _validate_plan(
             created_relationship_ids = {
                 target
                 for target in created_ids
-                if object_primitives.get(str(target)) in {"line", "arrow", "function_curve"}
+                if object_primitives.get(str(target)) in _RELATIONSHIP_PRIMITIVES
             }
             created_coordinate_ids = {
                 target
                 for target in created_ids
-                if object_primitives.get(str(target)) in {"line", "arrow", "function_curve", "dot"}
+                if object_primitives.get(str(target)) in _RELATIONSHIP_PRIMITIVES | {"dot"}
             }
             has_coordinate_reference = any(
                 object_primitives.get(object_id) == "axes" for object_id in visible_at_scene_start
