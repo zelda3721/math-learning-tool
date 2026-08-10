@@ -1,5 +1,7 @@
 /** 练习页 API 直连层：照 LearnerContext 的 fetch 风格，类型对齐 server routes/practice.ts 的响应。 */
 
+import type { validateSpec } from '@mathtutor/explainer-web'
+
 export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge'
 export type MasteryBand = 'dim' | 'glow' | 'lit'
 
@@ -86,16 +88,20 @@ export interface MistakeSummary {
     createdAt: string
 }
 
-/** 讲解视频元数据（镜像 server explain/routes.ts explanationView） */
+/** 讲解元数据（镜像 server explain/routes.ts explanationView）：web 模式给 specUrl，video 模式给 videoUrl */
 export interface Explanation {
     id: string
     questionId?: string
     focusNodeIds: string[]
     mode: string
-    videoUrl: string
+    specUrl?: string
+    videoUrl?: string
     subtitleUrl?: string
     quality: string
 }
+
+/** SceneSpec 类型从 explainer-web 契约推导：validateSpec 的非空 spec 即真源类型 */
+export type SceneSpec = NonNullable<ReturnType<typeof validateSpec>['spec']>
 
 /** 图文兜底：任何分支都即时可读，不等视频 */
 export interface ExplainFallback {
@@ -115,7 +121,7 @@ export interface ExplainRequest {
 
 export type ExplainResponse =
     | { status: 'ready'; explanation: Explanation; fallback: ExplainFallback }
-    | { status: 'generating'; jobId: string; fallback: ExplainFallback }
+    | { status: 'generating'; jobId: string; mode?: string; fallback: ExplainFallback }
     | { status: 'offline'; fallback: ExplainFallback; message: string }
 
 export interface ExplainJobStatus {
@@ -257,8 +263,25 @@ export async function fetchMistakes(learnerId: string): Promise<MistakeSummary[]
     }
 }
 
-export function requestExplain(payload: ExplainRequest): Promise<ExplainResponse> {
-    return post('/api/v1/explain', payload)
+/** 不传 mode 走 server 默认（web 动态讲解）；显式 'video' 才触发 Manim 高级视频流程 */
+export function requestExplain(payload: ExplainRequest, mode?: 'web' | 'video'): Promise<ExplainResponse> {
+    return post('/api/v1/explain', mode ? { ...payload, mode } : payload)
+}
+
+/** 拉取 web 讲解的 SceneSpec JSON（调用方仍需过 validateSpec 再挂播放器） */
+export async function fetchSpec(specUrl: string): Promise<SceneSpec> {
+    const res = await fetch(specUrl)
+    if (!res.ok) {
+        let message = `HTTP ${res.status}`
+        try {
+            const data = (await res.json()) as { error?: string }
+            if (data.error) message = data.error
+        } catch {
+            /* 保留 HTTP 状态码信息 */
+        }
+        throw new Error(message)
+    }
+    return (await res.json()) as SceneSpec
 }
 
 export async function fetchExplainJob(jobId: string): Promise<ExplainJobStatus> {

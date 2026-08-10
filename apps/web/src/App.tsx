@@ -7,6 +7,7 @@ import { AtlasPage } from './atlas/AtlasPage'
 import { PracticePage } from './practice/PracticePage'
 import { IngestPage } from './ingest/IngestPage'
 import { MistakeBook } from './mistakes/MistakeBook'
+import { ExplorePage } from './explore/ExplorePage'
 import { ParentPage } from './parent/ParentPage'
 import type { PersistedSession, SessionDetail } from './types/agent'
 
@@ -22,7 +23,7 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'ingest' | 'parent'
+type AppView = 'practice' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'parent'
 
 function App() {
     const [view, setView] = useState<AppView>('practice')
@@ -96,6 +97,7 @@ function App() {
                             ['solve', '讲解'],
                             ['atlas', '星图'],
                             ['mistakes', '错题本'],
+                            ['explore', '探索'],
                             ['ingest', '录题'],
                             ['parent', '家长'],
                         ] as const
@@ -125,6 +127,12 @@ function App() {
             {view === 'mistakes' && (
                 <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
                     <MistakeBook />
+                </main>
+            )}
+
+            {view === 'explore' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <ExplorePage />
                 </main>
             )}
 

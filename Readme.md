@@ -9,8 +9,9 @@ mathtutor/
 ├─ packages/schema        # zod 单一类型真源：四实体 / 学习者 / SSE v2 / 引擎契约 / 默认参数
 ├─ packages/knowledge     # 图算法（演化路径/归因候选回溯）、lint 不变量、离线定位器
 ├─ packages/llm-client    # OpenAI 兼容流式客户端（<think> 剥离 / Hermes 回退 / 五端点分层）
+├─ packages/explainer-web # Web 动态讲解播放器：SceneSpec → SVG 逐拍渲染（无 ffmpeg）
 ├─ apps/server            # Hono TS 单体：对外唯一入口（atlas / 引擎 SSE 代理 / 契约启动校验）
-├─ apps/web               # React：星图（wiki 画布迁入）+ 做题 / SSE 思考链 / 历史
+├─ apps/web               # React 七视图：练习/讲解/星图/错题本/探索/录题/家长
 ├─ services/video-engine  # Python 讲解引擎（原 backend/，黑盒；五阶段 + 质量门禁 v2）
 ├─ data/knowledge/        # 知识图谱 file-first（graph.json 75 节点 / problems.json 40 题型）
 └─ scripts/bench_video_throughput.py  # GPU 产能实测（P0 验收项）
