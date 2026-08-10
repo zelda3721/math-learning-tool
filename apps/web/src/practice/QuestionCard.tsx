@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { MathText } from '../ui/MathText'
 import {
     diagnoseAttempt,
     fetchHint,
@@ -287,7 +288,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                     className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-amber-800"
                 >
                     <span className="text-xs font-bold text-amber-500 mr-2">提示 {h.level}</span>
-                    <span className="whitespace-pre-wrap">{h.hint}</span>
+                    <MathText>{h.hint}</MathText>
                 </div>
             ))}
 
