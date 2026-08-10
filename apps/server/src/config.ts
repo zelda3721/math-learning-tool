@@ -1,3 +1,33 @@
+import { existsSync, readFileSync } from "node:fs";
+
+/**
+ * 读仓库根 .env 注入 process.env（已存在的真实环境变量优先，不覆盖）。
+ * 与引擎共享同一份 .env：SERVER_PORT/SERVER_HOST/ENGINE_URL/DATA_DIR/
+ * ALLOW_ENGINE_OFFLINE 以及 LLM_*（提示/抽题/拍照判卷）都可以写在里面。
+ */
+export function applyDotEnv(
+  envPath: string = new URL("../../../.env", import.meta.url).pathname,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!existsSync(envPath)) return;
+  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (env[key] !== undefined) continue; // 真实环境变量优先
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+}
+
 export interface ServerConfig {
   /** server 监听端口（对外唯一入口；平板经局域网访问） */
   port: number;
