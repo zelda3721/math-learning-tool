@@ -36,6 +36,11 @@ export interface Draft {
     options?: string[]
     analysis?: string
     nodes: NodeSuggestion[]
+    /**
+     * 原题原图（data URL）：从讲义页上裁下来的那一块。
+     * 这是配图的主表示——它就是原图，不存在重新理解的风险。
+     */
+    figureImage?: string
     /** 几何题的配图规格（已过服务端门禁）；原样带回确认，入库前再验一次 */
     figure?: unknown
     /** 配图被丢弃的原因 */
@@ -99,6 +104,7 @@ export function normalizeDraft(raw: unknown): Draft | null {
         options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : undefined,
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
         nodes: normalizeNodes(o.suggestedNodeIds ?? o.nodeIds),
+        figureImage: typeof o.figureImage === 'string' ? o.figureImage : undefined,
         figure: o.figure,
         figureRejected: typeof o.figureRejected === 'string' ? o.figureRejected : undefined,
         droppedSuggestions: Array.isArray(o.droppedSuggestions)

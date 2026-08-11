@@ -22,6 +22,7 @@ import type { AppState } from "./app.js";
 import { requireParentRole } from "./app.js";
 import { checkFigure } from "./ingest/figureGate.js";
 import { contentHashOf } from "./questions.js";
+import { pruneFigures } from "./figures.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
 
@@ -40,6 +41,21 @@ function listBatches(dataDir: string): { batch: string; file: string; items: Que
 
 function writeBatch(dataDir: string, file: string, items: Question[]): void {
   writeFileSync(path.join(questionsDir(dataDir), file), JSON.stringify(items, null, 2), "utf8");
+}
+
+/**
+ * 删完题之后清掉没人再引用的原图。
+ *
+ * 不清的话 media/figures 只增不减——撤回一个批次会留下几十张孤儿，
+ * 几个月后没人说得清哪张还有用，也就再没人敢动它。
+ * 必须在写盘之后调用：引用集要从磁盘上的最新状态重新数。
+ */
+function pruneOrphanFigures(state: AppState): number {
+  const referenced = new Set<string>();
+  for (const b of listBatches(state.config.dataDir)) {
+    for (const item of b.items) if (item.figureImage) referenced.add(item.figureImage);
+  }
+  return pruneFigures(state.config.figuresDir, referenced);
 }
 
 const PatchSchema = z.object({
@@ -186,7 +202,7 @@ export function bankRoutes(state: AppState): Hono {
       b.items.splice(idx, 1);
       writeBatch(state.config.dataDir, b.file, b.items);
       state.questions.reload();
-      return c.json({ ok: true, removed: 1, batch: b.batch });
+      return c.json({ ok: true, removed: 1, batch: b.batch, prunedFigures: pruneOrphanFigures(state) });
     }
     return c.json({ error: `题目不存在：${id}` }, 404);
   });
@@ -206,7 +222,7 @@ export function bankRoutes(state: AppState): Hono {
     const removed = found.items.length;
     writeBatch(state.config.dataDir, found.file, []);
     state.questions.reload();
-    return c.json({ ok: true, removed, batch });
+    return c.json({ ok: true, removed, batch, prunedFigures: pruneOrphanFigures(state) });
   });
 
   return app;

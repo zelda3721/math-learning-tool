@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cropRect, worthCropping } from './crop'
+import { cropRect, figureCropBox, worthCropping, type Box } from './crop'
 
 describe('cropRect', () => {
     const W = 1600
@@ -55,5 +55,26 @@ describe('worthCropping', () => {
      */
     it('1600px 页图上，最小的合法框也够大', () => {
         expect(worthCropping(cropRect([0.4, 0.5, 0.55, 0.53], 1600, 2200))).toBe(true)
+    })
+})
+
+describe('figureCropBox', () => {
+    const box: Box = [0.08, 0.06, 0.92, 0.34]
+    const figureBox: Box = [0.65, 0.08, 0.92, 0.2]
+
+    it('用配图框', () => {
+        expect(figureCropBox({ hasFigure: true, figureBox, box })).toEqual(figureBox)
+    })
+
+    /**
+     * 这条是安全关键的：题目框经 snapBoxes 已经扩到下一道题之前，
+     * 教师版的【答案】灰框正落在里面。拿它裁图 = 把答案印在配图上给孩子。
+     */
+    it('拿不到配图框时不给图，绝不退回题目框', () => {
+        expect(figureCropBox({ hasFigure: true, box })).toBeUndefined()
+    })
+
+    it('版面说没有图就不给图', () => {
+        expect(figureCropBox({ hasFigure: false, figureBox, box })).toBeUndefined()
     })
 })
