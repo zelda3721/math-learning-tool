@@ -201,5 +201,81 @@
     },
     "contentHash": "39ea668a4c695e09",
     "status": "verified"
+  },
+  {
+    "id": "geo-demo-1",
+    "nodeIds": [
+      "pythagorean",
+      "triangle-primary"
+    ],
+    "level": "middle",
+    "stem": "如图，直角三角形 ABC 中，∠B = 90°，AB = 3 厘米，BC = 4 厘米。求斜边 AC 的长。",
+    "answer": "5",
+    "answerType": "numeric",
+    "analysis": "由勾股定理 AC² = AB² + BC² = 9 + 16 = 25，所以 AC = 5 厘米。",
+    "difficulty": 2,
+    "source": {
+      "role": "manual"
+    },
+    "contentHash": "b942447d0da9f6b3",
+    "status": "verified",
+    "figure": {
+      "points": [
+        {
+          "id": "A"
+        },
+        {
+          "id": "B"
+        },
+        {
+          "id": "C"
+        }
+      ],
+      "segments": [
+        {
+          "from": "A",
+          "to": "B",
+          "label": "3 厘米"
+        },
+        {
+          "from": "B",
+          "to": "C",
+          "label": "4 厘米"
+        },
+        {
+          "from": "C",
+          "to": "A",
+          "label": "?"
+        }
+      ],
+      "angles": [
+        {
+          "at": "B",
+          "from": "A",
+          "to": "C",
+          "right": true
+        }
+      ],
+      "constraints": [
+        {
+          "kind": "length",
+          "from": "A",
+          "to": "B",
+          "value": 3
+        },
+        {
+          "kind": "length",
+          "from": "B",
+          "to": "C",
+          "value": 4
+        },
+        {
+          "kind": "right-angle",
+          "at": "B",
+          "from": "A",
+          "to": "C"
+        }
+      ]
+    }
   }
 ]

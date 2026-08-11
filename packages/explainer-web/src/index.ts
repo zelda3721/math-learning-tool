@@ -14,3 +14,7 @@ export { KNOWN_PRIMITIVES, KNOWN_OPS } from "./refs.js";
 export { compileExpression, type EvalFn, type CompileResult } from "./math/expr.js";
 export { sampleFunction, type Curve } from "./math/sample.js";
 export { buildCoordSystem, unionExtents, type CoordSystem, type Extents } from "./math/coords.js";
+export * from "./figure/solve.js";
+export * from "./figure/render.js";
+// 配图类型从这里转出：apps/web 只依赖本包，不必再挂一个 schema 依赖
+export type { FigureSpec, FigureConstraint, FigurePoint, FigureSegment } from "@mathtutor/schema";

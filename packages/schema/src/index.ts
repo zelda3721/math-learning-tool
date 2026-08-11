@@ -1,4 +1,5 @@
 export * from "./stage.js";
+export * from "./figure.js";
 export * from "./knowledge.js";
 export * from "./learner.js";
 export * from "./events.js";

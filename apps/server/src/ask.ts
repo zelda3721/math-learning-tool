@@ -43,6 +43,8 @@ function sanitize(q: Question) {
     level: q.level,
     nodeIds: q.nodeIds,
     problemTypeId: q.problemTypeId,
+    // 配图是题面的一部分（几何题没图就读不懂），与答案解析不同，必须下发
+    figure: q.figure,
     status: q.status,
   };
 }
