@@ -58,6 +58,30 @@ function coerceShape(raw: unknown): unknown {
       return p;
     });
   }
+  if (Array.isArray(o.constraints)) {
+    o.constraints = o.constraints.map((c) => {
+      if (typeof c !== "object" || c === null) return c;
+      const q = { ...(c as Record<string, unknown>) };
+      // 常见写法：{"kind":"length","points":["A","B"]} / {"segment":"AB"} / {"between":["A","B"]}
+      const pair =
+        (Array.isArray(q.points) && q.points.length >= 2 ? q.points : undefined) ??
+        (Array.isArray(q.between) && q.between.length >= 2 ? q.between : undefined) ??
+        (typeof q.segment === "string" && q.segment.length === 2 ? [...q.segment] : undefined);
+      if (q.from === undefined && pair) { q.from = String(pair[0]); q.to = String(pair[1]); }
+      // 角写成 {"vertex":"B"} 或 {"points":["A","B","C"]}（中间那个是顶点）
+      if (q.at === undefined && typeof q.vertex === "string") q.at = q.vertex;
+      if ((q.kind === "angle" || q.kind === "right-angle") && q.at === undefined &&
+          Array.isArray(q.points) && q.points.length >= 3) {
+        q.from = String(q.points[0]); q.at = String(q.points[1]); q.to = String(q.points[2]);
+      }
+      // 度数字段名飘移
+      if (q.degrees === undefined && typeof q.angle === "number") q.degrees = q.angle;
+      if (q.degrees === undefined && typeof q.value === "number" && q.kind === "angle") q.degrees = q.value;
+      // 直角写成 {"kind":"angle","degrees":90}
+      if (q.kind === "angle" && q.degrees === 90) q.kind = "right-angle";
+      return q;
+    });
+  }
   if (Array.isArray(o.segments)) {
     o.segments = o.segments.map((seg) => {
       if (Array.isArray(seg) && seg.length >= 2) return { from: String(seg[0]), to: String(seg[1]) };

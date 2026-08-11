@@ -186,3 +186,54 @@ describe("模型写法不规范时先归一，别为格式小事丢掉好图", (
     expect(r.rejected).not.toBe("配图规格不合法：Required");
   });
 })
+
+describe("约束的写法也要归一（实机报的是 constraints.0.from Required）", () => {
+  const stem = "如图，∠B 是直角，AB = 3，BC = 4，求 AC。";
+  const points = ["A", "B", "C"];
+
+  it("长度写成 points 数组", () => {
+    const r = checkFigure({ points, constraints: [
+      { kind: "length", points: ["A", "B"], value: 3 },
+      { kind: "length", points: ["B", "C"], value: 4 },
+      { kind: "right-angle", at: "B", from: "A", to: "C" },
+    ] }, stem);
+    expect(r.rejected).toBeUndefined();
+    expect(r.figure!.constraints).toHaveLength(3);
+  });
+
+  it("长度写成 segment:\"AB\"", () => {
+    const r = checkFigure({ points, constraints: [
+      { kind: "length", segment: "AB", value: 3 },
+      { kind: "length", segment: "BC", value: 4 },
+      { kind: "right-angle", vertex: "B", from: "A", to: "C" },
+    ] }, stem);
+    expect(r.rejected).toBeUndefined();
+  });
+
+  it("角写成三点数组，中间那个是顶点", () => {
+    const s2 = "三角形 ABC 中，AB = 10，AC = 7，∠A = 60°，求 BC。";
+    const r = checkFigure({ points, constraints: [
+      { kind: "length", from: "A", to: "B", value: 10 },
+      { kind: "length", from: "A", to: "C", value: 7 },
+      { kind: "angle", points: ["B", "A", "C"], degrees: 60 },
+    ] }, s2);
+    expect(r.rejected).toBeUndefined();
+  });
+
+  it("直角写成 angle + degrees:90 也认（题干不必出现 90）", () => {
+    const r = checkFigure({ points, constraints: [
+      { kind: "length", from: "A", to: "B", value: 3 },
+      { kind: "length", from: "B", to: "C", value: 4 },
+      { kind: "angle", at: "B", from: "A", to: "C", degrees: 90 },
+    ] }, stem);
+    expect(r.rejected).toBeUndefined();
+  });
+
+  it("归一只改写法，不改内容：编出来的条件照样被拒", () => {
+    const r = checkFigure({ points, constraints: [
+      { kind: "length", segment: "AB", value: 3 },
+      { kind: "length", segment: "AC", value: 5 },  // 题干没给，等于把答案画上去
+    ] }, stem);
+    expect(r.rejected).toContain("题干没有的条件");
+  });
+})
