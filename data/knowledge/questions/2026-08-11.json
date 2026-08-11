@@ -1,0 +1,239 @@
+[
+  {
+    "id": "a5ff38a2-2246-410b-868d-191358a2207d",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "下面这幅图形中有多少个三角形？",
+    "answer": "21",
+    "answerType": "numeric",
+    "analysis": "此题图形特点：所有三角形底边都来自线段AG或其一部分，有共同的顶点H，所以本题可以类比为一条线段AG上有7个点，问一共有线段多少条，即一条线段对应一个三角形。线段AG由6条基本线段组成，所以线段总数：6+5+4+3+2+1=21（条），即原题三角形共有21个。",
+    "figureImage": "cb696cd960f25793d78dcdc217ddc860.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9f4897bfdfe93a66",
+    "status": "extracted"
+  },
+  {
+    "id": "e23c56b4-f3f9-4db7-954c-90ef5110803a",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_lower",
+    "stem": "数一数，下面图中共有多少个正方形？",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "按照正方形边长的不同分类枚举计数，边长为1的有9个，边长为2的有3个，共12个。",
+    "figureImage": "75cd8b1d6a8117709590aa72cdeb56a0.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "72653ee890aa7799",
+    "status": "extracted"
+  },
+  {
+    "id": "25bac360-4af7-4c6b-b492-bcff4e7bada7",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "图中有多少个正方形？",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "正着的正方形：边长为1的有8个，边长为2的有3个；斜着的正方形有1个，共12个。",
+    "figureImage": "35b2f4e3a625ebcd7e3a90a71e1bf61f.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5cff986ff984d2ee",
+    "status": "extracted"
+  },
+  {
+    "id": "38c8c77f-8388-4a7a-b847-30834cb99136",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_lower",
+    "stem": "图中有多少个三角形？",
+    "answer": "9",
+    "answerType": "numeric",
+    "analysis": "根据组成三角形的块数分类枚举计数，由一块、两块、三块、五块组成的三角形数量相加即可。",
+    "figureImage": "0720b3dfcdd554f3a7e2d83786a4c4ae.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "65cf8b118fb72b5d",
+    "status": "extracted"
+  },
+  {
+    "id": "9f69eb8e-1071-4d1d-ac5d-2a67f2db1811",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "图中共有三角形多少个？",
+    "answer": "20",
+    "answerType": "numeric",
+    "analysis": "分别数出正向和反向的三角形，正向由1个、4个、9个小三角形组成的分别有6、3、1个，共10个；反向同理10个，合计20个。",
+    "figureImage": "e155d6813f838cb0f04469099a547f13.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9c9f43c83c328273",
+    "status": "extracted"
+  },
+  {
+    "id": "ee3b8b28-dbdf-4300-adca-6b2893606697",
+    "nodeIds": [
+      "shape-counting",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在一个边长为5×7的长方形中最多能放多少个“角形”（角形如右图所示）？（角形可以转动翻转，但是不能一个叠放在另一个上）",
+    "answer": "11",
+    "answerType": "numeric",
+    "analysis": "角形由3个正方形组成，面积为3，长方形面积为35，35÷3=11……2，故最多可放11个。",
+    "figureImage": "9a5676590fcf2d79bccf206c7cdf8686.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a52704d96e2700fd",
+    "status": "extracted"
+  },
+  {
+    "id": "8709db18-2e71-4687-b4c6-4ddd10b441b8",
+    "nodeIds": [
+      "triangle-primary",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普去参加一年一度的智力题大赛，被这样一道题目难住：有这样的两条线，请问从这5个点中任选3个点，可以构成多少个三角形？",
+    "answer": "8",
+    "answerType": "numeric",
+    "analysis": "从5个点中任选3个点共有10种选法，其中同一条直线上的3个点无法构成三角形（共2组），故10-2=8个。",
+    "figureImage": "5500d17343ab49f4d5fac26841d83d49.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a8252dbcd35ebeef",
+    "status": "extracted"
+  },
+  {
+    "id": "8d013f72-305e-40a7-9b22-b15e71788bc2",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田对题进行了讲解，阿普觉得自己没有数出可以构成多少个三角形非常丢人，他又找来一个 6 × 9 的格子，悄悄挖掉两个正方形，然后问田田知道这里有正方形多少个吗？",
+    "answer": "142",
+    "answerType": "numeric",
+    "analysis": "将图形补全为 6×9 的长方形，计算总正方形数后，减去包含被挖掉部分的正方形数量。",
+    "figureImage": "363cb78a7d662e9012ffff63bf0ee3d7.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a4fef3f4f85dd356",
+    "status": "extracted"
+  },
+  {
+    "id": "9e412ba0-5c1e-4fc3-9452-431325232543",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田将阿普刚刚给的格子稍作修改，拿过去考丁丁．你知道图中有多少个正方形吗？",
+    "answer": "8",
+    "answerType": "numeric",
+    "analysis": "按照正方形边长的不同分类枚举计数，边长为1的有4个，边长为2的有4个，共8个。",
+    "figureImage": "6e2fb5f8794aa4f389aedf4e778a0caf.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "74e89bfc4ffa20ef",
+    "status": "extracted"
+  },
+  {
+    "id": "ab0fc4cd-e1bd-442a-bb22-b543d0126313",
+    "nodeIds": [
+      "shape-counting",
+      "triangle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁做出题后觉得这类题目没什么难度，于是在本来准备考牛牛的题目中加了个小黑点．问牛牛图中不含“•”的三角形比含有“•”的三角形多多少个？",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "分别数出不含黑点的三角形有9个，含黑点的三角形有3个，两者相减得6个。",
+    "figureImage": "22000edfd5bc2428501272de96fff5c7.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3d0b76abd1489b02",
+    "status": "extracted"
+  },
+  {
+    "id": "a9f4a4ab-3210-45f1-9dd9-9198b0ad01d6",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "解决完问题的牛牛灵机一动，将小时候姐姐送给他的正方形小手拿出来，考考大家的眼力，你们知道下图的手绢里共有多少个三角形吗？",
+    "answer": "84",
+    "answerType": "numeric",
+    "analysis": "通过分类计数法，分别计算由1个、2个、3个、4个、6个、8个及16个小三角形组成的三角形数量，最后求和得出总数。",
+    "figureImage": "73591f66067683ac2e5c6328cc694d58.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "81b1c95dcbd5504b",
+    "status": "extracted"
+  },
+  {
+    "id": "99f83a8f-dd74-4e09-a225-2698b16b4b28",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_lower",
+    "stem": "终于学会计数的阿普信心满满，在终极考试中，成功解答了下面的题目：你知道下图中共有多少个长方形吗？",
+    "answer": "27",
+    "answerType": "numeric",
+    "analysis": "通过分类计数法，分别数出由1块、2块、3块、4块、5块、6块小长方形组成的长方形数量，最后求和。",
+    "figureImage": "5ad3024d96315eb0019bead93fb907d4.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e4441b7e83cb3d5b",
+    "status": "extracted"
+  },
+  {
+    "id": "77b92aef-36a8-4db2-8feb-a723a5e9bce3",
+    "nodeIds": [
+      "shape-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "下图中包含“*”的三角形一共有多少个？",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "分类枚举法：基本图形1个，由4个小三角形构成的4个，由9个小三角形构成的1个，共1+4+1=6个。",
+    "figureImage": "57be46f0c0cd5b186fe0c2b3fb5e0b03.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "656809a14f94d2bd",
+    "status": "extracted"
+  }
+]

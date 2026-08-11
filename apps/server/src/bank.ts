@@ -23,6 +23,7 @@ import { requireParentRole } from "./app.js";
 import { checkFigure } from "./ingest/figureGate.js";
 import { contentHashOf } from "./questions.js";
 import { pruneFigures } from "./figures.js";
+import { practiceReady } from "./questions.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
 
@@ -92,6 +93,8 @@ export function bankRoutes(state: AppState): Hono {
     const level = c.req.query("level");
     const nodeId = c.req.query("nodeId");
     const batch = c.req.query("batch");
+    /** 只看「答案是模型自己算的、还没核对」那些——它们现在拿不到孩子手上 */
+    const blockedOnly = c.req.query("blocked") === "1";
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Math.max(0, Number(c.req.query("offset") ?? 0));
 
@@ -103,6 +106,7 @@ export function bankRoutes(state: AppState): Hono {
       if (level && item.level !== level) return false;
       if (nodeId && !item.nodeIds.includes(nodeId)) return false;
       if (batch && item.batch !== batch) return false;
+      if (blockedOnly && practiceReady(item)) return false;
       if (q && !(item.stem.includes(q) || item.answer.includes(q) || item.id.includes(q))) return false;
       return true;
     });
@@ -124,7 +128,9 @@ export function bankRoutes(state: AppState): Hono {
         status: count((i) => i.status),
         level: count((i) => i.level),
         batch: count((i) => i.batch),
-        withFigure: all.filter((i) => i.figure).length,
+        withFigure: all.filter((i) => i.figureImage || i.figure).length,
+        // 答案是模型自己算的、还没人核对——这些题现在不发给孩子
+        blocked: all.filter((i) => !practiceReady(i)).length,
       },
     });
   });

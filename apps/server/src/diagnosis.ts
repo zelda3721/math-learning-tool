@@ -3,6 +3,7 @@ import type { Knowledge, RootCandidate } from "@mathtutor/knowledge";
 import type { Question } from "@mathtutor/schema";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
+import { practiceReady } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { effectiveP } from "./mastery.js";
 import { normalizeText } from "./grading.js";
@@ -179,7 +180,7 @@ export async function diagnoseMistake(args: {
   const probeTargets = candidates.slice(0, 2).map((c) => c.nodeId);
   for (const nodeId of probeTargets) {
     const probe = (questions.byNode.get(nodeId) ?? []).find(
-      (q) => q.id !== question.id && !attempted.has(q.id) && q.difficulty <= 3,
+      (q) => q.id !== question.id && !attempted.has(q.id) && q.difficulty <= 3 && practiceReady(q),
     );
     if (probe && probesQueued.length < 2) {
       repo.pushQueueItem(attempt.learnerId, "probe", probe.id, tomorrow);

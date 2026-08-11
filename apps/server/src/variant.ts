@@ -4,7 +4,7 @@ import { QuestionSchema } from "@mathtutor/schema";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
-import { appendQuestions, contentHashOf } from "./questions.js";
+import { appendQuestions, contentHashOf, practiceReady } from "./questions.js";
 
 /**
  * 变式题供给（宪法第 1、3 条的执行机制，设计 §06）：
@@ -36,6 +36,7 @@ export async function getVariant(args: {
 
   const usable = (q: Question) =>
     q.id !== original.id &&
+    practiceReady(q) &&
     !doneRecently.has(q.id) &&
     Math.abs(q.difficulty - original.difficulty) <= 1 &&
     q.answerType !== "steps";

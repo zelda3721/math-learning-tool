@@ -24,6 +24,7 @@ interface BankQuestion {
     problemTypeId?: string
     analysis?: string
     status: string
+    answerUnverified?: boolean
     figureImage?: string
     figure?: unknown
 }
@@ -37,6 +38,7 @@ interface BankList {
         level: Record<string, number>
         batch: Record<string, number>
         withFigure: number
+        blocked: number
     }
 }
 
@@ -56,6 +58,7 @@ export function BankPage() {
     const [query, setQuery] = useState('')
     const [status, setStatus] = useState('')
     const [batch, setBatch] = useState('')
+    const [blockedOnly, setBlockedOnly] = useState(false)
     const [editing, setEditing] = useState<BankQuestion | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
 
@@ -67,6 +70,7 @@ export function BankPage() {
             if (query.trim()) params.set('q', query.trim())
             if (status) params.set('status', status)
             if (batch) params.set('batch', batch)
+            if (blockedOnly) params.set('blocked', '1')
             const res = await fetch(`/api/v1/bank/questions?${params}`)
             if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? `HTTP ${res.status}`)
             setList((await res.json()) as BankList)
@@ -75,7 +79,7 @@ export function BankPage() {
         } finally {
             setBusy(false)
         }
-    }, [query, status, batch])
+    }, [query, status, batch, blockedOnly])
 
     useEffect(() => {
         void load()
@@ -115,7 +119,8 @@ export function BankPage() {
                 title="题库"
                 subtitle={
                     list
-                        ? `共 ${list.total} 道 · ${list.facets.status.extracted ?? 0} 道待抽检 · ${list.facets.withFigure} 道带配图`
+                        ? `共 ${list.total} 道 · ${list.facets.status.extracted ?? 0} 道待抽检 · ${list.facets.withFigure} 道带配图` +
+                          (list.facets.blocked > 0 ? ` · ${list.facets.blocked} 道暂不发给孩子` : '')
                         : '加载中'
                 }
             />
@@ -154,6 +159,22 @@ export function BankPage() {
                         ))}
                     </select>
                 </div>
+
+                {/* 答案是模型自己算的那些，核对之前拿不到孩子手上——
+                    这是最该先看的一批，给它一个直达入口 */}
+                <label className="flex items-center gap-2 text-sm text-ink-soft">
+                    <input
+                        type="checkbox"
+                        checked={blockedOnly}
+                        onChange={(e) => setBlockedOnly(e.target.checked)}
+                    />
+                    只看「答案是模型自己算的、还没核对」
+                    {list && list.facets.blocked > 0 && (
+                        <span className="numeric text-[color:var(--color-wrong)]">
+                            （{list.facets.blocked}）
+                        </span>
+                    )}
+                </label>
 
                 {batch && (
                     <div className="flex items-center gap-3">
@@ -199,6 +220,11 @@ export function BankPage() {
                                 <span className={q.status === 'extracted' ? 'text-[color:var(--color-wrong)]' : ''}>
                                     {STATUS_LABEL[q.status] ?? q.status}
                                 </span>
+                                {q.answerUnverified && q.status !== 'verified' && (
+                                    <span className="text-[color:var(--color-wrong)]">
+                                        答案是模型自己算的 · 暂不发给孩子
+                                    </span>
+                                )}
                                 {q.figureImage || q.figure ? <span className="text-[color:var(--color-correct)]">带配图</span> : null}
                                 <span>批次 {q.batch}</span>
                             </div>

@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '../ui'
+import { QuestionImage } from '../practice/QuestionImage'
 import { extractErrorMessage, inputCls, LEVEL_LABELS } from './shared'
 import type { Level } from './shared'
 
@@ -17,11 +18,17 @@ interface ReviewQuestion {
     options?: string[]
     analysis?: string
     sourceFile?: string
+    /** 答案是模型自己算的（材料没印）；这类题核对前不发给孩子 */
+    answerUnverified?: boolean
+    /** 原题原图的文件名 */
+    figureImage?: string
 }
 
 interface ReviewList {
     total: number
     extracted: number
+    /** 其中「答案是模型自己算的」有几道——这些题现在拿不到孩子手上 */
+    blocked: number
     items: ReviewQuestion[]
 }
 
@@ -41,6 +48,8 @@ function normalizeQuestion(raw: unknown): ReviewQuestion | null {
         options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : undefined,
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
         sourceFile: typeof source.file === 'string' ? source.file : undefined,
+        answerUnverified: o.answerUnverified === true,
+        figureImage: typeof o.figureImage === 'string' ? o.figureImage : undefined,
     }
 }
 
@@ -53,7 +62,7 @@ function QuestionCard({
 }: {
     q: ReviewQuestion
     busy: boolean
-    onVerify: (patch: { stem?: string; answer?: string; difficulty?: number } | undefined) => void
+    onVerify: (patch: { stem?: string; answer?: string; difficulty?: number; nodeIds?: string[] } | undefined) => void
     onReject: () => void
     onSkip: () => void
 }) {
@@ -61,17 +70,31 @@ function QuestionCard({
     const [stem, setStem] = useState(q.stem)
     const [answer, setAnswer] = useState(q.answer)
     const [difficulty, setDifficulty] = useState(q.difficulty)
+    const [nodeIds, setNodeIds] = useState(q.nodeIds.join(', '))
 
     const handleVerify = () => {
-        const patch: { stem?: string; answer?: string; difficulty?: number } = {}
+        const patch: { stem?: string; answer?: string; difficulty?: number; nodeIds?: string[] } = {}
         if (stem !== q.stem) patch.stem = stem
         if (answer !== q.answer) patch.answer = answer
         if (difficulty !== q.difficulty) patch.difficulty = difficulty
+        const ids = nodeIds.split(/[,，\s]+/).map((x) => x.trim()).filter(Boolean)
+        if (ids.join(',') !== q.nodeIds.join(',') && ids.length > 0) patch.nodeIds = ids
         onVerify(Object.keys(patch).length > 0 ? patch : undefined)
     }
 
     return (
-        <div className="plate p-5 space-y-3">
+        <div
+            className={`plate p-5 space-y-3 ${
+                q.answerUnverified ? 'border-l-[3px] border-l-[color:var(--color-wrong)]' : ''
+            }`}
+        >
+            {/* 这类题在核对之前根本不会发给孩子，所以说清楚"核对它才有用" */}
+            {q.answerUnverified && (
+                <p className="text-xs text-[color:var(--color-wrong)] leading-relaxed">
+                    这道题的答案是模型自己算出来的，材料里没有印。
+                    <b>核对之前它不会进孩子的练习</b>——请对着题目算一遍再通过。
+                </p>
+            )}
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1 space-y-2">
                     {editing ? (
@@ -158,6 +181,21 @@ function QuestionCard({
                 </div>
             )}
 
+            {/* 几何题不看图没法核对答案 */}
+            {q.figureImage && <QuestionImage name={q.figureImage} />}
+
+            {editing && (
+                <label className="block">
+                    <span className="eyebrow block mb-1">知识点 id（逗号分隔；图谱里没有的会被拒绝）</span>
+                    <input
+                        type="text"
+                        value={nodeIds}
+                        onChange={(e) => setNodeIds(e.target.value)}
+                        className={`${inputCls} mt-1`}
+                    />
+                </label>
+            )}
+
             {q.analysis && <p className="text-xs text-ink-faint">解析：{q.analysis}</p>}
 
             <div className="flex justify-end gap-2 pt-1">
@@ -191,13 +229,22 @@ export function ReviewTab() {
                 setError(await extractErrorMessage(res, '抽检接口尚未就绪。'))
                 return
             }
-            const body = (await res.json()) as { total?: unknown; extracted?: unknown; items?: unknown[] }
+            const body = (await res.json()) as {
+                total?: unknown
+                extracted?: unknown
+                blocked?: unknown
+                items?: unknown[]
+            }
             setList({
                 total: typeof body.total === 'number' ? body.total : 0,
                 extracted: typeof body.extracted === 'number' ? body.extracted : 0,
+                blocked: typeof body.blocked === 'number' ? body.blocked : 0,
+                // 答案是模型自己算的那些排最前：它们在核对之前根本不会发给孩子，
+                // 也就是说抽检它们才有直接收益，抽检别的只是打个标记
                 items: (body.items ?? [])
                     .map(normalizeQuestion)
-                    .filter((q): q is ReviewQuestion => q !== null),
+                    .filter((q): q is ReviewQuestion => q !== null)
+                    .sort((a, b) => Number(b.answerUnverified) - Number(a.answerUnverified)),
             })
             setSkipped(new Set())
         } catch (err) {
@@ -214,7 +261,7 @@ export function ReviewTab() {
     const review = async (
         questionId: string,
         verdict: 'verified' | 'rejected',
-        patch?: { stem?: string; answer?: string; difficulty?: number }
+        patch?: { stem?: string; answer?: string; difficulty?: number; nodeIds?: string[] }
     ) => {
         setBusyId(questionId)
         setError(null)
@@ -246,6 +293,15 @@ export function ReviewTab() {
                         <>
                             题库共 <span className="numeric font-semibold text-ink">{list.total}</span> 题 · 待抽检{' '}
                             <span className="numeric font-semibold text-beam">{list.extracted}</span> 题
+                            {list.blocked > 0 && (
+                                <>
+                                    {' · 其中 '}
+                                    <span className="numeric font-semibold text-[color:var(--color-wrong)]">
+                                        {list.blocked}
+                                    </span>
+                                    {' 题因答案是模型自己算的，暂不发给孩子'}
+                                </>
+                            )}
                         </>
                     ) : (
                         '加载中…'
