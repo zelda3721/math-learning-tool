@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import path from "node:path";
-import { loadKnowledge } from "@mathtutor/knowledge";
+import { type Knowledge, loadKnowledge } from "@mathtutor/knowledge";
 import { LlmClient, loadLlmConfig } from "@mathtutor/llm-client";
 import { applyDotEnv, loadConfig } from "./config.js";
 import { fetchEngineContract, ContractError } from "./contract.js";
@@ -41,9 +41,10 @@ function buildHintProvider(): HintProvider | null {
   }
 }
 
-function buildExtractionProvider(): ExtractionProvider | null {
+function buildExtractionProvider(knowledge: Knowledge): ExtractionProvider | null {
   try {
-    return createLlmExtractionProvider(process.env);
+    // 把知识层交给抽取器：候选清单进系统提示词，模型才能点名而不是自由发挥
+    return createLlmExtractionProvider(process.env, { knowledge });
   } catch (err) {
     console.warn(`[ingest] LLM 抽取不可用，文本上传走离线兜底: ${String(err)}`);
     return null;
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
     questions,
     repo,
     hintProvider: buildHintProvider(),
-    extraction: buildExtractionProvider(),
+    extraction: buildExtractionProvider(knowledge),
     jobs: new JobStore(db),
     auth: new AuthStore(db),
     photoGrader: (() => {
