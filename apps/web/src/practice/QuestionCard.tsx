@@ -14,6 +14,7 @@ import { SlotBadge } from './badges'
 import { DiagnosisCard } from './DiagnosisCard'
 import { ExplanationView } from './ExplanationView'
 import { VariantGate } from './VariantGate'
+import { QuestionFigure } from './QuestionFigure'
 
 export interface QuestionRecord {
     questionId: string
@@ -280,6 +281,9 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                 <>
             {/* 题干 */}
             <p className="stem whitespace-pre-wrap">{q.stem}</p>
+
+            {/* 配图：几何题的图是题面的一部分，没有它读不懂题 */}
+            {q.figure && <QuestionFigure figure={q.figure} />}
 
             {/* 提示气泡：克制——纸面上的一条注记，不抢题干 */}
             {hints.map((h) => (

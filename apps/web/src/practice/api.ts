@@ -1,6 +1,7 @@
 /** 练习页 API 直连层：照 LearnerContext 的 fetch 风格，类型对齐 server routes/practice.ts 的响应。 */
 
 import type { validateSpec } from '@mathtutor/explainer-web'
+import type { FigureSpec } from '@mathtutor/explainer-web'
 
 /** 'asked' 是前端专有槽位：孩子自由提问转成的临时题目，server 的今日题组不会返回它 */
 export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge' | 'asked'
@@ -9,6 +10,8 @@ export type MasteryBand = 'dim' | 'glow' | 'lit'
 export interface PracticeQuestion {
     id: string
     stem: string
+    /** 几何题的配图规格（点线角 + 约束）；坐标由前端解算并逐条回代验证后才画 */
+    figure?: FigureSpec
     options?: string[]
     answerType: 'numeric' | 'expression' | 'steps'
     difficulty: number

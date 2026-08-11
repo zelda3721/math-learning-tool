@@ -1,3 +1,4 @@
+import { FigureSpecSchema } from "./figure.js";
 import { z } from "zod";
 import { StageIdSchema } from "./stage.js";
 
@@ -135,6 +136,12 @@ export const QuestionSchema = z.object({
   answer: z.string(),
   answerType: z.enum(["numeric", "expression", "steps"]),
   analysis: z.string().optional(),
+  /**
+   * 配图规格（几何题）。存的是点线角与约束，不是位图——
+   * 坐标由求解器算出并逐条回代验证，图与题干因此不可能对不上，
+   * 变式改数字时图也会自动跟着变。见 figure.ts。
+   */
+  figure: FigureSpecSchema.optional(),
   difficulty: z.number().int().min(1).max(5),
   source: z.object({
     file: z.string().optional(),
