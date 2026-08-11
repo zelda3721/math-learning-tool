@@ -52,20 +52,65 @@ async function loadPdfjs() {
   return pdfjs;
 }
 
-export async function pdfToPageImages(
+/**
+ * 打开一次文档：体检与渲染都在这一趟里做完。
+ *
+ * pdf.js 会把传进去的 ArrayBuffer **转移**给 worker 线程（detach），
+ * 同一个 buffer 再用第二次就会抛 "Cannot perform Construct on a detached ArrayBuffer"。
+ * 所以既不能开两次文档，也要把数据先复制一份再交出去——
+ * 调用方手里那份还得留着（比如失败后改走图片上传）。
+ */
+export interface PdfPagesResult {
+  verdict: TextLayerVerdict;
+  pages: PdfPageImage[];
+}
+
+/**
+ * 交给 pdf.js 的数据必须是副本。
+ *
+ * pdf.js 会把传入的缓冲区**转移**给 worker，之后调用方手里那份就成了空壳，
+ * 再碰就是 `Cannot perform Construct on a detached ArrayBuffer`。
+ * 调用方通常还要留着原始数据（失败后改走图片上传、或重试），所以一律先复制。
+ */
+export function toPdfData(file: ArrayBuffer): Uint8Array {
+  return new Uint8Array(file.slice(0));
+}
+
+export async function pdfToPages(
   file: ArrayBuffer,
   options: RenderOptions = {},
-): Promise<PdfPageImage[]> {
+): Promise<PdfPagesResult> {
   const targetWidth = options.targetWidth ?? 1600;
   const quality = options.quality ?? 0.82;
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(file) }).promise;
+  const doc = await pdfjs.getDocument({ data: toPdfData(file) }).promise;
   const out: PdfPageImage[] = [];
+  let digits = 0;
+  let drawings = 0;
+  const sampled = Math.min(doc.numPages, 4);
 
   try {
     for (let n = 1; n <= doc.numPages; n += 1) {
       if (options.signal?.aborted) break;
       const page = await doc.getPage(n);
+      // 顺手体检前几页的文本层：数字寥寥而图形密布，说明数量是画上去的
+      if (n <= sampled) {
+        const content = await page.getTextContent();
+        const text = content.items
+          .map((item) => ("str" in item ? (item as { str: string }).str : ""))
+          .join("");
+        digits += (text.match(/[0-9０-９]/g) ?? []).length;
+        const ops = await page.getOperatorList();
+        for (const fn of ops.fnArray) {
+          if (
+            fn === pdfjs.OPS.paintImageXObject ||
+            fn === pdfjs.OPS.paintInlineImageXObject ||
+            fn === pdfjs.OPS.constructPath
+          ) {
+            drawings += 1;
+          }
+        }
+      }
       const base = page.getViewport({ scale: 1 });
       // 按目标宽度等比放大：讲义页宽差别很大，固定 scale 会让有的页糊、有的页巨大
       const viewport = page.getViewport({ scale: targetWidth / base.width });
@@ -88,14 +133,15 @@ export async function pdfToPageImages(
   } finally {
     await doc.cleanup();
   }
-  return out;
+  return {
+    verdict: judgeTextLayer(digits / Math.max(1, sampled), drawings / Math.max(1, sampled)),
+    pages: out,
+  };
 }
 
 /**
- * 判断 PDF 的文本层是否可信。
- *
- * 不可信就该整页走视觉，而不是把带窟窿的题干送进抽取——
- * 那样得到的题看起来完整，数量却是空的，比抽不出来更坏。
+ * 文本层是否可信。不可信就该整页走视觉，而不是把带窟窿的题干送进抽取——
+ * 那样得到的题看起来完整、数量却是空的，比抽不出来更坏。
  */
 export interface TextLayerVerdict {
   trustworthy: boolean;
@@ -121,34 +167,3 @@ export function judgeTextLayer(digitsPerPage: number, drawingsPerPage: number): 
   return { trustworthy: true, reason: "文本层可用", digitsPerPage, drawingsPerPage };
 }
 
-export async function inspectTextLayer(file: ArrayBuffer): Promise<TextLayerVerdict> {
-  const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(file) }).promise;
-  try {
-    const pages = Math.min(doc.numPages, 4); // 抽样前几页足够判断
-    let digits = 0;
-    let drawings = 0;
-    for (let n = 1; n <= pages; n += 1) {
-      const page = await doc.getPage(n);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => ("str" in item ? (item as { str: string }).str : ""))
-        .join("");
-      digits += (text.match(/[0-9０-９]/g) ?? []).length;
-      const ops = await page.getOperatorList();
-      for (const fn of ops.fnArray) {
-        if (
-          fn === pdfjs.OPS.paintImageXObject ||
-          fn === pdfjs.OPS.paintInlineImageXObject ||
-          fn === pdfjs.OPS.constructPath
-        ) {
-          drawings += 1;
-        }
-      }
-      page.cleanup();
-    }
-    return judgeTextLayer(digits / pages, drawings / pages);
-  } finally {
-    await doc.cleanup();
-  }
-}

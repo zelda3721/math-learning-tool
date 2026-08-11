@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { judgeTextLayer } from './pdfPages'
+import { judgeTextLayer, toPdfData } from './pdfPages'
 
 describe('PDF 文本层可信度判据', () => {
     it('真实讲义（每页约 6 个数字、约 120 处图形）判为不可信', () => {
@@ -23,5 +23,33 @@ describe('PDF 文本层可信度判据', () => {
 
     it('数字少但没什么图形（如纯文字阅读材料）不误判', () => {
         expect(judgeTextLayer(3, 2).trustworthy).toBe(true)
+    })
+})
+
+describe('交给 pdf.js 的必须是副本', () => {
+    it('原缓冲区在复制之后仍然可用', () => {
+        const src = new ArrayBuffer(64)
+        new Uint8Array(src).fill(7)
+        const copy = toPdfData(src)
+        expect(copy.byteLength).toBe(64)
+        expect(copy[0]).toBe(7)
+        // 关键：调用方手里那份没有被动过——失败后还能改走图片上传
+        expect(() => new Uint8Array(src)).not.toThrow()
+        expect(new Uint8Array(src).byteLength).toBe(64)
+    })
+
+    it('复制出来的与原件互不影响', () => {
+        const src = new ArrayBuffer(4)
+        const copy = toPdfData(src)
+        copy[0] = 9
+        expect(new Uint8Array(src)[0]).toBe(0)
+    })
+
+    it('被转移走的缓冲区再用就是那条报错——这正是当初踩的坑', () => {
+        // 实机报错：Cannot perform Construct on a detached ArrayBuffer
+        // 起因是同一个 buffer 先后开了两次文档（体检一次、渲染一次）
+        const buf = new ArrayBuffer(16)
+        structuredClone(buf, { transfer: [buf] })
+        expect(() => new Uint8Array(buf)).toThrow(/detached/i)
     })
 })
