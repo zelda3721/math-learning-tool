@@ -21,6 +21,7 @@ import {
     todayString,
 } from './shared'
 import type { AnswerType, ConfirmResult, Draft, Level } from './shared'
+import { inspectTextLayer, pdfToPageImages } from './pdfPages'
 
 type IngestKind = 'text' | 'image' | 'pdf'
 type IngestTab = 'input' | 'review'
@@ -69,6 +70,13 @@ export function IngestPage() {
     const [tab, setTab] = useState<IngestTab>('input')
     const [mode, setMode] = useState<InputMode>('single')
     const [kind, setKind] = useState<IngestKind>('text')
+    // PDF 逐页渲染 + 识别的进度与说明（整本讲义要跑一两分钟，不能只转个圈）
+    const [pdfProgress, setPdfProgress] = useState<{
+        done: number
+        total: number
+        phase: 'render' | 'extract'
+    } | null>(null)
+    const [pdfNote, setPdfNote] = useState<string | null>(null)
     const [text, setText] = useState('')
     const [file, setFile] = useState<File | null>(null)
     const [batchName, setBatchName] = useState(todayString())
@@ -92,26 +100,65 @@ export function IngestPage() {
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
 
+    /** 调一次上传端点，返回规范化后的草稿 */
+    const uploadOnce = async (payload: { kind: IngestKind; content: string }): Promise<Draft[]> => {
+        const res = await fetch('/api/v1/ingest/upload', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...payload, batchName }),
+        })
+        if (!res.ok) throw new Error(await extractErrorMessage(res, uploadNotReadyHint(payload.kind)))
+        const body = (await res.json()) as { drafts?: unknown[] }
+        return (body.drafts ?? []).map(normalizeDraft).filter((d): d is Draft => d !== null)
+    }
+
+    /**
+     * PDF：先在浏览器里把每页渲染成图，再逐页走视觉抽取。
+     *
+     * 不走服务端抽文本，是因为拿真实讲义量过——文本层里没有数字：
+     * 某讲义每页只有约 6 个阿拉伯字符，却有 120 处图形，抽出来的题干长这样：
+     * 「一块木板上有 ⟨空⟩ 枚钉子」。带窟窿的题比抽不出来更坏。
+     */
+    const extractPdf = async () => {
+        const buffer = await file!.arrayBuffer()
+        const verdict = await inspectTextLayer(buffer)
+        setPdfNote(
+            verdict.trustworthy
+                ? '正在逐页渲染后识别（数字与图形都在页图里，不会漏）'
+                : `${verdict.reason}；已自动改为整页识别`,
+        )
+        const pages = await pdfToPageImages(buffer, {
+            onProgress: (done, total) => setPdfProgress({ done, total, phase: 'render' }),
+        })
+        const all: Draft[] = []
+        for (const [i, page] of pages.entries()) {
+            setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
+            try {
+                all.push(...(await uploadOnce({ kind: 'image', content: page.dataUrl })))
+            } catch (err) {
+                // 单页失败不该让整本白跑——记下来继续，最后一并说明
+                setPdfNote(`第 ${page.page} 页识别失败（${String(err)}），其余页继续`)
+            }
+        }
+        setPdfProgress({ done: pages.length, total: pages.length, phase: 'extract' })
+        return all
+    }
+
     const handleExtract = async () => {
         setError(null)
         setResult(null)
         setBatchReport(null)
+        setPdfNote(null)
+        setPdfProgress(null)
         setExtracting(true)
         try {
-            const content = kind === 'text' ? text : await readFileAsDataUrl(file!)
-            const res = await fetch('/api/v1/ingest/upload', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ kind, content, batchName }),
-            })
-            if (!res.ok) {
-                setError(await extractErrorMessage(res, uploadNotReadyHint(kind)))
-                return
-            }
-            const body = (await res.json()) as { drafts?: unknown[] }
-            const next = (body.drafts ?? [])
-                .map(normalizeDraft)
-                .filter((d): d is Draft => d !== null)
+            const next =
+                kind === 'pdf'
+                    ? await extractPdf()
+                    : await uploadOnce({
+                          kind,
+                          content: kind === 'text' ? text : await readFileAsDataUrl(file!),
+                      })
             if (next.length === 0) {
                 setError('没有抽取到任何题目，请检查材料内容后重试。')
                 return
@@ -121,6 +168,7 @@ export function IngestPage() {
             setError(err instanceof Error ? err.message : String(err))
         } finally {
             setExtracting(false)
+            setPdfProgress(null)
         }
     }
 
@@ -274,9 +322,26 @@ export function IngestPage() {
                                         <p className="mt-2 text-xs text-ink-faint">
                                             {kind === 'image'
                                                 ? '支持常见图片格式（拍照的练习册/试卷）'
-                                                : '支持 PDF 讲义或试卷'}
+                                                : '扫描版与文字版都行：会在本机逐页转成图再识别，数字和插图都不会漏'}
                                             {file ? ` · 已选择：${file.name}` : ''}
                                         </p>
+                                    </div>
+                                )}
+
+                                {/* PDF 要逐页渲染再逐页识别，几十页要跑一两分钟——
+                                    只转个圈会让人以为卡死了，把页码报出来 */}
+                                {(pdfProgress || pdfNote) && (
+                                    <div className="rounded-[10px] bg-beam-wash border border-beam/20 px-4 py-2.5 space-y-1">
+                                        {pdfProgress && (
+                                            <p className="text-sm text-beam font-medium">
+                                                {pdfProgress.phase === 'render' ? '渲染页面' : '识别题目'}
+                                                <span className="numeric">
+                                                    {' '}
+                                                    {pdfProgress.done} / {pdfProgress.total}
+                                                </span>
+                                            </p>
+                                        )}
+                                        {pdfNote && <p className="text-xs text-ink-soft leading-relaxed">{pdfNote}</p>}
                                     </div>
                                 )}
 
