@@ -34,11 +34,21 @@ export interface RenderOptions {
   signal?: AbortSignal;
 }
 
-/** pdf.js 的 worker 与主线程版本必须一致，用同一份依赖解析可避免版本漂移 */
+/**
+ * worker 由我们自己托管在 public/ 下（scripts/sync-pdf-worker.mjs 在 dev/build 前同步）。
+ *
+ * 曾用 `import("pdfjs-dist/build/pdf.worker.mjs?url")` 拿 URL，实测会在运行时
+ * 抛 "Invalid workerSrc type"——那种写法依赖打包器把查询串翻译成 URL，
+ * 一旦打包路径不同就拿到非字符串，而且要等到用户上传时才暴露。
+ * public/ 下的路径在 dev 与 build 下完全一致，没有中间层可以出错。
+ */
+const WORKER_URL = "/pdfjs/pdf.worker.min.mjs";
+
 async function loadPdfjs() {
   const pdfjs = await import("pdfjs-dist");
-  const worker = await import("pdfjs-dist/build/pdf.worker.mjs?url");
-  pdfjs.GlobalWorkerOptions.workerSrc = (worker as { default: string }).default;
+  if (typeof pdfjs.GlobalWorkerOptions.workerSrc !== "string" || !pdfjs.GlobalWorkerOptions.workerSrc) {
+    pdfjs.GlobalWorkerOptions.workerSrc = WORKER_URL;
+  }
   return pdfjs;
 }
 
