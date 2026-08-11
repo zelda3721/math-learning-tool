@@ -72,6 +72,18 @@ export function matchOffline(index: GraphIndex, rawInput: string, topN = 6): Loc
 }
 
 /** 离线匹配题型：名称/关键词命中权重高（「鸡兔同笼」这类名字很独特） */
+/**
+ * 题型判定的分数下限。
+ *
+ * 实测 55 条真实奥数题干（三年级讲义）：靠谱的匹配落在 32~60 分，
+ * 硬凑出来的原本全部聚在 8 分——几道计数题被判成"盈亏问题"，
+ * 只因题干里有「多少」而该题型把「多」「少」列成了关键词。
+ * 阈值 24 时给出题型 17/55、疑似错配 1；再低就开始成片误判。
+ * 一个错的题型比没有题型糟得多——它会带偏变式生成与错因归因。
+ * 宁可说"没认出来"，也不要给一个看着笃定的错答案。
+ */
+export const PROBLEM_TYPE_FLOOR = 24;
+
 export function matchProblemTypesOffline(
   problemTypes: ProblemType[],
   rawInput: string,
@@ -85,7 +97,11 @@ export function matchProblemTypesOffline(
     const reasons: string[] = [];
     for (const k of [p.name, ...(p.keywords ?? [])]) {
       if (k.length >= 1 && input.includes(k)) {
-        score += k.length >= 2 ? k.length * 7 : 4;
+        // 单字是弱证据：中文里「多」「少」「和」这类字几乎每道题都有
+        // （"共有多少个平行四边形"里就有 多 和 少），
+        // 按原来每字 4 分，两个字就够把一道计数题判成盈亏问题。
+        // 内容名词（鸡/兔/岁/船/草）仍然有用，但必须靠数量堆够，不能一两个就定案。
+        score += k.length >= 2 ? k.length * 7 : 1;
         reasons.push(k);
       }
     }
@@ -95,7 +111,7 @@ export function matchProblemTypesOffline(
     return { id: p.id, score, reasons: [...new Set(reasons)].slice(0, 3) };
   });
   return scored
-    .filter((m) => m.score > 5)
+    .filter((m) => m.score >= PROBLEM_TYPE_FLOOR)
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
 }
