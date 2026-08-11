@@ -161,7 +161,8 @@ function SpecPlayer({ specUrl }: { specUrl: string }) {
                     return
                 }
                 player = new ExplainerPlayer(containerRef.current, spec, {
-                    autoPlay: true,
+                    // 不自动播放：能拨的画面应当等学生动手，而不是自己走完
+                    autoPlay: false,
                     onBeatChange: (i, total) => setBeat({ i, total }),
                 })
             })

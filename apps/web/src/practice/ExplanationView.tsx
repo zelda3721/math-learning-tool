@@ -301,7 +301,7 @@ export function ExplanationView({ request, primaryLabel, onPrimary, onSkip }: Pr
     )
 }
 
-/** web 动态讲解：受控挂载 ExplainerPlayer（autoPlay），显示 第 i/total 拍 */
+/** web 动态讲解：受控挂载 ExplainerPlayer，显示 第 i/total 拍（不自动播放） */
 function WebPlayer({ spec }: { spec: SceneSpec }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const [beat, setBeat] = useState<{ i: number; total: number } | null>(null)
@@ -311,7 +311,8 @@ function WebPlayer({ spec }: { spec: SceneSpec }) {
         const el = containerRef.current
         if (!el) return
         const player = new ExplainerPlayer(el, spec, {
-            autoPlay: true,
+            // 不自动播放：能拨的画面应当等学生动手，而不是自己走完
+            autoPlay: false,
             onBeatChange: (i, total) => setBeat({ i, total }),
         })
         playerRef.current = player
