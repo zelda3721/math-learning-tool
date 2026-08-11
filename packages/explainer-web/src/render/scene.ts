@@ -152,6 +152,8 @@ export interface Scene {
   counts: BeatState["counts"];
   conservation?: BeatState["conservation"];
   equality?: BeatState["equality"];
+  /** 本拍的替换过程；播放器据此做逐只回放并驱动依赖它的量 */
+  swap?: BeatState["swap"];
   /** 全体声明色（含未登场的组）：布局层解析"换成了哪一类"时要用 */
   declaredColors: Record<string, string>;
 }
@@ -268,6 +270,7 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
     counts: beat.counts,
     conservation: beat.conservation,
     equality: beat.equality,
+    ...(beat.swap !== undefined ? { swap: beat.swap } : {}),
     declaredColors: beat.declaredColors ?? {},
   };
 }
@@ -581,15 +584,71 @@ export function swappedCount(scene: Scene): number {
  * 对鸡兔同笼就是「头」与「脚」——拨动替换数时，前者纹丝不动、后者一路爬升，
  * 守恒与变化同屏可见。这是整道题的道理所在，值得实时写出来。
  */
-export function unitTotals(scene: Scene): { units: number; marks: number } {
+export function unitTotals(scene: Scene): { units: number; marks?: number } {
   let units = 0;
   let marks = 0;
+  // 只有**每个单位**都能说出自己挂几个记号时，总数才有意义。
+  // 曾经用 `?? 0` 兜底，结果在没有从属声明的计划上只数到被替换那些单位的记号
+  // （12 只兔 × 4 = 48），画面上就出现了一个凑出来的数——比不显示糟得多。
+  let complete = true;
   for (const shape of scene.flowed) {
     if (shape.kind !== "units") continue;
     for (const u of shape.units) {
       units += u.weight;
-      marks += u.marks ?? shape.perUnitMarks ?? 0;
+      const per = u.marks ?? shape.perUnitMarks;
+      if (per === undefined) complete = false;
+      else marks += per;
     }
   }
-  return { units, marks };
+  return complete && marks > 0 ? { units, marks } : { units };
+}
+
+/**
+ * 拨动时那个「正在变的量」现在是多少。
+ *
+ * 两种来源，都不靠猜：
+ * ① 每个单位都挂着记号（头上垂腿那种）——直接数，精确到根。
+ * ② 计划声明了 expect_total（全换完之后是多少）——从画面上已有的、比它小的
+ *    那个量线性推进。少了这条，两根静态的条在拨动时纹丝不动，
+ *    过程就只剩下换颜色，因果看不出来。
+ * 都没有就返回 undefined：宁可不画，也不画一个编出来的数。
+ */
+export function liveTotal(scene: Scene, k: number): { value: number; from: number; to: number } | undefined {
+  const swap = scene.swap;
+  if (!swap || swap.count <= 0) return undefined;
+  const progress = Math.max(0, Math.min(1, k / swap.count));
+
+  const exact = unitTotals(scene).marks;
+  if (exact !== undefined) {
+    const full = unitTotals(limitSwaps(scene, swap.count)).marks;
+    const none = unitTotals(limitSwaps(scene, 0)).marks;
+    if (full !== undefined && none !== undefined) return { value: exact, from: none, to: full };
+  }
+
+  const to = swap.totalAfter;
+  if (to === undefined) return undefined;
+  const magnitudes = scene.flowed
+    .filter((s): s is MagnitudeShape => s.kind === "magnitude")
+    .map((s) => Math.abs(s.value))
+    .filter((v) => v < to);
+  if (magnitudes.length === 0) return undefined;
+  const from = Math.max(...magnitudes);
+  return { value: from + (to - from) * progress, from, to };
+}
+
+/** 把「正在变的量」作为一根同尺子的条加进画面（纯函数，播放器每帧调） */
+export function withLiveBar(scene: Scene, live: { value: number }, label: string): Scene {
+  return {
+    ...scene,
+    flowed: [
+      ...scene.flowed,
+      {
+        kind: "magnitude",
+        id: "__live__",
+        value: Math.round(live.value),
+        label,
+        emphasis: true,
+      } satisfies MagnitudeShape,
+    ],
+  };
 }

@@ -298,7 +298,9 @@ export function layoutFlowed(
 
   // ── 集：可数的记号，分块排布（规则 1 + 3）──
   if (unitGroups.length > 0) {
-    const remaining = Math.max(60, top + usableH - cursorY);
+    // 不设下限：空间真的不够时就该缩到最小，而不是硬塞一块出去压别人。
+    // 早先这里写了 Math.max(60, …)，于是内容一多，记号就画进了底部事实条里。
+    const remaining = top + usableH - cursorY;
     // 先量：按自然半径算出每组要多大，超了整体缩小（规则 5）
     let r = MAX_R;
     let placedUnits: PlacedUnits[] = [];
