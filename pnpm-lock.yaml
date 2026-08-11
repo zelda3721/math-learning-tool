@@ -13,6 +13,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.1)
+      '@mathtutor/explainer-web':
+        specifier: workspace:*
+        version: link:../../packages/explainer-web
       '@mathtutor/knowledge':
         specifier: workspace:*
         version: link:../../packages/knowledge

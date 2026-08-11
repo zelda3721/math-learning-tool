@@ -1,6 +1,7 @@
 import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
 import { z } from "zod";
-import { EducationLevelSchema, type EducationLevel } from "@mathtutor/schema";
+import { EducationLevelSchema, type EducationLevel, type FigureSpec } from "@mathtutor/schema";
+import { checkFigure } from "./figureGate.js";
 
 /**
  * 抽取 Provider：把原始材料（文本 / 图片）变成题目草稿。
@@ -16,6 +17,10 @@ export interface ExtractionHint {
 /** 抽取出的题目草稿（未定位、未入库） */
 export interface ExtractedDraft {
   stem: string;
+  /** 几何题的配图规格（过门禁后才带上；见 figureGate.ts） */
+  figure?: FigureSpec;
+  /** 配图被丢弃的原因（家长抽检时要看到） */
+  figureRejected?: string;
   answer: string;
   answerType: "numeric" | "expression" | "steps";
   options?: string[];
@@ -43,14 +48,20 @@ const LenientDraftSchema = z.object({
   analysis: z.string().optional(),
   difficulty: z.coerce.number().optional(),
   level: EducationLevelSchema.optional(),
+  // 宽松收下：合法性与真实性交给 checkFigure，这里不拦
+  figure: z.unknown().optional(),
 });
 
 function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel: EducationLevel): ExtractedDraft {
   const difficulty = Number.isFinite(item.difficulty)
     ? Math.min(5, Math.max(1, Math.round(item.difficulty!)))
     : 2;
+  const stem = item.stem.trim();
+  const fig = checkFigure(item.figure, stem);
   return {
-    stem: item.stem.trim(),
+    stem,
+    ...(fig.figure ? { figure: fig.figure } : {}),
+    ...(fig.rejected ? { figureRejected: fig.rejected } : {}),
     answer: item.answer === undefined ? "" : String(item.answer).trim(),
     answerType: item.answerType ?? "numeric",
     options: item.options?.length ? item.options.map(String) : undefined,
@@ -164,7 +175,24 @@ const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全
 - answerType：单个数值答案用 numeric，代数式用 expression，需要多步说明的用 steps；
 - options 仅选择题才有，其他题省略该字段；
 - difficulty 为 1-5 的整数；
-- 材料里没有题目时输出 []。`;
+- 材料里没有题目时输出 []。
+
+**如果题目带图（几何题居多），再加一个 figure 字段，用「点线角 + 约束」描述这张图，不要描述像素**：
+{"figure":{
+  "points":[{"id":"A"},{"id":"B"},{"id":"C"}],
+  "segments":[{"from":"A","to":"B","label":"3 厘米"},{"from":"B","to":"C"},{"from":"C","to":"A"}],
+  "angles":[{"at":"B","from":"A","to":"C","right":true}],
+  "polygons":[{"points":["A","B","C"],"shaded":false}],
+  "constraints":[
+    {"kind":"length","from":"A","to":"B","value":3},
+    {"kind":"right-angle","at":"B","from":"A","to":"C"}]}}
+约束可用：length（边长）、equal-length（两边等长）、angle（度数）、right-angle（直角）、
+parallel（平行）、perpendicular（垂直）、on-segment（点在线段上，可带 ratio 表示分点比例）。
+两条硬规则：
+- **只写题干明确给出的量**。图上量着像 5 但题干没说，就不许写 length=5——
+  多写一个条件，这道题就从"要推"变成"看图就有答案"了。
+- 条件必须能画得出来（不自相矛盾）。画不出来的会被丢弃，题目本身仍会保留。
+没有图的题就不要 figure 字段。`;
 
 function userPrompt(text: string, hint?: ExtractionHint): string {
   const levelNote = hint?.level ? `材料年级：${hint.level}。` : "";
