@@ -13,7 +13,11 @@ describe("lint invariants on real data", () => {
   it("passes with zero errors", () => {
     const report = lint(knowledge.graph, knowledge.problemTypes);
     expect(report.errors).toEqual([]);
-    expect(report.stats.nodes).toBe(75);
+    // 不钉死节点数：图谱本来就要随课标补全而长大，钉死等于每次扩充都要改测试。
+    // 有意义的不变量是「四个学段都有内容」和「规模不倒退」。
+    expect(report.stats.nodes).toBeGreaterThanOrEqual(120);
+    const stages = new Set(knowledge.graph.nodes.map((n) => n.stage));
+    expect([...stages].sort()).toEqual(["junior", "primary", "senior", "university"]);
     expect(report.stats.problems).toBe(40);
   });
 });

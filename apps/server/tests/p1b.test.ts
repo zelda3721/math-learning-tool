@@ -123,12 +123,13 @@ describe("coverage report", () => {
     });
     const store = createQuestionStore(dataDir, kn.index);
     const coverage = buildCoverage(kn, store);
-    expect(coverage.totals.nodes).toBe(75);
+    const graphNodes = kn.graph.nodes.length;
+    expect(coverage.totals.nodes).toBe(graphNodes);
     expect(coverage.totals.questions).toBeGreaterThan(0); // seed-demo 已在真实 data 里
     expect(coverage.topUnverified.length).toBeGreaterThan(0);
     const uncovered = Object.values(coverage.uncoveredByStage).flat();
     expect(uncovered.length).toBeGreaterThan(0);
-    expect(coverage.totals.covered + uncovered.length).toBe(75);
+    expect(coverage.totals.covered + uncovered.length).toBe(graphNodes);
   });
 });
 
