@@ -22,10 +22,30 @@ import {
 } from './shared'
 import type { AnswerType, ConfirmResult, Draft, Level } from './shared'
 import { pdfToPages } from './pdfPages'
+import { cropPage } from './crop'
 
 type IngestKind = 'text' | 'image' | 'pdf'
 type IngestTab = 'input' | 'review'
 type InputMode = 'single' | 'batch'
+
+/** 分层识别的四个阶段，进度条上要分得清是在渲染、切题还是读题 */
+type PdfPhase = 'render' | 'layout' | 'question' | 'extract'
+const PHASE_LABEL: Record<PdfPhase, string> = {
+    render: '渲染页面',
+    layout: '切分题目',
+    question: '逐题识别',
+    extract: '整页识别',
+}
+
+/** 版面里的一道题（服务端 /layout 的返回，见 ingest/passes.ts） */
+interface LayoutItem {
+    index: number
+    label: string
+    preview: string
+    box?: [number, number, number, number]
+    hasFigure: boolean
+    continued: boolean
+}
 
 interface BatchReport {
     pairing?: PairingReport
@@ -74,9 +94,11 @@ export function IngestPage() {
     const [pdfProgress, setPdfProgress] = useState<{
         done: number
         total: number
-        phase: 'render' | 'extract'
+        phase: PdfPhase
     } | null>(null)
     const [pdfNote, setPdfNote] = useState<string | null>(null)
+    // 版面框的可用率：低了就该换模型，所以这个数必须摆到台面上
+    const [boxStat, setBoxStat] = useState<{ total: number; withBox: number } | null>(null)
     const [text, setText] = useState('')
     const [file, setFile] = useState<File | null>(null)
     const [batchName, setBatchName] = useState(todayString())
@@ -112,8 +134,80 @@ export function IngestPage() {
         return (body.drafts ?? []).map(normalizeDraft).filter((d): d is Draft => d !== null)
     }
 
+    /** 第一趟：这一页有哪几道题、各在哪、有没有图 */
+    const fetchLayout = async (pageDataUrl: string): Promise<LayoutItem[]> => {
+        const res = await fetch('/api/v1/ingest/layout', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ content: pageDataUrl }),
+        })
+        if (!res.ok) throw new Error(await extractErrorMessage(res, '服务端不支持分层识别。'))
+        const body = (await res.json()) as { items?: LayoutItem[] }
+        return body.items ?? []
+    }
+
+    /** 第二趟（服务端顺带跑第三趟配图）：一道题的内容 */
+    const fetchQuestion = async (payload: {
+        content: string
+        hasFigure: boolean
+        carryOver?: string
+    }): Promise<Draft | null> => {
+        const res = await fetch('/api/v1/ingest/question', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error(await extractErrorMessage(res, '服务端不支持分层识别。'))
+        const body = (await res.json()) as { draft?: unknown }
+        return body.draft ? normalizeDraft(body.draft) : null
+    }
+
     /**
-     * PDF：先在浏览器里把每页渲染成图，再逐页走视觉抽取。
+     * 一页的分层识别：切题 → 逐题读 → （带图的）补配图。
+     *
+     * 此前是一页一次调用，那一次要模型同时切题、读内容、判难度、挂知识点、
+     * 写图形规格。实机上的每个失败都能追到这里：输出必然长（截断整页颗粒无收）、
+     * 图形规格写在"顺便再干四件事"里（字段名飘移）、每页独立（跨页题接不上）。
+     *
+     * 拆开之后每趟输出都短，而短就是不截断。
+     * 拿不到版面就退回整页老路——分层是为了更准，不是为了少一条退路。
+     */
+    const extractPageLayered = async (
+        pageDataUrl: string,
+        onCarry: () => string | undefined,
+    ): Promise<{ drafts: Draft[]; mergedFirst: boolean; boxes: { total: number; withBox: number } }> => {
+        const items = await fetchLayout(pageDataUrl)
+        const boxes = { total: items.length, withBox: items.filter((i) => i.box).length }
+        if (items.length === 0) return { drafts: [], mergedFirst: false, boxes }
+
+        const drafts: Draft[] = []
+        let mergedFirst = false
+        for (const [i, item] of items.entries()) {
+            setPdfProgress({ done: i, total: items.length, phase: 'question' })
+            // 框不可用（或裁出来太小）就用整页图：效果差一点，但绝不裁坏
+            const cropped = await cropPage(pageDataUrl, item.box).catch(() => null)
+            // 只有本页第一题才可能是上一页的续文
+            const carryOver = i === 0 && item.continued ? onCarry() : undefined
+            try {
+                const draft = await fetchQuestion({
+                    content: cropped ?? pageDataUrl,
+                    hasFigure: item.hasFigure,
+                    ...(carryOver ? { carryOver } : {}),
+                })
+                if (draft) {
+                    drafts.push(draft)
+                    if (carryOver) mergedFirst = true
+                }
+            } catch (err) {
+                // 一道题读不出来不该拖累同页其他题
+                setPdfNote(`「${item.label || item.preview.slice(0, 10)}」识别失败（${String(err)}），继续下一题`)
+            }
+        }
+        return { drafts, mergedFirst, boxes }
+    }
+
+    /**
+     * PDF：先在浏览器里把每页渲染成图，再分层识别。
      *
      * 不走服务端抽文本，是因为拿真实讲义量过——文本层里没有数字：
      * 某讲义每页只有约 6 个阿拉伯字符，却有 120 处图形，抽出来的题干长这样：
@@ -138,20 +232,44 @@ export function IngestPage() {
         const { verdict, pages } = rendered
         setPdfNote(
             verdict.trustworthy
-                ? '正在逐页渲染后识别（数字与图形都在页图里，不会漏）'
-                : `${verdict.reason}；已自动改为整页识别`,
+                ? '正在逐页渲染后分层识别（先切题，再逐题读）'
+                : `${verdict.reason}；已自动改为整页渲染后分层识别`,
         )
         const all: Draft[] = []
+        const boxTally = { total: 0, withBox: 0 }
         for (const [i, page] of pages.entries()) {
-            setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
+            setPdfProgress({ done: i, total: pages.length, phase: 'layout' })
             try {
+                const { drafts, mergedFirst, boxes } = await extractPageLayered(
+                    page.dataUrl,
+                    // 跨页题：上一页最后一道多半就是被切断的那道
+                    () => all[all.length - 1]?.stem,
+                )
+                boxTally.total += boxes.total
+                boxTally.withBox += boxes.withBox
+                setBoxStat({ ...boxTally })
+                // 拼好的那道题要替换掉上一页那半截，而不是两半都留着
+                if (mergedFirst && all.length > 0) all.pop()
+                if (drafts.length > 0) {
+                    all.push(...drafts)
+                    continue
+                }
+                // 版面说这页没题：也可能是切题这趟看走眼了，再用老路试一次
+                setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
                 all.push(...(await uploadOnce({ kind: 'image', content: page.dataUrl })))
             } catch (err) {
-                // 单页失败不该让整本白跑——记下来继续，最后一并说明
-                setPdfNote(`第 ${page.page} 页识别失败（${String(err)}），其余页继续`)
+                // 分层这条路走不通（端点不支持、模型不配合）就整页兜底，
+                // 兜底也失败才算这一页丢了
+                try {
+                    setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
+                    all.push(...(await uploadOnce({ kind: 'image', content: page.dataUrl })))
+                    setPdfNote(`第 ${page.page} 页分层识别不可用（${String(err)}），已按整页识别`)
+                } catch (fallbackErr) {
+                    setPdfNote(`第 ${page.page} 页识别失败（${String(fallbackErr)}），其余页继续`)
+                }
             }
         }
-        setPdfProgress({ done: pages.length, total: pages.length, phase: 'extract' })
+        setPdfProgress({ done: pages.length, total: pages.length, phase: 'question' })
         return all
     }
 
@@ -161,6 +279,7 @@ export function IngestPage() {
         setBatchReport(null)
         setPdfNote(null)
         setPdfProgress(null)
+        setBoxStat(null)
         setExtracting(true)
         try {
             const next =
@@ -347,7 +466,7 @@ export function IngestPage() {
                                     <div className="rounded-[10px] bg-beam-wash border border-beam/20 px-4 py-2.5 space-y-1">
                                         {pdfProgress && (
                                             <p className="text-sm text-beam font-medium">
-                                                {pdfProgress.phase === 'render' ? '渲染页面' : '识别题目'}
+                                                {PHASE_LABEL[pdfProgress.phase]}
                                                 <span className="numeric">
                                                     {' '}
                                                     {pdfProgress.done} / {pdfProgress.total}
@@ -355,6 +474,20 @@ export function IngestPage() {
                                             </p>
                                         )}
                                         {pdfNote && <p className="text-xs text-ink-soft leading-relaxed">{pdfNote}</p>}
+                                        {/* 框给不准就该换模型——把这个判断依据摆出来，
+                                            而不是让人从识别结果去猜 */}
+                                        {boxStat && boxStat.total > 0 && (
+                                            <p className="text-xs text-ink-faint leading-relaxed">
+                                                切题定位：
+                                                <span className="numeric">
+                                                    {boxStat.withBox}/{boxStat.total}
+                                                </span>{' '}
+                                                道题给出了可用的位置框
+                                                {boxStat.withBox / boxStat.total < 0.5
+                                                    ? '——比例偏低，说明这个视觉模型定位不准，多数题在按整页识别；换个模型会明显更好'
+                                                    : '，其余按整页识别'}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -457,12 +590,23 @@ export function IngestPage() {
 
                                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                                         <label className="block">
-                                            <span className="eyebrow block mb-1">答案</span>
+                                            <span className="eyebrow block mb-1">
+                                                答案
+                                                {/* 学生版没印答案时模型会自己算一个，而且两次未必一样。
+                                                    这种数进库会让判题全反，所以在输入框上就要说清楚 */}
+                                                {d.answerUnverified && (
+                                                    <span className="ml-1.5 text-[color:var(--color-wrong)] normal-case">
+                                                        · 模型自己解的，请核对
+                                                    </span>
+                                                )}
+                                            </span>
                                             <input
                                                 type="text"
                                                 value={d.answer}
                                                 onChange={(e) => updateDraft(d.key, { answer: e.target.value })}
-                                                className={`${inputCls} numeric mt-1`}
+                                                className={`${inputCls} numeric mt-1 ${
+                                                    d.answerUnverified ? 'border-wrong/40' : ''
+                                                }`}
                                             />
                                         </label>
                                         <label className="block">

@@ -293,3 +293,28 @@ describe("extraction helpers", () => {
     expect(() => parseExtractionJson("完全不是 JSON", "middle")).toThrow();
   });
 });
+
+/**
+ * 分层的内容趟只要一道题，实测模型就不再压成一行、而是 pretty-print 展开。
+ * 按行解析这时会一无所获，必须落到括号配对那条路上——
+ * 这不是假设，是 qwen3.6-27b 对着裁好的单题图给出的真实形状。
+ */
+describe("单题的多行 JSON", () => {
+  it("pretty-print 的单个对象照样解析得出来", () => {
+    const raw = [
+      "{",
+      '"stem": "已知平行四边形ABCD的面积是48平方厘米，高AE=8厘米，求CD是多少厘米？",',
+      '"answer": "6",',
+      '"answerType": "numeric",',
+      '"options": [],',
+      '"analysis": "根据平行四边形面积公式，底等于面积除以高，即 48 ÷ 8 = 6。",',
+      '"difficulty": 1,',
+      '"level": "elementary_upper"',
+      "}",
+    ].join("\n");
+    const drafts = parseExtractionJson(raw, "elementary_upper");
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]!.answer).toBe("6");
+    expect(drafts[0]!.stem).toContain("平行四边形");
+  });
+});

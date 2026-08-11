@@ -42,6 +42,12 @@ export interface Draft {
     figureRejected?: string
     /** 模型提了但图谱里没有的知识点说法——它同时也是"我们缺哪个节点"的线索 */
     droppedSuggestions?: string[]
+    /**
+     * 答案是模型自己解的，材料里没有。
+     * 学生版讲义不印答案，实测同一道数三角形的题模型两次给出 48 和 84——
+     * 这种数进了库，孩子做错会被判对、做对会被判错，所以必须先让家长看见。
+     */
+    answerUnverified?: boolean
 }
 
 export interface ConfirmResult {
@@ -98,6 +104,7 @@ export function normalizeDraft(raw: unknown): Draft | null {
         droppedSuggestions: Array.isArray(o.droppedSuggestions)
             ? o.droppedSuggestions.filter((x): x is string => typeof x === 'string')
             : undefined,
+        answerUnverified: o.answerUnverified === true,
     }
 }
 

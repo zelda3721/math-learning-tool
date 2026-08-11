@@ -4,6 +4,14 @@ import { EducationLevelSchema, type EducationLevel, type FigureSpec } from "@mat
 import type { Knowledge } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
 import { vocabularyPrompt } from "./vocabulary.js";
+import {
+  contentUserPrompt,
+  parseJsonObjects,
+  parseLayout,
+  FIGURE_PROMPT,
+  LAYOUT_PROMPT,
+  type LayoutItem,
+} from "./passes.js";
 
 /**
  * 抽取 Provider：把原始材料（文本 / 图片）变成题目草稿。
@@ -33,6 +41,15 @@ export interface ExtractedDraft {
   proposedProblemTypeId?: string;
   answer: string;
   answerType: "numeric" | "expression" | "steps";
+  /**
+   * 答案是模型自己解的，材料里并没有。
+   *
+   * 学生版讲义不印答案，模型就会按提示词自己算一个——实测同一道数三角形的题
+   * 两次分别给出 48 和 84。这种数一旦以"抽取到的答案"的身份进库，
+   * 孩子做错了会被判对、做对了会被判错，而且没人知道是从哪坏的。
+   * 标出来，让家长在抽检时一眼看见哪些答案还没人核对过。
+   */
+  answerUnverified?: boolean;
   options?: string[];
   analysis?: string;
   difficulty: number;
@@ -42,6 +59,19 @@ export interface ExtractedDraft {
 export interface ExtractionProvider {
   extractFromText(text: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
   extractFromImage(base64: string, mime: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
+  /**
+   * 分层抽取的三趟（见 passes.ts）。可选：老的测试替身与离线兜底不实现它们，
+   * 路由检测到没有就退回整页一次抽取。
+   */
+  layoutFromImage?(base64: string, mime: string): Promise<LayoutItem[]>;
+  /** 一道题的内容（图应当是裁好的单题）；读不出来返回 null */
+  questionFromImage?(
+    base64: string,
+    mime: string,
+    hint?: ExtractionHint & { carryOver?: string },
+  ): Promise<ExtractedDraft | null>;
+  /** 只要配图规格，原样返回（合法性与真实性由 checkFigure 把关） */
+  figureFromImage?(base64: string, mime: string): Promise<unknown>;
 }
 
 /** 抽取时可用的知识层（拼候选清单用）；不给则退回纯离线定位 */
@@ -63,6 +93,8 @@ const LenientDraftSchema = z.object({
   analysis: z.string().optional(),
   difficulty: z.coerce.number().optional(),
   level: EducationLevelSchema.optional(),
+  /** 分层的内容趟要求模型自报答案出处（见 ExtractedDraft.answerUnverified） */
+  answerFrom: z.string().optional(),
   // 宽松收下：合法性与真实性交给 checkFigure，这里不拦
   figure: z.unknown().optional(),
   // 模型给的说法五花八门（id、名字、近似说法），一律先收下再吸附
@@ -83,6 +115,9 @@ function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel:
     ...(item.nodeIds?.length ? { proposedNodeIds: item.nodeIds.map(String) } : {}),
     ...(item.problemTypeId !== undefined ? { proposedProblemTypeId: String(item.problemTypeId) } : {}),
     answer: item.answer === undefined ? "" : String(item.answer).trim(),
+    // 只有明确说了 material 才算材料给的。字段缺失时（老的整页路径不问这个）
+    // 不标记——那条路上答案通常确实来自教师版，乱标会让抽检页全是红字而失去意义
+    ...(item.answerFrom === "solved" ? { answerUnverified: true } : {}),
     answerType: item.answerType ?? "numeric",
     options: item.options?.length ? item.options.map(String) : undefined,
     analysis: item.analysis?.trim() || undefined,
@@ -303,12 +338,30 @@ const IMAGE_PROMPT = "请从这张图片中抽取全部数学题（按系统提�
  * 4096 tokens 时实机上直接被截断，整页解析失败；这里放宽，
  * 并且解析端按对象逐个抠（见 parseExtractionOutcome），双保险。
  */
-async function collectText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
+async function collectText(
+  client: LlmClient,
+  messages: ChatMessage[],
+  maxTokens = 8192,
+): Promise<string> {
   let text = "";
-  for await (const ev of client.chat(messages, { maxTokens: 8192, temperature: 0.2 })) {
+  for await (const ev of client.chat(messages, { maxTokens, temperature: 0.2 })) {
     if (ev.type === "text") text += ev.text;
   }
   return text;
+}
+
+/** 一图一问：分层的三趟都是这个形状 */
+function imageAsk(system: string, prompt: string, base64: string, mime: string): ChatMessage[] {
+  return [
+    { role: "system", content: system },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } },
+      ],
+    },
+  ];
 }
 
 /** 用 @mathtutor/llm-client 构造 LLM 抽取 Provider：文本走 fast 端点，图片走 vision 端点 */
@@ -320,6 +373,12 @@ export function createLlmExtractionProvider(
   // 有知识层就把候选清单拼进系统提示词：让模型点名，比事后靠关键词猜准得多
   const withVocab = (hint?: ExtractionHint) =>
     deps ? `${SYSTEM_PROMPT}\n${vocabularyPrompt(deps.knowledge, hint?.level)}` : SYSTEM_PROMPT;
+  // 分层的内容趟不能复用 SYSTEM_PROMPT——那份讲的是"整页、一行一题"的格式，
+  // 和"这张图就一道题、输出一个对象"直接冲突。只把知识点清单接上。
+  const contentSystem = (hint?: ExtractionHint) =>
+    deps
+      ? `你是数学题目抽取器。${vocabularyPrompt(deps.knowledge, hint?.level)}`
+      : "你是数学题目抽取器。";
   const textClient = LlmClient.fromEndpoint(config.fast);
   const visionClient = LlmClient.fromEndpoint(config.vision);
   return {
@@ -346,6 +405,46 @@ export function createLlmExtractionProvider(
       const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
       if (outcome.skipped > 0) hint?.onSkipped?.(outcome.skipped);
       return outcome.drafts;
+    },
+
+    // ---- 分层抽取的三趟。每趟只干一件事，输出都短，因此都不容易被截断 ----
+
+    async layoutFromImage(base64, mime) {
+      // 一页十几道题、每道一行短 JSON，1024 已经绰绰有余
+      const raw = await collectText(
+        visionClient,
+        imageAsk(LAYOUT_PROMPT, "这一页有哪几道题？按格式逐行输出。", base64, mime),
+        1536,
+      );
+      return parseLayout(raw);
+    },
+
+    async questionFromImage(base64, mime, hint) {
+      const raw = await collectText(
+        visionClient,
+        imageAsk(
+          contentSystem(hint),
+          contentUserPrompt(hint?.level, hint?.carryOver),
+          base64,
+          mime,
+        ),
+        2048,
+      );
+      // 一张图就一道题：多解出来的忽略，取第一个（模型偶尔会把选项拆成额外对象）
+      const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
+      return outcome.drafts[0] ?? null;
+    },
+
+    async figureFromImage(base64, mime) {
+      const raw = await collectText(
+        visionClient,
+        imageAsk(FIGURE_PROMPT, "只描述这道题的图形。", base64, mime),
+        1536,
+      );
+      const first = parseJsonObjects(raw)[0];
+      // 模型按约定用 {} 表示"画不清楚"；空对象没必要走门禁再报一次错
+      if (!first || Object.keys(first as object).length === 0) return undefined;
+      return first;
     },
   };
 }
