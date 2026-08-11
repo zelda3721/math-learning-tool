@@ -5,6 +5,7 @@ import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
 import { snapToGraph } from "./vocabulary.js";
+import { boxQuality } from "./passes.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf } from "../questions.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
@@ -178,6 +179,83 @@ export function ingestRoutes(state: AppState): Hono {
 
     if (!drafts.length) warnings.push("未能从材料中抽取到题目");
     return c.json({ drafts: drafts.map((d) => locateDraft(state, d)), warnings });
+  });
+
+  // ---- 分层抽取：版面 → 逐题内容（+ 配图）。见 passes.ts 里的缘由 ----
+
+  const LayoutSchema = z.object({ content: z.string().min(1) });
+
+  /**
+   * 第一趟：只切题。输出极短，因此几乎不会截断——
+   * 而截断正是整页一次抽取最常见的死法。
+   * 同时返回框的可用率：低到一定程度就该换模型，这个数得让人看得见。
+   */
+  app.post("/layout", async (c) => {
+    const parsed = LayoutSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {content}（页图 data URL）" }, 400);
+    const provider = state.extraction;
+    if (!provider?.layoutFromImage) {
+      return c.json({ error: "当前抽取端点不支持分层识别" }, 501);
+    }
+    const { base64, mime } = stripDataUrl(parsed.data.content);
+    try {
+      const items = await provider.layoutFromImage(base64, mime ?? "image/jpeg");
+      return c.json({ items, quality: boxQuality(items) });
+    } catch (err) {
+      return c.json({ error: `版面识别失败: ${String(err)}` }, 502);
+    }
+  });
+
+  const QuestionSchema_ = z.object({
+    /** 裁好的单题图（拿不到框时也可以是整页图） */
+    content: z.string().min(1),
+    level: EducationLevelSchema.optional(),
+    /** 版面说这道题带图时才跑第三趟——不带图的题白跑一次配图调用是纯浪费 */
+    hasFigure: z.boolean().optional(),
+    /** 上一页残缺的开头，用于把跨页题拼回一道 */
+    carryOver: z.string().optional(),
+  });
+
+  /**
+   * 第二趟（+ 第三趟）：一道题的内容，必要时接着要配图。
+   *
+   * 配图放在服务端接着做而不是让前端再发一次，是因为裁出来的图是个大 base64——
+   * 为了同一张图往返两趟，光传输就够呛。
+   */
+  app.post("/question", async (c) => {
+    const parsed = QuestionSchema_.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return c.json({ error: `需要 {content}: ${issue?.path.join(".")} ${issue?.message}` }, 400);
+    }
+    const provider = state.extraction;
+    if (!provider?.questionFromImage) {
+      return c.json({ error: "当前抽取端点不支持分层识别" }, 501);
+    }
+    const { content, level, hasFigure, carryOver } = parsed.data;
+    const { base64, mime } = stripDataUrl(content);
+    const warnings: string[] = [];
+
+    let draft: ExtractedDraft | null;
+    try {
+      draft = await provider.questionFromImage(base64, mime ?? "image/jpeg", { level, carryOver });
+    } catch (err) {
+      return c.json({ error: `题目识别失败: ${String(err)}` }, 502);
+    }
+    if (!draft) return c.json({ draft: null, warnings: ["这一块没读出题目"] });
+
+    // 第三趟：只给带图的题跑。失败只丢图不丢题——题干通常是好的
+    if (hasFigure && provider.figureFromImage) {
+      try {
+        const raw = await provider.figureFromImage(base64, mime ?? "image/jpeg");
+        const checked = checkFigure(raw, draft.stem);
+        if (checked.figure) draft = { ...draft, figure: checked.figure };
+        else if (checked.rejected) draft = { ...draft, figureRejected: checked.rejected };
+      } catch (err) {
+        warnings.push(`配图识别失败（${String(err)}），题目已保留`);
+      }
+    }
+    return c.json({ draft: locateDraft(state, draft), warnings });
   });
 
   app.post("/confirm", async (c) => {

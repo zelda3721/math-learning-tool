@@ -79,6 +79,36 @@ function coerceShape(raw: unknown): unknown {
       if (q.degrees === undefined && typeof q.value === "number" && q.kind === "angle") q.degrees = q.value;
       // 直角写成 {"kind":"angle","degrees":90}
       if (q.kind === "angle" && q.degrees === 90) q.kind = "right-angle";
+      // 点在线段上：schema 叫 point，模型跟着别的约束一起写成了 at
+      if (q.kind === "on-segment" && q.point === undefined && typeof q.at === "string") {
+        q.point = q.at;
+      }
+      // 平行/垂直/等长要的是**两条线段** a、b。
+      // 实测模型会摊平成 from/to + from2/to2（跟着 length 的写法走），
+      // 也见过 a:"AB" 这种字符串写法与 lines:[[..],[..]]。
+      if (q.kind === "parallel" || q.kind === "perpendicular" || q.kind === "equal-length") {
+        const asSeg = (v: unknown): [string, string] | undefined => {
+          if (Array.isArray(v) && v.length >= 2) return [String(v[0]), String(v[1])];
+          if (typeof v === "string" && v.length === 2) return [v[0]!, v[1]!];
+          return undefined;
+        };
+        const lines = Array.isArray(q.lines) ? q.lines : Array.isArray(q.segments) ? q.segments : [];
+        const a =
+          asSeg(q.a) ??
+          asSeg(lines[0]) ??
+          (typeof q.from === "string" && typeof q.to === "string" ? [q.from, q.to] as [string, string] : undefined);
+        const b =
+          asSeg(q.b) ??
+          asSeg(lines[1]) ??
+          (typeof q.from2 === "string" && typeof q.to2 === "string"
+            ? ([q.from2, q.to2] as [string, string])
+            : undefined);
+        if (a && b) {
+          // zod 会自己剥掉多余字段，清掉只是不留下"同一件事写了两遍"的痕迹
+          delete q.from; delete q.to; delete q.from2; delete q.to2; delete q.lines;
+          q.a = a; q.b = b;
+        }
+      }
       return q;
     });
   }
@@ -105,6 +135,30 @@ export function checkFigure(raw: unknown, stem: string): FigureCheck {
     return { rejected: `配图规格不合法：${where} ${issue?.message ?? "未知"}` };
   }
   const spec = parsed.data;
+
+  /**
+   * ⓪ 这到底是不是一张"图"。
+   *
+   * 约束才是图形的定义，坐标只是它的解。一条约束都没有时，求解器无事可违、
+   * 一律判通过，于是我们会画出一张**随机摆放**的图去冒充这道题的配图。
+   * 对数图形题这是致命的：题问的就是那个特定排布，摆错了答案就跟着错。
+   *
+   * 实测触发过：一道"手绢里有多少个三角形"，模型给了 52 个点（A…zz）、
+   * 几百条线段、零条约束——它在描摹像素，不是在描述结构。
+   * 点多到超出字母表也是同一个信号，一并拦下。
+   */
+  if (spec.constraints.length === 0) {
+    return {
+      rejected:
+        "配图没有任何约束条件：这样画出来的位置全是随意摆的，" +
+        "看着像这道题的图，其实不是",
+    };
+  }
+  if (spec.points.length > 26) {
+    return {
+      rejected: `配图有 ${spec.points.length} 个点，已经不是「点线角」能说清的结构：多半是在描摹像素`,
+    };
+  }
 
   // ② 数字出处：图上标的量必须能在题干里找到
   const known = numbersIn(stem);
