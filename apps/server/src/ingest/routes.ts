@@ -129,7 +129,10 @@ export function ingestRoutes(state: AppState): Hono {
     if (kind === "text") {
       if (provider) {
         try {
-          drafts = await provider.extractFromText(content, { level });
+          drafts = await provider.extractFromText(content, {
+            level,
+            onSkipped: (n) => warnings.push(`有 ${n} 道题没能读全（多半是输出被截断），已跳过`),
+          });
         } catch (err) {
           warnings.push(`LLM 抽取失败（${String(err)}），已回退离线分块：答案与解析需人工填写`);
           drafts = offlineTextDrafts(content, level);
@@ -144,7 +147,11 @@ export function ingestRoutes(state: AppState): Hono {
       }
       const { base64, mime } = stripDataUrl(content);
       try {
-        drafts = await provider.extractFromImage(base64, mime ?? "image/jpeg", { level });
+        drafts = await provider.extractFromImage(base64, mime ?? "image/jpeg", {
+          level,
+          onSkipped: (n) =>
+            warnings.push(`有 ${n} 道题没能读全（多半是输出被截断），已跳过；其余照常入草稿`),
+        });
       } catch (err) {
         return c.json({ error: `图片抽取失败: ${String(err)}` }, 502);
       }
