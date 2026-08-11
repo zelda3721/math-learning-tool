@@ -48,7 +48,8 @@ GOOD = _doc(
             f'<div data-claim="rabbits=12">{_units(12, "rabbit")}</div>'
             '<div data-measure="real_feet=94"></div>')
     + _beat(2, "12 只兔、23 只鸡，头 35 脚 94。",
-            f'<div data-claim="chickens=23">{_units(23, "chicken")}</div>')
+            f'<div data-claim="chickens=23">{_units(23, "chicken")}</div>'
+            '<input type="range" data-control="换几只" min="0" max="35" value="0">')
 )
 
 
@@ -197,8 +198,10 @@ def test_参考实现能通过门禁_契约必须是写得出来的():
     assert report.warnings == []
 
     parsed = parse_web_explanation(reference)
-    # 个体是字面写出来的，不是脚本造的——静态门禁才数得到
+    # 个体由 data-repeat 声明，克隆交给可信运行时——静态门禁按声明数计
     assert parsed.units_total == 35 + 35 + 12 + 23
+    # 参考实现必须示范"可拨"：样板不带头，别人更不会做
+    assert parsed.controls >= 1
     assert [b["index"] for b in parsed.beats] == [0, 1, 2]
     assert all(b["teach"] for b in parsed.beats)
     by_name = {}
@@ -269,3 +272,25 @@ def test_输出被截断必须判失败():
 
 def test_完整收尾的不会被误判成截断():
     assert verify_web_explanation(GOOD, EVIDENCE, REQUEST).ok
+
+
+def test_没有可拨的控件只记警告_不拦交付():
+    """有些题确实没什么可拨的；但只能看的画面要被点名，让它进数据集成为质量信号。"""
+    static = _doc(
+        _beat(0, "先假设全是鸡", '<div data-claim="heads=35"><i data-unit="c" data-repeat="35"></i></div>')
+        + _beat(1, "换 12 只", '<div data-claim="rabbits=12"><i data-unit="r" data-repeat="12"></i></div>')
+    )
+    report = verify_web_explanation(static, EVIDENCE, REQUEST)
+    assert report.ok, report.errors
+    assert any("可拨的控件" in w for w in report.warnings), report.warnings
+
+
+def test_给了控件就不再警告():
+    live = _doc(
+        _beat(0, "先假设全是鸡",
+              '<div data-claim="heads=35"><i data-unit="c" data-repeat="35"></i></div>'
+              '<input type="range" data-control="换几只" min="0" max="35" value="0">')
+        + _beat(1, "换 12 只", '<div data-claim="rabbits=12"><i data-unit="r" data-repeat="12"></i></div>')
+    )
+    report = verify_web_explanation(live, EVIDENCE, REQUEST)
+    assert report.ok and report.warnings == [], report

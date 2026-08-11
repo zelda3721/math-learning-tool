@@ -535,3 +535,61 @@ function solvePlotted(
     }
   }
 }
+
+/**
+ * 「换了几只」是可以拨动的。
+ *
+ * 假设法的关键不在终态，而在**每换一只会怎样**：头数一个不变，脚数每次多 2。
+ * 只给学生看最后一张图，这个因果就得靠脑补；能拨才叫直观。
+ * 这里把一拍限制成「只换了前 k 只」，播放器据此做逐只回放与手动拖动。
+ *
+ * 纯函数：不改原 scene，返回一份新的（播放器每帧都要调）。
+ */
+export function limitSwaps(scene: Scene, k: number): Scene {
+  const limit = Math.max(0, Math.floor(k));
+  let seen = 0;
+  const flowed = scene.flowed.map((shape) => {
+    if (shape.kind !== "units") return shape;
+    let touched = false;
+    const units = shape.units.map((u) => {
+      if (!u.swapped) return u;
+      seen += 1;
+      if (seen <= limit) return u;
+      touched = true;
+      // 还没轮到它：退回未替换的样子（记号数也跟着退回全组默认）
+      const { swapped: _s, swappedTo: _t, marks: _m, ...rest } = u;
+      return rest;
+    });
+    return touched ? { ...shape, units } : shape;
+  });
+  return { ...scene, flowed };
+}
+
+/** 这一拍一共有几只被换过（可拨动的总步数；0 表示没有可回放的过程） */
+export function swappedCount(scene: Scene): number {
+  let n = 0;
+  for (const shape of scene.flowed) {
+    if (shape.kind !== "units") continue;
+    for (const u of shape.units) if (u.swapped) n += 1;
+  }
+  return n;
+}
+
+/**
+ * 画面上此刻的两个总数：个体数与附属记号数。
+ *
+ * 对鸡兔同笼就是「头」与「脚」——拨动替换数时，前者纹丝不动、后者一路爬升，
+ * 守恒与变化同屏可见。这是整道题的道理所在，值得实时写出来。
+ */
+export function unitTotals(scene: Scene): { units: number; marks: number } {
+  let units = 0;
+  let marks = 0;
+  for (const shape of scene.flowed) {
+    if (shape.kind !== "units") continue;
+    for (const u of shape.units) {
+      units += u.weight;
+      marks += u.marks ?? shape.perUnitMarks ?? 0;
+    }
+  }
+  return { units, marks };
+}
