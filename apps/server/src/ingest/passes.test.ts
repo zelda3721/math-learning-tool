@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxQuality, normalizeBox, parseJsonObjects, parseLayout, snapBoxes } from "./passes.js";
+import { boxQuality, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes } from "./passes.js";
 
 describe("normalizeBox", () => {
   it("收下 0~1 的相对框", () => {
@@ -148,5 +148,62 @@ describe("parseJsonObjects", () => {
 
   it("完全不是 JSON 时返回空而不是抛错", () => {
     expect(parseJsonObjects("这道题的图形是一个三角形。")).toEqual([]);
+  });
+});
+
+describe("parseFirstObject", () => {
+  /**
+   * 实机上坏在这里：配图规格是多行展开的，里面 `{"id": "A"},` 自己
+   * 就是一行合法 JSON。按行扫先抓到它，整张图就变成了一个点，
+   * 于是报出一句谁也看不懂的「配图规格不合法：points Required」。
+   */
+  const PRETTY = [
+    "```json",
+    "{",
+    '  "points": [',
+    '    {"id": "A"},',
+    '    {"id": "B"},',
+    '    {"id": "C"}',
+    "  ],",
+    '  "segments": [',
+    '    {"from": "A", "to": "B", "label": "3 厘米"}',
+    "  ],",
+    '  "constraints": [',
+    '    {"kind": "length", "from": "A", "to": "B", "value": 3}',
+    "  ]",
+    "}",
+    "```",
+  ].join("\n");
+
+  it("取的是最外层那个对象，而不是里面第一个点", () => {
+    const out = parseFirstObject(PRETTY) as Record<string, unknown>;
+    expect(Object.keys(out)).toEqual(["points", "segments", "constraints"]);
+    expect(out.points).toHaveLength(3);
+  });
+
+  it("压成一行的写法同样取到整个对象", () => {
+    expect(parseFirstObject('{"points":[{"id":"A"},{"id":"B"}]}')).toEqual({
+      points: [{ id: "A" }, { id: "B" }],
+    });
+  });
+
+  it("被截断时当作没有图——半张图比没有图坏", () => {
+    const truncated = PRETTY.slice(0, PRETTY.indexOf('"segments"'));
+    expect(parseFirstObject(truncated)).toBeUndefined();
+  });
+
+  it("字符串里的花括号不会把配对搞乱", () => {
+    expect(parseFirstObject('{"note":"图中 {阴影} 部分为所求","points":[]}')).toEqual({
+      note: "图中 {阴影} 部分为所求",
+      points: [],
+    });
+  });
+
+  it("模型用 {} 表示画不清楚", () => {
+    expect(parseFirstObject("{}")).toEqual({});
+  });
+
+  it("完全没有 JSON 时返回 undefined", () => {
+    expect(parseFirstObject("这道题的图形太复杂了，我画不出来。")).toBeUndefined();
   });
 });

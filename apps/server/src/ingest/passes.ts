@@ -83,12 +83,55 @@ export function contentUserPrompt(level?: EducationLevel, carryOver?: string): s
   return `${lv}${CONTENT_PROMPT}${carry}`;
 }
 
-/** 从模型输出里逐行抠 JSON 对象（与主抽取同一策略：截断只丢最后一行） */
-export function parseJsonObjects(raw: string): unknown[] {
-  let text = raw.trim();
+function stripFence(raw: string): string {
+  const text = raw.trim();
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  if (fence) text = fence[1]!.trim();
-  else if (text.startsWith("```")) text = text.replace(/^```(?:json)?\s*/i, "");
+  if (fence) return fence[1]!.trim();
+  // 围栏没闭合（截断的症状）时取开围栏之后的全部内容
+  if (text.startsWith("```")) return text.replace(/^```(?:json)?\s*/i, "");
+  return text;
+}
+
+/**
+ * 取**最外层**那一个 JSON 对象。
+ *
+ * 配图规格是一个多行展开的大对象，不能按行扫——里面的
+ * `{"id": "A"},` 自己就是一行合法 JSON，按行扫会先抓到它，
+ * 于是整张图变成了一个点，报出莫名其妙的「points Required」。
+ * 实机上就是这么坏的。所以这里按括号配对，从第一个 `{` 找到与它配对的 `}`。
+ */
+export function parseFirstObject(raw: string): unknown {
+  const text = stripFence(raw);
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          return undefined;
+        }
+      }
+    }
+  }
+  // 没配对上 = 被截断了。宁可当作没有图，也不能交出半张
+  return undefined;
+}
+
+/** 从模型输出里逐行抠 JSON 对象（版面那趟专用：一行一题，截断只丢最后一行） */
+export function parseJsonObjects(raw: string): unknown[] {
+  const text = stripFence(raw);
 
   const out: unknown[] = [];
   for (const line of text.split(/\r?\n/)) {
@@ -101,16 +144,9 @@ export function parseJsonObjects(raw: string): unknown[] {
     }
   }
   if (out.length === 0) {
-    // 退回括号配对：模型可能把整个对象写成了多行
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        out.push(JSON.parse(text.slice(start, end + 1)));
-      } catch {
-        /* 交给调用方按空结果处理 */
-      }
-    }
+    // 一行都没抠出来：模型把整个对象展开成了多行，改按括号配对取最外层
+    const single = parseFirstObject(text);
+    if (single !== undefined) out.push(single);
   }
   return out;
 }
