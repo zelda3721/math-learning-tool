@@ -106,82 +106,20 @@ describe("POST /api/v1/ingest/layout", () => {
 });
 
 describe("POST /api/v1/ingest/question", () => {
-  it("带图的题才跑配图那趟", async () => {
+  /**
+   * 抽取阶段**不再要配图规格**。原图才是配图的主表示：它就是原图，
+   * 不存在重新理解的风险，而模型转写的「点线角」是二手的——
+   * 已经见过它把直角梯形画成上下颠倒、对着数图形的网格给出 52 个点。
+   * 规格留到真要做讲解动画时再从原图转。
+   */
+  it("即便版面说这题有图，也不再跑配图那趟", async () => {
     const env = tempFixtureEnv([]);
     const provider = layeredProvider({});
     env.state.extraction = provider;
     const app = createApp(env.state);
 
-    await jsonPost(app, "/api/v1/ingest/question", { content: PAGE, hasFigure: false });
-    expect(provider.spy.figureCalls).toBe(0);
-
     await jsonPost(app, "/api/v1/ingest/question", { content: PAGE, hasFigure: true });
-    expect(provider.spy.figureCalls).toBe(1);
-  });
-
-  it("配图过了门禁就挂到题上", async () => {
-    const env = tempFixtureEnv([]);
-    env.state.extraction = layeredProvider({
-      figure: {
-        points: [{ id: "A" }, { id: "B" }, { id: "C" }, { id: "D" }],
-        segments: [
-          { from: "A", to: "B" },
-          { from: "B", to: "C" },
-          { from: "C", to: "D" },
-          { from: "D", to: "A" },
-        ],
-        polygons: [{ points: ["A", "B", "C", "D"] }],
-        constraints: [
-          { kind: "length", from: "A", to: "B", value: 8 },
-          { kind: "length", from: "B", to: "C", value: 5 },
-          { kind: "right-angle", at: "B", from: "A", to: "C" },
-          { kind: "right-angle", at: "A", from: "D", to: "B" },
-        ],
-      },
-    });
-    const app = createApp(env.state);
-
-    const res = await jsonPost(app, "/api/v1/ingest/question", { content: PAGE, hasFigure: true });
-    const body = await res.json();
-    expect(body.draft.figure).toBeDefined();
-    expect(body.draft.figureRejected).toBeUndefined();
-  });
-
-  it("配图给出题干没有的条件时丢图留题——不能让孩子看图就有答案", async () => {
-    const env = tempFixtureEnv([]);
-    env.state.extraction = layeredProvider({
-      figure: {
-        points: [{ id: "A" }, { id: "B" }, { id: "C" }],
-        segments: [
-          { from: "A", to: "B" },
-          { from: "B", to: "C" },
-          { from: "C", to: "A" },
-        ],
-        // 题干里只有 8 和 5，这个 26 正是要孩子算出来的答案
-        constraints: [{ kind: "length", from: "A", to: "C", value: 26 }],
-      },
-    });
-    const app = createApp(env.state);
-
-    const res = await jsonPost(app, "/api/v1/ingest/question", { content: PAGE, hasFigure: true });
-    const body = await res.json();
-    expect(body.draft.figure).toBeUndefined();
-    expect(body.draft.figureRejected).toContain("题干没有的条件");
-    // 题目本身必须还在
-    expect(body.draft.stem).toContain("长方形");
-    expect(body.draft.answer).toBe("26");
-  });
-
-  it("配图那趟整个失败也只丢图，题照常返回", async () => {
-    const env = tempFixtureEnv([]);
-    env.state.extraction = layeredProvider({ figureThrows: true });
-    const app = createApp(env.state);
-
-    const res = await jsonPost(app, "/api/v1/ingest/question", { content: PAGE, hasFigure: true });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.draft.stem).toContain("长方形");
-    expect(body.warnings[0]).toContain("配图识别失败");
+    expect(provider.spy.figureCalls).toBe(0);
   });
 
   it("跨页的上半截原样交给模型去拼", async () => {

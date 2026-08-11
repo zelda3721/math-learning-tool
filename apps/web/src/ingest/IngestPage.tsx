@@ -22,9 +22,7 @@ import {
 } from './shared'
 import type { AnswerType, ConfirmResult, Draft, Level } from './shared'
 import { pdfToPages } from './pdfPages'
-import { cropPage } from './crop'
-import { QuestionFigure } from '../practice/QuestionFigure'
-import type { FigureSpec } from '@mathtutor/explainer-web'
+import { cropPage, figureCropBox, FIGURE_PAD } from './crop'
 
 type IngestKind = 'text' | 'image' | 'pdf'
 type IngestTab = 'input' | 'review'
@@ -46,6 +44,7 @@ interface LayoutItem {
     preview: string
     box?: [number, number, number, number]
     hasFigure: boolean
+    figureBox?: [number, number, number, number]
     continued: boolean
 }
 
@@ -197,6 +196,18 @@ export function IngestPage() {
                     ...(carryOver ? { carryOver } : {}),
                 })
                 if (draft) {
+                    /**
+                     * 原题原图：孩子做题时看的就是它，所以直接从页图上裁，不经模型转写。
+                     *
+                     * **只认 figureBox，绝不退回整道题的框**。题目框经 snapBoxes
+                     * 已经扩到下一道题之前，教师版的【答案】灰框正落在里面——
+                     * 拿它裁图，等于把答案印在配图上递给孩子。
+                     * 框不到就没有图：一道少了图的几何题还能靠文字理解，
+                     * 一张带着答案的图会让这道题彻底失去意义。
+                     */
+                    draft.figureImage =
+                        (await cropPage(pageDataUrl, figureCropBox(item), FIGURE_PAD).catch(() => null)) ??
+                        undefined
                     drafts.push(draft)
                     if (carryOver) mergedFirst = true
                 }
@@ -341,7 +352,9 @@ export function IngestPage() {
                     nodeIds: d.nodes.map((n) => n.nodeId),
                     ...(d.options?.length ? { options: d.options } : {}),
                     ...(d.analysis ? { analysis: d.analysis } : {}),
-                    // 配图原样带回；服务端入库前会再过一次门禁（前端传的一律不可信）
+                    // 原图入库时落盘到 media/figures（不进 git）
+                    ...(d.figureImage ? { figureImage: d.figureImage } : {}),
+                    // 配图规格原样带回；服务端入库前会再过一次门禁（前端传的一律不可信）
                     ...(d.figure ? { figure: d.figure } : {}),
                 })),
             }
@@ -590,12 +603,16 @@ export function IngestPage() {
                                         <p className="text-xs text-ink-soft">选项：{d.options.join(' / ')}</p>
                                     )}
 
-                                    {/* 配图当场画出来。核对的是"图对不对"，不是那段 JSON 对不对——
-                                        条件写反了（比如直角标在别的顶点上）只有看图才发现得了 */}
-                                    {d.figure ? (
-                                        <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
-                                            <p className="eyebrow mb-1">配图 · 由题干条件解算，请核对是否与原题一致</p>
-                                            <QuestionFigure figure={d.figure as FigureSpec} width={340} />
+                                    {/* 原题原图。它就是讲义上那一块，孩子做题时看的也是它，
+                                        所以核对起来只有一个问题：裁得对不对 */}
+                                    {d.figureImage ? (
+                                        <div className="rounded-[10px] border border-rule bg-plate/40 p-3 space-y-1">
+                                            <p className="eyebrow">原题配图 · 核对是否裁全</p>
+                                            <img
+                                                src={d.figureImage}
+                                                alt="原题配图"
+                                                className="max-w-full max-h-72 rounded-[6px]"
+                                            />
                                         </div>
                                     ) : null}
 

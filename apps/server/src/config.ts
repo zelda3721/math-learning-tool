@@ -38,6 +38,12 @@ export interface ServerConfig {
   engineUrl: string;
   /** data/ 唯一数据根 */
   dataDir: string;
+  /**
+   * 题目原图存放处。**刻意放在 data/ 之外**：这些是二进制，
+   * 一份讲义几十张，进 git 会让仓库越滚越大，而它们又是可以重新导出来的。
+   * /media/ 已在 .gitignore 里；换机器时手工拷贝这个目录即可。
+   */
+  figuresDir: string;
   /** 引擎离线时是否允许降级启动（开发用；生产按设计应拒绝启动） */
   allowEngineOffline: boolean;
   /**
@@ -60,6 +66,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     dataDir: env.DATA_DIR
       ? path.resolve(new URL("../../..", import.meta.url).pathname, env.DATA_DIR)
       : new URL("../../../data", import.meta.url).pathname,
+    figuresDir: env.FIGURES_DIR
+      ? path.resolve(new URL("../../..", import.meta.url).pathname, env.FIGURES_DIR)
+      : new URL("../../../media/figures", import.meta.url).pathname,
     allowEngineOffline: env.ALLOW_ENGINE_OFFLINE === "1",
     defaultWebExplainMode:
       env.EXPLAIN_WEB_MODE === "web_html" || env.EXPLAIN_WEB_MODE === "both"

@@ -21,7 +21,9 @@ function sanitize(q: Question) {
     level: q.level,
     nodeIds: q.nodeIds,
     problemTypeId: q.problemTypeId,
-    // 配图是题面的一部分（几何题没图就读不懂），与答案解析不同，必须下发
+    // 配图是题面的一部分（几何题没图就读不懂），与答案解析不同，必须下发。
+    // 原图是主表示，规格只在没有原图时兜底（见 figures.ts）
+    figureImage: q.figureImage,
     figure: q.figure,
   };
 }

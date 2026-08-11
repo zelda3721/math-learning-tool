@@ -20,6 +20,19 @@ export interface CropRect {
   height: number;
 }
 
+/** 题目文字的默认余量：模型的框普遍偏紧，正好卡在字的边缘上 */
+const DEFAULT_PAD_X = 0.015;
+const DEFAULT_PAD_Y = 0.02;
+
+/**
+ * 配图专用的余量，比文字小得多。
+ *
+ * 图本身四周就有留白，不需要文字那样的补偿；而多留的那一点会向下
+ * 蹭进紧随其后的【答案】灰框——实测已经蹭到过它的上边沿。
+ * 蹭到空白无害，蹭到数字就是把答案印在配图上递给孩子。
+ */
+export const FIGURE_PAD = { padX: 0.008, padY: 0.005 };
+
 /**
  * 相对框 → 像素矩形，四周留一点余量。
  *
@@ -31,8 +44,8 @@ export function cropRect(
   box: Box,
   imageWidth: number,
   imageHeight: number,
-  padX = 0.015,
-  padY = 0.02,
+  padX: number = DEFAULT_PAD_X,
+  padY: number = DEFAULT_PAD_Y,
 ): CropRect {
   const [x0, y0, x1, y1] = box;
   const left = Math.max(0, x0 - padX);
@@ -58,6 +71,20 @@ export function worthCropping(rect: CropRect): boolean {
   return rect.width >= 200 && rect.height >= 60;
 }
 
+/**
+ * 该拿哪个框去裁配图。
+ *
+ * 答案是：**只有 figureBox，没有别的选项**。
+ * 题目框经 snapBoxes 已经扩到下一道题之前，教师版的【答案】灰框正落在里面——
+ * 拿它裁图，等于把答案印在配图上递给孩子。
+ * 框不到就没有图：少了图的几何题还能靠文字理解，带着答案的图会让这道题彻底失去意义。
+ *
+ * 单独写成一个函数，是因为这条规则太容易在某次"顺手加个兜底"里被推翻。
+ */
+export function figureCropBox(item: { hasFigure?: boolean; figureBox?: Box; box?: Box }): Box | undefined {
+  return item.hasFigure && item.figureBox ? item.figureBox : undefined;
+}
+
 async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -74,11 +101,12 @@ async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 export async function cropPage(
   pageDataUrl: string,
   box: Box | undefined,
-  quality = 0.85,
+  opts: { quality?: number; padX?: number; padY?: number } = {},
 ): Promise<string | null> {
   if (!box) return null;
+  const quality = opts.quality ?? 0.85;
   const img = await loadImage(pageDataUrl);
-  const rect = cropRect(box, img.naturalWidth, img.naturalHeight);
+  const rect = cropRect(box, img.naturalWidth, img.naturalHeight, opts.padX, opts.padY);
   if (!worthCropping(rect)) return null;
 
   const canvas = document.createElement("canvas");

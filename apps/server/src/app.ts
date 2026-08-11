@@ -23,6 +23,7 @@ import { ingestRoutes } from "./ingest/routes.js";
 import { exploreRoutes } from "./explore.js";
 import { askRoutes } from "./ask.js";
 import { bankRoutes } from "./bank.js";
+import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
 
 export interface AppState {
@@ -160,6 +161,23 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/ask", askRoutes(state));
   // 题库管理（家长专属）：列出全部题、就地修改、删除、整批撤回
   app.route("/api/v1/bank", bankRoutes(state));
+
+  /**
+   * 题目原图。**不设家长门**——孩子做题时看的就是这张图，
+   * 图里只有题干与配图，没有答案（答案在【答案】框里，裁图时不在范围内）。
+   */
+  app.get("/api/v1/figures/:name", (c) => {
+    const found = loadFigure(state.config.figuresDir, c.req.param("name"));
+    if (!found) return c.json({ error: "配图不存在" }, 404);
+    // Buffer 要转成 Uint8Array：Hono 的 body 只认 string/ArrayBuffer/流
+    return new Response(new Uint8Array(found.body), {
+      headers: {
+        "Content-Type": found.contentType,
+        // 名字是内容哈希，同名必然同图，可以放心长缓存
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
+  });
   app.route("/api/v1/notes", notesRoutes(state));
 
   // 引擎透传（SSE 流式）

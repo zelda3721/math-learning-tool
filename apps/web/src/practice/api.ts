@@ -11,6 +11,8 @@ export interface PracticeQuestion {
     id: string
     stem: string
     /** 几何题的配图规格（点线角 + 约束）；坐标由前端解算并逐条回代验证后才画 */
+    /** 原题原图的文件名，走 /api/v1/figures/:name 取 */
+    figureImage?: string
     figure?: FigureSpec
     options?: string[]
     answerType: 'numeric' | 'expression' | 'steps'

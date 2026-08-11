@@ -15,6 +15,7 @@ import { DiagnosisCard } from './DiagnosisCard'
 import { ExplanationView } from './ExplanationView'
 import { VariantGate } from './VariantGate'
 import { QuestionFigure } from './QuestionFigure'
+import { QuestionImage } from './QuestionImage'
 
 export interface QuestionRecord {
     questionId: string
@@ -283,7 +284,13 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             <p className="stem whitespace-pre-wrap">{q.stem}</p>
 
             {/* 配图：几何题的图是题面的一部分，没有它读不懂题 */}
-            {q.figure && <QuestionFigure figure={q.figure} />}
+            {/* 原图优先：孩子看的应当是讲义上那张图本身。
+                只有没有原图（手工录入的题）时才退回解算出来的矢量图 */}
+            {q.figureImage ? (
+                <QuestionImage name={q.figureImage} />
+            ) : q.figure ? (
+                <QuestionFigure figure={q.figure} />
+            ) : null}
 
             {/* 提示气泡：克制——纸面上的一条注记，不抢题干 */}
             {hints.map((h) => (

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, ErrorState, Field, LoadingState, PageHeader } from '../ui'
 import { QuestionFigure } from '../practice/QuestionFigure'
+import { QuestionImage } from '../practice/QuestionImage'
 import type { FigureSpec } from '@mathtutor/explainer-web'
 
 interface BankQuestion {
@@ -23,6 +24,7 @@ interface BankQuestion {
     problemTypeId?: string
     analysis?: string
     status: string
+    figureImage?: string
     figure?: unknown
 }
 
@@ -197,12 +199,16 @@ export function BankPage() {
                                 <span className={q.status === 'extracted' ? 'text-[color:var(--color-wrong)]' : ''}>
                                     {STATUS_LABEL[q.status] ?? q.status}
                                 </span>
-                                {q.figure ? <span className="text-[color:var(--color-correct)]">带配图</span> : null}
+                                {q.figureImage || q.figure ? <span className="text-[color:var(--color-correct)]">带配图</span> : null}
                                 <span>批次 {q.batch}</span>
                             </div>
-                            {/* 入库之后同样要能看图：题干改过、或者当初抽检看漏了，
-                                只有把图画出来才发现得了 */}
-                            {q.figure ? (
+                            {/* 入库之后同样要能看图：当初抽检看漏了、或题干后来改过，
+                                只有把图摆出来才发现得了。原图优先 */}
+                            {q.figureImage ? (
+                                <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
+                                    <QuestionImage name={q.figureImage} />
+                                </div>
+                            ) : q.figure ? (
                                 <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
                                     <QuestionFigure figure={q.figure as FigureSpec} width={320} />
                                 </div>

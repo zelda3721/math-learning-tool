@@ -137,9 +137,22 @@ export const QuestionSchema = z.object({
   answerType: z.enum(["numeric", "expression", "steps"]),
   analysis: z.string().optional(),
   /**
-   * 配图规格（几何题）。存的是点线角与约束，不是位图——
-   * 坐标由求解器算出并逐条回代验证，图与题干因此不可能对不上，
-   * 变式改数字时图也会自动跟着变。见 figure.ts。
+   * 原题原图：从讲义页上裁下来的那一块，孩子做题时看的就是它。
+   *
+   * 这是配图的**主表示**。原因很实在：它就是原图，不存在重新理解的风险；
+   * 而由模型转写的「点线角 + 约束」再好，也是二手的——我们已经见过它把
+   * 图画成上下颠倒、见过它对着数图形的网格给出 52 个点。
+   *
+   * 只存文件名，文件在 config.figuresDir（/media/figures，不进 git）。
+   */
+  figureImage: z.string().optional(),
+  /**
+   * 配图规格（几何题）：点线角与约束，坐标由求解器算出并逐条回代验证。
+   *
+   * 它的用处是**动**——讲解时要高亮某条边、要割补、要在变式里跟着数字变，
+   * 这些位图都做不到。所以它是按需转写的增强，不是入库时必须有的东西：
+   * 抽取阶段只留原图，等到真要做讲解动画时再从原图转过来，
+   * 转出来还要与原图核对一致。
    */
   figure: FigureSpecSchema.optional(),
   difficulty: z.number().int().min(1).max(5),

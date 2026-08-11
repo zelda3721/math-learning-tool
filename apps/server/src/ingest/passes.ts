@@ -24,6 +24,11 @@ export interface LayoutItem {
   /** [x0, y0, x1, y1]，均为 0~1；给不出可用框时为 undefined */
   box?: [number, number, number, number];
   hasFigure: boolean;
+  /**
+   * 配图本身的范围（题目框之内）。裁出来存成原题原图。
+   * 给不出就退回整道题的框——多一点周围的字无害，图缺了才是事。
+   */
+  figureBox?: [number, number, number, number];
   /** 这一页开头是不是上一页某题的续文 */
   continued: boolean;
 }
@@ -31,7 +36,7 @@ export interface LayoutItem {
 export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要解题、不要写解析。
 
 看这一页，回答它有哪几道题。**一行一道题**，每行一个 JSON 对象，不要数组、不要代码围栏：
-{"index":1,"label":"练习1","preview":"题干开头十来个字","box":[0.08,0.12,0.95,0.30],"hasFigure":true,"continued":false}
+{"index":1,"label":"练习1","preview":"题干开头十来个字","box":[0.08,0.12,0.95,0.30],"hasFigure":true,"figureBox":[0.55,0.15,0.92,0.28],"continued":false}
 
 字段说明：
 - label：题号（如「练习1」「例3」「4.」）；没有题号就写空字符串
@@ -41,6 +46,8 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
   **范围要一直框到下一道题开始之前**——配图、以及紧随其后的
   【答案】【解析】灰框都属于这道题，少框了答案就丢了
 - hasFigure：这道题旁边有没有图形、表格或数阵（有就 true）
+- figureBox：只在 hasFigure 为 true 时给——**那张图本身**的范围（同样是 0~1 比例）。
+  宁可框大一点把整张图都包进去，也不要框小了切掉图的一角；拿不准就省略
 - continued：只有第一道题可能为 true——当这一页开头是上一页某题的续文时
 
 页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。这一页没有题就什么都不输出。`;
@@ -158,7 +165,11 @@ const num = (v: unknown): number | undefined =>
  * 校验版面框。不可用就丢掉框（保留这道题，用整页图跑第二趟）——
  * 裁错了比不裁更糟：裁走半道题，后面全是错的，而且看不出来。
  */
-export function normalizeBox(raw: unknown): [number, number, number, number] | undefined {
+export function normalizeBox(
+  raw: unknown,
+  minWidth = 0.15,
+  minHeight = 0.03,
+): [number, number, number, number] | undefined {
   if (!Array.isArray(raw) || raw.length < 4) return undefined;
   const v = raw.map(num);
   if (v.some((x) => x === undefined)) return undefined;
@@ -173,7 +184,7 @@ export function normalizeBox(raw: unknown): [number, number, number, number] | u
   x0 = Math.max(0, x0); y0 = Math.max(0, y0);
   x1 = Math.min(1, x1); y1 = Math.min(1, y1);
   // 太窄太扁的框多半是模型瞎给的：裁出来看不清，不如用整页
-  if (x1 - x0 < 0.15 || y1 - y0 < 0.03) return undefined;
+  if (x1 - x0 < minWidth || y1 - y0 < minHeight) return undefined;
   return [x0, y0, x1, y1];
 }
 
@@ -214,6 +225,12 @@ export function parseLayout(raw: string): LayoutItem[] {
       preview,
       box: normalizeBox(o.box ?? o.bbox ?? o.rect),
       hasFigure: o.hasFigure === true || o.has_figure === true,
+      // 配图框可以比题目框松：它只用来裁一张给人看的图，
+      // 不像题目框那样切错了会让整道题的内容全错
+      ...(() => {
+        const fb = normalizeBox(o.figureBox ?? o.figure_box, 0.05, 0.02);
+        return fb ? { figureBox: fb } : {};
+      })(),
       continued: o.continued === true,
     });
   }

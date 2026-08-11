@@ -6,6 +6,7 @@ import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
 import { snapToGraph } from "./vocabulary.js";
 import { boxQuality } from "./passes.js";
+import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf } from "../questions.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
@@ -39,6 +40,8 @@ const ConfirmQuestionSchema = z.object({
   variantOf: z.string().optional(),
   // 宽松收下，入库前统一过 checkFigure（前端传回来的东西一律不可信）
   figure: z.unknown().optional(),
+  /** 原题原图：前端从页图上裁下来的 data URL，入库时落盘 */
+  figureImage: z.string().optional(),
 });
 
 const ConfirmSchema = z.object({
@@ -217,10 +220,12 @@ export function ingestRoutes(state: AppState): Hono {
   });
 
   /**
-   * 第二趟（+ 第三趟）：一道题的内容，必要时接着要配图。
+   * 第二趟：一道题的内容。
    *
-   * 配图放在服务端接着做而不是让前端再发一次，是因为裁出来的图是个大 base64——
-   * 为了同一张图往返两趟，光传输就够呛。
+   * 这里**不再要配图规格**。原图才是配图的主表示：它就是原图，不存在
+   * 重新理解的风险，而模型转写的「点线角」是二手的——已经见过它把梯形画成
+   * 上下颠倒、对着数图形的网格给出 52 个点。原图由前端从页图上裁下来存盘。
+   * 规格留到真要做讲解动画时再从原图转，转完还要与原图核对。
    */
   app.post("/question", async (c) => {
     const parsed = QuestionSchema_.safeParse(await c.req.json().catch(() => null));
@@ -232,9 +237,8 @@ export function ingestRoutes(state: AppState): Hono {
     if (!provider?.questionFromImage) {
       return c.json({ error: "当前抽取端点不支持分层识别" }, 501);
     }
-    const { content, level, hasFigure, carryOver } = parsed.data;
+    const { content, level, carryOver } = parsed.data;
     const { base64, mime } = stripDataUrl(content);
-    const warnings: string[] = [];
 
     let draft: ExtractedDraft | null;
     try {
@@ -243,19 +247,7 @@ export function ingestRoutes(state: AppState): Hono {
       return c.json({ error: `题目识别失败: ${String(err)}` }, 502);
     }
     if (!draft) return c.json({ draft: null, warnings: ["这一块没读出题目"] });
-
-    // 第三趟：只给带图的题跑。失败只丢图不丢题——题干通常是好的
-    if (hasFigure && provider.figureFromImage) {
-      try {
-        const raw = await provider.figureFromImage(base64, mime ?? "image/jpeg");
-        const checked = checkFigure(raw, draft.stem);
-        if (checked.figure) draft = { ...draft, figure: checked.figure };
-        else if (checked.rejected) draft = { ...draft, figureRejected: checked.rejected };
-      } catch (err) {
-        warnings.push(`配图识别失败（${String(err)}），题目已保留`);
-      }
-    }
-    return c.json({ draft: locateDraft(state, draft), warnings });
+    return c.json({ draft: locateDraft(state, draft), warnings: [] });
   });
 
   app.post("/confirm", async (c) => {
@@ -280,9 +272,20 @@ export function ingestRoutes(state: AppState): Hono {
         issues.push({ index: i, problem: `未知题型 ${problemTypeId}，已清除该字段` });
         problemTypeId = undefined;
       }
+      // 原图落盘。存不下就只丢图不丢题——题干是好的，没必要因为一张图整题作废
+      let figureImage: string | undefined;
+      if (q.figureImage) {
+        try {
+          figureImage = storeFigure(state.config.figuresDir, q.figureImage).name;
+        } catch (err) {
+          issues.push({ index: i, problem: `原图未能保存（${String(err)}），题目已入库但没有配图` });
+        }
+      }
+
       const candidate = QuestionSchema.safeParse({
         id: randomUUID(),
         problemTypeId,
+        figureImage,
         nodeIds: q.nodeIds,
         level: q.level,
         stem: q.stem,
