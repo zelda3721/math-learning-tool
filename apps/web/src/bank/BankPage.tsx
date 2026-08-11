@@ -8,6 +8,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, ErrorState, Field, LoadingState, PageHeader } from '../ui'
+import { QuestionFigure } from '../practice/QuestionFigure'
+import type { FigureSpec } from '@mathtutor/explainer-web'
 
 interface BankQuestion {
     id: string
@@ -198,6 +200,13 @@ export function BankPage() {
                                 {q.figure ? <span className="text-[color:var(--color-correct)]">带配图</span> : null}
                                 <span>批次 {q.batch}</span>
                             </div>
+                            {/* 入库之后同样要能看图：题干改过、或者当初抽检看漏了，
+                                只有把图画出来才发现得了 */}
+                            {q.figure ? (
+                                <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
+                                    <QuestionFigure figure={q.figure as FigureSpec} width={320} />
+                                </div>
+                            ) : null}
                             {q.nodeIds.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
                                     {q.nodeIds.map((n) => (

@@ -23,6 +23,8 @@ import {
 import type { AnswerType, ConfirmResult, Draft, Level } from './shared'
 import { pdfToPages } from './pdfPages'
 import { cropPage } from './crop'
+import { QuestionFigure } from '../practice/QuestionFigure'
+import type { FigureSpec } from '@mathtutor/explainer-web'
 
 type IngestKind = 'text' | 'image' | 'pdf'
 type IngestTab = 'input' | 'review'
@@ -588,6 +590,15 @@ export function IngestPage() {
                                         <p className="text-xs text-ink-soft">选项：{d.options.join(' / ')}</p>
                                     )}
 
+                                    {/* 配图当场画出来。核对的是"图对不对"，不是那段 JSON 对不对——
+                                        条件写反了（比如直角标在别的顶点上）只有看图才发现得了 */}
+                                    {d.figure ? (
+                                        <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
+                                            <p className="eyebrow mb-1">配图 · 由题干条件解算，请核对是否与原题一致</p>
+                                            <QuestionFigure figure={d.figure as FigureSpec} width={340} />
+                                        </div>
+                                    ) : null}
+
                                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                                         <label className="block">
                                             <span className="eyebrow block mb-1">
@@ -686,12 +697,8 @@ export function IngestPage() {
                                             ))}
                                         </div>
 
-                                        {/* 配图与提议的处理结果：抽检时要看得见系统替你丢掉了什么 */}
-                                        {d.figure ? (
-                                            <p className="mt-2 text-xs text-[color:var(--color-correct)]">
-                                                已带配图（条件与题干核对通过）
-                                            </p>
-                                        ) : null}
+                                        {/* 配图本身已经画在上面了，这里只说被丢掉的那些——
+                                            抽检时要看得见系统替你扔了什么 */}
                                         {d.figureRejected && (
                                             <p className="mt-2 text-xs text-[color:var(--color-wrong)] leading-relaxed">
                                                 配图已丢弃：{d.figureRejected}

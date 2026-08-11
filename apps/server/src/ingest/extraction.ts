@@ -6,7 +6,7 @@ import { checkFigure } from "./figureGate.js";
 import { vocabularyPrompt } from "./vocabulary.js";
 import {
   contentUserPrompt,
-  parseJsonObjects,
+  parseFirstObject,
   parseLayout,
   FIGURE_PROMPT,
   LAYOUT_PROMPT,
@@ -441,7 +441,9 @@ export function createLlmExtractionProvider(
         imageAsk(FIGURE_PROMPT, "只描述这道题的图形。", base64, mime),
         1536,
       );
-      const first = parseJsonObjects(raw)[0];
+      // 必须取最外层那个对象：配图规格是多行展开的，按行扫会先抓到里面的
+      // {"id":"A"}，于是整张图变成一个点，报出莫名其妙的「points Required」
+      const first = parseFirstObject(raw);
       // 模型按约定用 {} 表示"画不清楚"；空对象没必要走门禁再报一次错
       if (!first || Object.keys(first as object).length === 0) return undefined;
       return first;
