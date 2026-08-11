@@ -121,7 +121,17 @@ export function IngestPage() {
      */
     const extractPdf = async () => {
         const buffer = await file!.arrayBuffer()
-        const verdict = await inspectTextLayer(buffer)
+        let verdict
+        try {
+            verdict = await inspectTextLayer(buffer)
+        } catch (err) {
+            // 渲染这一步坏了要说清楚是"本机读不了这个 PDF"，
+            // 而不是让人误以为是识别模型的问题
+            throw new Error(
+                `本机读取 PDF 失败：${err instanceof Error ? err.message : String(err)}。` +
+                    '可改用「上传图片」把页面拍照或截图后上传。',
+            )
+        }
         setPdfNote(
             verdict.trustworthy
                 ? '正在逐页渲染后识别（数字与图形都在页图里，不会漏）'

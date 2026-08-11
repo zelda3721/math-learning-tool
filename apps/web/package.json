@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync-pdf-worker": "node scripts/sync-pdf-worker.mjs",
+    "predev": "node scripts/sync-pdf-worker.mjs",
+    "prebuild": "node scripts/sync-pdf-worker.mjs"
   },
   "dependencies": {
     "@mathtutor/explainer-web": "workspace:*",
