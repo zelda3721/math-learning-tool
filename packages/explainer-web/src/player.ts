@@ -108,7 +108,6 @@ export class ExplainerPlayer {
    */
   private subK = 0;
   private subSteps = 0;
-  private subTimer: ReturnType<typeof setInterval> | null = null;
   private scrubEl: HTMLInputElement | null = null;
   /** 拨动时「正在变的那个量」现在多少（没有可靠来源时为空——宁可不画） */
   private live: { value: number; from: number; to: number } | undefined;
@@ -138,8 +137,23 @@ export class ExplainerPlayer {
     if (opts.controls !== false) this.root.appendChild(this.buildControls());
     container.appendChild(this.root);
 
-    this.render();
+    // 开在「可以拨」的那一拍上。滑杆停在 0 时画面正是假设态，
+    // 所以铺垫那一拍并没有被跳过——它就是滑杆的起点，一拉就走完全程。
+    const interactive = this.firstScrubbableBeat();
+    if (interactive > 0) {
+      this.index = interactive;
+      this.startSubPlayback();
+    }
     if (opts.autoPlay) this.play();
+  }
+
+  /** 第一个能拨的拍；没有就返回 0（照常从头看） */
+  private firstScrubbableBeat(): number {
+    for (let i = 0; i < this.beats.length; i += 1) {
+      const beat = this.beats[i];
+      if (beat && swappedCount(solveScene(beat, this.width, this.height)) > 0) return i;
+    }
+    return 0;
   }
 
   // ── 播放控制 ───────────────────────────────────────────
@@ -176,45 +190,25 @@ export class ExplainerPlayer {
   }
 
   /**
-   * 进入一拍时先把替换过程逐只放一遍，再停在终态。
-   * 减少动效时直接给终态——不是省事，是那样的人本来就不该被动画牵着走。
+   * 进入一拍时停在起点（一只都没换），等学生自己拨。
+   *
+   * 曾经在这里自动逐只放一遍。既然已经可以拨了，自动播放就是在替学生做主：
+   * 动画放完他只是"看过"，手拨一遍才是"试过"。假设法的道理在「多换一只会怎样」，
+   * 那是个只有手能回答的问题。
    */
   private startSubPlayback(): void {
-    if (this.subTimer) clearInterval(this.subTimer);
-    this.subTimer = null;
     this.subK = 0;
     this.render();
-    if (this.subSteps <= 0) return;
-    if (reduceMotion()) {
-      this.subK = this.subSteps;
-      this.render();
-      return;
-    }
-    // 总时长压在 2.4 秒内：换得再多也不该让人干等
-    const step = Math.max(70, Math.min(220, Math.round(2400 / this.subSteps)));
-    this.subTimer = setInterval(() => {
-      if (this.destroyed || this.subK >= this.subSteps) {
-        if (this.subTimer) clearInterval(this.subTimer);
-        this.subTimer = null;
-        return;
-      }
-      this.subK += 1;
-      this.render();
-    }, step);
   }
 
-  /** 手动拨到第 k 只（滑杆）：拨动时停掉自动回放，交还控制权 */
+  /** 拨到第 k 只 */
   private scrubTo(k: number): void {
-    if (this.subTimer) clearInterval(this.subTimer);
-    this.subTimer = null;
     this.subK = Math.max(0, Math.min(this.subSteps, Math.round(k)));
     this.render();
   }
 
   destroy(): void {
     this.destroyed = true;
-    if (this.subTimer) clearInterval(this.subTimer);
-    this.subTimer = null;
     this.pause();
     if (this.root.parentNode === this.container) this.container.removeChild(this.root);
   }
@@ -795,11 +789,17 @@ export class ExplainerPlayer {
   }
 
   private syncControls(): void {
-    // 滑杆只在有可回放过程的那一拍出现
+    // 滑杆只在能拨的那一拍出现；这时藏掉「播放」——
+    // 自动翻拍会把学生正在拨的画面翻走，两个控制权抢同一件事
     if (this.scrubEl) {
-      this.scrubEl.style.display = this.subSteps > 0 ? "" : "none";
+      const scrubbable = this.subSteps > 0;
+      this.scrubEl.style.display = scrubbable ? "" : "none";
       this.scrubEl.max = String(Math.max(1, this.subSteps));
       this.scrubEl.value = String(this.subK);
+      const toggle = (this.controlsEl as (HTMLDivElement & { _toggle?: HTMLButtonElement }) | null)
+        ?._toggle;
+      if (toggle) toggle.style.display = scrubbable ? "none" : "";
+      if (scrubbable && this.playing) this.pause();
     }
     const bar = this.controlsEl as (HTMLDivElement & { _toggle?: HTMLButtonElement; _pos?: HTMLSpanElement }) | null;
     if (!bar) return;

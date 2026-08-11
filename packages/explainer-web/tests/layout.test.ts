@@ -557,3 +557,31 @@ describe("内容再多也不许压到底部事实条上", () => {
     }
   })
 })
+
+describe("落点：直接开在能拨的那一拍", () => {
+  const spec = {
+    visual_objects: [
+      { id: "u", primitive: "circle", params: { count: 35, columns: 6 } },
+      { id: "m", primitive: "line", params: { count_per_unit: 2 } },
+    ],
+    scenes: [
+      { teaching_line: "先假设全是鸡", actions: [{ op: "create", targets: ["u"] }, { op: "create", targets: ["m"] }] },
+      { teaching_line: "自己拨拨看", actions: [{ op: "swap_units", source: "u", count: 12, expect: 4, expect_total: 94 }] },
+      { teaching_line: "核对", actions: [{ op: "verify", targets: ["u"] }] },
+    ],
+  }
+
+  it("第 1 拍才是能拨的那一拍", () => {
+    const beats = foldBeats(parse(spec))
+    const scrubbable = beats.map((b) => swappedCount(solveScene(b, W, H)) > 0)
+    expect(scrubbable).toEqual([false, true, true])
+    expect(scrubbable.indexOf(true)).toBe(1)
+  })
+
+  it("滑杆停在 0 时画面就是铺垫那一拍——所以直接开在这里没有跳过任何东西", () => {
+    const beats = foldBeats(parse(spec))
+    const setup = unitTotals(solveScene(beats[0]!, W, H))
+    const scrubAtZero = unitTotals(limitSwaps(solveScene(beats[1]!, W, H), 0))
+    expect(scrubAtZero).toEqual(setup)
+  })
+})
