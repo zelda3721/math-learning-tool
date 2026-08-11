@@ -118,3 +118,56 @@ describe("拦住不是图的东西", () => {
     expect(checkFigure(raw, "直角三角形两直角边分别是 3 厘米和 4 厘米，斜边多长？").rejected).toBeUndefined();
   });
 });
+
+describe("平行/垂直/等长的各种写法", () => {
+  const stem = "已知 AB 平行于 CD，AB=6 厘米，CD=10 厘米";
+  const base = {
+    points: [{ id: "A" }, { id: "B" }, { id: "C" }, { id: "D" }],
+    segments: [
+      { from: "A", to: "B" },
+      { from: "C", to: "D" },
+    ],
+  };
+  const withConstraint = (c: unknown) => ({
+    ...base,
+    constraints: [c, { kind: "length", from: "A", to: "B", value: 6 }],
+  });
+
+  /**
+   * 模型写"两条线段"的花样太多，一次次追加见过的那几种就是打地鼠。
+   * 这里把实机见过的与显而易见的近邻一并钉住：都要归一成 a/b 两个二元组。
+   */
+  it.each([
+    ["摊平成 from/to+from2/to2", { kind: "parallel", from: "A", to: "B", from2: "C", to2: "D" }],
+    ["a/b 写成数组", { kind: "parallel", a: ["A", "B"], b: ["C", "D"] }],
+    ["a/b 写成字符串", { kind: "parallel", a: "AB", b: "CD" }],
+    ["lines 数组", { kind: "parallel", lines: [["A", "B"], ["C", "D"]] }],
+    ["segments 里放对象", { kind: "parallel", segments: [{ from: "A", to: "B" }, { from: "C", to: "D" }] }],
+    ["line1/line2", { kind: "parallel", line1: ["A", "B"], line2: ["C", "D"] }],
+    ["first/second", { kind: "parallel", first: "AB", second: "CD" }],
+    ["四个点摊平在 points 里", { kind: "parallel", points: ["A", "B", "C", "D"] }],
+    ["start/end 对象", { kind: "parallel", a: { start: "A", end: "B" }, b: { start: "C", end: "D" } }],
+  ])("%s", (_why, c) => {
+    const out = checkFigure(withConstraint(c), stem);
+    expect(out.rejected).toBeUndefined();
+    expect(out.figure?.constraints).toContainEqual({ kind: "parallel", a: ["A", "B"], b: ["C", "D"] });
+  });
+
+  it("垂直与等长走同一套归一", () => {
+    expect(
+      checkFigure(withConstraint({ kind: "perpendicular", from: "A", to: "B", from2: "C", to2: "D" }), stem).figure
+        ?.constraints,
+    ).toContainEqual({ kind: "perpendicular", a: ["A", "B"], b: ["C", "D"] });
+  });
+
+  /**
+   * 归一失败时，光说「constraints.0.a Required」谁也不知道模型写了什么，
+   * 只能一次次猜着补——报错要自带答案。
+   */
+  it("实在归一不了时，报错里带上模型原文", () => {
+    const out = checkFigure(withConstraint({ kind: "parallel", 平行于: "CD" }), stem);
+    expect(out.rejected).toContain("constraints.0.a");
+    expect(out.rejected).toContain("平行于");
+    expect(out.rejected).toContain("CD");
+  });
+});

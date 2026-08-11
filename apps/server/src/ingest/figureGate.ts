@@ -44,6 +44,66 @@ function declaredValues(spec: FigureSpec): { label: string; value: number }[] {
  * - segments 用 [a,b] 数组或 {start,end}
  * 归一改的只是"怎么写"，不改"图是什么"——真实性仍由下面两道关把守。
  */
+/**
+ * 「一条线段」的各种写法都归到 [起点, 终点]。
+ * 实机上见过：["A","B"]、"AB"、{from,to}、{start,end}、{p1,p2}。
+ */
+function asSegment(v: unknown): [string, string] | undefined {
+  if (Array.isArray(v) && v.length >= 2) return [String(v[0]), String(v[1])];
+  if (typeof v === "string") {
+    const pts = v.trim().split(/[\s,-]+/).filter(Boolean);
+    if (pts.length >= 2) return [pts[0]!, pts[1]!];
+    if (v.trim().length === 2) return [v.trim()[0]!, v.trim()[1]!];
+    return undefined;
+  }
+  if (typeof v === "object" && v !== null) {
+    const o = v as Record<string, unknown>;
+    const from = o.from ?? o.start ?? o.p1 ?? o.a;
+    const to = o.to ?? o.end ?? o.p2 ?? o.b;
+    if (typeof from === "string" && typeof to === "string") return [from, to];
+  }
+  return undefined;
+}
+
+/**
+ * 从一条约束里找出**两条**线段。
+ *
+ * 两条线段要么装在一个数组字段里（lines/segments/points），
+ * 要么摊成两组同名字段（a/b、line1/line2、from-to + from2-to2）。
+ * 这两类分开处理，别的写法进来时也大多落得进其中一类。
+ */
+function segmentPair(q: Record<string, unknown>): [[string, string], [string, string]] | undefined {
+  for (const key of ["lines", "segments", "points", "pairs"]) {
+    const arr = q[key];
+    if (!Array.isArray(arr) || arr.length < 2) continue;
+    const a = asSegment(arr[0]);
+    const b = asSegment(arr[1]);
+    if (a && b) return [a, b];
+    // points:["A","B","C","D"] 意思是 AB 与 CD——四个点摊平写在一起
+    if (arr.length >= 4 && arr.every((x) => typeof x === "string")) {
+      return [
+        [String(arr[0]), String(arr[1])],
+        [String(arr[2]), String(arr[3])],
+      ];
+    }
+  }
+  const pairedKeys: [string, string][] = [
+    ["a", "b"],
+    ["line1", "line2"],
+    ["first", "second"],
+    ["segment1", "segment2"],
+  ];
+  for (const [ka, kb] of pairedKeys) {
+    const a = asSegment(q[ka]);
+    const b = asSegment(q[kb]);
+    if (a && b) return [a, b];
+  }
+  const flat = asSegment({ from: q.from, to: q.to });
+  const flat2 = asSegment({ from: q.from2, to: q.to2 });
+  if (flat && flat2) return [flat, flat2];
+  return undefined;
+}
+
 function coerceShape(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return raw;
   const o = { ...(raw as Record<string, unknown>) };
@@ -83,30 +143,19 @@ function coerceShape(raw: unknown): unknown {
       if (q.kind === "on-segment" && q.point === undefined && typeof q.at === "string") {
         q.point = q.at;
       }
-      // 平行/垂直/等长要的是**两条线段** a、b。
-      // 实测模型会摊平成 from/to + from2/to2（跟着 length 的写法走），
-      // 也见过 a:"AB" 这种字符串写法与 lines:[[..],[..]]。
+      // 平行/垂直/等长要的是**两条线段** a、b，而模型有无数种写法。
+      // 与其一次次追加见过的那几种，不如把"什么算一条线段"和
+      // "两条线段可能藏在哪些字段里"分开写清楚——后者按对出现，成对地找。
       if (q.kind === "parallel" || q.kind === "perpendicular" || q.kind === "equal-length") {
-        const asSeg = (v: unknown): [string, string] | undefined => {
-          if (Array.isArray(v) && v.length >= 2) return [String(v[0]), String(v[1])];
-          if (typeof v === "string" && v.length === 2) return [v[0]!, v[1]!];
-          return undefined;
-        };
-        const lines = Array.isArray(q.lines) ? q.lines : Array.isArray(q.segments) ? q.segments : [];
-        const a =
-          asSeg(q.a) ??
-          asSeg(lines[0]) ??
-          (typeof q.from === "string" && typeof q.to === "string" ? [q.from, q.to] as [string, string] : undefined);
-        const b =
-          asSeg(q.b) ??
-          asSeg(lines[1]) ??
-          (typeof q.from2 === "string" && typeof q.to2 === "string"
-            ? ([q.from2, q.to2] as [string, string])
-            : undefined);
-        if (a && b) {
+        const seg = asSegment(q.a) && asSegment(q.b)
+          ? [asSegment(q.a)!, asSegment(q.b)!]
+          : segmentPair(q);
+        if (seg) {
           // zod 会自己剥掉多余字段，清掉只是不留下"同一件事写了两遍"的痕迹
-          delete q.from; delete q.to; delete q.from2; delete q.to2; delete q.lines;
-          q.a = a; q.b = b;
+          for (const k of ["from", "to", "from2", "to2", "lines", "segments", "points", "line1", "line2", "first", "second"]) {
+            delete q[k];
+          }
+          [q.a, q.b] = seg;
         }
       }
       return q;
@@ -125,14 +174,41 @@ function coerceShape(raw: unknown): unknown {
   return o;
 }
 
+/**
+ * 取出报错位置**所在的那个对象**（不是那个缺失的字段——它本来就不存在，
+ * 打印出来是 undefined，等于什么都没说）。归一之后的形状，
+ * 因为要回答的问题是"归一没能把它变成合法形状"。
+ */
+function snippetAt(root: unknown, path: (string | number)[]): string {
+  let node: unknown = root;
+  // 最后一段是出问题的字段名，往上退一层才是那个对象
+  for (const key of path.slice(0, -1)) {
+    if (node === null || typeof node !== "object") break;
+    node = (node as Record<string | number, unknown>)[key];
+  }
+  try {
+    const text = JSON.stringify(node ?? root);
+    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  } catch {
+    return "（无法序列化）";
+  }
+}
+
 export function checkFigure(raw: unknown, stem: string): FigureCheck {
   if (raw === undefined || raw === null) return {};
-  const parsed = FigureSpecSchema.safeParse(coerceShape(raw));
+  const coerced = coerceShape(raw);
+  const parsed = FigureSpecSchema.safeParse(coerced);
   if (!parsed.success) {
-    // 只说 "Required" 事后谁也查不出是哪个字段——把路径带上
+    /**
+     * 只说「constraints.0.a Required」，看的人还是不知道模型到底写了什么，
+     * 于是只能一次次猜着补写法——我已经这么打了两轮地鼠了。
+     * 把出问题的那一段原样附上，下次报错就自带答案。
+     */
     const issue = parsed.error.issues[0];
     const where = issue?.path.length ? issue.path.join(".") : "根对象";
-    return { rejected: `配图规格不合法：${where} ${issue?.message ?? "未知"}` };
+    return {
+      rejected: `配图规格不合法：${where} ${issue?.message ?? "未知"}；模型写的是 ${snippetAt(coerced, issue?.path ?? [])}`,
+    };
   }
   const spec = parsed.data;
 
