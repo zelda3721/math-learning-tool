@@ -21,7 +21,7 @@ import {
     todayString,
 } from './shared'
 import type { AnswerType, ConfirmResult, Draft, Level } from './shared'
-import { inspectTextLayer, pdfToPageImages } from './pdfPages'
+import { pdfToPages } from './pdfPages'
 
 type IngestKind = 'text' | 'image' | 'pdf'
 type IngestTab = 'input' | 'review'
@@ -121,25 +121,26 @@ export function IngestPage() {
      */
     const extractPdf = async () => {
         const buffer = await file!.arrayBuffer()
-        let verdict
+        let rendered
         try {
-            verdict = await inspectTextLayer(buffer)
+            // 体检与渲染在同一趟里做完：pdf.js 会转移走 buffer，
+            // 开两次文档第二次就拿到已分离的空壳
+            rendered = await pdfToPages(buffer, {
+                onProgress: (done, total) => setPdfProgress({ done, total, phase: 'render' }),
+            })
         } catch (err) {
-            // 渲染这一步坏了要说清楚是"本机读不了这个 PDF"，
-            // 而不是让人误以为是识别模型的问题
+            // 说清楚是"本机读不了这个 PDF"，而不是让人误以为是识别模型的问题
             throw new Error(
                 `本机读取 PDF 失败：${err instanceof Error ? err.message : String(err)}。` +
                     '可改用「上传图片」把页面拍照或截图后上传。',
             )
         }
+        const { verdict, pages } = rendered
         setPdfNote(
             verdict.trustworthy
                 ? '正在逐页渲染后识别（数字与图形都在页图里，不会漏）'
                 : `${verdict.reason}；已自动改为整页识别`,
         )
-        const pages = await pdfToPageImages(buffer, {
-            onProgress: (done, total) => setPdfProgress({ done, total, phase: 'render' }),
-        })
         const all: Draft[] = []
         for (const [i, page] of pages.entries()) {
             setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
