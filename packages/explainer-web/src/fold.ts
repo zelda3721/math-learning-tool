@@ -101,6 +101,12 @@ export interface BeatState {
   /** 天平语义：两边的值与是否仍然相等（等式不变性可见） */
   equality?: { left: number; right: number; ok: boolean };
   /**
+   * 本拍的替换过程（假设法）。播放器据此做逐只回放，并让**依赖它的量跟着动**。
+   * totalAfter 来自动作声明的 expect_total：全部换完之后那个量是多少。
+   * 没有它，拨动滑杆时上方的条纹丝不动——过程就只剩下换颜色，看不出因果。
+   */
+  swap?: { count: number; perUnitAfter?: number; totalAfter?: number };
+  /**
    * 全体声明组的语义色名——**包括这一拍还没登场的组**。
    * 「换成兔了」要让记号长成兔的样子，可兔那一组往往还没出场，
    * 只看在场对象就查不到它的颜色。
@@ -420,6 +426,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
   const beats: BeatState[] = [];
   let beatMoves: BeatState["moves"] = [];
   let beatCounts: BeatState["counts"] = [];
+  let beatSwap: BeatState["swap"];
 
   const touch = (id: string | undefined): WorkGroup | undefined => {
     if (id === undefined) return undefined;
@@ -530,6 +537,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       groups: groupStates,
       moves: beatMoves,
       counts: beatCounts,
+      ...(beatSwap !== undefined ? { swap: beatSwap } : {}),
       declaredColors,
       objects,
     };
@@ -546,6 +554,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
     for (const group of groups.values()) group.emphasis = false;
     beatMoves = [];
     beatCounts = [];
+    beatSwap = undefined;
 
     /**
      * 逐组记下本拍开始时的量。守恒必须**限定在参与搬运的那几个组**里算：
@@ -762,6 +771,7 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           // expect = 换成的那一类每个单位值多少（2 条腿 → 4 条腿）。
           // 附属记号跟着变，「每换一个补 2」才在画面上真的发生。
           const perUnitAfter = integerQuantity(rec.expect ?? rec.expect_per_unit);
+          const totalAfter = integerQuantity(rec.expect_total ?? rec.total_after);
           let swapped = 0;
           for (const unit of source.units) {
             if (swapped >= count) break;
@@ -773,6 +783,13 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           }
           if (source.unitBearing && swapped < count) {
             beatCounts.push({ groupId: source.id, claimed: count, actual: swapped });
+          }
+          if (swapped > 0) {
+            beatSwap = {
+              count: swapped,
+              ...(perUnitAfter !== undefined ? { perUnitAfter } : {}),
+              ...(totalAfter !== undefined ? { totalAfter } : {}),
+            };
           }
           break;
         }

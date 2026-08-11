@@ -11,9 +11,11 @@ import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
 import {
   limitSwaps,
+  liveTotal,
   solveScene,
   swappedCount,
   unitTotals,
+  withLiveBar,
   type Scene,
   type SceneIssue,
   type Shape,
@@ -63,8 +65,10 @@ const CHANNELS = ["#2b5ce6", "#8a6a20", "#d3453f", "#1f9d6b", "#e07b39", "#7b4fd
 type UnitShape = "circle" | "square" | "triangle" | "diamond";
 const SHAPES: UnitShape[] = ["circle", "square", "triangle", "diamond", "circle", "square", "triangle", "diamond"];
 
-/** 右上角计数/守恒事实条占用的高度：内容区绝不侵占它（画面不许自己压自己） */
+/** 底部事实条占用的高度：内容区绝不侵占它（画面不许自己压自己） */
 const FACTS_H = 58;
+/** 实时读数条的高度。加了它却忘了在布局里留位置，读数就会压在方块上——犯过一次 */
+const TALLY_H = 30;
 
 const reduceMotion = (): boolean =>
   typeof window !== "undefined" &&
@@ -106,6 +110,8 @@ export class ExplainerPlayer {
   private subSteps = 0;
   private subTimer: ReturnType<typeof setInterval> | null = null;
   private scrubEl: HTMLInputElement | null = null;
+  /** 拨动时「正在变的那个量」现在多少（没有可靠来源时为空——宁可不画） */
+  private live: { value: number; from: number; to: number } | undefined;
 
   constructor(container: HTMLElement, spec: SceneSpec, opts: PlayerOptions = {}) {
     this.container = container;
@@ -229,13 +235,29 @@ export class ExplainerPlayer {
 
   // ── 渲染 ───────────────────────────────────────────────
 
+  /** 纯数量画面时按内容需要的高度撑开画布——缩小记号不是解决重叠的办法 */
+  private fitHeight(scene: Scene, top: number, bottom: number): void {
+    if (scene.coords) return; // 有数学图时坐标系已定高，不动
+    const probe = layoutFlowed(scene, { width: this.width, height: 4000, top, bottom });
+    const needed = Math.ceil(top + probe.usedHeight + bottom);
+    const next = Math.max(380, Math.min(1100, needed));
+    if (next === this.height) return;
+    this.height = next;
+    this.svg.setAttribute("viewBox", `0 0 ${this.width} ${this.height}`);
+  }
+
   private render(): void {
     const beat = this.beats[this.index];
     if (!beat) return;
     const full = solveScene(beat, this.width, this.height);
     this.subSteps = swappedCount(full);
     // 可回放的那一拍按当前进度只换前 k 只；其余拍照常整幅渲染
-    const scene = this.subSteps > 0 ? limitSwaps(full, this.subK) : full;
+    let scene = this.subSteps > 0 ? limitSwaps(full, this.subK) : full;
+    // 拨动时依赖它的量要跟着动：多画一根同尺子的「现在」条，
+    // 它从假设值一路长到实际值。否则上面那两根静态的条纹丝不动，
+    // 过程就只剩下换颜色，看不出因果。
+    this.live = this.subSteps > 0 ? liveTotal(scene, this.subK) : undefined;
+    if (this.live) scene = withLiveBar(scene, this.live, "现在");
 
     while (this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.svg.setAttribute("aria-label", beat.teachingLine ?? `第 ${this.index + 1} 拍`);
@@ -416,11 +438,14 @@ export class ExplainerPlayer {
 
     // 有数学图时，数量画面缩到下方；否则占满画布
     const top = scene.coords ? Math.round(this.height * 0.62) : 34;
+    // 有实时读数时必须把它那一行也让出来，否则读数会压在记号上
+    const bottom = FACTS_H + (this.subSteps > 0 ? TALLY_H : 0);
+    this.fitHeight(scene, top, bottom);
     const { items } = layoutFlowed(scene, {
       width: this.width,
       height: this.height,
       top,
-      bottom: FACTS_H,
+      bottom,
     });
     const nextPos = new Map<string, { x: number; y: number }>();
 
@@ -486,7 +511,8 @@ export class ExplainerPlayer {
           "stroke-width": 1.5, "stroke-dasharray": "5 3",
         }),
       );
-      this.text(`差 ${bar.delta.value}`, box.x + bar.delta.fromX + w / 2, box.y - 9, 12, C.beam, "middle", 700);
+      // 「比最短的那根多出 N」——写「差 N」在三根条并排时会被读成缺口
+      this.text(`+${bar.delta.value}`, box.x + bar.delta.fromX + w / 2, box.y - 9, 12, C.beam, "middle", 700);
     }
   }
 
@@ -578,7 +604,7 @@ export class ExplainerPlayer {
   private drawTally(scene: Scene): void {
     const { units, marks } = unitTotals(scene);
     if (units <= 0) return;
-    const y = this.height - FACTS_H - 14;
+    const y = this.height - FACTS_H - TALLY_H / 2;
     let x = 24;
 
     const chip = (draw: (cx: number, cy: number) => void, value: number, width: number) => {
@@ -592,7 +618,7 @@ export class ExplainerPlayer {
       units,
       34 + String(units).length * 9,
     );
-    if (marks > 0) {
+    if (marks !== undefined && marks > 0) {
       chip(
         (cx, cy) => {
           for (const dx of [-3, 3]) {
@@ -607,6 +633,14 @@ export class ExplainerPlayer {
         marks,
         34 + String(marks).length * 9,
       );
+    }
+    if (this.live && marks === undefined) {
+      // 记号数说不清时，用声明推出来的「现在」值补位（来源不同，但同样有据）
+      this.text(
+        `${Math.round(this.live.from)} → ${Math.round(this.live.value)}`,
+        x + 6, y + 5, 14, C.beam, "start", 700,
+      );
+      x += 96;
     }
     if (this.subSteps > 0) {
       this.text(`已换 ${this.subK} / ${this.subSteps}`, x + 6, y + 5, 12, C.inkFaint, "start", 600);

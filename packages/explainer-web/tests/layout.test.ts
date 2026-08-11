@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { SceneSpecSchema } from "@mathtutor/schema";
 import { foldBeats } from "../src/fold.js";
-import { limitSwaps, solveScene, swappedCount, unitTotals } from "../src/render/scene.js";
+import {
+  limitSwaps,
+  liveTotal,
+  solveScene,
+  swappedCount,
+  unitTotals,
+  withLiveBar,
+} from "../src/render/scene.js";
 import { columnsFor, layoutFlowed, type Placed, type PlacedBar, type PlacedUnits } from "../src/render/layout.js";
 
 const W = 900;
@@ -443,5 +450,110 @@ describe("可拨动的假设：换了几只 → 头不变、脚跟着变", () =>
     const before = swappedCount(beat)
     limitSwaps(beat, 3)
     expect(swappedCount(beat)).toBe(before)
+  })
+})
+
+describe("拨动时依赖的量要跟着动，且不许编数", () => {
+  /** 引擎确定性构造器：每个单位都挂着记号，脚数可以逐根数出来 */
+  const withMarks = {
+    visual_objects: [
+      { id: "u", primitive: "circle", params: { count: 35, columns: 6 } },
+      { id: "m", primitive: "line", params: { count_per_unit: 2 } },
+    ],
+    scenes: [
+      { actions: [{ op: "create", targets: ["u"] }, { op: "create", targets: ["m"] }] },
+      { actions: [{ op: "swap_units", source: "u", count: 12, expect: 4, expect_total: 94 }] },
+    ],
+  }
+
+  /** LLM 导演：没有从属声明，脚是两根独立的条 */
+  const withBars = {
+    visual_objects: [
+      { id: "u", primitive: "unit_grid", params: { count: 35, columns: 7 } },
+      { id: "b0", primitive: "quantity_bar", params: { value: 70 }, label: "70只脚" },
+      { id: "b1", primitive: "quantity_bar", params: { value: 94 }, label: "94只脚" },
+    ],
+    scenes: [
+      { actions: [{ op: "create", targets: ["u"] }, { op: "create", targets: ["b0"] }, { op: "create", targets: ["b1"] }] },
+      { actions: [{ op: "swap_units", source: "u", count: 12, expect: 4, expect_total: 94 }] },
+    ],
+  }
+
+  const at = (spec: unknown, i: number) => solveScene(foldBeats(parse(spec))[i]!, W, H)
+
+  it("记号说不清时绝不给一个凑出来的总数", () => {
+    // 这份计划没有从属声明，只有被替换的 12 只带 expect=4。
+    // 早先用 `?? 0` 兜底，于是画面上出现了 12×4=48——一个把 23 只鸡的腿漏掉的假数。
+    const scene = at(withBars, 1)
+    expect(unitTotals(scene).marks).toBeUndefined()
+    expect(unitTotals(scene).units).toBe(35)
+  })
+
+  it("每个单位都挂着记号时，总数逐根数得出来", () => {
+    const scene = at(withMarks, 1)
+    expect(unitTotals(limitSwaps(scene, 0)).marks).toBe(70)
+    expect(unitTotals(limitSwaps(scene, 12)).marks).toBe(94)
+  })
+
+  it("数不出来时按声明的 expect_total 从画面已有的量线性推进", () => {
+    const scene = at(withBars, 1)
+    const read = (k: number) => liveTotal(scene, k)!
+    expect(read(0).value).toBe(70) // 起点取画面上比目标小的那根条
+    expect(read(6).value).toBe(82)
+    expect(read(12).value).toBe(94)
+    expect(read(12).to).toBe(94)
+  })
+
+  it("没有替换的那一拍不谈「现在」", () => {
+    expect(liveTotal(at(withBars, 0), 0)).toBeUndefined()
+  })
+
+  it("既数不出记号又没声明目标时宁可不画", () => {
+    const bare = {
+      visual_objects: [{ id: "u", primitive: "unit_grid", params: { count: 10 } }],
+      scenes: [
+        { actions: [{ op: "create", targets: ["u"] }] },
+        { actions: [{ op: "swap_units", source: "u", count: 4 }] },
+      ],
+    }
+    expect(liveTotal(at(bare, 1), 2)).toBeUndefined()
+  })
+
+  it("「现在」那根条与其它条共用同一把尺", () => {
+    const scene = at(withBars, 1)
+    const live = liveTotal(scene, 6)!
+    const layout = layoutFlowed(withLiveBar(scene, live, "现在"), OPTS)
+    const values = bars(layout.items).map((b) => b.value)
+    expect(values).toContain(82)
+    const byValue = new Map(bars(layout.items).map((b) => [b.value, b]))
+    // 82 / 94 的长度比必须就是 82∶94，否则"追平"这件事看着就是假的
+    expect(byValue.get(82)!.fillW / byValue.get(94)!.fillW).toBeCloseTo(82 / 94, 6)
+  })
+})
+
+describe("内容再多也不许压到底部事实条上", () => {
+  it("三根条 + 矩形 + 35 个记号同屏时，记号仍在预留区之上", () => {
+    const crowded = {
+      visual_objects: [
+        { id: "b0", primitive: "quantity_bar", params: { value: 70 } },
+        { id: "b1", primitive: "quantity_bar", params: { value: 94 } },
+        { id: "b2", primitive: "quantity_bar", params: { value: 82 } },
+        { id: "gap", primitive: "rectangle", params: { width: 2.4, height: 0.5 }, label: "差24" },
+        { id: "u", primitive: "unit_grid", params: { count: 35, columns: 7 } },
+      ],
+      scenes: [{ actions: [] }],
+    }
+    // 画布不够高时应当缩小记号，而不是把它们画进事实条里
+    const layout = layoutFlowed(solveScene(foldBeats(parse(crowded))[0]!, W, 560), {
+      width: W,
+      height: 560,
+      top: 34,
+      bottom: 88,
+    })
+    for (const g of units(layout.items)) {
+      for (const u of g.units) {
+        expect(u.cy + u.r).toBeLessThanOrEqual(560 - 88)
+      }
+    }
   })
 })
