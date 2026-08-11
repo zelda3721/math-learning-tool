@@ -36,6 +36,12 @@ export interface Draft {
     options?: string[]
     analysis?: string
     nodes: NodeSuggestion[]
+    /** 几何题的配图规格（已过服务端门禁）；原样带回确认，入库前再验一次 */
+    figure?: unknown
+    /** 配图被丢弃的原因 */
+    figureRejected?: string
+    /** 模型提了但图谱里没有的知识点说法——它同时也是"我们缺哪个节点"的线索 */
+    droppedSuggestions?: string[]
 }
 
 export interface ConfirmResult {
@@ -87,6 +93,11 @@ export function normalizeDraft(raw: unknown): Draft | null {
         options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : undefined,
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
         nodes: normalizeNodes(o.suggestedNodeIds ?? o.nodeIds),
+        figure: o.figure,
+        figureRejected: typeof o.figureRejected === 'string' ? o.figureRejected : undefined,
+        droppedSuggestions: Array.isArray(o.droppedSuggestions)
+            ? o.droppedSuggestions.filter((x): x is string => typeof x === 'string')
+            : undefined,
     }
 }
 

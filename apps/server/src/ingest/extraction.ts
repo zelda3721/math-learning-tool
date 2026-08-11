@@ -1,7 +1,9 @@
 import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
 import { z } from "zod";
 import { EducationLevelSchema, type EducationLevel, type FigureSpec } from "@mathtutor/schema";
+import type { Knowledge } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
+import { vocabularyPrompt } from "./vocabulary.js";
 
 /**
  * 抽取 Provider：把原始材料（文本 / 图片）变成题目草稿。
@@ -21,6 +23,9 @@ export interface ExtractedDraft {
   figure?: FigureSpec;
   /** 配图被丢弃的原因（家长抽检时要看到） */
   figureRejected?: string;
+  /** 模型提议的知识点/题型（原样，未吸附）；由 locateDraft 吸附到图谱 */
+  proposedNodeIds?: string[];
+  proposedProblemTypeId?: string;
   answer: string;
   answerType: "numeric" | "expression" | "steps";
   options?: string[];
@@ -32,6 +37,11 @@ export interface ExtractedDraft {
 export interface ExtractionProvider {
   extractFromText(text: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
   extractFromImage(base64: string, mime: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
+}
+
+/** 抽取时可用的知识层（拼候选清单用）；不给则退回纯离线定位 */
+export interface ExtractionKnowledge {
+  knowledge: Knowledge;
 }
 
 const DEFAULT_LEVEL: EducationLevel = "elementary_upper";
@@ -50,6 +60,9 @@ const LenientDraftSchema = z.object({
   level: EducationLevelSchema.optional(),
   // 宽松收下：合法性与真实性交给 checkFigure，这里不拦
   figure: z.unknown().optional(),
+  // 模型给的说法五花八门（id、名字、近似说法），一律先收下再吸附
+  nodeIds: z.array(z.union([z.string(), z.number()])).optional(),
+  problemTypeId: z.union([z.string(), z.number()]).optional(),
 });
 
 function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel: EducationLevel): ExtractedDraft {
@@ -62,6 +75,8 @@ function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel:
     stem,
     ...(fig.figure ? { figure: fig.figure } : {}),
     ...(fig.rejected ? { figureRejected: fig.rejected } : {}),
+    ...(item.nodeIds?.length ? { proposedNodeIds: item.nodeIds.map(String) } : {}),
+    ...(item.problemTypeId !== undefined ? { proposedProblemTypeId: String(item.problemTypeId) } : {}),
     answer: item.answer === undefined ? "" : String(item.answer).trim(),
     answerType: item.answerType ?? "numeric",
     options: item.options?.length ? item.options.map(String) : undefined,
@@ -210,21 +225,27 @@ async function collectText(client: LlmClient, messages: ChatMessage[]): Promise<
 }
 
 /** 用 @mathtutor/llm-client 构造 LLM 抽取 Provider：文本走 fast 端点，图片走 vision 端点 */
-export function createLlmExtractionProvider(env: NodeJS.ProcessEnv = process.env): ExtractionProvider {
+export function createLlmExtractionProvider(
+  env: NodeJS.ProcessEnv = process.env,
+  deps?: ExtractionKnowledge,
+): ExtractionProvider {
   const config = loadLlmConfig(env);
+  // 有知识层就把候选清单拼进系统提示词：让模型点名，比事后靠关键词猜准得多
+  const withVocab = (hint?: ExtractionHint) =>
+    deps ? `${SYSTEM_PROMPT}\n${vocabularyPrompt(deps.knowledge, hint?.level)}` : SYSTEM_PROMPT;
   const textClient = LlmClient.fromEndpoint(config.fast);
   const visionClient = LlmClient.fromEndpoint(config.vision);
   return {
     async extractFromText(text, hint) {
       const raw = await collectText(textClient, [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: withVocab(hint) },
         { role: "user", content: userPrompt(text, hint) },
       ]);
       return parseExtractionJson(raw, hint?.level ?? DEFAULT_LEVEL);
     },
     async extractFromImage(base64, mime, hint) {
       const raw = await collectText(visionClient, [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: withVocab(hint) },
         {
           role: "user",
           content: [

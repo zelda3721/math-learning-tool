@@ -220,6 +220,8 @@ export function IngestPage() {
                     nodeIds: d.nodes.map((n) => n.nodeId),
                     ...(d.options?.length ? { options: d.options } : {}),
                     ...(d.analysis ? { analysis: d.analysis } : {}),
+                    // 配图原样带回；服务端入库前会再过一次门禁（前端传的一律不可信）
+                    ...(d.figure ? { figure: d.figure } : {}),
                 })),
             }
             const res = await fetch('/api/v1/ingest/confirm', {
@@ -539,6 +541,24 @@ export function IngestPage() {
                                                 </span>
                                             ))}
                                         </div>
+
+                                        {/* 配图与提议的处理结果：抽检时要看得见系统替你丢掉了什么 */}
+                                        {d.figure ? (
+                                            <p className="mt-2 text-xs text-[color:var(--color-correct)]">
+                                                已带配图（条件与题干核对通过）
+                                            </p>
+                                        ) : null}
+                                        {d.figureRejected && (
+                                            <p className="mt-2 text-xs text-[color:var(--color-wrong)] leading-relaxed">
+                                                配图已丢弃：{d.figureRejected}
+                                            </p>
+                                        )}
+                                        {d.droppedSuggestions?.length ? (
+                                            <p className="mt-1.5 text-xs text-ink-faint leading-relaxed">
+                                                模型还提到「{d.droppedSuggestions.join('、')}」，
+                                                但图谱里没有对应的知识点——这也是补大纲的线索。
+                                            </p>
+                                        ) : null}
                                     </div>
                                 </div>
                             ))}

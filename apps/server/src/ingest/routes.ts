@@ -4,6 +4,7 @@ import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/schema";
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
+import { snapToGraph } from "./vocabulary.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf } from "../questions.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
@@ -48,18 +49,38 @@ interface LocatedDraft extends ExtractedDraft {
   suggestedNodeIds: string[];
   suggestedProblemTypeId?: string;
   confidence: number;
+  /** 模型提了但图谱里没有的说法（抽检时能看出它想选什么、我们缺什么节点） */
+  droppedSuggestions?: string[];
 }
 
-/** 草稿过离线定位器：知识点/题型建议 + 置信度（top 分数归一化到 0-1） */
+/**
+ * 给草稿定位知识点与题型。
+ *
+ * 优先用模型的提议（它读过题干，判断得了"这是计数题还是解三角形题"这种
+ * 字面匹配永远分不清的事），但必须吸附到图谱里真实存在的 id——
+ * 图谱里没有的知识点宁可空着，也不能凭空造一个。
+ * 模型没给、或给的全都吸不上时，退回离线匹配器。
+ */
 function locateDraft(state: AppState, draft: ExtractedDraft): LocatedDraft {
+  const snapped = snapToGraph(
+    state.knowledge,
+    { nodeIds: draft.proposedNodeIds, problemTypeId: draft.proposedProblemTypeId },
+    draft.stem,
+  );
   const nodeMatches = matchOffline(state.knowledge.index, draft.stem, 4);
   const ptMatches = matchProblemTypesOffline(state.knowledge.problemTypes, draft.stem, 1);
   const topScore = Math.max(nodeMatches[0]?.score ?? 0, ptMatches[0]?.score ?? 0);
+  const fromModel = (draft.proposedNodeIds?.length ?? 0) > 0 && snapped.nodeIds.length > 0;
   return {
     ...draft,
-    suggestedNodeIds: nodeMatches.map((m) => m.id),
-    suggestedProblemTypeId: ptMatches[0]?.id,
-    confidence: Math.round(Math.min(1, topScore / 40) * 100) / 100,
+    suggestedNodeIds: snapped.nodeIds,
+    suggestedProblemTypeId: snapped.problemTypeId ?? ptMatches[0]?.id,
+    // 模型点名过的题置信度不该被关键词分数拖低：那个分数量的是字面重合，
+    // 而模型量的是题意。仍保留下限，让家长知道哪些是猜的。
+    confidence: fromModel
+      ? Math.max(0.6, Math.round(Math.min(1, topScore / 40) * 100) / 100)
+      : Math.round(Math.min(1, topScore / 40) * 100) / 100,
+    ...(snapped.dropped.length ? { droppedSuggestions: snapped.dropped } : {}),
   };
 }
 
