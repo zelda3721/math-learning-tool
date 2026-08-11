@@ -121,6 +121,17 @@ function balancedObjects(text: string): string[] {
   return out;
 }
 
+/** 一行一个 JSON 对象：截断只影响最后一行，前面的行原封不动 */
+function lineObjects(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim().replace(/^[[,]\s*/, "").replace(/[,\]]\s*$/, "");
+    if (!t.startsWith("{") || !t.endsWith("}")) continue;
+    out.push(t);
+  }
+  return out;
+}
+
 export interface ParseOutcome {
   drafts: ExtractedDraft[];
   /** 被跳过的对象数（截断或格式坏掉）；> 0 时调用方应当提示 */
@@ -135,24 +146,42 @@ export function parseExtractionOutcome(raw: string, fallbackLevel: EducationLeve
   // 围栏没闭合（同样是截断的症状）时，取开围栏之后的全部内容
   else if (text.startsWith("```")) text = text.replace(/^```(?:json)?\s*/i, "");
 
-  const chunks = balancedObjects(text);
-  const drafts: ExtractedDraft[] = [];
-  let skipped = 0;
-  for (const chunk of chunks) {
-    let obj: unknown;
-    try {
-      obj = JSON.parse(chunk);
-    } catch {
-      skipped += 1;
-      continue;
+  const harvest = (chunks: string[]) => {
+    const drafts: ExtractedDraft[] = [];
+    let skipped = 0;
+    for (const chunk of chunks) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(chunk);
+      } catch {
+        skipped += 1;
+        continue;
+      }
+      const r = LenientDraftSchema.safeParse(obj);
+      if (r.success) drafts.push(normalizeDraft(r.data, fallbackLevel));
+      else skipped += 1;
     }
-    const r = LenientDraftSchema.safeParse(obj);
-    if (r.success) drafts.push(normalizeDraft(r.data, fallbackLevel));
-    else skipped += 1;
+    return { drafts, skipped };
+  };
+
+  // 先按行解析（我们要求的就是一行一题）：一行坏掉只影响那一行。
+  // 一条都没解出来才退回括号配对——模型未必照做（比如仍旧给一整行的数组），得兜住。
+  let { drafts, skipped } = harvest(lineObjects(text));
+  let chunks = lineObjects(text);
+  if (drafts.length === 0) {
+    chunks = balancedObjects(text);
+    ({ drafts, skipped } = harvest(chunks));
   }
   // 一个都没抠出来才算真失败——那多半不是截断，是模型压根没按格式输出
   if (drafts.length === 0 && chunks.length === 0) {
-    throw new Error(`LLM 输出里找不到任何 JSON 对象（前 120 字：${text.slice(0, 120)}）`);
+    // 分清两种情况：确实没给 JSON，还是给了但在第一个对象里就被截断了。
+    // 后者是输出预算问题，说成"找不到 JSON"会把人引到错误的方向。
+    const truncated = text.includes("{") && !text.trimEnd().endsWith("}");
+    throw new Error(
+      truncated
+        ? `模型输出在第一道题中间就被截断了（收到 ${text.length} 字符）：这一页题太多或解析写得太长，已跳过该页`
+        : `LLM 输出里找不到任何 JSON 对象（前 120 字：${text.slice(0, 120)}）`,
+    );
   }
   return { drafts, skipped };
 }
@@ -229,7 +258,12 @@ export function offlineTextDrafts(text: string, level: EducationLevel = DEFAULT_
 // LLM Provider 实现
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全部数学题，输出一个 JSON 数组（不要任何其他文字），每个元素形如：
+const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全部数学题。
+
+**输出格式：一行一道题，每行一个完整的 JSON 对象**（不要包成数组，不要代码围栏，不要任何其他文字）。
+一行写完就换行写下一题，中途不要换行——这样即使输出被截断，前面的题也都还能用。
+
+每行形如：
 {"stem":"完整题干","answer":"答案","answerType":"numeric|expression|steps","options":["选项A",...],"analysis":"简要解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；
@@ -237,7 +271,8 @@ const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全
 - answerType：单个数值答案用 numeric，代数式用 expression，需要多步说明的用 steps；
 - options 仅选择题才有，其他题省略该字段；
 - difficulty 为 1-5 的整数；
-- 材料里没有题目时输出 []。
+- 材料里没有题目时什么都不输出。
+- analysis 一句话即可，不要写解题全过程——写长了会把后面的题挤掉。
 
 **如果题目带图（几何题居多），再加一个 figure 字段，用「点线角 + 约束」描述这张图，不要描述像素**：
 {"figure":{
