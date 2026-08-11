@@ -9,6 +9,7 @@ import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
 import { groundingSourceOf } from "./grounding.js";
 import { engineJsonFetch } from "../engineHttp.js";
+import { figureDataUrl } from "../figures.js";
 
 /**
  * P2 讲解管线（模式 B · Manim）：缓存命中直接返回；未命中建生成任务，
@@ -130,11 +131,26 @@ async function runWebJob(
     ? [body.focusNodeId]
     : ((body.questionId ? state.questions.byId.get(body.questionId)?.nodeIds : undefined) ?? []);
 
+  /**
+   * 带上原题原图。
+   *
+   * 讲解要「与原图保持一致」，最靠得住的办法不是让模型照着题干重画一张再去核对，
+   * 而是**根本不重画**：把原图当底图，注解叠在它上面。一致性因此是构造出来的，
+   * 不是检查出来的。模型仍然要看见这张图——它得知道往哪儿标。
+   */
+  const figureImage = body.questionId
+    ? figureDataUrl(state.config.figuresDir, state.questions.byId.get(body.questionId)?.figureImage)
+    : undefined;
+
   try {
     const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...payload, route: engineRoute }),
+      body: JSON.stringify({
+        ...payload,
+        route: engineRoute,
+        ...(figureImage ? { figure_image: figureImage } : {}),
+      }),
     });
     if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
     const result = (await resp.json()) as {

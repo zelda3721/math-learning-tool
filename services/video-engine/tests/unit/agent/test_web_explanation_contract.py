@@ -294,3 +294,99 @@ def test_给了控件就不再警告():
     )
     report = verify_web_explanation(live, EVIDENCE, REQUEST)
     assert report.ok and report.warnings == [], report
+
+
+# ── 有原图的题：不许自己重画，必须把讲义上那张图放进来 ──
+#
+# 讲解要与原图一致，靠的不是事后比对两张图"像不像"（没有可靠办法），
+# 而是不给重画的机会：原图当底图，注解叠在它上面。
+
+FIGURE_IMG = (
+    '<img data-figure="original" src="__ORIGINAL_FIGURE__" style="display:block">'
+)
+
+_GEOMETRY_BODY = (
+    _beat(0, "梯形的面积 = (上底 + 下底) × 高 ÷ 2",
+          f'{FIGURE_IMG}<div data-measure="area=48"></div>')
+    + _beat(1, "反过来求高：48 × 2 ÷ (6 + 10) = 6",
+            '<div data-measure="height=6"></div>')
+)
+
+
+def test_把原图放进来的几何讲解通过():
+    report = verify_web_explanation(_doc(_GEOMETRY_BODY), figure_required=True)
+    assert report.ok, report.errors
+
+
+def test_没放原图会被打回():
+    body = _GEOMETRY_BODY.replace(FIGURE_IMG, "")
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("没有把原题的图放进来" in e for e in errors), errors
+
+
+def test_自己重画一张不算把原图放进来():
+    # 模型画了个 svg 梯形冒充配图——正是要拦的那种
+    fake = '<svg viewBox="0 0 100 100"><polygon points="10,10 60,10 90,90 10,90"/></svg>'
+    body = _GEOMETRY_BODY.replace(FIGURE_IMG, fake)
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("没有把原题的图放进来" in e for e in errors), errors
+
+
+def test_占位符被改掉就不算():
+    # src 换成别的东西（哪怕也是张图）都不算：真正的图由引擎填，模型不该经手
+    body = _GEOMETRY_BODY.replace("__ORIGINAL_FIGURE__", "data:image/png;base64,AAAA")
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("没有把原题的图放进来" in e for e in errors), errors
+
+
+def test_原图铺两遍会被打回():
+    body = _GEOMETRY_BODY.replace(FIGURE_IMG, FIGURE_IMG + FIGURE_IMG)
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("放了 2 次" in e for e in errors), errors
+
+
+def test_没有原图的题不受这条约束():
+    # 鸡兔同笼没有配图，不该因此被要求放一张图
+    assert verify_web_explanation(GOOD, EVIDENCE, REQUEST).ok
+
+
+# ── 一拍可以由并列的几层组成 ──
+#
+# 实测模型给每一拍写了两层：svg 画线、div 放文字，共用一个拍号。
+# 这是对的结构（svg 用 preserveAspectRatio="none" 贴合原图，文字放里面会被拉变形），
+# 但逐元素检查会把第二层当成"没说话的拍"，连着三稿都打回。
+
+def test_同一拍的多个图层只要有一层说了话就算数():
+    body = (
+        f'{FIGURE_IMG}'
+        '<svg data-beat="0" data-teach="已知上底 6、下底 10、面积 48">'
+        '<line/><text data-measure="area=48"></text></svg>'
+        '<div data-beat="0"><span>AB=6cm</span></div>'
+        '<svg data-beat="1" data-teach="高 = 面积×2÷(上底+下底) = 6">'
+        '<text data-measure="height=6"></text></svg>'
+        '<div data-beat="1"><span>AD=6cm</span></div>'
+    )
+    report = verify_web_explanation(_doc(body), figure_required=True)
+    assert report.ok, report.errors
+
+
+def test_一拍一层都没说话仍然打回():
+    body = (
+        f'{FIGURE_IMG}'
+        '<svg data-beat="0" data-teach="已知"><text data-measure="area=48"></text></svg>'
+        '<div data-beat="1"><span>没有 teach</span></div>'
+        '<div data-beat="1"><span>这一层也没有</span></div>'
+    )
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("第 1 拍没有 data-teach" in e for e in errors), errors
+
+
+def test_同一拍拆成几层不会被当成拍数够了():
+    # 3 层但只有 1 个拍号——过程并没有分步
+    body = (
+        f'{FIGURE_IMG}'
+        '<svg data-beat="0" data-teach="只有这一拍"><text data-measure="area=48"></text></svg>'
+        '<div data-beat="0"></div><div data-beat="0"></div>'
+    )
+    errors = verify_web_explanation(_doc(body), figure_required=True).errors
+    assert any("只有 1 拍" in e for e in errors), errors

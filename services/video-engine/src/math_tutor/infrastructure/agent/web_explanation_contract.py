@@ -58,6 +58,17 @@ ATTR_BEAT = "data-beat"
 ATTR_TEACH = "data-teach"
 #: 根节点标记
 ATTR_ROOT = "data-explain"
+#: 原题原图的标记：`<img data-figure="original" src="__ORIGINAL_FIGURE__">`
+#:
+#: 讲解要与原图一致，最靠得住的办法不是让模型照着题干重画一张再去核对像素，
+#: 而是**根本不给它重画的机会**：把讲义上那张图当底图，注解叠在它上面。
+#: 一致性因此是构造出来的，不是检查出来的——检查两张图"像不像"没有可靠办法，
+#: 而"原图在不在页面上"数一眼就知道。
+ATTR_FIGURE = "data-figure"
+FIGURE_ORIGINAL = "original"
+#: 图的真实内容是几十 KB 的 base64，不能让模型经手（提示词塞不下，它也抄不对）。
+#: 模型只写这个占位符，门禁核对完由引擎替换成真正的 data URL。
+FIGURE_PLACEHOLDER = "__ORIGINAL_FIGURE__"
 #: 可拨的控件（滑杆/加减按钮）：`data-control="换几只"`。
 #: 看演示和自己动手是两回事——「每换一只多两根」手拨一遍就懂了，
 #: 干看三张静态图得靠脑补。缺了只记警告：有些题确实没什么可拨的。
@@ -119,6 +130,8 @@ class ParsedExplanation:
     measures: list[tuple[str, float, int | None]] = field(default_factory=list)
     units_total: int = 0
     has_root: bool = False
+    #: 页面里出现了几次原题原图（带占位符 src 的那个 img）
+    original_figures: int = 0
 
 
 class _Parser(html.parser.HTMLParser):
@@ -147,6 +160,11 @@ class _Parser(html.parser.HTMLParser):
 
         if ATTR_ROOT in a:
             self.out.has_root = True
+
+        if a.get(ATTR_FIGURE, "").strip() == FIGURE_ORIGINAL:
+            # 只认占位符：模型自己贴一张别的图（或把 src 留空）都不算把原图放进来
+            if FIGURE_PLACEHOLDER in a.get("src", ""):
+                self.out.original_figures += 1
 
         if ATTR_CONTROL in a:
             self.out.controls += 1
@@ -298,8 +316,13 @@ def verify_web_explanation(
     request: Any = None,
     *,
     min_beats: int = 2,
+    figure_required: bool = False,
 ) -> GateReport:
-    """把画面上宣称的每个数跟已验证的数学对账。"""
+    """把画面上宣称的每个数跟已验证的数学对账。
+
+    `figure_required` 为真时，这道题有讲义上的原图，讲解必须把它放进页面
+    并在其上作注——不许自己重画一张（见 ATTR_FIGURE 的说明）。
+    """
     report = GateReport()
     findings = report.errors
     text = markup or ""
@@ -327,12 +350,34 @@ def verify_web_explanation(
     if parsed.units_total == 0 and not parsed.measures:
         findings.append("没有任何可数个体或量：这是纯文字，不是图形讲解")
 
+    # ── 有原图的题：原图必须在页面上，且只放一次 ──
+    if figure_required:
+        if parsed.original_figures == 0:
+            findings.append(
+                f'没有把原题的图放进来：需要一个 <img {ATTR_FIGURE}="{FIGURE_ORIGINAL}" '
+                f'src="{FIGURE_PLACEHOLDER}">，注解叠在它上面，不要自己重画一张'
+            )
+        elif parsed.original_figures > 1:
+            # 同一张图铺两遍，孩子分不清哪张才是题目说的那张
+            findings.append(f"原题的图放了 {parsed.original_figures} 次，只应放一次")
+
     # ── 分拍与教学句 ──
-    if len(parsed.beats) < min_beats:
-        findings.append(f"只有 {len(parsed.beats)} 拍，至少要 {min_beats} 拍（过程必须分步可见）")
+    #
+    # 按**拍号**归并，而不是按元素。一拍完全可以由并列的几层组成
+    # （svg 画线一层、HTML 放文字一层，共用一个拍号），只要其中一层
+    # 说清了这一拍在讲什么就够。此前逐元素检查，把同一拍的第二层
+    # 当成了"没说话的拍"打回——实测模型连着三稿都因此过不去，
+    # 而它写的结构本身是对的。
+    teach_by_beat: dict[int, str] = {}
     for beat in parsed.beats:
-        if not beat["teach"]:
-            findings.append(f"第 {beat['index']} 拍没有 {ATTR_TEACH}：这一拍在讲什么必须说清")
+        index = beat["index"]
+        if beat["teach"] or index not in teach_by_beat:
+            teach_by_beat[index] = teach_by_beat.get(index) or beat["teach"]
+    if len(teach_by_beat) < min_beats:
+        findings.append(f"只有 {len(teach_by_beat)} 拍，至少要 {min_beats} 拍（过程必须分步可见）")
+    for index in sorted(teach_by_beat):
+        if not teach_by_beat[index]:
+            findings.append(f"第 {index} 拍没有 {ATTR_TEACH}：这一拍在讲什么必须说清")
 
     # ── 核心：宣称多少，就得真的画出多少 ──
     for claim in parsed.claims:

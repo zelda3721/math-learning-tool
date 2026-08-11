@@ -19,6 +19,8 @@
 已验证的数学证据（Math IR，画面上的关键数值必须与它一致）：
 {math_evidence}
 
+{figure_note}
+
 {extra_directives}
 
 # 先想清楚再动手（不要输出这一步的思考）

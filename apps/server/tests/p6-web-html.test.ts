@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { storeFigure } from "../src/figures.js";
 import type { EngineContract } from "@mathtutor/schema";
 import { createApp } from "../src/app.js";
 import { makeQuestion, tempFixtureEnv, NODE_A } from "./helpers.js";
@@ -448,3 +450,54 @@ it("SceneSpec 端点仍返回纯 JSON——克隆运行时只属于 HTML 那条"
   expect(text).not.toContain("cloneNode");
   expect(() => JSON.parse(text)).not.toThrow();
 })
+
+/**
+ * 原题原图要带到引擎去。
+ *
+ * 讲解要与原图一致，办法不是事后比对两张图像不像，而是让模型根本不重画——
+ * 原图当底图、注解叠在上面。前提是这张图真的传过去了，
+ * 这条链路断了不会报错，只会悄悄退化成"模型凭题干想象一张图"。
+ */
+describe("讲解带上原题原图", () => {
+  const TINY_JPEG =
+    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsL" +
+    "DBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB" +
+    "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+
+  function seedWithFigure() {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "wq1", nodeIds: [NODE_A], stem: "直角梯形的高是多少?", answer: "6" }),
+    ]);
+    env.state.contract = CONTRACT;
+    env.state.config.figuresDir = mkdtempSync(join(tmpdir(), "figdir-"));
+    const { name } = storeFigure(env.state.config.figuresDir, TINY_JPEG);
+    // 题库里存的是文件名，讲解链路要自己把它读成 data URL
+    const q = env.state.questions.byId.get("wq1")!;
+    env.state.questions.byId.set("wq1", { ...q, figureImage: name });
+    return env;
+  }
+
+  it("题目有原图时，图随请求发给引擎", async () => {
+    const env = seedWithFigure();
+    let sent: unknown;
+    env.state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(createApp(env.state), { questionId: "wq1", mode: "web_html" });
+    expect((sent as { figure_image?: string }).figure_image).toBe(TINY_JPEG);
+  });
+
+  it("题目没有原图时不带这个字段——引擎据此决定要不要强制放图", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    let sent: unknown;
+    state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(app, { questionId: "wq1", mode: "web_html" });
+    expect((sent as { figure_image?: string }).figure_image).toBeUndefined();
+  });
+
+  it("自由题（不经题库）也不带图", async () => {
+    const { app, state } = makeApp(mockHtmlFetch({ spec: GOOD_SPEC }));
+    let sent: unknown;
+    state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(app, { problem: "一个长方形长 8 宽 5，周长多少？", mode: "web_html" });
+    expect((sent as { figure_image?: string }).figure_image).toBeUndefined();
+  });
+});
