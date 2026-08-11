@@ -153,3 +153,36 @@ describe("入库这一刻的最后一道关", () => {
     expect(stored!.figure!.constraints).toHaveLength(3);
   });
 })
+
+describe("模型写法不规范时先归一，别为格式小事丢掉好图", () => {
+  const stem = "如图，∠B 是直角，AB = 3，BC = 4，求 AC。";
+  const constraints = [
+    { kind: "length", from: "A", to: "B", value: 3 },
+    { kind: "length", from: "B", to: "C", value: 4 },
+    { kind: "right-angle", at: "B", from: "A", to: "C" },
+  ];
+
+  it("points 写成字符串数组也认", () => {
+    const r = checkFigure({ points: ["A", "B", "C"], constraints }, stem);
+    expect(r.figure?.points.map((p) => p.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("顶点用 name / label 代替 id 也认", () => {
+    const r = checkFigure({ points: [{ name: "A" }, { label: "B" }, { id: "C" }], constraints }, stem);
+    expect(r.figure?.points.map((p) => p.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("segments 写成 [a,b] 或 {start,end} 也认", () => {
+    const r = checkFigure(
+      { points: ["A", "B", "C"], segments: [["A", "B"], { start: "B", end: "C" }], constraints },
+      stem,
+    );
+    expect(r.figure?.segments.map((s) => `${s.from}${s.to}`)).toEqual(["AB", "BC"]);
+  });
+
+  it("真的不合法时要说清楚是哪个字段——只说 Required 谁也查不出来", () => {
+    const r = checkFigure({ segments: [] }, stem); // 没有 points
+    expect(r.rejected).toContain("points");
+    expect(r.rejected).not.toBe("配图规格不合法：Required");
+  });
+})

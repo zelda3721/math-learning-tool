@@ -14,6 +14,11 @@ import { vocabularyPrompt } from "./vocabulary.js";
 export interface ExtractionHint {
   /** 材料的目标年级（用户在上传界面选择） */
   level?: EducationLevel;
+  /**
+   * 有题目因输出截断或格式坏掉被跳过时回调。
+   * 静默丢题是最伤信任的事——上传的人以为这页只有 8 道，其实模型给了 12 道。
+   */
+  onSkipped?: (count: number) => void;
 }
 
 /** 抽取出的题目草稿（未定位、未入库） */
@@ -86,33 +91,75 @@ function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel:
   };
 }
 
-/** 解析 LLM 的 JSON 数组输出：剥离代码块围栏、截取最外层 [] / {}，逐项宽松校验 */
-export function parseExtractionJson(raw: string, fallbackLevel: EducationLevel): ExtractedDraft[] {
+/**
+ * 逐个抠出数组里的顶层对象。
+ *
+ * 不用 JSON.parse 整段，是因为输出被截断时整段必然解析失败，
+ * 前面十几道已经完整的题会跟着一起丢——实机上就发生了：
+ * 一页 12 道题，模型在第 92 行断掉，整页颗粒无收。
+ * 逐个解析则只损失最后那个残缺的对象。
+ */
+function balancedObjects(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") { if (depth === 0) start = i; depth += 1; }
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0 && start >= 0) { out.push(text.slice(start, i + 1)); start = -1; }
+      if (depth < 0) depth = 0; // 多余的右括号：忽略，别让整段崩掉
+    }
+  }
+  return out;
+}
+
+export interface ParseOutcome {
+  drafts: ExtractedDraft[];
+  /** 被跳过的对象数（截断或格式坏掉）；> 0 时调用方应当提示 */
+  skipped: number;
+}
+
+/** 解析 LLM 的 JSON 数组输出：剥离围栏、逐个对象解析，坏的跳过不牵连好的 */
+export function parseExtractionOutcome(raw: string, fallbackLevel: EducationLevel): ParseOutcome {
   let text = raw.trim();
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   if (fence) text = fence[1]!.trim();
-  const arrStart = text.indexOf("[");
-  const arrEnd = text.lastIndexOf("]");
-  if (arrStart >= 0 && arrEnd > arrStart) {
-    text = text.slice(arrStart, arrEnd + 1);
-  } else {
-    const objStart = text.indexOf("{");
-    const objEnd = text.lastIndexOf("}");
-    if (objStart >= 0 && objEnd > objStart) text = `[${text.slice(objStart, objEnd + 1)}]`;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`LLM 输出不是合法 JSON: ${String(err)}`);
-  }
-  const items = Array.isArray(parsed) ? parsed : [parsed];
+  // 围栏没闭合（同样是截断的症状）时，取开围栏之后的全部内容
+  else if (text.startsWith("```")) text = text.replace(/^```(?:json)?\s*/i, "");
+
+  const chunks = balancedObjects(text);
   const drafts: ExtractedDraft[] = [];
-  for (const item of items) {
-    const r = LenientDraftSchema.safeParse(item);
+  let skipped = 0;
+  for (const chunk of chunks) {
+    let obj: unknown;
+    try {
+      obj = JSON.parse(chunk);
+    } catch {
+      skipped += 1;
+      continue;
+    }
+    const r = LenientDraftSchema.safeParse(obj);
     if (r.success) drafts.push(normalizeDraft(r.data, fallbackLevel));
+    else skipped += 1;
   }
-  return drafts;
+  // 一个都没抠出来才算真失败——那多半不是截断，是模型压根没按格式输出
+  if (drafts.length === 0 && chunks.length === 0) {
+    throw new Error(`LLM 输出里找不到任何 JSON 对象（前 120 字：${text.slice(0, 120)}）`);
+  }
+  return { drafts, skipped };
+}
+
+/** 兼容既有调用方 */
+export function parseExtractionJson(raw: string, fallbackLevel: EducationLevel): ExtractedDraft[] {
+  return parseExtractionOutcome(raw, fallbackLevel).drafts;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,9 +263,14 @@ function userPrompt(text: string, hint?: ExtractionHint): string {
 
 const IMAGE_PROMPT = "请从这张图片中抽取全部数学题（按系统提示的 JSON 数组格式输出）。";
 
+/**
+ * 一页题加上配图规格与知识点，输出很容易过万字符。
+ * 4096 tokens 时实机上直接被截断，整页解析失败；这里放宽，
+ * 并且解析端按对象逐个抠（见 parseExtractionOutcome），双保险。
+ */
 async function collectText(client: LlmClient, messages: ChatMessage[]): Promise<string> {
   let text = "";
-  for await (const ev of client.chat(messages, { maxTokens: 4096, temperature: 0.2 })) {
+  for await (const ev of client.chat(messages, { maxTokens: 8192, temperature: 0.2 })) {
     if (ev.type === "text") text += ev.text;
   }
   return text;
@@ -241,7 +293,9 @@ export function createLlmExtractionProvider(
         { role: "system", content: withVocab(hint) },
         { role: "user", content: userPrompt(text, hint) },
       ]);
-      return parseExtractionJson(raw, hint?.level ?? DEFAULT_LEVEL);
+      const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
+      if (outcome.skipped > 0) hint?.onSkipped?.(outcome.skipped);
+      return outcome.drafts;
     },
     async extractFromImage(base64, mime, hint) {
       const raw = await collectText(visionClient, [
@@ -254,7 +308,9 @@ export function createLlmExtractionProvider(
           ],
         },
       ]);
-      return parseExtractionJson(raw, hint?.level ?? DEFAULT_LEVEL);
+      const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
+      if (outcome.skipped > 0) hint?.onSkipped?.(outcome.skipped);
+      return outcome.drafts;
     },
   };
 }

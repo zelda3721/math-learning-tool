@@ -37,11 +37,48 @@ function declaredValues(spec: FigureSpec): { label: string; value: number }[] {
   return out;
 }
 
+/**
+ * 模型给的形状不会完全照着 schema 来，常见几种先归一，别为格式小事丢掉一张好图：
+ * - points 写成 ["A","B","C"] 而不是 [{id:"A"}]
+ * - 顶点用 name/label 而不是 id
+ * - segments 用 [a,b] 数组或 {start,end}
+ * 归一改的只是"怎么写"，不改"图是什么"——真实性仍由下面两道关把守。
+ */
+function coerceShape(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  if (Array.isArray(o.points)) {
+    o.points = o.points.map((p) => {
+      if (typeof p === "string") return { id: p };
+      if (typeof p === "object" && p !== null) {
+        const q = p as Record<string, unknown>;
+        if (q.id === undefined && typeof q.name === "string") return { ...q, id: q.name };
+        if (q.id === undefined && typeof q.label === "string") return { ...q, id: q.label };
+      }
+      return p;
+    });
+  }
+  if (Array.isArray(o.segments)) {
+    o.segments = o.segments.map((seg) => {
+      if (Array.isArray(seg) && seg.length >= 2) return { from: String(seg[0]), to: String(seg[1]) };
+      if (typeof seg === "object" && seg !== null) {
+        const q = seg as Record<string, unknown>;
+        if (q.from === undefined && q.start !== undefined) return { ...q, from: q.start, to: q.end };
+      }
+      return seg;
+    });
+  }
+  return o;
+}
+
 export function checkFigure(raw: unknown, stem: string): FigureCheck {
   if (raw === undefined || raw === null) return {};
-  const parsed = FigureSpecSchema.safeParse(raw);
+  const parsed = FigureSpecSchema.safeParse(coerceShape(raw));
   if (!parsed.success) {
-    return { rejected: `配图规格不合法：${parsed.error.issues[0]?.message ?? "未知"}` };
+    // 只说 "Required" 事后谁也查不出是哪个字段——把路径带上
+    const issue = parsed.error.issues[0];
+    const where = issue?.path.length ? issue.path.join(".") : "根对象";
+    return { rejected: `配图规格不合法：${where} ${issue?.message ?? "未知"}` };
   }
   const spec = parsed.data;
 
