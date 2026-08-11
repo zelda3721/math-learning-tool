@@ -2,7 +2,7 @@ import type { EducationLevel, Question } from "@mathtutor/schema";
 import { STAGE_OF } from "@mathtutor/schema";
 import type { GraphIndex } from "@mathtutor/knowledge";
 import type { Repo } from "./repo.js";
-import type { QuestionStore } from "./questions.js";
+import { practiceReady, type QuestionStore } from "./questions.js";
 import { effectiveP, masteryBand } from "./mastery.js";
 import { pickReviewQuestion } from "./review.js";
 
@@ -46,7 +46,11 @@ export function composeToday(
     queueItemId?: string,
     reviewCardId?: string,
   ) => {
-    if (!q || pickedIds.has(q.id) || excluded.has(q.id)) return false;
+    // 唯一一道闸：五条选题路径都从这里过。
+    // 起初我在弱点/新题两处各加了一次判断，挑战题那条就漏了——
+    // 同一条规则写在几个地方，早晚会漏掉一处，而漏掉的表现是
+    // "孩子拿到一道答案是猜的题"，从结果上完全看不出来。
+    if (!q || pickedIds.has(q.id) || excluded.has(q.id) || !practiceReady(q)) return false;
     picked.push({ question: q, slot, queueItemId, reviewCardId });
     pickedIds.add(q.id);
     return true;

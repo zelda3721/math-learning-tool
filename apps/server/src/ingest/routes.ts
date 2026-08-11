@@ -8,7 +8,7 @@ import { snapToGraph } from "./vocabulary.js";
 import { boxQuality } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
-import { appendQuestions, contentHashOf } from "../questions.js";
+import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
 import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
 import { processBatch, type BatchFile } from "./batch.js";
@@ -33,6 +33,8 @@ const ConfirmQuestionSchema = z.object({
   answerType: z.enum(["numeric", "expression", "steps"]),
   options: z.array(z.string()).optional(),
   analysis: z.string().optional(),
+  /** 答案是模型自己解的（材料没印）；这类题核对前不发给孩子 */
+  answerUnverified: z.boolean().optional(),
   difficulty: z.number().int().min(1).max(5),
   level: EducationLevelSchema,
   nodeIds: z.array(z.string()).min(1),
@@ -292,6 +294,9 @@ export function ingestRoutes(state: AppState): Hono {
         options: q.options,
         answer: q.answer,
         answerType: q.answerType,
+        // 答案的来历要跟着题一起进库：不记下来，入库后就再也分不清
+        // 哪些答案有出处、哪些是模型自己算的
+        ...(q.answerUnverified ? { answerUnverified: true } : {}),
         analysis: q.analysis,
         // 再过一次门禁：草稿是前端传回来的，中途可能被改过；
         // 图与题干对不上这件事，只在入库这一刻拦得住
@@ -398,6 +403,9 @@ export function ingestRoutes(state: AppState): Hono {
     return c.json({
       total: state.questions.all.length,
       extracted: state.questions.all.filter((q) => q.status === "extracted").length,
+      // 这些题现在拿不到孩子手上（答案是模型自己算的，还没人核对），
+      // 抽检它们才有直接收益——数字摆出来，家长知道先抽哪些
+      blocked: state.questions.all.filter((q) => !practiceReady(q)).length,
       items,
     });
   });

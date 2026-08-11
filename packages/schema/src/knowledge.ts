@@ -135,6 +135,16 @@ export const QuestionSchema = z.object({
   options: z.array(z.string()).optional(),
   answer: z.string(),
   answerType: z.enum(["numeric", "expression", "steps"]),
+  /**
+   * 答案是模型自己解出来的，材料里并没有印。
+   *
+   * 学生版讲义不给答案，抽取时模型会按提示自己算一个——而它算得不稳：
+   * 同一道数三角形的题两次分别给出 48 和 84。这种数进了库不标记出来，
+   * 就再也分不清哪些答案有出处、哪些是猜的。
+   * 孩子做对了被判错，他会开始怀疑自己而不是怀疑系统——这是最坏的一种错，
+   * 所以这类题在家长核对之前不进练习队列（见 questions.ts 的 practiceReady）。
+   */
+  answerUnverified: z.boolean().optional(),
   analysis: z.string().optional(),
   /**
    * 原题原图：从讲义页上裁下来的那一块，孩子做题时看的就是它。

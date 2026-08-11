@@ -352,6 +352,8 @@ export function IngestPage() {
                     nodeIds: d.nodes.map((n) => n.nodeId),
                     ...(d.options?.length ? { options: d.options } : {}),
                     ...(d.analysis ? { analysis: d.analysis } : {}),
+                    // 答案是模型自己算的这件事要跟着进库，否则入库后就查不出来了
+                    ...(d.answerUnverified ? { answerUnverified: true } : {}),
                     // 原图入库时落盘到 media/figures（不进 git）
                     ...(d.figureImage ? { figureImage: d.figureImage } : {}),
                     // 配图规格原样带回；服务端入库前会再过一次门禁（前端传的一律不可信）
