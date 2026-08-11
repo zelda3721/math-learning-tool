@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SceneSpecSchema } from "@mathtutor/schema";
 import { foldBeats } from "../src/fold.js";
-import { solveScene } from "../src/render/scene.js";
+import { limitSwaps, solveScene, swappedCount, unitTotals } from "../src/render/scene.js";
 import { columnsFor, layoutFlowed, type Placed, type PlacedBar, type PlacedUnits } from "../src/render/layout.js";
 
 const W = 900;
@@ -392,3 +392,56 @@ describe("从属即结构：count_per_unit 挂在宿主身上，不是另一堆�
     }
   });
 });
+
+describe("可拨动的假设：换了几只 → 头不变、脚跟着变", () => {
+  const mixSwap = {
+    visual_objects: [
+      { id: "mix_units", primitive: "circle", label: "35 个", color: "blue", params: { count: 35, columns: 6 } },
+      { id: "mix_marks", primitive: "line", color: "blue", params: { count_per_unit: 2 } },
+    ],
+    scenes: [
+      { teaching_line: "先假设全是鸡", actions: [{ op: "create", targets: ["mix_units"] }, { op: "create", targets: ["mix_marks"] }] },
+      {
+        teaching_line: "每换一只补 2",
+        actions: [{ op: "swap_units", targets: ["mix_units"], source: "mix_units", count: 12, expect: 4 }],
+      },
+    ],
+  }
+
+  const sceneAt = (index: number) => solveScene(foldBeats(parse(mixSwap))[index]!, W, H)
+
+  it("替换那一拍认得出可回放的步数", () => {
+    expect(swappedCount(sceneAt(0))).toBe(0)
+    expect(swappedCount(sceneAt(1))).toBe(12)
+  })
+
+  it("拨到 k 时只有前 k 只被换过，其余退回原样", () => {
+    const partial = limitSwaps(sceneAt(1), 5)
+    const units = partial.flowed.flatMap((s) => (s.kind === "units" ? s.units : []))
+    expect(units.filter((u) => u.swapped)).toHaveLength(5)
+    // 退回去的那些记号数也要跟着退，否则脚数会虚高
+    for (const u of units.filter((u) => !u.swapped)) expect(u.marks).toBeUndefined()
+  })
+
+  it("头数纹丝不动，脚数每换一只多 2——整道题的道理就在这条线上", () => {
+    const beat = sceneAt(1)
+    const readings = [0, 1, 5, 12].map((k) => unitTotals(limitSwaps(beat, k)))
+    // 个体数（头）恒为 35
+    expect(readings.map((r) => r.units)).toEqual([35, 35, 35, 35])
+    // 记号数（脚）：70 起步，每换一只 +2，换满 12 只正好 94
+    expect(readings.map((r) => r.marks)).toEqual([70, 72, 80, 94])
+  })
+
+  it("拨到 0 与拨满分别等于假设态与终态", () => {
+    const beat = sceneAt(1)
+    expect(unitTotals(limitSwaps(beat, 0)).marks).toBe(unitTotals(sceneAt(0)).marks)
+    expect(unitTotals(limitSwaps(beat, 99)).marks).toBe(unitTotals(beat).marks)
+  })
+
+  it("不改原 scene（播放器每帧都要调）", () => {
+    const beat = sceneAt(1)
+    const before = swappedCount(beat)
+    limitSwaps(beat, 3)
+    expect(swappedCount(beat)).toBe(before)
+  })
+})

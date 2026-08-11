@@ -9,7 +9,15 @@
  */
 import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
-import { solveScene, type Scene, type SceneIssue, type Shape } from "./render/scene.js";
+import {
+  limitSwaps,
+  solveScene,
+  swappedCount,
+  unitTotals,
+  type Scene,
+  type SceneIssue,
+  type Shape,
+} from "./render/scene.js";
 import {
   layoutFlowed,
   type PlacedBar,
@@ -90,6 +98,14 @@ export class ExplainerPlayer {
   /** 上一拍每个单位的屏幕位置，用于 FLIP 飞行 */
   private lastUnitPos = new Map<string, { x: number; y: number }>();
   private reportedIssues = new Set<string>();
+  /**
+   * 本拍「已经换了几只」。假设法的道理不在终态而在过程——
+   * 每换一只，个体数一个不变、记号数多两根。只给终态，这个因果就得靠脑补。
+   */
+  private subK = 0;
+  private subSteps = 0;
+  private subTimer: ReturnType<typeof setInterval> | null = null;
+  private scrubEl: HTMLInputElement | null = null;
 
   constructor(container: HTMLElement, spec: SceneSpec, opts: PlayerOptions = {}) {
     this.container = container;
@@ -149,12 +165,50 @@ export class ExplainerPlayer {
     const clamped = Math.max(0, Math.min(this.beatCount - 1, i));
     if (clamped === this.index) return;
     this.index = clamped;
-    this.render();
+    this.startSubPlayback();
     if (this.playing) this.schedule();
+  }
+
+  /**
+   * 进入一拍时先把替换过程逐只放一遍，再停在终态。
+   * 减少动效时直接给终态——不是省事，是那样的人本来就不该被动画牵着走。
+   */
+  private startSubPlayback(): void {
+    if (this.subTimer) clearInterval(this.subTimer);
+    this.subTimer = null;
+    this.subK = 0;
+    this.render();
+    if (this.subSteps <= 0) return;
+    if (reduceMotion()) {
+      this.subK = this.subSteps;
+      this.render();
+      return;
+    }
+    // 总时长压在 2.4 秒内：换得再多也不该让人干等
+    const step = Math.max(70, Math.min(220, Math.round(2400 / this.subSteps)));
+    this.subTimer = setInterval(() => {
+      if (this.destroyed || this.subK >= this.subSteps) {
+        if (this.subTimer) clearInterval(this.subTimer);
+        this.subTimer = null;
+        return;
+      }
+      this.subK += 1;
+      this.render();
+    }, step);
+  }
+
+  /** 手动拨到第 k 只（滑杆）：拨动时停掉自动回放，交还控制权 */
+  private scrubTo(k: number): void {
+    if (this.subTimer) clearInterval(this.subTimer);
+    this.subTimer = null;
+    this.subK = Math.max(0, Math.min(this.subSteps, Math.round(k)));
+    this.render();
   }
 
   destroy(): void {
     this.destroyed = true;
+    if (this.subTimer) clearInterval(this.subTimer);
+    this.subTimer = null;
     this.pause();
     if (this.root.parentNode === this.container) this.container.removeChild(this.root);
   }
@@ -178,7 +232,10 @@ export class ExplainerPlayer {
   private render(): void {
     const beat = this.beats[this.index];
     if (!beat) return;
-    const scene = solveScene(beat, this.width, this.height);
+    const full = solveScene(beat, this.width, this.height);
+    this.subSteps = swappedCount(full);
+    // 可回放的那一拍按当前进度只换前 k 只；其余拍照常整幅渲染
+    const scene = this.subSteps > 0 ? limitSwaps(full, this.subK) : full;
 
     while (this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.svg.setAttribute("aria-label", beat.teachingLine ?? `第 ${this.index + 1} 拍`);
@@ -191,6 +248,7 @@ export class ExplainerPlayer {
     // 数量记号：可数、能飞
     this.drawFlowed(scene);
     this.drawFacts(scene);
+    if (this.subSteps > 0) this.drawTally(scene);
 
     this.caption.textContent = scene.teachingLine ?? "";
     this.reportIssues(scene.issues);
@@ -509,6 +567,52 @@ export class ExplainerPlayer {
     }
   }
 
+  /**
+   * 实时读数：个体多少、附属记号多少。
+   *
+   * 不写「头」「脚」这种词——播放器不知道题目在讲什么，写死就成了特判。
+   * 改成画两个小图例：一个圆点配个体数，一根竖线配记号数，
+   * 与上面的画面用同一套形状说话。拨动滑杆时前者纹丝不动、后者一路爬升，
+   * 「什么变、什么不变」不用解释就看见了。
+   */
+  private drawTally(scene: Scene): void {
+    const { units, marks } = unitTotals(scene);
+    if (units <= 0) return;
+    const y = this.height - FACTS_H - 14;
+    let x = 24;
+
+    const chip = (draw: (cx: number, cy: number) => void, value: number, width: number) => {
+      draw(x + 7, y);
+      this.text(String(value), x + 18, y + 5, 14, C.ink, "start", 700);
+      x += width;
+    };
+
+    chip(
+      (cx, cy) => this.svg.appendChild(el("circle", { cx, cy, r: 6, fill: CHANNELS[0]!, "fill-opacity": 0.85 })),
+      units,
+      34 + String(units).length * 9,
+    );
+    if (marks > 0) {
+      chip(
+        (cx, cy) => {
+          for (const dx of [-3, 3]) {
+            this.svg.appendChild(
+              el("line", {
+                x1: cx + dx, y1: cy - 6, x2: cx + dx, y2: cy + 6,
+                stroke: CHANNELS[0]!, "stroke-width": 2, "stroke-linecap": "round",
+              }),
+            );
+          }
+        },
+        marks,
+        34 + String(marks).length * 9,
+      );
+    }
+    if (this.subSteps > 0) {
+      this.text(`已换 ${this.subK} / ${this.subSteps}`, x + 6, y + 5, 12, C.inkFaint, "start", 600);
+    }
+  }
+
   /** 形状通道：颜色之外再给一条区分维度（色觉障碍与灰度打印下仍分得清） */
   private unitNode(
     shape: UnitShape,
@@ -637,7 +741,19 @@ export class ExplainerPlayer {
     const next = mk("下一拍", () => this.next());
     const pos = document.createElement("span");
     pos.style.cssText = `color:${C.inkFaint};font-family:ui-monospace,monospace`;
-    bar.append(prev, toggle, next, pos);
+
+    // 可回放的那一拍给一根滑杆：让学生自己拨「换了几只」。
+    // 看演示和自己动手是两回事——假设法的"每换一只多两根"，手拨一遍就懂了。
+    const scrub = document.createElement("input");
+    scrub.type = "range";
+    scrub.min = "0";
+    scrub.step = "1";
+    scrub.setAttribute("aria-label", "换了几只");
+    scrub.style.cssText = "flex:1;min-width:80px;max-width:220px;accent-color:" + C.beam;
+    scrub.addEventListener("input", () => this.scrubTo(Number(scrub.value)));
+    this.scrubEl = scrub;
+
+    bar.append(prev, toggle, next, scrub, pos);
     this.controlsEl = bar;
     (bar as HTMLDivElement & { _toggle?: HTMLButtonElement })._toggle = toggle;
     (bar as HTMLDivElement & { _pos?: HTMLSpanElement })._pos = pos;
@@ -645,6 +761,12 @@ export class ExplainerPlayer {
   }
 
   private syncControls(): void {
+    // 滑杆只在有可回放过程的那一拍出现
+    if (this.scrubEl) {
+      this.scrubEl.style.display = this.subSteps > 0 ? "" : "none";
+      this.scrubEl.max = String(Math.max(1, this.subSteps));
+      this.scrubEl.value = String(this.subK);
+    }
     const bar = this.controlsEl as (HTMLDivElement & { _toggle?: HTMLButtonElement; _pos?: HTMLSpanElement }) | null;
     if (!bar) return;
     if (bar._toggle) bar._toggle.textContent = this.playing ? "暂停" : "播放";

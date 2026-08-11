@@ -58,6 +58,10 @@ ATTR_BEAT = "data-beat"
 ATTR_TEACH = "data-teach"
 #: 根节点标记
 ATTR_ROOT = "data-explain"
+#: 可拨的控件（滑杆/加减按钮）：`data-control="换几只"`。
+#: 看演示和自己动手是两回事——「每换一只多两根」手拨一遍就懂了，
+#: 干看三张静态图得靠脑补。缺了只记警告：有些题确实没什么可拨的。
+ATTR_CONTROL = "data-control"
 
 _NAME_VALUE = re.compile(r"^\s*([A-Za-z_][\w\-]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*$")
 #: 允许的内联资源协议（data: 用于内嵌小图；其余外链一律拒）
@@ -110,6 +114,7 @@ class GateReport:
 @dataclass
 class ParsedExplanation:
     beats: list[dict[str, Any]] = field(default_factory=list)
+    controls: int = 0
     claims: list[ClaimNode] = field(default_factory=list)
     measures: list[tuple[str, float, int | None]] = field(default_factory=list)
     units_total: int = 0
@@ -142,6 +147,9 @@ class _Parser(html.parser.HTMLParser):
 
         if ATTR_ROOT in a:
             self.out.has_root = True
+
+        if ATTR_CONTROL in a:
+            self.out.controls += 1
 
         if ATTR_BEAT in a:
             try:
@@ -342,6 +350,14 @@ def verify_web_explanation(
                 f"{claim.name} 标着 {int(round(expected))}，画面上只有 {claim.counted} 个"
                 f"（{ATTR_CLAIM} 的子树里必须真有那么多 {ATTR_UNIT}{hint}）"
             )
+
+    # ── 生动度：能拨一下的画面比只能看的画面强得多 ──
+    if parsed.controls == 0 and len(parsed.beats) >= 2:
+        report.warnings.append(
+            f"没有可拨的控件（{ATTR_CONTROL}）：学生只能看不能动。"
+            "关键的量若可以改（换几只、分几份、取多长），给一根滑杆或一对加减按钮，"
+            "让结果跟着实时变"
+        )
 
     # ── 答案不许画错：验证过的解里有这个符号，画面上标的值就必须等于它 ──
     solved = solved_values(evidence)
