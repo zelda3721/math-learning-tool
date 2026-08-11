@@ -85,6 +85,19 @@ export function loadFigure(dir: string, name: string): LoadedFigure | null {
 }
 
 /**
+ * 读成 data URL，交给引擎。
+ *
+ * 引擎是另一个进程，给它一个文件名它读不到；给 URL 又要它反过来请求网关。
+ * 一张裁好的配图几十 KB，直接内联最省事，也让那次请求自足。
+ */
+export function figureDataUrl(dir: string, name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const found = loadFigure(dir, name);
+  if (!found) return undefined;
+  return `data:${found.contentType};base64,${found.body.toString("base64")}`;
+}
+
+/**
  * 删掉没有任何题目再引用的图。
  *
  * 撤回一个批次时磁盘上会留下一堆孤儿；不清理的话，

@@ -24,7 +24,13 @@ from ....application.interfaces import (
     ToolResult,
 )
 from ..prompt_library import PromptLibrary
-from ..web_explanation_contract import GateReport, verify_web_explanation
+from ..web_explanation_contract import (
+    ATTR_FIGURE,
+    FIGURE_ORIGINAL,
+    FIGURE_PLACEHOLDER,
+    GateReport,
+    verify_web_explanation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,65 @@ def _evidence_text(evidence: Any) -> str:
         return "（无）"
 
 
+#: 有原图时追加进提示词的那一段。
+#:
+#: 讲解要与原图一致，靠的不是事后比对两张图"像不像"（没有可靠办法），
+#: 而是不给重画的机会：讲义上那张图就是底图，注解叠在它上面。
+#: 图的真实内容是几十 KB base64，不让模型经手——它只写占位符，引擎事后替换。
+def figure_note(width: int, height: int) -> str:
+    """有原图时追加进提示词的那一段。
+
+    讲解要与原图一致，靠的不是事后比对两张图"像不像"（没有可靠办法），
+    而是不给重画的机会：讲义上那张图就是底图，注解叠在它上面。
+    图的真实内容是几十 KB base64，不让模型经手——它只写占位符，引擎事后替换。
+
+    **坐标系用图的真实像素**。曾让它用 0~100 的百分比配
+    `preserveAspectRatio="none"`，结果 svg 把里面的文字和线宽一起拉变形——
+    实测标签大到盖住半张图，怎么改措辞都不稳。把真实尺寸告诉它，
+    viewBox 与图 1:1 对应，就没有任何拉伸，字号也回到正常语义。
+    """
+    return f"""
+# 这道题有讲义上的原图（已随本次请求发给你，就在下面）
+
+**不许自己重画这个图形。** 原图就是舞台的底，注解叠在它上面；
+分拍切换的是**注解层**，不是图——图从头到尾只有一张，一直在那儿：
+
+```
+<article data-explain="1">
+  <div style="position:relative;display:inline-block;max-width:100%">
+    <img {ATTR_FIGURE}="{FIGURE_ORIGINAL}" src="{FIGURE_PLACEHOLDER}" style="display:block;width:100%">
+    <svg viewBox="0 0 {width} {height}"
+         style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+      <g data-beat="0" data-teach="已知：上底 6、下底 10、面积 48">
+        …这一拍的高亮/箭头/辅助线…
+        <text data-measure="area=48" x="…" y="…" font-size="{max(10, height // 22)}">48 平方厘米</text>
+      </g>
+      <g data-beat="1" data-teach="反过来求高：48 × 2 ÷ (6 + 10) = 6">…</g>
+    </svg>
+  </div>
+  <p id="teach"></p>       ← 脚本把当前拍的 data-teach 写进来
+  <script> …切换哪一组 g 可见… </script>
+</article>
+```
+
+- **这张图是 {width} × {height} 像素，viewBox 就照这个写**，坐标直接用图上的像素位置。
+  这样 svg 与原图 1:1 重合，不会有任何拉伸变形。字号用 {max(10, height // 22)} 上下。
+- `src` 就原样写 `{FIGURE_PLACEHOLDER}` 这几个字，**不要换成别的东西**，
+  真正的图由系统在你输出之后填进去。
+- **原图只出现一次**。别在每一拍里各放一张——那不是分拍，那是把同一张图铺了好几遍。
+- **每一拍必须是一个真的带 `data-beat` 和 `data-teach` 属性的元素**（就像上面那两个 g）。
+  用 CSS 类名（`.beat-0`、`.beat-1`）在舞台上切状态**不算分拍**——
+  核对是静态读属性的，读不到属性就等于你一拍都没写。
+- 你看得见这张图，所以注解要标在对的位置上：哪条边、哪个角、哪块面积，
+  坐标对着原图量。高亮一块面积要用 `<polygon>` 贴着图形的边画，别拿个矩形糊上去。
+- 几何题的"画出来"是**量**不是个数：边长、面积、高，用 `data-measure="名字=数值"`
+  标在注解上，并且让它在画面上真的可比（高亮那条边、给那块面积上色）。
+  一个 data-measure 都没有会被判成纯文字。
+- 重画一张"差不多"的图是最坏的做法——孩子手上的题目是那张原图，
+  两张对不上的时候他会以为自己看错了题。
+"""
+
+
 def build_rewrite_note(report: GateReport, attempt: int) -> str:
     """把门禁的判定原样喂回去——模型改不动它看不见的东西。"""
     lines = [
@@ -96,6 +161,48 @@ def build_rewrite_note(report: GateReport, attempt: int) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def figure_size(data_url: str) -> tuple[int, int]:
+    """读出原图的像素尺寸；读不出就给一个方形缺省（宁可坐标不精确，也不失败）。"""
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+
+        raw = base64.b64decode(data_url.split(",", 1)[1])
+        with Image.open(io.BytesIO(raw)) as img:
+            return int(img.width), int(img.height)
+    except Exception:  # noqa: BLE001 — 尺寸只影响注解坐标，不值得让讲解失败
+        logger.warning("读不出原图尺寸，注解坐标按 1000×700 估算")
+        return 1000, 700
+
+
+def _user_message(prompt: str, figure_image: str) -> ChatMessage:
+    """有原图时发多模态消息——模型得看见图，才知道注解该标在哪条边上。"""
+    if not figure_image:
+        return ChatMessage(role="user", content=prompt)
+    return ChatMessage(
+        role="user",
+        content=[
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": figure_image}},
+        ],
+    )
+
+
+def _inline_figure(markup: str, figure_image: str) -> str:
+    """把占位符换成真正的图。
+
+    没有图却出现了占位符时，把整个 img 去掉——留着就是一张裂图，
+    孩子会以为这道题的配图丢了。
+    """
+    if not markup:
+        return markup
+    if figure_image:
+        return markup.replace(FIGURE_PLACEHOLDER, figure_image)
+    return re.sub(rf"<img[^>]*{re.escape(FIGURE_PLACEHOLDER)}[^>]*>", "", markup, flags=re.I)
 
 
 class GenerateWebExplanationTool(ITool):
@@ -146,6 +253,7 @@ class GenerateWebExplanationTool(ITool):
         evidence = state.get("verify_math_evidence") or state.get("solve_math_evidence")
         request = state.get("verify_math_request") or state.get("solve_math_request")
 
+        figure_image = str(state.get("figure_image") or "")
         base_prompt = self._prompts.render(
             "web_explanation",
             problem=ctx.problem,
@@ -153,11 +261,14 @@ class GenerateWebExplanationTool(ITool):
             solution_steps=_steps_text(steps),
             answer=str(answer),
             math_evidence=_evidence_text(evidence),
+            figure_note=figure_note(*figure_size(figure_image)) if figure_image else "",
             extra_directives=str(args.get("extra_directives") or ""),
         )
 
         limit = int(args.get("max_rewrites") or MAX_REWRITES)
-        messages = [ChatMessage(role="user", content=base_prompt)]
+        # 把原图一并发过去：模型得看见它，才知道注解该标在哪条边上
+        first_message = _user_message(base_prompt, figure_image)
+        messages = [first_message]
         artifacts: list[ArtifactSpec] = []
         attempts: list[dict[str, Any]] = []
         best: tuple[str, GateReport] | None = None
@@ -165,7 +276,9 @@ class GenerateWebExplanationTool(ITool):
         for attempt in range(1, limit + 2):
             reply = await self._llm.chat_complete(messages=messages)
             markup = extract_html(getattr(reply, "text", "") or "")
-            report = verify_web_explanation(markup, evidence, request)
+            report = verify_web_explanation(
+                markup, evidence, request, figure_required=bool(figure_image)
+            )
             attempts.append(
                 {
                     "attempt": attempt,
@@ -185,6 +298,9 @@ class GenerateWebExplanationTool(ITool):
             if best is None or len(report.errors) < len(best[1].errors):
                 best = (markup, report)
             if report.ok:
+                # 门禁看的是带占位符的那份（小、好读、进语料也干净），
+                # 交付前才把真正的图填进去
+                markup = _inline_figure(markup, figure_image)
                 state["web_explanation_html"] = markup
                 state["web_explanation_gate"] = report.as_dict()
                 return ToolResult(
@@ -206,12 +322,13 @@ class GenerateWebExplanationTool(ITool):
                 "web 讲解第 %d 稿未过门禁，打回重写：%s", attempt, report.errors[:3]
             )
             messages = [
-                ChatMessage(role="user", content=base_prompt),
+                first_message,
                 ChatMessage(role="assistant", content=markup),
                 ChatMessage(role="user", content=build_rewrite_note(report, attempt)),
             ]
 
         markup, report = best if best else ("", GateReport(errors=["未产出任何内容"]))
+        markup = _inline_figure(markup, figure_image)
         state["web_explanation_gate"] = report.as_dict()
         return ToolResult(
             success=False,

@@ -51,6 +51,9 @@ class PlanRequest(BaseModel):
     extra_directives: str | None = None
     #: 谁来设计画面；缺省沿用既有行为（SceneSpec）
     route: PlanRoute = "plan"
+    #: 原题原图（data URL）。有它时讲解**不许重画图形**，只能把注解叠在原图上——
+    #: 一致性因此是构造出来的，不是事后检查出来的。见 generate_web_explanation。
+    figure_image: str | None = None
 
 
 class PlanResponse(BaseModel):
@@ -82,7 +85,10 @@ async def plan_only(
     settings: Settings = Depends(get_settings),
 ) -> PlanResponse:
     plan_id = f"plan-{uuid.uuid4().hex[:12]}"
-    state: dict[str, Any] = {"extra_directives": req.extra_directives or ""}
+    state: dict[str, Any] = {
+        "extra_directives": req.extra_directives or "",
+        "figure_image": req.figure_image or "",
+    }
 
     async def run(tool_name: str, turn: int, args: dict[str, Any] | None = None):
         tool = registry.get(tool_name)

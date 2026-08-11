@@ -143,3 +143,72 @@ def test_内部工具可按名取用但不进对外契约():
     assert len(registry) == 0
     with pytest.raises(ValueError):
         registry.register_internal(tool)
+
+
+# ── 有原图的题：模型要看得见图，交付前把占位符换成真图 ──
+
+TINY = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+
+GEOMETRY = (
+    '<article data-explain="1">'
+    '<section data-beat="0" data-teach="梯形面积公式">'
+    '<img data-figure="original" src="__ORIGINAL_FIGURE__">'
+    '<div data-measure="area=48"></div></section>'
+    '<section data-beat="1" data-teach="反过来求高">'
+    '<div data-measure="height=6"></div></section>'
+    "</article>"
+)
+
+
+def _figure_ctx() -> ToolContext:
+    ctx = _ctx()
+    ctx.state["figure_image"] = TINY
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_原图随提示词一起发给模型():
+    """模型得看见图，才知道注解该标在哪条边上。"""
+    tool, llm = _tool([GEOMETRY])
+    await tool.execute({}, _figure_ctx())
+    content = llm.calls[0][0].content
+    assert isinstance(content, list)
+    assert [part["type"] for part in content] == ["text", "image_url"]
+    assert content[1]["image_url"]["url"] == TINY
+    # 提示词里要讲清楚"不许重画"
+    assert "不许自己重画" in content[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_交付前把占位符换成真正的图():
+    tool, _ = _tool([GEOMETRY])
+    ctx = _figure_ctx()
+    result = await tool.execute({}, ctx)
+    assert result.success, result.summary
+    assert "__ORIGINAL_FIGURE__" not in result.data["html"]
+    assert TINY in result.data["html"]
+
+
+@pytest.mark.asyncio
+async def test_自己重画不放原图会被打回重写():
+    redrawn = GEOMETRY.replace(
+        '<img data-figure="original" src="__ORIGINAL_FIGURE__">',
+        '<svg viewBox="0 0 10 10"><polygon points="1,1 6,1 9,9 1,9"/></svg>',
+    )
+    tool, llm = _tool([redrawn, GEOMETRY])
+    result = await tool.execute({}, _figure_ctx())
+    assert result.success, result.summary
+    assert len(llm.calls) == 2
+    # 打回时第一条消息仍要带着图，否则模型改第二稿时就成了瞎写
+    assert isinstance(llm.calls[1][0].content, list)
+    assert "没有把原题的图放进来" in llm.calls[1][2].content
+
+
+@pytest.mark.asyncio
+async def test_没有原图时不要求也不残留占位符():
+    """题目没有配图，模型却写了占位符——去掉那个 img，别留一张裂图。"""
+    tool, llm = _tool([GEOMETRY])
+    result = await tool.execute({}, _ctx())
+    assert result.success, result.summary
+    assert "__ORIGINAL_FIGURE__" not in result.data["html"]
+    assert isinstance(llm.calls[0][0].content, str)
