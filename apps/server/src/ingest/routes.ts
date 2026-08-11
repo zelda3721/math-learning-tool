@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/schema";
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
+import { checkFigure } from "./figureGate.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf } from "../questions.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
@@ -34,6 +35,8 @@ const ConfirmQuestionSchema = z.object({
   nodeIds: z.array(z.string()).min(1),
   problemTypeId: z.string().optional(),
   variantOf: z.string().optional(),
+  // 宽松收下，入库前统一过 checkFigure（前端传回来的东西一律不可信）
+  figure: z.unknown().optional(),
 });
 
 const ConfirmSchema = z.object({
@@ -181,6 +184,13 @@ export function ingestRoutes(state: AppState): Hono {
         answer: q.answer,
         answerType: q.answerType,
         analysis: q.analysis,
+        // 再过一次门禁：草稿是前端传回来的，中途可能被改过；
+        // 图与题干对不上这件事，只在入库这一刻拦得住
+        ...(() => {
+          const fig = checkFigure(q.figure, q.stem);
+          if (fig.rejected) issues.push({ index: i, problem: `${fig.rejected}（题目已入库，仅去掉配图）` });
+          return fig.figure ? { figure: fig.figure } : {};
+        })(),
         difficulty: q.difficulty,
         source: { role: "upload" as const },
         variantOf: q.variantOf,
