@@ -10,9 +10,9 @@ const problemsRaw = JSON.parse(
 );
 
 describe("schema parses real knowledge data", () => {
-  it("parses graph.json with 75 nodes", () => {
+  it("parses graph.json（四个学段齐全，规模不倒退）", () => {
     const graph = GraphSchema.parse(graphRaw);
-    expect(graph.nodes.length).toBe(75);
+    expect(graph.nodes.length).toBeGreaterThanOrEqual(120);
     expect(graph.stages.length).toBe(4);
     expect(graph.strands.length).toBe(4);
   });
