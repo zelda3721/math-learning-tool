@@ -17,6 +17,7 @@ import { ExplorePage } from './explore/ExplorePage'
 import { ParentPage } from './parent/ParentPage'
 import { FreeExplainPanel } from './solve/FreeExplainPanel'
 import type { PersistedSession, SessionDetail } from './types/agent'
+import { BankPage } from './bank/BankPage'
 
 import {
     GradeSelector,
@@ -29,7 +30,7 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'practice' | 'ask' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'parent'
+type AppView = 'practice' | 'ask' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'bank' | 'parent'
 
 /** 角色导航：孩子只看学习面，家长全量（管理员） */
 const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[] = [
@@ -40,6 +41,7 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
     { key: 'explore', label: '探索', roles: ['parent', 'child'] },
     { key: 'solve', label: '讲解', roles: ['parent'] },
     { key: 'ingest', label: '录题', roles: ['parent'] },
+    { key: 'bank', label: '题库', roles: ['parent'] },
     { key: 'parent', label: '家长', roles: ['parent'] },
 ]
 
@@ -242,6 +244,12 @@ function AuthedApp() {
             {view === 'ingest' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <IngestPage />
+                </main>
+            )}
+
+            {view === 'bank' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <BankPage />
                 </main>
             )}
 
