@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTail, mergeContinued } from './shared'
+import { applyTail, looksLikeQuestion, mergeContinued } from './shared'
 import type { Draft } from './shared'
 
 /**
@@ -120,5 +120,33 @@ describe('applyTail', () => {
         const prev = draft({ stem: '题干', answer: '48' })
         const out = applyTail(prev, { answer: '54', answerUnverified: true })
         expect(out.answer).toBe('48')
+    })
+})
+
+describe('looksLikeQuestion', () => {
+    /**
+     * 页脚那条「只有题号」的窄带照样会被抽一遍——不丢它，是因为判错时
+     * 会把页底一道开头很短的真题整条扔掉。代价是偶尔抽出个题号，这里滤掉。
+     */
+    it.each([
+        ['就是题号', '练习9', '练习9'],
+        ['题号带标点', '练习9．', '练习9'],
+        ['太短', '如图', undefined],
+        ['空的', '   ', undefined],
+    ])('滤掉不是题的：%s', (_why, stem, label) => {
+        expect(looksLikeQuestion(draft({ stem }), label)).toBe(false)
+    })
+
+    it.each([
+        ['正常题干', '如图，在平行四边形ABCD中，CD=8厘米，AE=3厘米，求面积'],
+        ['开头很短但成句', '两个边长为10厘米的正方形互相错开3厘米'],
+    ])('留下真题：%s', (_why, stem) => {
+        expect(looksLikeQuestion(draft({ stem }), '练习4')).toBe(true)
+    })
+
+    it('题号相同但后面有题干的，是真题', () => {
+        expect(looksLikeQuestion(draft({ stem: '练习9 牛牛拿到的题目：两个相同的直角三角形重叠' }), '练习9')).toBe(
+            true,
+        )
     })
 })
