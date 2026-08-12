@@ -6,6 +6,7 @@ import { api } from './services/api'
 import { useAgentRun } from './hooks/useAgentRun'
 import { SLOGAN } from './brand'
 import { useAuth } from './auth/AuthContext'
+import { useLearner } from './learner/LearnerContext'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
@@ -45,6 +46,40 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
     { key: 'parent', label: '家长', roles: ['parent'] },
 ]
 
+/**
+ * 待批改条数：挂在「家长」导航上的角标。
+ *
+ * 判不准的作答会转给家长（"这道题已交给家长确认"），可此前转过去就没下文了——
+ * 家长得自己想起来去翻。一个数字就能把这条路接上。
+ */
+function usePendingVerdicts(enabled: boolean, learnerId: string | undefined) {
+    const [count, setCount] = useState(0)
+    useEffect(() => {
+        if (!enabled || !learnerId) {
+            setCount(0)
+            return
+        }
+        let cancelled = false
+        const load = () =>
+            fetch(`/api/v1/parent/pending-count?learnerId=${encodeURIComponent(learnerId)}`)
+                .then((r) => (r.ok ? r.json() : { count: 0 }))
+                .then((b: { count?: number }) => {
+                    if (!cancelled) setCount(typeof b.count === 'number' ? b.count : 0)
+                })
+                .catch(() => {
+                    /* 角标是锦上添花，拉不到就不显示 */
+                })
+        void load()
+        // 孩子边做题边产生待批改，30 秒一次足够让家长察觉，又不至于打扰服务端
+        const timer = window.setInterval(() => void load(), 30_000)
+        return () => {
+            cancelled = true
+            window.clearInterval(timer)
+        }
+    }, [enabled, learnerId])
+    return count
+}
+
 function App() {
     const { status } = useAuth()
     if (status === 'loading') {
@@ -60,6 +95,9 @@ function AuthedApp() {
     const [view, setView] = useState<AppView>('practice')
     const role = user?.role ?? 'child'
     const navItems = NAV_ITEMS.filter((item) => item.roles.includes(role))
+    const { learner } = useLearner()
+    // 待批改只对家长有意义——孩子不该给自己判卷
+    const pendingVerdicts = usePendingVerdicts(role === 'parent', learner?.id)
 
     // 角色变化 / 越权视图兜底：回练习页
     useEffect(() => {
@@ -184,6 +222,19 @@ function AuthedApp() {
                                 }`}
                             >
                                 {label}
+                                {/* 有作答等着家长判，导航上就得看得见——
+                                    不然孩子那句"已交给家长确认"就没有下文了 */}
+                                {key === 'parent' && pendingVerdicts > 0 && (
+                                    <span
+                                        className={`ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold numeric ${
+                                            view === key
+                                                ? 'bg-white/25 text-white'
+                                                : 'bg-wrong text-white'
+                                        }`}
+                                    >
+                                        {pendingVerdicts}
+                                    </span>
+                                )}
                             </button>
                         ))}
                     </nav>

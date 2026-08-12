@@ -148,7 +148,7 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
 这一页没有任何题目内容才什么都不输出。`;
 
 export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）。抽出它的内容，输出**一个** JSON 对象（不要数组、不要围栏）：
-{"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
+{"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerUnique":true,"answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；图里的数字务必看准；
 - answer 只写最终答案（数值题只写数，不带单位）；材料没给答案就自己解出来，解不出留空字符串；
@@ -156,6 +156,10 @@ export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）
   是你自己算出来的就写 solved。这两者要分开——你算的那个会被标出来让人复核，
   写错了会让一个没人核对过的数当成原题答案；
 - analysis 一句话即可，不要写解题全过程；
+- **answerUnique**：这道题的正确答案是不是只有一种。
+  填运算符、数阵图、"写出一个满足…的数"这类题往往有多种解法——
+  讲义里出现「或」「答案不唯一」「方法一/方法二」时一律写 false。
+  写错了会让做对的孩子被判错，那是最伤的一种错；
 - options 仅选择题才有；difficulty 为 1-5 的整数；
 - **answerType 看的是"能不能对着答案判对错"，不是"答案有几个数"**：
   一个或多个数值（"44，20"、"16，256"）都写 numeric，多个答案之间用逗号分开；

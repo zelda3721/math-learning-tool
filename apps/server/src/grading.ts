@@ -350,6 +350,101 @@ function normalizeExpressionInput(raw: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// 答案不唯一
+// ---------------------------------------------------------------------------
+
+/**
+ * 参考答案里用「或」列出的几种解法。
+ *
+ * 巧填算符那一讲整讲都是这样的题，讲义原文就写着「答案不唯一」，
+ * 还列着「方法一…方法五」。此前把整串当一个答案比，结果荒唐到
+ * **参考答案自己列出的第一种解法都判错**（parseNumeric 取最后一个等号右边，
+ * 于是只有答第二种的才对）。
+ *
+ * 「大于或等于」这类词里的「或」不算分隔——后面跟着「等」的排除掉。
+ */
+export function answerAlternatives(raw: string): string[] {
+  const parts = raw
+    .split(/或(?:者)?(?!等)/)
+    .map((p) => p.trim().replace(/^[,，、;；]/, "").trim())
+    .filter(Boolean);
+  return parts.length >= 2 ? parts : [];
+}
+
+/**
+ * 等式类题目：**按条件验算，不按答案比对**。
+ *
+ * 「在这些数之间填运算符使等式成立」的正确性不在于写出来长什么样，
+ * 而在于满不满足条件：算出来对不对、用的是不是题目给的那几个数字。
+ * 拿一个固定字符串去比，方向本身就错了——孩子换一种同样正确的填法就被判错。
+ *
+ * 三条一起成立才算对：
+ * ① 孩子写的等式**自己成立**（左边算出来等于右边）
+ * ② 得数与参考答案一致（题目要求凑出的那个数）
+ * ③ 用到的数字与参考答案是同一组（按数位比：1、2 既可以当 12 也可以分开用，
+ *    所以比的是数字而不是数）
+ */
+const equationSides = (text: string) => {
+  const t = normalizeText(text).replace(/[（]/g, "(").replace(/[）]/g, ")");
+  const at = t.lastIndexOf("=");
+  if (at <= 0 || at >= t.length - 1) return null;
+  return { left: t.slice(0, at), right: t.slice(at + 1) };
+};
+
+const evaluateArithmetic = (expr: string): number | null => {
+  try {
+    const v = math.evaluate(expr);
+    return typeof v === "number" && isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 这是不是一个**算术等式**（两边都算得出数）。
+ *
+ * 「∠1=45°」「x=4」都带等号却不是——左边是标号或未知数，算不出来。
+ * 分清楚很要紧：算术等式要按条件严格验算（错了就是错了），
+ * 而那两种得走普通比对，否则「∠1=45°」和「∠1=45度」会被判错。
+ */
+export function isArithmeticEquation(text: string): boolean {
+  const sides = equationSides(text);
+  if (!sides) return false;
+  return evaluateArithmetic(sides.left) !== null && evaluateArithmetic(sides.right) !== null;
+}
+
+export function equationSatisfiesCondition(reference: string, student: string): boolean {
+  const sides = (text: string) => {
+    const t = normalizeText(text).replace(/[（]/g, "(").replace(/[）]/g, ")");
+    const at = t.lastIndexOf("=");
+    if (at <= 0 || at >= t.length - 1) return null;
+    return { left: t.slice(0, at), right: t.slice(at + 1) };
+  };
+  const evaluate = (expr: string): number | null => {
+    try {
+      const v = math.evaluate(expr);
+      return typeof v === "number" && isFinite(v) ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  const digits = (expr: string) => (expr.match(/\d/g) ?? []).sort().join("");
+
+  const ref = sides(reference);
+  const stu = sides(student);
+  if (!ref || !stu) return false;
+
+  const stuLeft = evaluate(stu.left);
+  const stuRight = evaluate(stu.right);
+  const refRight = evaluate(ref.right);
+  if (stuLeft === null || stuRight === null || refRight === null) return false;
+
+  if (!numbersClose(stuLeft, stuRight)) return false; // ① 等式得自己成立
+  if (!numbersClose(stuRight, refRight)) return false; // ② 得数要一致
+  return digits(stu.left) === digits(ref.left); // ③ 用的是同一组数字
+}
+
+// ---------------------------------------------------------------------------
 // 判定
 // ---------------------------------------------------------------------------
 
@@ -424,11 +519,41 @@ export function deriveAnswerType(answer: string): Question["answerType"] {
  * 策略由答案本身推导。
  */
 export function grade(
-  question: Pick<Question, "answer" | "answerType">,
+  question: Pick<Question, "answer" | "answerType"> & { answerUnique?: boolean },
   studentAnswer: string,
 ): GradeResult {
   const student = studentAnswer.trim();
   if (!student) return WRONG("string");
+
+  /**
+   * 答案不唯一的题：参考答案只是**其中一种**解法。
+   * 逐个分支试，命中任一即对；一个都没命中也不判错——
+   * 孩子完全可能写出参考答案没列的那一种。
+   */
+  const alternatives = answerAlternatives(question.answer);
+  if (alternatives.length >= 2) {
+    const tried = alternatives.map((alt) =>
+      grade({ ...question, answer: alt, answerUnique: true }, student),
+    );
+    const hit = tried.find((r) => r.correct);
+    if (hit) return hit;
+    // 每一条都是按条件验算否掉的（算术等式），那就是确凿的错：
+    // 孩子的算式要么自己不成立、要么得数不对、要么用了别的数字。
+    if (tried.every((r) => r.method === "expression")) return WRONG("expression");
+    // 否则判不准——参考答案只列了几种，孩子完全可能写出没列出的那一种
+    return PENDING;
+  }
+
+  /**
+   * 算术等式：**按条件验算，不按答案比对**。
+   * 换一种同样正确的填法算对；不满足条件就是错——不能落回"比等号右边"，
+   * 那样「5+5=10」会因为得数是 10 而判对，可题目给的数字是 1、2、3、4。
+   */
+  if (isArithmeticEquation(question.answer) && student.includes("=")) {
+    return equationSatisfiesCondition(question.answer, student)
+      ? CORRECT("expression")
+      : WRONG("expression");
+  }
 
   const refParts = splitAnswerParts(question.answer);
   if (refParts.length >= 2) {
@@ -442,5 +567,10 @@ export function grade(
     return results.every((r) => r.correct) ? CORRECT("numeric") : WRONG("numeric");
   }
 
-  return gradeSingle(question.answer, student);
+  const result = gradeSingle(question.answer, student);
+  // 题目本身答案就不唯一时，对不上不代表孩子错了——交给家长看
+  if (!result.correct && result.method !== "pending" && question.answerUnique === false) {
+    return PENDING;
+  }
+  return result;
 }

@@ -51,6 +51,8 @@ export interface ExtractedDraft {
    * 标出来，让家长在抽检时一眼看见哪些答案还没人核对过。
    */
   answerUnverified?: boolean;
+  /** 答案不唯一（巧填算符这类多解题）：对不上时交给家长，不判错 */
+  answerUnique?: boolean;
   options?: string[];
   analysis?: string;
   difficulty: number;
@@ -107,6 +109,7 @@ const LenientDraftSchema = z.object({
   level: EducationLevelSchema.optional(),
   /** 分层的内容趟要求模型自报答案出处（见 ExtractedDraft.answerUnverified） */
   answerFrom: z.string().optional(),
+  answerUnique: z.boolean().optional(),
   // 宽松收下：合法性与真实性交给 checkFigure，这里不拦
   figure: z.unknown().optional(),
   // 模型给的说法五花八门（id、名字、近似说法），一律先收下再吸附
@@ -130,6 +133,8 @@ function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel:
     // 只有明确说了 material 才算材料给的。字段缺失时（老的整页路径不问这个）
     // 不标记——那条路上答案通常确实来自教师版，乱标会让抽检页全是红字而失去意义
     ...(item.answerFrom === "solved" ? { answerUnverified: true } : {}),
+    // 只在模型明说 false 时记下来：缺省（老路径不问这个）按唯一处理
+    ...(item.answerUnique === false ? { answerUnique: false } : {}),
     answerType: item.answerType ?? "numeric",
     options: item.options?.length ? item.options.map(String) : undefined,
     analysis: item.analysis?.trim() || undefined,
@@ -315,6 +320,8 @@ const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；
 - answer 只写最终答案（数值题只写数，不带单位）；材料没给答案就自己解出来，解不出留空字符串；
+- answerUnique：正确答案是不是只有一种。填运算符、数阵图、"举一个例子"这类
+  往往多解；材料里出现「或」「答案不唯一」「方法一/方法二」时写 false；
 - answerType 看的是"能不能对着答案判对错"，不是"答案有几个数"：
   一个或多个数值（"44，20"）都用 numeric，多个答案之间用逗号分开；
   含字母的代数式用 expression；只有必须看解题过程才判得了的才用 steps；

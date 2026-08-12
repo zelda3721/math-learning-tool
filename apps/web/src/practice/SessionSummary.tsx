@@ -6,6 +6,7 @@ import {
     type MasteryBand,
     type MistakeSummary,
 } from './api'
+import { useAuth } from '../auth/AuthContext'
 import { Badge, Button, Lightline } from '../ui'
 import type { QuestionRecord } from './QuestionCard'
 import { BandBadge } from './badges'
@@ -26,6 +27,8 @@ interface NodeChange {
 }
 
 export function SessionSummary({ records, learnerId, onRestart }: Props) {
+    const { user } = useAuth()
+    const isParent = user?.role === 'parent'
     const [nodeNames, setNodeNames] = useState<Record<string, string>>({})
     const [atlasTip, setAtlasTip] = useState(false)
     const [mistakes, setMistakes] = useState<MistakeSummary[]>([])
@@ -109,9 +112,26 @@ export function SessionSummary({ records, learnerId, onRestart }: Props) {
                 </div>
             </div>
             {review > 0 && (
-                <p className="text-sm text-ink-soft">
-                    另有 <span className="numeric">{review}</span> 题已交给家长确认。
-                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                    <p className="text-sm text-ink-soft">
+                        另有 <span className="numeric">{review}</span> 题已交给家长确认。
+                    </p>
+                    {/* 家长在场时给一条直路。此前"交给家长"之后就没有下文了，
+                        那几道题会一直悬着——判不准转人工是对的，转过去没人知道就不对了 */}
+                    {isParent && (
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                                window.dispatchEvent(
+                                    new CustomEvent('mathtutor:navigate', { detail: { view: 'parent' } }),
+                                )
+                            }
+                        >
+                            现在去批改
+                        </Button>
+                    )}
+                </div>
             )}
             {variantLit > 0 && (
                 <div className="flex justify-center">

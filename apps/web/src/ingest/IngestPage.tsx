@@ -428,6 +428,7 @@ export function IngestPage() {
                     ...(d.analysis ? { analysis: d.analysis } : {}),
                     // 答案是模型自己算的这件事要跟着进库，否则入库后就查不出来了
                     ...(d.answerUnverified ? { answerUnverified: true } : {}),
+                    ...(d.answerUnique === false ? { answerUnique: false } : {}),
                     // 原图入库时落盘到 media/figures（不进 git）
                     ...(d.figureImage ? { figureImage: d.figureImage } : {}),
                     // 解析图跟着进库，但只在讲解时用（做题下发时被 sanitize 挡掉）

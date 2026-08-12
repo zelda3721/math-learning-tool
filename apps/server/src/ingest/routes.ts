@@ -36,6 +36,8 @@ const ConfirmQuestionSchema = z.object({
   analysis: z.string().optional(),
   /** 答案是模型自己解的（材料没印）；这类题核对前不发给孩子 */
   answerUnverified: z.boolean().optional(),
+  /** 答案不唯一（多解题）；对不上时交给家长而不是判错 */
+  answerUnique: z.boolean().optional(),
   difficulty: z.number().int().min(1).max(5),
   level: EducationLevelSchema,
   nodeIds: z.array(z.string()).min(1),
@@ -340,6 +342,7 @@ export function ingestRoutes(state: AppState): Hono {
         // 答案的来历要跟着题一起进库：不记下来，入库后就再也分不清
         // 哪些答案有出处、哪些是模型自己算的
         ...(q.answerUnverified ? { answerUnverified: true } : {}),
+        ...(q.answerUnique === false ? { answerUnique: false } : {}),
         analysis: q.analysis,
         // 再过一次门禁：草稿是前端传回来的，中途可能被改过；
         // 图与题干对不上这件事，只在入库这一刻拦得住
