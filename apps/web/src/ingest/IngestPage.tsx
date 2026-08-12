@@ -38,6 +38,16 @@ type PdfPhase = 'render' | 'layout' | 'question' | 'extract'
  */
 const LEAD_MIN = 0.15
 
+/**
+ * 一道题的框占到整页多高，就该怀疑里面还藏着一道。
+ *
+ * snapBoxes 会把每道题的框补到下一道题开头，所以版面那趟漏报一道时，
+ * 前一道的框会一路吃到被漏那道的下面——高度直接翻倍。实测第10讲：
+ * 正常两道题各占 0.39 与 0.40，漏掉一道就会变成 0.84。
+ * 0.6 是这两档之间的空档，宽松取值，误触发也只是多跑一次调用。
+ */
+const OVERSIZED = 0.6
+
 const PHASE_LABEL: Record<PdfPhase, string> = {
     render: '渲染页面',
     layout: '切分题目',
@@ -236,6 +246,8 @@ export function IngestPage() {
         }
 
         const drafts: Draft[] = []
+        // 哪一条版面项产出了哪份草稿——补漏时要把它换掉
+        const draftsByItem = new Map<number, Draft>()
         let mergedFirst = false
 
         /**
@@ -312,15 +324,47 @@ export function IngestPage() {
                     if (carryFrom) {
                         // 合并而不是替换：上一页那道题的题干图必须留住，
                         // 否则会被这一页开头的解法图顶掉（见 mergeContinued）
-                        drafts.push(mergeContinued(carryFrom, draft))
+                        const merged = mergeContinued(carryFrom, draft)
+                        drafts.push(merged)
+                        draftsByItem.set(i, merged)
                         mergedFirst = true
                     } else {
                         drafts.push(draft)
+                        draftsByItem.set(i, draft)
                     }
                 }
             } catch (err) {
                 // 一道题读不出来不该拖累同页其他题
                 setPdfNote(`「${item.label || item.preview.slice(0, 10)}」识别失败（${String(err)}），继续下一题`)
+            }
+        }
+
+        /**
+         * 补漏：框大得离谱的那一块，再用"整页多题"的路子扫一遍。
+         *
+         * 切题那趟会漏报——同一份讲义连跑两次，结果并不一样。漏掉的那道
+         * 不会留下空隙（snapBoxes 把前一道补到了它下面），所以从空隙上看不出来，
+         * 但**框的高度会翻倍**，这个看得出来。
+         *
+         * 只在真的多抽出题时才采用，且入库时按题干+答案查重，
+         * 所以这一步只会补题，不会造重。
+         */
+        for (const [i, item] of items.entries()) {
+            const height = item.box ? item.box[3] - item.box[1] : 0
+            if (height < OVERSIZED || items.length === 1) continue
+            const crop = await cropPage(pageDataUrl, item.box).catch(() => null)
+            if (!crop) continue
+            try {
+                const found = await uploadOnce({ kind: 'image', content: crop })
+                if (found.length > 1) {
+                    setPdfNote(`「${item.label || item.preview.slice(0, 8)}」那一块里其实有 ${found.length} 道题，已补上`)
+                    // 换掉那一条对应的草稿：它只抽到了其中一道
+                    const at = drafts.findIndex((d) => d.stem === draftsByItem.get(i)?.stem)
+                    if (at >= 0) drafts.splice(at, 1, ...found)
+                    else drafts.push(...found)
+                }
+            } catch {
+                /* 补漏失败就算了，本来就是额外一道保险 */
             }
         }
         return { drafts, mergedFirst, boxes, pending: nextPending }
