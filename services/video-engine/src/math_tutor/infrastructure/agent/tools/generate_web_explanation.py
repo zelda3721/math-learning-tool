@@ -28,6 +28,8 @@ from ..web_explanation_contract import (
     ATTR_FIGURE,
     FIGURE_ORIGINAL,
     FIGURE_PLACEHOLDER,
+    FIGURE_TEACHER,
+    TEACHER_PLACEHOLDER,
     GateReport,
     verify_web_explanation,
 )
@@ -179,20 +181,36 @@ def figure_size(data_url: str) -> tuple[int, int]:
         return 1000, 700
 
 
-def _user_message(prompt: str, figure_image: str) -> ChatMessage:
+TEACHER_NOTE = f"""
+# 讲义里老师画了一张解法图（也随本次请求发给你，是第二张）
+
+这是**真人老师**画的数形结合：割补怎么割、阴影怎么挪、辅助线画在哪。
+它比你自己想的可靠，所以：
+
+- **参考它的思路**。老师用哪个关系让答案变得显然，你的动画就讲哪个关系。
+- **在最后一拍把它展示出来**，让孩子对得上讲义：
+  `<img {ATTR_FIGURE}="{FIGURE_TEACHER}" src="{TEACHER_PLACEHOLDER}" style="max-width:100%">`
+  src 同样原样写占位符，真正的图由系统事后填入。
+- 前面几拍仍然是你自己的动画（可拨、分步），老师那张图只是最后的"标准画法"。
+  不要用它代替讲解——它是一张静态图，讲不出过程。
+"""
+
+
+def _user_message(prompt: str, figure_image: str, teacher_image: str = "") -> ChatMessage:
     """有原图时发多模态消息——模型得看见图，才知道注解该标在哪条边上。"""
-    if not figure_image:
+    images = [img for img in (figure_image, teacher_image) if img]
+    if not images:
         return ChatMessage(role="user", content=prompt)
     return ChatMessage(
         role="user",
         content=[
             {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": figure_image}},
+            *[{"type": "image_url", "image_url": {"url": img}} for img in images],
         ],
     )
 
 
-def _inline_figure(markup: str, figure_image: str) -> str:
+def _inline_figure(markup: str, figure_image: str, teacher_image: str = "") -> str:
     """把占位符换成真正的图。
 
     没有图却出现了占位符时，把整个 img 去掉——留着就是一张裂图，
@@ -200,9 +218,12 @@ def _inline_figure(markup: str, figure_image: str) -> str:
     """
     if not markup:
         return markup
-    if figure_image:
-        return markup.replace(FIGURE_PLACEHOLDER, figure_image)
-    return re.sub(rf"<img[^>]*{re.escape(FIGURE_PLACEHOLDER)}[^>]*>", "", markup, flags=re.I)
+    for placeholder, image in ((FIGURE_PLACEHOLDER, figure_image), (TEACHER_PLACEHOLDER, teacher_image)):
+        if image:
+            markup = markup.replace(placeholder, image)
+        else:
+            markup = re.sub(rf"<img[^>]*{re.escape(placeholder)}[^>]*>", "", markup, flags=re.I)
+    return markup
 
 
 class GenerateWebExplanationTool(ITool):
@@ -254,6 +275,7 @@ class GenerateWebExplanationTool(ITool):
         request = state.get("verify_math_request") or state.get("solve_math_request")
 
         figure_image = str(state.get("figure_image") or "")
+        teacher_image = str(state.get("analysis_image") or "")
         base_prompt = self._prompts.render(
             "web_explanation",
             problem=ctx.problem,
@@ -261,13 +283,14 @@ class GenerateWebExplanationTool(ITool):
             solution_steps=_steps_text(steps),
             answer=str(answer),
             math_evidence=_evidence_text(evidence),
-            figure_note=figure_note(*figure_size(figure_image)) if figure_image else "",
+            figure_note=(figure_note(*figure_size(figure_image)) if figure_image else "")
+            + (TEACHER_NOTE if teacher_image else ""),
             extra_directives=str(args.get("extra_directives") or ""),
         )
 
         limit = int(args.get("max_rewrites") or MAX_REWRITES)
         # 把原图一并发过去：模型得看见它，才知道注解该标在哪条边上
-        first_message = _user_message(base_prompt, figure_image)
+        first_message = _user_message(base_prompt, figure_image, teacher_image)
         messages = [first_message]
         artifacts: list[ArtifactSpec] = []
         attempts: list[dict[str, Any]] = []
@@ -277,7 +300,11 @@ class GenerateWebExplanationTool(ITool):
             reply = await self._llm.chat_complete(messages=messages)
             markup = extract_html(getattr(reply, "text", "") or "")
             report = verify_web_explanation(
-                markup, evidence, request, figure_required=bool(figure_image)
+                markup,
+                evidence,
+                request,
+                figure_required=bool(figure_image),
+                teacher_figure_available=bool(teacher_image),
             )
             attempts.append(
                 {
@@ -300,7 +327,7 @@ class GenerateWebExplanationTool(ITool):
             if report.ok:
                 # 门禁看的是带占位符的那份（小、好读、进语料也干净），
                 # 交付前才把真正的图填进去
-                markup = _inline_figure(markup, figure_image)
+                markup = _inline_figure(markup, figure_image, teacher_image)
                 state["web_explanation_html"] = markup
                 state["web_explanation_gate"] = report.as_dict()
                 return ToolResult(
@@ -328,7 +355,7 @@ class GenerateWebExplanationTool(ITool):
             ]
 
         markup, report = best if best else ("", GateReport(errors=["未产出任何内容"]))
-        markup = _inline_figure(markup, figure_image)
+        markup = _inline_figure(markup, figure_image, teacher_image)
         state["web_explanation_gate"] = report.as_dict()
         return ToolResult(
             success=False,

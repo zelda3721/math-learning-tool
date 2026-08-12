@@ -41,6 +41,11 @@ export interface Draft {
      * 这是配图的主表示——它就是原图，不存在重新理解的风险。
      */
     figureImage?: string
+    /**
+     * 【解析】里那张图（data URL）。老师画的解法图——只在讲解时用，
+     * 做题时绝不给孩子看：那张图往往就是解法本身。
+     */
+    analysisImage?: string
     /** 几何题的配图规格（已过服务端门禁）；原样带回确认，入库前再验一次 */
     figure?: unknown
     /** 配图被丢弃的原因 */
@@ -105,6 +110,7 @@ export function normalizeDraft(raw: unknown): Draft | null {
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
         nodes: normalizeNodes(o.suggestedNodeIds ?? o.nodeIds),
         figureImage: typeof o.figureImage === 'string' ? o.figureImage : undefined,
+        analysisImage: typeof o.analysisImage === 'string' ? o.analysisImage : undefined,
         figure: o.figure,
         figureRejected: typeof o.figureRejected === 'string' ? o.figureRejected : undefined,
         droppedSuggestions: Array.isArray(o.droppedSuggestions)

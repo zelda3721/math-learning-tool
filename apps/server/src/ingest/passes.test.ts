@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxQuality, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes } from "./passes.js";
+import { boxQuality, classifyFigures, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes, type LayoutItem } from "./passes.js";
 
 describe("normalizeBox", () => {
   it("收下 0~1 的相对框", () => {
@@ -205,5 +205,83 @@ describe("parseFirstObject", () => {
 
   it("完全没有 JSON 时返回 undefined", () => {
     expect(parseFirstObject("这道题的图形太复杂了，我画不出来。")).toBeUndefined();
+  });
+});
+
+describe("classifyFigures", () => {
+  /**
+   * 教师版一页的真实排布：题干在上、配图挨着题干，然后是【答案】【解析】灰框，
+   * 解析里常另有一张老师画的解法图（割补怎么割、阴影怎么挪）。
+   *
+   * 扫过用户手上 20 份教师版，64 页的解析框里有图——不是边角情况。
+   * 而那张图往往就是解法本身：「所求阴影部分面积等于下图中阴影部分面积」，
+   * 图一给出来这道题就没了。
+   */
+  const item = (over: Partial<LayoutItem> = {}): LayoutItem => ({
+    index: 1,
+    label: "练习10",
+    preview: "两个相同的直角梯形重叠",
+    hasFigure: true,
+    continued: false,
+    box: [0.08, 0.46, 0.92, 0.94],
+    ...over,
+  });
+
+  // 实测（第10讲 p5 练习10）：题干图 0.52~0.66、灰框从 0.72 起、解法图 0.76~0.88
+  const STEM: [number, number, number, number] = [0.72, 0.52, 0.92, 0.66];
+  const ANALYSIS: [number, number, number, number] = [0.12, 0.76, 0.28, 0.88];
+
+  it("按灰框上边缘分：上面的是题干图，下面的是解法图", () => {
+    const out = classifyFigures(
+      item({ figureBox: STEM, analysisFigureBox: ANALYSIS, answerTop: 0.72 }),
+    );
+    expect(out.stemFigureBox).toEqual(STEM);
+    expect(out.analysisFigureBox).toEqual(ANALYSIS);
+  });
+
+  it("模型把解法图标成了题干图 → 按位置纠正，孩子看不到它", () => {
+    const out = classifyFigures(item({ figureBox: ANALYSIS, answerTop: 0.72 }));
+    expect(out.stemFigureBox).toBeUndefined();
+    expect(out.analysisFigureBox).toEqual(ANALYSIS);
+  });
+
+  it("模型把题干图标成了解法图 → 同样按位置纠正", () => {
+    const out = classifyFigures(item({ analysisFigureBox: STEM, answerTop: 0.72 }));
+    expect(out.stemFigureBox).toEqual(STEM);
+    expect(out.analysisFigureBox).toBeUndefined();
+  });
+
+  it("两张图都在灰框里时，都不当题干图", () => {
+    const out = classifyFigures(
+      item({ figureBox: [0.5, 0.78, 0.7, 0.9], analysisFigureBox: ANALYSIS, answerTop: 0.72 }),
+    );
+    expect(out.stemFigureBox).toBeUndefined();
+    expect(out.analysisFigureBox).toBeDefined();
+  });
+
+  it("没有灰框（学生版）时信模型的标注——那种材料里本来就没有解法图", () => {
+    const out = classifyFigures(item({ figureBox: STEM }));
+    expect(out.stemFigureBox).toEqual(STEM);
+    expect(out.analysisFigureBox).toBeUndefined();
+  });
+
+  it("没有图就两个都空", () => {
+    expect(classifyFigures(item({ answerTop: 0.72 }))).toEqual({});
+  });
+
+  it("从模型输出里解析出 answerTop", () => {
+    const items = parseLayout(
+      '{"index":1,"preview":"甲","box":[0.08,0.05,0.92,0.4],"hasFigure":true,' +
+        '"figureBox":[0.6,0.08,0.92,0.19],"analysisFigureBox":[0.15,0.25,0.4,0.38],"answerTop":0.22}',
+    );
+    const out = classifyFigures(items[0]!);
+    expect(items[0]!.answerTop).toBe(0.22);
+    expect(out.stemFigureBox).toEqual([0.6, 0.08, 0.92, 0.19]);
+    expect(out.analysisFigureBox).toEqual([0.15, 0.25, 0.4, 0.38]);
+  });
+
+  it("answerTop 给成百分数也认；给成 null 就当没给", () => {
+    expect(parseLayout('{"index":1,"preview":"甲","answerTop":22}')[0]!.answerTop).toBe(0.22);
+    expect(parseLayout('{"index":1,"preview":"甲","answerTop":null}')[0]!.answerTop).toBeUndefined();
   });
 });

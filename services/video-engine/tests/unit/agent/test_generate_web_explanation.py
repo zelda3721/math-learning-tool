@@ -212,3 +212,62 @@ async def test_没有原图时不要求也不残留占位符():
     assert result.success, result.summary
     assert "__ORIGINAL_FIGURE__" not in result.data["html"]
     assert isinstance(llm.calls[0][0].content, str)
+
+
+# ── 讲义里老师画的解法图：参考它的思路，并在最后一拍展示 ──
+
+TEACHER_IMG = "data:image/png;base64,iVBORw0KGgoAAAA"
+
+WITH_TEACHER = GEOMETRY.replace(
+    "</article>",
+    '<section data-beat="2" data-teach="讲义上老师的画法">'
+    '<img data-figure="teacher" src="__TEACHER_FIGURE__">'
+    "</section></article>",
+)
+
+
+def _teacher_ctx() -> ToolContext:
+    ctx = _figure_ctx()
+    ctx.state["analysis_image"] = TEACHER_IMG
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_两张图都发给模型():
+    """老师那张图是真人画的数形结合，模型得看见才能参考它的思路。"""
+    tool, llm = _tool([WITH_TEACHER])
+    await tool.execute({}, _teacher_ctx())
+    content = llm.calls[0][0].content
+    assert [p["type"] for p in content] == ["text", "image_url", "image_url"]
+    assert content[1]["image_url"]["url"] == TINY
+    assert content[2]["image_url"]["url"] == TEACHER_IMG
+    assert "不许自己重画" in content[0]["text"]
+    assert "参考它的思路" in content[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_两个占位符都换成真图():
+    tool, _ = _tool([WITH_TEACHER])
+    result = await tool.execute({}, _teacher_ctx())
+    assert result.success, result.summary
+    html = result.data["html"]
+    assert "__ORIGINAL_FIGURE__" not in html and "__TEACHER_FIGURE__" not in html
+    assert TINY in html and TEACHER_IMG in html
+
+
+@pytest.mark.asyncio
+async def test_没展示老师那张图只记警告不打回():
+    """少一张参考图不算画了假话，讲解本身仍然成立——为它反复重写不值。"""
+    tool, llm = _tool([GEOMETRY])
+    result = await tool.execute({}, _teacher_ctx())
+    assert result.success, result.summary
+    assert len(llm.calls) == 1
+    assert any("老师画的那张解法图" in w for w in result.data["gate"]["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_没有解析图时占位符不残留():
+    """模型写了 teacher 占位符但这道题没有解法图——去掉，别留一张裂图。"""
+    tool, _ = _tool([WITH_TEACHER])
+    result = await tool.execute({}, _figure_ctx())
+    assert "__TEACHER_FIGURE__" not in result.data["html"]

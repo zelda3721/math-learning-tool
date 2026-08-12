@@ -72,17 +72,34 @@ export function worthCropping(rect: CropRect): boolean {
 }
 
 /**
- * 该拿哪个框去裁配图。
+ * 该拿哪些框去裁图，以及裁出来的是题干图还是解析图。
  *
- * 答案是：**只有 figureBox，没有别的选项**。
- * 题目框经 snapBoxes 已经扩到下一道题之前，教师版的【答案】灰框正落在里面——
- * 拿它裁图，等于把答案印在配图上递给孩子。
- * 框不到就没有图：少了图的几何题还能靠文字理解，带着答案的图会让这道题彻底失去意义。
+ * 两条硬规则：
+ * ① **题干图只认 figureBox，绝不退回整道题的框**。题目框经 snapBoxes
+ *    已经扩到下一道题之前，教师版的【答案】灰框正落在里面——
+ *    拿它裁图等于把答案印在配图上递给孩子。
+ * ② **判不准就算解析图**。教师版的解析里常另有一张图（割补怎么割、
+ *    阴影怎么挪），那张图往往就是解法本身。两种错的代价差得远：
+ *    多给一张解法图，孩子一打开就看见答案，而且从结果上看不出来；
+ *    少给一张题干图，只是这道几何题没图，谁都会立刻发现。
  *
- * 单独写成一个函数，是因为这条规则太容易在某次"顺手加个兜底"里被推翻。
+ * 分界线由服务端在 classifyFigures 里算好（结构优先于模型的标注），
+ * 这里只负责按它给的框去裁——同一条规则不写两遍。
  */
-export function figureCropBox(item: { hasFigure?: boolean; figureBox?: Box; box?: Box }): Box | undefined {
-  return item.hasFigure && item.figureBox ? item.figureBox : undefined;
+export interface FigureBoxes {
+  stemFigureBox?: Box;
+  analysisFigureBox?: Box;
+}
+
+export function figureCropBox(item: {
+  hasFigure?: boolean;
+  stemFigureBox?: Box;
+  analysisFigureBox?: Box;
+}): FigureBoxes {
+  return {
+    stemFigureBox: item.hasFigure ? item.stemFigureBox : undefined,
+    analysisFigureBox: item.analysisFigureBox,
+  };
 }
 
 async function loadImage(dataUrl: string): Promise<HTMLImageElement> {

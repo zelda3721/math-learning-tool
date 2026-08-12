@@ -501,3 +501,67 @@ describe("讲解带上原题原图", () => {
     expect((sent as { figure_image?: string }).figure_image).toBeUndefined();
   });
 });
+
+/**
+ * 讲解要能拿到老师画的解法图。
+ *
+ * 它是真人画的数形结合（割补怎么割、阴影怎么挪），比模型自己想的可靠；
+ * 讲解参考它的思路，并在最后一拍展示，让孩子对得上讲义。
+ * 这条链路断了不会报错，只会悄悄退回"模型凭题干自己想一个画法"。
+ */
+describe("讲解带上讲义里的解法图", () => {
+  const TINY_PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const TINY_JPEG =
+    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsL" +
+    "DBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB" +
+    "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+
+  function seed(images: { figureImage?: string; analysisImage?: string }) {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "wq1", nodeIds: [NODE_A], stem: "求阴影部分的面积", answer: "100" }),
+    ]);
+    env.state.contract = CONTRACT;
+    env.state.config.figuresDir = mkdtempSync(join(tmpdir(), "figdir-"));
+    const q = env.state.questions.byId.get("wq1")!;
+    env.state.questions.byId.set("wq1", {
+      ...q,
+      ...(images.figureImage
+        ? { figureImage: storeFigure(env.state.config.figuresDir, images.figureImage).name }
+        : {}),
+      ...(images.analysisImage
+        ? { analysisImage: storeFigure(env.state.config.figuresDir, images.analysisImage).name }
+        : {}),
+    });
+    return env;
+  }
+
+  it("两张图分别发给引擎", async () => {
+    const env = seed({ figureImage: TINY_JPEG, analysisImage: TINY_PNG });
+    let sent: unknown;
+    env.state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(createApp(env.state), { questionId: "wq1", mode: "web_html" });
+    const body = sent as { figure_image?: string; analysis_image?: string };
+    expect(body.figure_image).toBe(TINY_JPEG);
+    expect(body.analysis_image).toBe(TINY_PNG);
+  });
+
+  it("只有解析图、没有题干图时也照样发过去", async () => {
+    // 题干图缺失是常有的（版面判不准就不给），不该因此连解法图也丢掉
+    const env = seed({ analysisImage: TINY_PNG });
+    let sent: unknown;
+    env.state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(createApp(env.state), { questionId: "wq1", mode: "web_html" });
+    const body = sent as { figure_image?: string; analysis_image?: string };
+    expect(body.figure_image).toBeUndefined();
+    expect(body.analysis_image).toBe(TINY_PNG);
+  });
+
+  it("没有解析图就不带这个字段", async () => {
+    const env = seed({ figureImage: TINY_JPEG });
+    let sent: unknown;
+    env.state.engineFetch = mockHtmlFetch({ spec: GOOD_SPEC, onBody: (b) => (sent = b) });
+    await runJob(createApp(env.state), { questionId: "wq1", mode: "web_html" });
+    expect((sent as { analysis_image?: string }).analysis_image).toBeUndefined();
+  });
+});

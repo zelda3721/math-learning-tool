@@ -44,7 +44,9 @@ interface LayoutItem {
     preview: string
     box?: [number, number, number, number]
     hasFigure: boolean
-    figureBox?: [number, number, number, number]
+    /** 服务端 classifyFigures 判好的：题干图 / 解析图 */
+    stemFigureBox?: [number, number, number, number]
+    analysisFigureBox?: [number, number, number, number]
     continued: boolean
 }
 
@@ -197,16 +199,21 @@ export function IngestPage() {
                 })
                 if (draft) {
                     /**
-                     * 原题原图：孩子做题时看的就是它，所以直接从页图上裁，不经模型转写。
+                     * 两张图分开裁。
                      *
-                     * **只认 figureBox，绝不退回整道题的框**。题目框经 snapBoxes
-                     * 已经扩到下一道题之前，教师版的【答案】灰框正落在里面——
-                     * 拿它裁图，等于把答案印在配图上递给孩子。
-                     * 框不到就没有图：一道少了图的几何题还能靠文字理解，
-                     * 一张带着答案的图会让这道题彻底失去意义。
+                     * 题干图是孩子做题时看的，解析图是老师画的解法——
+                     * 教师版的解析里常另有一张（割补怎么割、阴影怎么挪），
+                     * 那张图往往**就是解法本身**，做题时看见这道题就没了。
+                     *
+                     * 判定见服务端 classifyFigures：结构说了算，
+                     * 拿不准一律算解析图（少一张题干图看得见，多给一张解法图看不见）。
                      */
+                    const split = figureCropBox(item)
                     draft.figureImage =
-                        (await cropPage(pageDataUrl, figureCropBox(item), FIGURE_PAD).catch(() => null)) ??
+                        (await cropPage(pageDataUrl, split.stemFigureBox, FIGURE_PAD).catch(() => null)) ??
+                        undefined
+                    draft.analysisImage =
+                        (await cropPage(pageDataUrl, split.analysisFigureBox, FIGURE_PAD).catch(() => null)) ??
                         undefined
                     drafts.push(draft)
                     if (carryOver) mergedFirst = true
@@ -356,6 +363,8 @@ export function IngestPage() {
                     ...(d.answerUnverified ? { answerUnverified: true } : {}),
                     // 原图入库时落盘到 media/figures（不进 git）
                     ...(d.figureImage ? { figureImage: d.figureImage } : {}),
+                    // 解析图跟着进库，但只在讲解时用（做题下发时被 sanitize 挡掉）
+                    ...(d.analysisImage ? { analysisImage: d.analysisImage } : {}),
                     // 配图规格原样带回；服务端入库前会再过一次门禁（前端传的一律不可信）
                     ...(d.figure ? { figure: d.figure } : {}),
                 })),

@@ -25,6 +25,9 @@ function sanitize(q: Question) {
     // 原图是主表示，规格只在没有原图时兜底（见 figures.ts）
     figureImage: q.figureImage,
     figure: q.figure,
+    // 这里刻意**不下发** analysisImage：那是老师画在【解析】里的解法图
+    // （「所求阴影部分面积等于下图中阴影部分面积」——图一给出来这道题就没了）。
+    // 它只在讲解时用。这个白名单是唯一挡住它的地方，别顺手加进来。
   };
 }
 

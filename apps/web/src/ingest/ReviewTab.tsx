@@ -22,6 +22,8 @@ interface ReviewQuestion {
     answerUnverified?: boolean
     /** 原题原图的文件名 */
     figureImage?: string
+    /** 【解析】里老师画的解法图；做题时不给孩子看 */
+    analysisImage?: string
 }
 
 interface ReviewList {
@@ -50,6 +52,7 @@ function normalizeQuestion(raw: unknown): ReviewQuestion | null {
         sourceFile: typeof source.file === 'string' ? source.file : undefined,
         answerUnverified: o.answerUnverified === true,
         figureImage: typeof o.figureImage === 'string' ? o.figureImage : undefined,
+        analysisImage: typeof o.analysisImage === 'string' ? o.analysisImage : undefined,
     }
 }
 
@@ -181,8 +184,22 @@ function QuestionCard({
                 </div>
             )}
 
-            {/* 几何题不看图没法核对答案 */}
-            {q.figureImage && <QuestionImage name={q.figureImage} />}
+            {/* 几何题不看图没法核对答案。两张图必须分得清楚：
+                题干图孩子做题时看得见，解析图只在讲解时出现 */}
+            {q.figureImage && (
+                <div>
+                    <span className="eyebrow block mb-1">题干配图 · 孩子做题时看这张</span>
+                    <QuestionImage name={q.figureImage} />
+                </div>
+            )}
+            {q.analysisImage && (
+                <div>
+                    <span className="eyebrow block mb-1 text-[color:var(--color-correct)]">
+                        讲义解析里的解法图 · 只在讲解时出现，做题时不给孩子看
+                    </span>
+                    <QuestionImage name={q.analysisImage} alt="讲义解析里的解法图" />
+                </div>
+            )}
 
             {editing && (
                 <label className="block">

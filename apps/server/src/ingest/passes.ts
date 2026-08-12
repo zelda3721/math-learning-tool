@@ -24,13 +24,68 @@ export interface LayoutItem {
   /** [x0, y0, x1, y1]，均为 0~1；给不出可用框时为 undefined */
   box?: [number, number, number, number];
   hasFigure: boolean;
-  /**
-   * 配图本身的范围（题目框之内）。裁出来存成原题原图。
-   * 给不出就退回整道题的框——多一点周围的字无害，图缺了才是事。
-   */
+  /** 配图本身的范围。裁出来存成原题原图 */
   figureBox?: [number, number, number, number];
+  /**
+   * 【解析】灰框里那张图的范围——教师版常在解析里再画一张：
+   * 割补怎么割、阴影怎么挪、辅助线画在哪。
+   * 它**不是题干的一部分**，孩子做题时不能看见（那张图往往就是解法本身）。
+   */
+  analysisFigureBox?: [number, number, number, number];
+  /**
+   * 【答案】灰框的上边缘（0~1）。**题干与解析的分界线。**
+   *
+   * 一度想拿"模型框题的下边界"当分界——那是改提示词之前的观测。
+   * 后来为了不丢答案，明确要求它"一直框到下一道题之前"，
+   * 那个框于是包含了整个解析区，分界线随之失效。
+   * 拿过时的测量当依据是危险的：判据看着有理，实际早就不成立了。
+   *
+   * 所以改成直接问：灰框那条边模型看得一清二楚，答一个数即可。
+   */
+  answerTop?: number;
   /** 这一页开头是不是上一页某题的续文 */
   continued: boolean;
+}
+
+export interface FigureSplit {
+  /** 题干配图：孩子做题时看的那张 */
+  stemFigureBox?: [number, number, number, number];
+  /** 解析配图：只在讲解时用 */
+  analysisFigureBox?: [number, number, number, number];
+}
+
+/**
+ * 把模型给的两个框判成「题干图」和「解析图」。
+ *
+ * **结构说了算，模型的标注只是参考。** 模型分得清灰框，但它也会看错；
+ * 而"这张图在不在题干框之内"是几何事实，量一下就知道。
+ *
+ * 拿不准时一律当解析图——两种错的代价差得远：
+ * 把解析图当题干图给了孩子，他一打开就看见解法，而且**从结果上看不出来**；
+ * 把题干图误判成解析图，只是这道几何题少了张图，谁都会立刻发现。
+ */
+export function classifyFigures(item: LayoutItem): FigureSplit {
+  const { figureBox, analysisFigureBox, answerTop } = item;
+  const out: FigureSplit = {};
+
+  // 知道灰框在哪时，位置说了算——模型偶尔会把两张图标反，而"图在灰框上面还是
+  // 下面"是几何事实。不知道时（学生版没有答案框，或模型没答）就信它的标注：
+  // 那种材料里本来就不存在解析图。
+  const decideByPosition = typeof answerTop === "number";
+  const aboveAnswer = (box?: [number, number, number, number]) =>
+    box !== undefined && box[1] < answerTop!;
+
+  if (decideByPosition) {
+    for (const box of [figureBox, analysisFigureBox]) {
+      if (!box) continue;
+      if (aboveAnswer(box)) out.stemFigureBox ??= box;
+      else out.analysisFigureBox ??= box;
+    }
+  } else {
+    out.stemFigureBox = figureBox;
+    out.analysisFigureBox = analysisFigureBox;
+  }
+  return out;
 }
 
 export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要解题、不要写解析。
@@ -46,8 +101,13 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
   **范围要一直框到下一道题开始之前**——配图、以及紧随其后的
   【答案】【解析】灰框都属于这道题，少框了答案就丢了
 - hasFigure：这道题旁边有没有图形、表格或数阵（有就 true）
-- figureBox：只在 hasFigure 为 true 时给——**那张图本身**的范围（同样是 0~1 比例）。
+- figureBox：只在 hasFigure 为 true 时给——**题干里那张图**的范围（同样是 0~1 比例）。
   宁可框大一点把整张图都包进去，也不要框小了切掉图的一角；拿不准就省略
+- analysisFigureBox：**【答案】【解析】那个灰框里**如果另有一张图，给出它的范围。
+  教师版常在解析里再画一张（割补怎么割、阴影怎么挪、辅助线画在哪）——
+  那张图是解法，不属于题干，必须和 figureBox 分开
+- answerTop：这道题的【答案】灰框**从哪一行开始**（只写上边缘那一个 0~1 的数）。
+  没有灰框（学生版）就省略。这条用来复核上面两个框有没有标反
 - continued：只有第一道题可能为 true——当这一页开头是上一页某题的续文时
 
 页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。这一页没有题就什么都不输出。`;
@@ -230,6 +290,16 @@ export function parseLayout(raw: string): LayoutItem[] {
       ...(() => {
         const fb = normalizeBox(o.figureBox ?? o.figure_box, 0.05, 0.02);
         return fb ? { figureBox: fb } : {};
+      })(),
+      ...(() => {
+        const ab = normalizeBox(o.analysisFigureBox ?? o.analysis_figure_box, 0.05, 0.02);
+        return ab ? { analysisFigureBox: ab } : {};
+      })(),
+      ...(() => {
+        // 有的模型给 0~100 的百分数，与 normalizeBox 同一套理解
+        let top = num(o.answerTop ?? o.answer_top);
+        if (top !== undefined && top > 1) top = top <= 100 ? top / 100 : undefined;
+        return top !== undefined && top > 0 && top < 1 ? { answerTop: top } : {};
       })(),
       continued: o.continued === true,
     });

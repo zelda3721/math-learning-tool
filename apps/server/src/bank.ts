@@ -54,7 +54,10 @@ function writeBatch(dataDir: string, file: string, items: Question[]): void {
 function pruneOrphanFigures(state: AppState): number {
   const referenced = new Set<string>();
   for (const b of listBatches(state.config.dataDir)) {
-    for (const item of b.items) if (item.figureImage) referenced.add(item.figureImage);
+    for (const item of b.items) {
+      if (item.figureImage) referenced.add(item.figureImage);
+      if (item.analysisImage) referenced.add(item.analysisImage);
+    }
   }
   return pruneFigures(state.config.figuresDir, referenced);
 }
