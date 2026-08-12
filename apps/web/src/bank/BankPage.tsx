@@ -26,6 +26,7 @@ interface BankQuestion {
     status: string
     answerUnverified?: boolean
     figureImage?: string
+    analysisImage?: string
     figure?: unknown
 }
 
@@ -231,8 +232,16 @@ export function BankPage() {
                             {/* 入库之后同样要能看图：当初抽检看漏了、或题干后来改过，
                                 只有把图摆出来才发现得了。原图优先 */}
                             {q.figureImage ? (
-                                <div className="rounded-[10px] border border-rule bg-plate/40 p-3">
+                                <div className="rounded-[10px] border border-rule bg-plate/40 p-3 space-y-2">
                                     <QuestionImage name={q.figureImage} />
+                                    {q.analysisImage && (
+                                        <>
+                                            <p className="eyebrow text-center">
+                                                讲义解析里的解法图 · 只在讲解时出现
+                                            </p>
+                                            <QuestionImage name={q.analysisImage} alt="解法图" />
+                                        </>
+                                    )}
                                 </div>
                             ) : q.figure ? (
                                 <div className="rounded-[10px] border border-rule bg-plate/40 p-3">

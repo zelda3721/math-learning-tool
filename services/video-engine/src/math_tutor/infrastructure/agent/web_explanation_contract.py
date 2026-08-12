@@ -69,6 +69,11 @@ FIGURE_ORIGINAL = "original"
 #: 图的真实内容是几十 KB 的 base64，不能让模型经手（提示词塞不下，它也抄不对）。
 #: 模型只写这个占位符，门禁核对完由引擎替换成真正的 data URL。
 FIGURE_PLACEHOLDER = "__ORIGINAL_FIGURE__"
+#: 讲义【解析】里那张图：老师画的解法图（割补怎么割、阴影怎么挪）。
+#: 它是真人画的数形结合，讲解可以参考它的思路，并在最后一拍展示，
+#: 让孩子对得上讲义。缺了只记警告——少一张参考图不算错，只是可惜。
+FIGURE_TEACHER = "teacher"
+TEACHER_PLACEHOLDER = "__TEACHER_FIGURE__"
 #: 可拨的控件（滑杆/加减按钮）：`data-control="换几只"`。
 #: 看演示和自己动手是两回事——「每换一只多两根」手拨一遍就懂了，
 #: 干看三张静态图得靠脑补。缺了只记警告：有些题确实没什么可拨的。
@@ -132,6 +137,8 @@ class ParsedExplanation:
     has_root: bool = False
     #: 页面里出现了几次原题原图（带占位符 src 的那个 img）
     original_figures: int = 0
+    #: 讲义解析里那张老师画的图出现了几次
+    teacher_figures: int = 0
 
 
 class _Parser(html.parser.HTMLParser):
@@ -161,10 +168,14 @@ class _Parser(html.parser.HTMLParser):
         if ATTR_ROOT in a:
             self.out.has_root = True
 
-        if a.get(ATTR_FIGURE, "").strip() == FIGURE_ORIGINAL:
+        figure_kind = a.get(ATTR_FIGURE, "").strip()
+        if figure_kind == FIGURE_ORIGINAL:
             # 只认占位符：模型自己贴一张别的图（或把 src 留空）都不算把原图放进来
             if FIGURE_PLACEHOLDER in a.get("src", ""):
                 self.out.original_figures += 1
+        elif figure_kind == FIGURE_TEACHER:
+            if TEACHER_PLACEHOLDER in a.get("src", ""):
+                self.out.teacher_figures += 1
 
         if ATTR_CONTROL in a:
             self.out.controls += 1
@@ -317,6 +328,7 @@ def verify_web_explanation(
     *,
     min_beats: int = 2,
     figure_required: bool = False,
+    teacher_figure_available: bool = False,
 ) -> GateReport:
     """把画面上宣称的每个数跟已验证的数学对账。
 
@@ -360,6 +372,16 @@ def verify_web_explanation(
         elif parsed.original_figures > 1:
             # 同一张图铺两遍，孩子分不清哪张才是题目说的那张
             findings.append(f"原题的图放了 {parsed.original_figures} 次，只应放一次")
+
+    # ── 讲义解析里有老师画的图时，最好在最后一拍展示出来 ──
+    #
+    # 只记警告：少一张参考图不算画了假话，只是错过了一个真人画的数形结合，
+    # 而讲解本身仍然成立。判成错误会让重写循环为一件锦上添花的事反复空转。
+    if teacher_figure_available and parsed.teacher_figures == 0:
+        report.warnings.append(
+            f'没有展示讲义里老师画的那张解法图（<img {ATTR_FIGURE}="{FIGURE_TEACHER}" '
+            f'src="{TEACHER_PLACEHOLDER}">）：孩子会对不上讲义'
+        )
 
     # ── 分拍与教学句 ──
     #

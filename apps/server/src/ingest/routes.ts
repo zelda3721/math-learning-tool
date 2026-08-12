@@ -5,7 +5,7 @@ import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
 import { snapToGraph } from "./vocabulary.js";
-import { boxQuality } from "./passes.js";
+import { boxQuality, classifyFigures } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
@@ -44,6 +44,8 @@ const ConfirmQuestionSchema = z.object({
   figure: z.unknown().optional(),
   /** 原题原图：前端从页图上裁下来的 data URL，入库时落盘 */
   figureImage: z.string().optional(),
+  /** 【解析】里那张图：老师画的解法图，只在讲解时用 */
+  analysisImage: z.string().optional(),
 });
 
 const ConfirmSchema = z.object({
@@ -205,7 +207,12 @@ export function ingestRoutes(state: AppState): Hono {
     const { base64, mime } = stripDataUrl(parsed.data.content);
     try {
       const items = await provider.layoutFromImage(base64, mime ?? "image/jpeg");
-      return c.json({ items, quality: boxQuality(items) });
+      // 题干图 / 解析图在这里判完再下发：判据是结构（图在不在题干框内），
+      // 前端只管按框裁，同一条规则不写两遍
+      return c.json({
+        items: items.map((item) => ({ ...item, ...classifyFigures(item) })),
+        quality: boxQuality(items),
+      });
     } catch (err) {
       return c.json({ error: `版面识别失败: ${String(err)}` }, 502);
     }
@@ -274,20 +281,24 @@ export function ingestRoutes(state: AppState): Hono {
         issues.push({ index: i, problem: `未知题型 ${problemTypeId}，已清除该字段` });
         problemTypeId = undefined;
       }
-      // 原图落盘。存不下就只丢图不丢题——题干是好的，没必要因为一张图整题作废
-      let figureImage: string | undefined;
-      if (q.figureImage) {
+      // 两张图都落盘。存不下就只丢图不丢题——题干是好的，没必要因为一张图整题作废
+      const store = (dataUrl: string | undefined, what: string): string | undefined => {
+        if (!dataUrl) return undefined;
         try {
-          figureImage = storeFigure(state.config.figuresDir, q.figureImage).name;
+          return storeFigure(state.config.figuresDir, dataUrl).name;
         } catch (err) {
-          issues.push({ index: i, problem: `原图未能保存（${String(err)}），题目已入库但没有配图` });
+          issues.push({ index: i, problem: `${what}未能保存（${String(err)}），题目已入库但没有这张图` });
+          return undefined;
         }
-      }
+      };
+      const figureImage = store(q.figureImage, "原图");
+      const analysisImage = store(q.analysisImage, "解析图");
 
       const candidate = QuestionSchema.safeParse({
         id: randomUUID(),
         problemTypeId,
         figureImage,
+        analysisImage,
         nodeIds: q.nodeIds,
         level: q.level,
         stem: q.stem,

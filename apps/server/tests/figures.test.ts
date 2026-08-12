@@ -18,6 +18,10 @@ const TINY_JPEG =
   "DBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB" +
   "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
+/** 1×1 的 PNG，用来和 JPEG 区分开——两张图不能互相覆盖 */
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "figures-"));
 }
@@ -172,6 +176,70 @@ describe("入库 → 取图 → 删题", () => {
     const id = env.state.questions.all.find((q) => q.stem === question.stem)!.id;
     const del = await app.request(`/api/v1/bank/questions/${id}`, { method: "DELETE" });
     expect((await del.json()).prunedFigures).toBe(1);
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+});
+
+/**
+ * 解析图这条线：入库、展示给家长、交给讲解——但**绝不下发给做题中的孩子**。
+ *
+ * 那张图往往就是解法本身（「所求阴影部分面积等于下图中阴影部分面积」），
+ * 一给出来这道题就没了。而它泄漏出去不会报错，只会表现为"孩子这题做得真快"。
+ */
+describe("解析图只在讲解时用", () => {
+  const question = {
+    stem: "两个相同的直角梯形重叠在一起，求阴影部分的面积。",
+    answer: "100",
+    answerType: "numeric" as const,
+    difficulty: 3,
+    level: "elementary_upper" as const,
+    nodeIds: [NODE_A],
+    figureImage: TINY_JPEG,
+    analysisImage: TINY_PNG,
+  };
+
+  async function seed() {
+    const env = tempFixtureEnv([]);
+    env.state.config.figuresDir = tempDir();
+    const app = createApp(env.state);
+    await app.request("/api/v1/ingest/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batchName: "t", questions: [question] }),
+    });
+    return { env, app };
+  }
+
+  it("两张图分别落盘，互不覆盖", async () => {
+    const { env } = await seed();
+    const q = env.state.questions.all.find((x) => x.stem === question.stem)!;
+    expect(q.figureImage).toMatch(/\.jpg$/);
+    expect(q.analysisImage).toMatch(/\.png$/);
+    expect(q.analysisImage).not.toBe(q.figureImage);
+  });
+
+  it("练习下发的题面里没有解析图", async () => {
+    const { env, app } = await seed();
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+    const res = await app.request("/api/v1/practice/today", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learnerId: learner.id }),
+    });
+    const body = await res.text();
+    const q = env.state.questions.all.find((x) => x.stem === question.stem)!;
+    // 题干图可以出现，解析图一个字都不许有
+    expect(body).not.toContain(q.analysisImage!);
+    expect(body).not.toContain("analysisImage");
+  });
+
+  it("删题时两张图一起清掉，不留孤儿", async () => {
+    const { env, app } = await seed();
+    const dir = env.state.config.figuresDir;
+    expect(readdirSync(dir)).toHaveLength(2);
+    const id = env.state.questions.all.find((x) => x.stem === question.stem)!.id;
+    const del = await app.request(`/api/v1/bank/questions/${id}`, { method: "DELETE" });
+    expect((await del.json()).prunedFigures).toBe(2);
     expect(readdirSync(dir)).toHaveLength(0);
   });
 });

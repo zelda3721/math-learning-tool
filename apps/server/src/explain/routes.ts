@@ -138,9 +138,16 @@ async function runWebJob(
    * 而是**根本不重画**：把原图当底图，注解叠在它上面。一致性因此是构造出来的，
    * 不是检查出来的。模型仍然要看见这张图——它得知道往哪儿标。
    */
-  const figureImage = body.questionId
-    ? figureDataUrl(state.config.figuresDir, state.questions.byId.get(body.questionId)?.figureImage)
-    : undefined;
+  const question = body.questionId ? state.questions.byId.get(body.questionId) : undefined;
+  const figureImage = figureDataUrl(state.config.figuresDir, question?.figureImage);
+  /**
+   * 老师画在【解析】里的那张图（割补怎么割、阴影怎么挪、辅助线画在哪）。
+   *
+   * 它是真人画的数形结合，比模型自己想的可靠得多，所以要交给讲解去参考；
+   * 同时在讲解最后一拍展示出来，让孩子对得上讲义。
+   * 做题时它绝不下发（见 routes/practice.ts 的白名单）——那张图往往就是解法。
+   */
+  const analysisImage = figureDataUrl(state.config.figuresDir, question?.analysisImage);
 
   try {
     const resp = await fetchImpl(`${state.config.engineUrl}/api/v1/plan`, {
@@ -150,6 +157,7 @@ async function runWebJob(
         ...payload,
         route: engineRoute,
         ...(figureImage ? { figure_image: figureImage } : {}),
+        ...(analysisImage ? { analysis_image: analysisImage } : {}),
       }),
     });
     if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);

@@ -59,22 +59,28 @@ describe('worthCropping', () => {
 })
 
 describe('figureCropBox', () => {
-    const box: Box = [0.08, 0.06, 0.92, 0.34]
-    const figureBox: Box = [0.65, 0.08, 0.92, 0.2]
+    const stemFigureBox: Box = [0.65, 0.08, 0.92, 0.2]
+    const analysisFigureBox: Box = [0.2, 0.42, 0.5, 0.6]
 
-    it('用配图框', () => {
-        expect(figureCropBox({ hasFigure: true, figureBox, box })).toEqual(figureBox)
+    it('题干图与解析图各走各的', () => {
+        expect(figureCropBox({ hasFigure: true, stemFigureBox, analysisFigureBox })).toEqual({
+            stemFigureBox,
+            analysisFigureBox,
+        })
     })
 
     /**
-     * 这条是安全关键的：题目框经 snapBoxes 已经扩到下一道题之前，
-     * 教师版的【答案】灰框正落在里面。拿它裁图 = 把答案印在配图上给孩子。
+     * 这条是安全关键的：解析里那张图往往就是解法本身
+     * （「所求阴影部分面积等于下图中阴影部分面积」），做题时看见这道题就没了。
      */
-    it('拿不到配图框时不给图，绝不退回题目框', () => {
-        expect(figureCropBox({ hasFigure: true, box })).toBeUndefined()
+    it('只有解析图时，题干图仍然是空的——绝不拿它顶替', () => {
+        expect(figureCropBox({ hasFigure: true, analysisFigureBox })).toEqual({
+            stemFigureBox: undefined,
+            analysisFigureBox,
+        })
     })
 
-    it('版面说没有图就不给图', () => {
-        expect(figureCropBox({ hasFigure: false, figureBox, box })).toBeUndefined()
+    it('版面说没有图就不给题干图', () => {
+        expect(figureCropBox({ hasFigure: false, stemFigureBox }).stemFigureBox).toBeUndefined()
     })
 })

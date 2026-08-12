@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { FigureSpecSchema } from "@mathtutor/schema";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { checkConstraints, solveFigure } from "../src/figure/solve.js";
+
+const QUESTIONS_DIR = fileURLToPath(new URL("../../../data/knowledge/questions", import.meta.url));
 
 const spec = (raw: unknown) => FigureSpecSchema.parse(raw);
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -137,36 +141,56 @@ describe("几何图求解：坐标是约束的解，不是手填的", () => {
   });
 });
 
-describe("真实题库里的配图必须与题干、答案自洽", () => {
-  it("勾股定理那道题：图上量出的斜边就是答案", () => {
-    // 这条守的是整块设计的初衷：图不是配图，是题面的一部分，
-    // 它量出来的东西必须和题干说的、答案给的对得上。
-    const qs = JSON.parse(
-      readFileSync(
-        new URL("../../../data/knowledge/questions/seed-demo.json", import.meta.url),
-        "utf8",
-      ),
-    ) as { id: string; answer: string; figure?: unknown }[];
-    const q = qs.find((x) => x.id === "geo-demo-1")!;
-    expect(q.figure).toBeTruthy();
+/**
+ * 这一组守的是整块设计的初衷：图不是插图，是题面的一部分，
+ * 它量出来的东西必须和题干说的、答案给的对得上。
+ *
+ * fixture 写在这里而不是读 data/knowledge/questions/*.json——
+ * 那些文件是**运行中的产品会改写的**（家长在题库页删一道题、抽检时剔除一道，
+ * 文件就变了）。测试断言在那种文件上，只会在某天有人正常使用产品之后突然变红，
+ * 而它其实什么都没测坏。实机上已经这么红过一次。
+ */
+const 勾股 = {
+  stem: "如图，直角三角形 ABC 中，∠B = 90°，AB = 3 厘米，BC = 4 厘米。求斜边 AC 的长。",
+  answer: "5",
+  figure: {
+    points: [{ id: "A" }, { id: "B" }, { id: "C" }],
+    segments: [
+      { from: "A", to: "B", label: "3 厘米" },
+      { from: "B", to: "C", label: "4 厘米" },
+      { from: "C", to: "A", label: "?" },
+    ],
+    angles: [{ at: "B", from: "A", to: "C", right: true }],
+    constraints: [
+      { kind: "length", from: "A", to: "B", value: 3 },
+      { kind: "length", from: "B", to: "C", value: 4 },
+      { kind: "right-angle", at: "B", from: "A", to: "C" },
+    ],
+  },
+};
 
-    const s = solveFigure(FigureSpecSchema.parse(q.figure));
+describe("配图必须与题干、答案自洽", () => {
+  it("勾股定理那道题：图上量出的斜边就是答案", () => {
+    const s = solveFigure(FigureSpecSchema.parse(勾股.figure));
     expect(s.ok).toBe(true);
     const ac = Math.hypot(s.coords.A!.x - s.coords.C!.x, s.coords.A!.y - s.coords.C!.y);
     // 答案是 5，图上量出来也必须是 5——两者由不同途径得到
-    expect(ac).toBeCloseTo(Number(q.answer), 2);
+    expect(ac).toBeCloseTo(Number(勾股.answer), 2);
   });
 
   it("题库里每一道带图的题，图都解得出来", () => {
-    const qs = JSON.parse(
-      readFileSync(
-        new URL("../../../data/knowledge/questions/seed-demo.json", import.meta.url),
-        "utf8",
-      ),
-    ) as { id: string; figure?: unknown }[];
-    for (const q of qs.filter((x) => x.figure)) {
-      const r = solveFigure(FigureSpecSchema.parse(q.figure));
-      expect(r.ok, `${q.id} 的配图解不出来：${r.violations.join("；")}`).toBe(true);
+    // 这条确实该扫真实题库：它守的是"库里别混进解不出来的图"，
+    // 而库变了正是它该重新检查的时候。库里没有带图的题时它自然通过。
+    const files = readdirSync(QUESTIONS_DIR).filter((f) => f.endsWith(".json"));
+    for (const file of files) {
+      const qs = JSON.parse(readFileSync(join(QUESTIONS_DIR, file), "utf8")) as {
+        id: string;
+        figure?: unknown;
+      }[];
+      for (const q of qs.filter((x) => x.figure)) {
+        const r = solveFigure(FigureSpecSchema.parse(q.figure));
+        expect(r.ok, `${file} 的 ${q.id} 配图解不出来：${r.violations.join("；")}`).toBe(true);
+      }
     }
   });
 });

@@ -54,6 +54,9 @@ class PlanRequest(BaseModel):
     #: 原题原图（data URL）。有它时讲解**不许重画图形**，只能把注解叠在原图上——
     #: 一致性因此是构造出来的，不是事后检查出来的。见 generate_web_explanation。
     figure_image: str | None = None
+    #: 讲义【解析】里那张图（data URL）：老师画的解法图。
+    #: 只在讲解里用——参考它的思路，并在最后一拍展示，让孩子对得上讲义。
+    analysis_image: str | None = None
 
 
 class PlanResponse(BaseModel):
@@ -88,6 +91,7 @@ async def plan_only(
     state: dict[str, Any] = {
         "extra_directives": req.extra_directives or "",
         "figure_image": req.figure_image or "",
+        "analysis_image": req.analysis_image or "",
     }
 
     async def run(tool_name: str, turn: int, args: dict[str, Any] | None = None):
