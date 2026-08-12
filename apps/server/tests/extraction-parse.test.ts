@@ -39,8 +39,17 @@ describe("抽取输出解析：截断只该损失最后一题", () => {
     expect(r.drafts[0]!.stem).toContain("{x+1}");
   });
 
-  it("一个对象都抠不出来才算真失败", () => {
-    expect(() => parseExtractionOutcome("模型说了一堆废话但没给 JSON", "elementary_upper")).toThrow(/找不到任何 JSON 对象/);
+  it("一个 { 都没有 = 这一页没题，不是失败", () => {
+    // 提示词自己写着"材料里没有题目时什么都不输出"，封面页、章节页、
+    // 整页解析都会走到这里。此前一律抛错，一本讲义里几张没题的页面
+    // 就成了刺眼的红色报错。
+    const r = parseExtractionOutcome("材料中没有题目，不输出任何内容。", "elementary_upper");
+    expect(r.drafts).toEqual([]);
+    expect(r.empty).toBe(true);
+  });
+
+  it("有 { 却抠不出完整对象 = 写到一半断了，这才算失败", () => {
+    expect(() => parseExtractionOutcome('{"stem":"一个长方', "elementary_upper")).toThrow(/截断/);
   });
 
   it("单个对象（没包数组）也认", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import type { ExtractedDraft, ExtractionProvider } from "../src/ingest/extraction.js";
-import { parseExtractionJson, segmentQuestionsOffline } from "../src/ingest/extraction.js";
+import { parseExtractionJson, parseExtractionOutcome, segmentQuestionsOffline } from "../src/ingest/extraction.js";
 import { tempFixtureEnv } from "./helpers.js";
 
 function jsonPost(app: ReturnType<typeof createApp>, path: string, body: unknown) {
@@ -290,7 +290,9 @@ describe("extraction helpers", () => {
     const drafts = parseExtractionJson(raw, "elementary_upper");
     expect(drafts.length).toBe(1);
     expect(drafts[0]).toMatchObject({ stem: "1+1=?", answer: "2", answerType: "numeric", difficulty: 5 });
-    expect(() => parseExtractionJson("完全不是 JSON", "middle")).toThrow();
+    // 一个 { 都没有 = 这一页没题（封面、章节页、整页解析），不是失败。
+    // 见下面「空白页不算失败」那一组
+    expect(parseExtractionJson("完全不是 JSON", "middle")).toEqual([]);
   });
 });
 
@@ -316,5 +318,48 @@ describe("单题的多行 JSON", () => {
     expect(drafts).toHaveLength(1);
     expect(drafts[0]!.answer).toBe("6");
     expect(drafts[0]!.stem).toContain("平行四边形");
+  });
+});
+
+/**
+ * 「这一页没有题目」是正常情况，不是错误。
+ *
+ * 提示词自己就写着"材料里没有题目时什么都不输出"，封面页、章节页、
+ * 整页解析都会走到这里。此前一律抛错，于是一本讲义里几张没题的页面
+ * 就成了刺眼的红色报错——实机上是
+ * 「第 8 页识别失败：LLM 输出里找不到任何 JSON 对象（材料中没有题目，不输出任何内容。）」。
+ */
+describe("空白页不算失败", () => {
+  it.each([
+    ["模型明说没有", "材料中没有题目，不输出任何内容。"],
+    ["什么都没输出", ""],
+    ["只有空白", "   \n  "],
+  ])("%s → 返回空，不抛错", (_why, raw) => {
+    const outcome = parseExtractionOutcome(raw, "elementary_upper");
+    expect(outcome.drafts).toEqual([]);
+    expect(outcome.empty).toBe(true);
+  });
+
+  it("写到一半断了仍然要报出来——那一页是真丢了", () => {
+    expect(() => parseExtractionOutcome('{"stem":"一个长方形长 8 厘', "elementary_upper")).toThrow(
+      /截断/,
+    );
+  });
+
+  it("括号里的内容坏掉时不抛错，记进 skipped 让调用方提示", () => {
+    // 有一对完整括号就抠得出块，坏的只是那一块——不该因此判定整页失败
+    const outcome = parseExtractionOutcome("{stem: 没有引号}", "elementary_upper");
+    expect(outcome.drafts).toEqual([]);
+    expect(outcome.skipped).toBe(1);
+    expect(outcome.empty).toBeUndefined();
+  });
+
+  it("有题目时照常解析", () => {
+    const outcome = parseExtractionOutcome(
+      '{"stem":"一个长方形长 8 厘米、宽 5 厘米，周长是多少？","answer":"26"}',
+      "elementary_upper",
+    );
+    expect(outcome.drafts).toHaveLength(1);
+    expect(outcome.empty).toBeUndefined();
   });
 });

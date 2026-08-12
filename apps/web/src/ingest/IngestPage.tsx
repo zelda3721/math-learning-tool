@@ -324,6 +324,9 @@ export function IngestPage() {
         )
         const all: Draft[] = []
         const boxTally = { total: 0, withBox: 0 }
+        // 没有题的页（封面、章节页、整页解析）攒起来最后一起说。
+        // 它们不是失败——此前当成错误逐页弹红字，一本讲义能红好几条
+        const emptyPages: number[] = []
         for (const [i, page] of pages.entries()) {
             setPdfProgress({ done: i, total: pages.length, phase: 'layout' })
             try {
@@ -343,7 +346,9 @@ export function IngestPage() {
                 }
                 // 版面说这页没题：也可能是切题这趟看走眼了，再用老路试一次
                 setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
-                all.push(...(await uploadOnce({ kind: 'image', content: page.dataUrl })))
+                const fallback = await uploadOnce({ kind: 'image', content: page.dataUrl })
+                if (fallback.length === 0) emptyPages.push(page.page)
+                all.push(...fallback)
             } catch (err) {
                 // 分层这条路走不通（端点不支持、模型不配合）就整页兜底，
                 // 兜底也失败才算这一页丢了
@@ -357,6 +362,11 @@ export function IngestPage() {
             }
         }
         setPdfProgress({ done: pages.length, total: pages.length, phase: 'question' })
+        if (emptyPages.length > 0) {
+            setPdfNote(
+                `第 ${emptyPages.join('、')} 页没有题目（封面、章节页或整页解析），已跳过`,
+            )
+        }
         return all
     }
 
