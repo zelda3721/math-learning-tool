@@ -199,6 +199,26 @@ export function applyTail(prev: Draft, tail: QuestionTail): Draft {
     }
 }
 
+/**
+ * 抽出来的这份像不像一道题。
+ *
+ * 页脚那条「只有题号」的窄带照样会被抽一遍（不丢它是为了不误伤真题），
+ * 抽出来往往就是题号本身或一句残句。这类东西不该进题库——
+ * 家长抽检时看到一条「练习9」会以为系统坏了。
+ *
+ * 判据从宽：只滤掉明显不是题的。宁可放进来一条怪的（人看得见、删得掉），
+ * 也不要因为判得太严把真题滤没了——那是看不见的。
+ */
+export function looksLikeQuestion(draft: Draft, label?: string): boolean {
+    const stem = draft.stem.trim()
+    if (stem.length < 8) return false
+    // 就是题号本身（可能带个标点）
+    const bare = stem.replace(/[\s.．、:：]/g, '')
+    if (label && bare === label.replace(/[\s]/g, '')) return false
+    if (/^(练习|例题?|第)\s*\d+\s*$/.test(bare)) return false
+    return true
+}
+
 export function todayString(): string {
     const d = new Date()
     const mm = String(d.getMonth() + 1).padStart(2, '0')

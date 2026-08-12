@@ -17,6 +17,7 @@ import {
     inputCls,
     LEVEL_LABELS,
     applyTail,
+    looksLikeQuestion,
     mergeContinued,
     normalizeDraft,
     readFileAsDataUrl,
@@ -256,13 +257,16 @@ export function IngestPage() {
         pending: { label: string; preview: string } | undefined
         rescued: number
     }> => {
-        const raw = await fetchLayout(pageDataUrl, Boolean(pending))
+        const items = await fetchLayout(pageDataUrl, Boolean(pending))
         /**
-         * 页脚那个光杆题号不是一道题，是下一页那道题的头。
-         * 拿它去抽只会抽出同页别的题（框太窄判废、退回整页），然后被查重挡掉。
+         * 页脚那条像是「只有题号」的，多半是下一页那道题的头。
+         *
+         * **但不把它丢掉**——照样抽一遍。此前丢掉它，判错时就整条没了：
+         * 页底一道开头很短的真题被当成题号扔了。现在它只影响一件事：
+         * 下一页开头那段算作新题（而不是并进上一道题）。
+         * 抽出来若只是个题号，由 looksLikeQuestion 滤掉，代价只是一次调用。
          */
-        const trailing = raw.length > 0 && raw[raw.length - 1]!.dangling ? raw[raw.length - 1]! : undefined
-        const items = trailing ? raw.slice(0, -1) : raw
+        const trailing = items.length > 0 && items[items.length - 1]!.dangling ? items[items.length - 1]! : undefined
         const nextPending = trailing ? { label: trailing.label, preview: trailing.preview } : undefined
         const boxes = { total: items.length, withBox: items.filter((i) => i.box).length }
         if (items.length === 0) {
@@ -311,6 +315,12 @@ export function IngestPage() {
             setPdfProgress({ done: i, total: items.length, phase: 'question' })
             // 框不可用（或裁出来太小）就用整页图：效果差一点，但绝不裁坏
             const cropped = await cropPage(pageDataUrl, item.box).catch(() => null)
+            /**
+             * 但页脚那条光杆题号例外：它的框窄到裁不出图，退回整页必然抽到
+             * 同页别的题——实测就这么抽出了一份练习8 的副本，而且一份带 LaTeX
+             * 一份不带，查重都挡不住。它的正文在下一页，这里没什么可抽的。
+             */
+            if (!cropped && item.dangling) continue
             // 只有本页第一题才可能是上一页的续文
             /**
              * 什么时候该合并进上一道题：只有上一页那道题**确实被切开**时。
@@ -328,7 +338,7 @@ export function IngestPage() {
                     hasFigure: item.hasFigure,
                     ...(carryText ? { carryOver: carryText } : {}),
                 })
-                if (draft) {
+                if (draft && looksLikeQuestion(draft, item.label)) {
                     /**
                      * 两张图分开裁。
                      *
@@ -376,7 +386,8 @@ export function IngestPage() {
          */
         for (const [i, item] of items.entries()) {
             const height = item.box ? item.box[3] - item.box[1] : 0
-            if (height < OVERSIZED || items.length === 1) continue
+            // 整页只切出一条时更该查：那多半就是"版面只报了一条、其实有两道"
+            if (height < OVERSIZED) continue
             const crop = await cropPage(pageDataUrl, item.box).catch(() => null)
             if (!crop) continue
             try {
