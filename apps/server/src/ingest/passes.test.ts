@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxQuality, classifyFigures, isDanglingLabel, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes, type LayoutItem } from "./passes.js";
+import { boxQuality, classifyFigures, isDanglingLabel, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, repairJsonEscapes, snapBoxes, type LayoutItem } from "./passes.js";
 
 describe("normalizeBox", () => {
   it("收下 0~1 的相对框", () => {
@@ -494,5 +494,54 @@ describe("排序时没有框的条目", () => {
       ].join("\n"),
     );
     expect(items[0]!.box![3]).toBe(0.5);
+  });
+});
+
+describe("repairJsonEscapes", () => {
+  /**
+   * 实机上丢题最多的一处：模型写题干带 LaTeX，`\div` 在 JSON 里是非法转义，
+   * JSON.parse 抛错 → 整道题被跳过 → 界面上只显示"这一块没读出题目"。
+   * 提示词里加了"分数根号要写成 LaTeX"之后，一份 13 道题的讲义连着掉到 8 道。
+   */
+  it("落单的反斜杠补成一对，题就解析得出来了", () => {
+    const raw = '{"analysis":"底 $CD = 48 \\div 8 = 6$ 厘米"}';
+    expect(() => JSON.parse(raw)).toThrow();
+    expect(JSON.parse(repairJsonEscapes(raw)).analysis).toBe("底 $CD = 48 \\div 8 = 6$ 厘米");
+  });
+
+  it.each([
+    ["分数", '{"a":"$\\frac{1}{4}$"}'],
+    ["根号", '{"a":"$\\sqrt{16}$"}'],
+    ["角度", '{"a":"$45^\\circ$"}'],
+    ["垂直", '{"a":"$FG \\perp AD$"}'],
+  ])("常见的 LaTeX：%s", (_why, raw) => {
+    expect(() => JSON.parse(repairJsonEscapes(raw))).not.toThrow();
+  });
+
+  it("已经写对的转义不能被再翻一倍", () => {
+    const raw = '{"a":"换行\\n引号\\"斜杠\\\\结束"}';
+    expect(JSON.parse(repairJsonEscapes(raw)).a).toBe(JSON.parse(raw).a);
+  });
+
+  it("结构本身一个字节不碰", () => {
+    const raw = '{"a":1,"b":[2,3],"c":{"d":null}}';
+    expect(repairJsonEscapes(raw)).toBe(raw);
+  });
+
+  it("字符串外面的反斜杠不动（本来也不该有）", () => {
+    expect(repairJsonEscapes('{"a":1} \\ 尾巴')).toBe('{"a":1} \\ 尾巴');
+  });
+
+  it("整条流程：带 LaTeX 的多行输出照样抠得出对象", () => {
+    const raw = [
+      "{",
+      '"stem": "已知平行四边形 $ABCD$ 的面积是 $48$ 平方厘米，高 $AE=8$ 厘米",',
+      '"answer": "6",',
+      '"analysis": "底 $CD = 48 \\div 8 = 6$ 厘米。"',
+      "}",
+    ].join("\n");
+    const obj = parseFirstObject(raw) as Record<string, string>;
+    expect(obj.answer).toBe("6");
+    expect(obj.analysis).toContain("\\div");
   });
 });

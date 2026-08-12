@@ -17,6 +17,7 @@ import {
     inputCls,
     LEVEL_LABELS,
     applyTail,
+    carryableText,
     looksLikeQuestion,
     mergeContinued,
     normalizeDraft,
@@ -149,6 +150,12 @@ export function IngestPage() {
     const [text, setText] = useState('')
     const [file, setFile] = useState<File | null>(null)
     const [batchName, setBatchName] = useState(todayString())
+    /**
+     * 材料的学段。不选的话知识点候选清单是全量 123 个（4099 字），
+     * 既费 token，又诱导模型跨学段乱选——一道小学数图形的题被判成
+     * 高中「解三角形」，我们见过（见服务端 vocabulary.ts）。
+     */
+    const [level, setLevel] = useState<Level>('elementary_upper')
     const [extracting, setExtracting] = useState(false)
     const [confirming, setConfirming] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -174,7 +181,7 @@ export function IngestPage() {
         const res = await fetch('/api/v1/ingest/upload', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ...payload, batchName }),
+            body: JSON.stringify({ ...payload, batchName, level }),
         })
         if (!res.ok) throw new Error(await extractErrorMessage(res, uploadNotReadyHint(payload.kind)))
         const body = (await res.json()) as { drafts?: unknown[] }
@@ -221,10 +228,12 @@ export function IngestPage() {
         hasFigure: boolean
         carryOver?: string
     }): Promise<Draft | null> => {
+        // 带上学段：不带的话知识点候选清单是全量 123 个（4099 字），
+        // 既费 token 又诱导模型跨学段乱选（见 vocabulary.ts 的 candidateNodes）
         const res = await fetch('/api/v1/ingest/question', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ ...payload, level }),
         })
         if (!res.ok) throw new Error(await extractErrorMessage(res, '服务端不支持分层识别。'))
         const body = (await res.json()) as { draft?: unknown }
@@ -331,14 +340,39 @@ export function IngestPage() {
                 i === 0 && item.continued && !mergedFirst && !pending ? previous : undefined
             // 上一页只留下题号时：这是**新题**，但它的开头那几个字在上一页，
             // 一并交给模型去拼（不合并进上一道题）
-            const carryText = i === 0 && pending ? pending.preview : carryFrom?.stem
+            // 上一页那条的文字只在像题干时才传：传一句章节标题过去，
+            // 模型会被"请把它与本图的内容拼成完整题干"带偏，直接答不出题
+            const carryText =
+                i === 0 && pending ? carryableText(pending.preview, pending.label) : carryFrom?.stem
             try {
                 const draft = await fetchQuestion({
                     content: cropped ?? pageDataUrl,
                     hasFigure: item.hasFigure,
                     ...(carryText ? { carryOver: carryText } : {}),
                 })
-                if (draft && looksLikeQuestion(draft, item.label)) {
+                /**
+                 * 读不出来就换一套提示词再读一次。
+                 *
+                 * 「这一块没读出题目」是实机上最常见的丢题方式，而且是随机的——
+                 * 同一张图跑两次，一次出题一次空。单题那套提示词说"这张图是一道题"，
+                 * 整页那套说"抽出全部题"，写法完全不同，所以这是真正的第二次机会，
+                 * 不是把同一句话再说一遍。只在第一次失败时才跑。
+                 */
+                let usable = draft && looksLikeQuestion(draft, item.label) ? draft : null
+                if (!usable && cropped) {
+                    const retry = (await uploadOnce({ kind: 'image', content: cropped }).catch(() => []))
+                        .filter((d) => looksLikeQuestion(d, item.label))
+                    if (retry.length > 0) {
+                        usable = retry[0]!
+                        // 换个提示词反而抽出好几道，说明这一块本来就不止一道题
+                        if (retry.length > 1) {
+                            drafts.push(...retry.slice(1))
+                            rescued += retry.length - 1
+                        }
+                    }
+                }
+                if (usable) {
+                    const draft = usable
                     /**
                      * 两张图分开裁。
                      *
@@ -660,6 +694,20 @@ export function IngestPage() {
                                     />
                                 )}
                             </div>
+                            <label className="flex items-center gap-2">
+                                <span className="eyebrow">学段</span>
+                                <select
+                                    value={level}
+                                    onChange={(e) => setLevel(e.target.value as Level)}
+                                    className={`${inputCls} w-32`}
+                                >
+                                    {(Object.keys(LEVEL_LABELS) as Level[]).map((lv) => (
+                                        <option key={lv} value={lv}>
+                                            {LEVEL_LABELS[lv]}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
                             <label className="flex items-center gap-2">
                                 <span className="eyebrow">批次名</span>
                                 <input

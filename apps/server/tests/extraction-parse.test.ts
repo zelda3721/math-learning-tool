@@ -57,3 +57,50 @@ describe("抽取输出解析：截断只该损失最后一题", () => {
     expect(r.drafts.map((d) => d.stem)).toEqual(["独题"]);
   });
 })
+
+/**
+ * 可选字段写成 null。
+ *
+ * 这是实机上丢题最多的一处，也藏得最深：模型时而写 `"problemTypeId":""`、
+ * 时而写 `"problemTypeId":null`，写 null 那次整道题被 schema 判废、静默丢掉，
+ * 界面上只剩一句"这一块没读出题目"。同一张图连打两次一次成一次败，
+ * 看着像模型随机，其实是这里。一份 13 道的讲义反复抽出 8~11 道，根子在此。
+ */
+describe("可选字段为 null 时不能丢题", () => {
+  const base =
+    '{"stem":"如图，小正方形ABCD放在大正方形EFGH的上面，求梯形AFGD的面积","answer":"98",' +
+    '"answerType":"numeric","difficulty":3,"level":"elementary_upper"';
+
+  it.each([
+    ["problemTypeId", '"problemTypeId":null'],
+    ["nodeIds", '"nodeIds":null'],
+    ["options", '"options":null'],
+    ["analysis", '"analysis":null'],
+    ["answerFrom", '"answerFrom":null'],
+    ["answerUnique", '"answerUnique":null'],
+    ["answer", '"answer":null'],
+    ["difficulty", '"difficulty":null'],
+    ["level", '"level":null'],
+  ])("%s 为 null 时题目照样收下", (_field, pair) => {
+    const r = parseExtractionOutcome(`${base},${pair}}`, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    expect(r.skipped).toBe(0);
+    expect(r.drafts[0]!.stem).toContain("小正方形");
+  });
+
+  it("整份都写成 null 也接得住——抽取器的职责是尽量把题接住", () => {
+    const raw =
+      '{"stem":"求梯形的面积","answer":null,"answerType":null,"options":null,"analysis":null,' +
+      '"difficulty":null,"level":null,"nodeIds":null,"problemTypeId":null,"answerFrom":null}';
+    const r = parseExtractionOutcome(raw, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    // 缺的字段走缺省，不是把题扔掉
+    expect(r.drafts[0]!.answerType).toBe("numeric");
+    expect(r.drafts[0]!.level).toBe("elementary_upper");
+    expect(r.drafts[0]!.difficulty).toBe(2);
+  });
+
+  it("题干本身缺失才该判废——那确实不是一道题", () => {
+    expect(parseExtractionOutcome('{"answer":"98"}', "elementary_upper").drafts).toHaveLength(0);
+  });
+});

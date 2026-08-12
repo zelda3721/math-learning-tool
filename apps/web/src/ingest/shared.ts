@@ -219,6 +219,23 @@ export function looksLikeQuestion(draft: Draft, label?: string): boolean {
     return true
 }
 
+/**
+ * 上一页页脚那条的文字，值不值得当作"这道题的开头"传给下一页。
+ *
+ * 传对了能把跨页切断的半句接回来；传错了反而坏事——实测传过去一句
+ * 「二、转动数学大脑」（模型把题号旁边的章节标题当成了 preview），
+ * 提示词要求模型"把它与本图的内容拼成完整题干"，模型直接答不出题来。
+ *
+ * 所以只传看起来像题干的：不是题号本身、不是章节标题、也不是三两个字。
+ */
+export function carryableText(preview: string, label: string): string | undefined {
+    const text = preview.trim()
+    if (text.length < 8) return undefined
+    if (text === label.trim()) return undefined
+    if (/^[一二三四五六七八九十]+\s*[、.．]/.test(text)) return undefined
+    return text
+}
+
 export function todayString(): string {
     const d = new Date()
     const mm = String(d.getMonth() + 1).padStart(2, '0')

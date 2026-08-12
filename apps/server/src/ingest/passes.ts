@@ -270,6 +270,50 @@ export function tailUserPrompt(carryOver?: string): string {
   return `${TAIL_PROMPT}${carry}`;
 }
 
+/**
+ * 补齐 JSON 字符串里的非法转义。
+ *
+ * 模型写题干时会带 LaTeX：`"底 $CD = 48 \div 8 = 6$ 厘米"`。
+ * 可 JSON 只认 `" \\ / b f n r t uXXXX` 这几种转义，`\d` 是非法的，
+ * `JSON.parse` 直接抛错——**整道题就这么没了**，而且不报错，只是"没读出题目"。
+ *
+ * 这是实机上丢题最多的一处：提示词里加了"分数根号要写成 LaTeX"之后，
+ * 模型开始大量输出反斜杠，一份 13 道题的讲义连着掉到 8 道。
+ * 与其指望模型每次都记得写 `\\div`，不如在解析前把落单的反斜杠补成一对。
+ *
+ * 只在字符串字面量内部动手，结构本身（花括号、冒号、逗号）一个字节不碰。
+ */
+export function repairJsonEscapes(text: string): string {
+  const VALID = new Set(['"', "\\", "/", "b", "f", "n", "r", "t", "u"]);
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (!inString) {
+      out += ch;
+      if (ch === '"') inString = true;
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      inString = false;
+      continue;
+    }
+    if (ch === "\\") {
+      const next = text[i + 1];
+      if (next !== undefined && VALID.has(next)) {
+        out += ch + next;
+        i += 1; // 合法转义原样保留（\\ 也在其中，不会被再翻一倍）
+      } else {
+        out += "\\\\"; // 落单的反斜杠：补成一对
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function stripFence(raw: string): string {
   const text = raw.trim();
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
@@ -288,7 +332,7 @@ function stripFence(raw: string): string {
  * 实机上就是这么坏的。所以这里按括号配对，从第一个 `{` 找到与它配对的 `}`。
  */
 export function parseFirstObject(raw: string): unknown {
-  const text = stripFence(raw);
+  const text = repairJsonEscapes(stripFence(raw));
   const start = text.indexOf("{");
   if (start < 0) return undefined;
   let depth = 0;
@@ -318,7 +362,7 @@ export function parseFirstObject(raw: string): unknown {
 
 /** 从模型输出里逐行抠 JSON 对象（版面那趟专用：一行一题，截断只丢最后一行） */
 export function parseJsonObjects(raw: string): unknown[] {
-  const text = stripFence(raw);
+  const text = repairJsonEscapes(stripFence(raw));
 
   const out: unknown[] = [];
   for (const line of text.split(/\r?\n/)) {
