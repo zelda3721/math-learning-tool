@@ -177,3 +177,68 @@ describe("答案出处", () => {
     expect((await res.json()).draft.answerUnverified).toBe(true);
   });
 });
+
+/**
+ * 跨页的后半截。
+ *
+ * 实测第12讲 p4：整页 79% 的篇幅是上一页那道题的【解析】（七张分图 + 计数），
+ * 版面那趟一条都没输出——它把整块当成了"纯讲解文字"。改提示词斗不过
+ * "不是题就别输出"那条规则，而这块内容偏偏藏着上一页那道题的答案。
+ * 所以另开一条路：前端按"第一道题从哪儿开始"算出这块区域，单独送来读。
+ */
+describe("POST /api/v1/ingest/tail", () => {
+  function tailProvider(tail: unknown): ExtractionProvider & { seen: string[] } {
+    const seen: string[] = [];
+    return {
+      seen,
+      async extractFromText() {
+        return [];
+      },
+      async extractFromImage() {
+        return [];
+      },
+      async tailFromImage(_b, _m, carryOver) {
+        seen.push(carryOver ?? "");
+        return tail as never;
+      },
+    };
+  }
+
+  it("读出上一页那道题的答案与解析", async () => {
+    const env = tempFixtureEnv([]);
+    env.state.extraction = tailProvider({
+      answer: "54",
+      analysis: "按底和高分类枚举",
+      hasFigure: true,
+    });
+    const app = createApp(env.state);
+    const res = await jsonPost(app, "/api/v1/ingest/tail", { content: PAGE, carryOver: "数三角形" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tail.answer).toBe("54");
+    expect(body.tail.hasFigure).toBe(true);
+  });
+
+  it("上一页的题干原样交给模型——它得知道这段解析在讲哪道题", async () => {
+    const env = tempFixtureEnv([]);
+    const provider = tailProvider({ answer: "54", hasFigure: false });
+    env.state.extraction = provider;
+    const app = createApp(env.state);
+    await jsonPost(app, "/api/v1/ingest/tail", { content: PAGE, carryOver: "面积为2的三角形有几个" });
+    expect(provider.seen[0]).toBe("面积为2的三角形有几个");
+  });
+
+  it("端点不支持时明说，别让前端以为读到了空答案", async () => {
+    const env = tempFixtureEnv([]);
+    env.state.extraction = {
+      async extractFromText() {
+        return [];
+      },
+      async extractFromImage() {
+        return [];
+      },
+    };
+    const app = createApp(env.state);
+    expect((await jsonPost(app, "/api/v1/ingest/tail", { content: PAGE })).status).toBe(501);
+  });
+});

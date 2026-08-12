@@ -259,6 +259,36 @@ export function ingestRoutes(state: AppState): Hono {
     return c.json({ draft: locateDraft(state, draft), warnings: [] });
   });
 
+  const TailSchema = z.object({
+    content: z.string().min(1),
+    carryOver: z.string().optional(),
+  });
+
+  /**
+   * 跨页的后半截：这一页开头那块没人认领的内容。
+   *
+   * 为什么要单独一条路：实测模型会把整块【解析】当成"纯讲解文字"跳过——
+   * 第12讲 p4 有 79% 的篇幅是上一页那道题的解析（七张分图 + 计数），
+   * 版面那趟一条都没输出。改提示词斗不过"不是题就别输出"那条规则，
+   * 而这块内容偏偏藏着上一页那道题的答案。
+   *
+   * 所以判据不靠模型：**第一道题从哪儿开始，之前的就是上一页的尾巴**。
+   * 前端算出这块区域裁下来送过来，这里只负责读出答案与解析。
+   */
+  app.post("/tail", async (c) => {
+    const parsed = TailSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {content}" }, 400);
+    const provider = state.extraction;
+    if (!provider?.tailFromImage) return c.json({ error: "当前抽取端点不支持分层识别" }, 501);
+    const { base64, mime } = stripDataUrl(parsed.data.content);
+    try {
+      const tail = await provider.tailFromImage(base64, mime ?? "image/jpeg", parsed.data.carryOver);
+      return c.json({ tail });
+    } catch (err) {
+      return c.json({ error: `续页识别失败: ${String(err)}` }, 502);
+    }
+  });
+
   app.post("/confirm", async (c) => {
     const parsed = ConfirmSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {

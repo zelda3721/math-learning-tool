@@ -8,6 +8,7 @@ import {
   contentUserPrompt,
   parseFirstObject,
   parseLayout,
+  tailUserPrompt,
   FIGURE_PROMPT,
   LAYOUT_PROMPT,
   type LayoutItem,
@@ -56,6 +57,15 @@ export interface ExtractedDraft {
   level: EducationLevel;
 }
 
+/** 跨页后半截的抽取结果：上一页那道题的答案与解析 */
+export interface QuestionTail {
+  answer: string;
+  answerUnverified?: boolean;
+  analysis?: string;
+  /** 这一块里有没有画图形（有就把它裁下来当解析配图） */
+  hasFigure: boolean;
+}
+
 export interface ExtractionProvider {
   extractFromText(text: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
   extractFromImage(base64: string, mime: string, hint?: ExtractionHint): Promise<ExtractedDraft[]>;
@@ -72,6 +82,8 @@ export interface ExtractionProvider {
   ): Promise<ExtractedDraft | null>;
   /** 只要配图规格，原样返回（合法性与真实性由 checkFigure 把关） */
   figureFromImage?(base64: string, mime: string): Promise<unknown>;
+  /** 跨页的后半截（整块是【答案】【解析】）：只补答案与解析，不抽题干 */
+  tailFromImage?(base64: string, mime: string, carryOver?: string): Promise<QuestionTail | null>;
 }
 
 /** 抽取时可用的知识层（拼候选清单用）；不给则退回纯离线定位 */
@@ -433,6 +445,23 @@ export function createLlmExtractionProvider(
       // 一张图就一道题：多解出来的忽略，取第一个（模型偶尔会把选项拆成额外对象）
       const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
       return outcome.drafts[0] ?? null;
+    },
+
+    async tailFromImage(base64, mime, carryOver) {
+      const raw = await collectText(
+        visionClient,
+        imageAsk("你是数学题目抽取器。", tailUserPrompt(carryOver), base64, mime),
+        1024,
+      );
+      const obj = parseFirstObject(raw);
+      if (!obj || typeof obj !== "object") return null;
+      const o = obj as Record<string, unknown>;
+      return {
+        answer: o.answer === undefined ? "" : String(o.answer).trim(),
+        ...(o.answerFrom === "solved" ? { answerUnverified: true } : {}),
+        ...(typeof o.analysis === "string" && o.analysis.trim() ? { analysis: o.analysis.trim() } : {}),
+        hasFigure: o.hasFigure === true,
+      };
     },
 
     async figureFromImage(base64, mime) {
