@@ -15,7 +15,7 @@
       "role": "upload"
     },
     "contentHash": "9f4897bfdfe93a66",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "e23c56b4-f3f9-4db7-954c-90ef5110803a",
@@ -33,7 +33,7 @@
       "role": "upload"
     },
     "contentHash": "72653ee890aa7799",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "25bac360-4af7-4c6b-b492-bcff4e7bada7",
@@ -51,7 +51,7 @@
       "role": "upload"
     },
     "contentHash": "5cff986ff984d2ee",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "38c8c77f-8388-4a7a-b847-30834cb99136",
@@ -69,7 +69,7 @@
       "role": "upload"
     },
     "contentHash": "65cf8b118fb72b5d",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "9f69eb8e-1071-4d1d-ac5d-2a67f2db1811",
@@ -87,7 +87,7 @@
       "role": "upload"
     },
     "contentHash": "9c9f43c83c328273",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "ee3b8b28-dbdf-4300-adca-6b2893606697",
@@ -106,7 +106,7 @@
       "role": "upload"
     },
     "contentHash": "a52704d96e2700fd",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "8709db18-2e71-4687-b4c6-4ddd10b441b8",
@@ -125,7 +125,7 @@
       "role": "upload"
     },
     "contentHash": "a8252dbcd35ebeef",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "8d013f72-305e-40a7-9b22-b15e71788bc2",
@@ -143,7 +143,7 @@
       "role": "upload"
     },
     "contentHash": "a4fef3f4f85dd356",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "9e412ba0-5c1e-4fc3-9452-431325232543",
@@ -161,7 +161,7 @@
       "role": "upload"
     },
     "contentHash": "74e89bfc4ffa20ef",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "ab0fc4cd-e1bd-442a-bb22-b543d0126313",
@@ -180,7 +180,7 @@
       "role": "upload"
     },
     "contentHash": "3d0b76abd1489b02",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "a9f4a4ab-3210-45f1-9dd9-9198b0ad01d6",
@@ -198,7 +198,7 @@
       "role": "upload"
     },
     "contentHash": "81b1c95dcbd5504b",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "99f83a8f-dd74-4e09-a225-2698b16b4b28",
@@ -216,7 +216,7 @@
       "role": "upload"
     },
     "contentHash": "e4441b7e83cb3d5b",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "77b92aef-36a8-4db2-8feb-a723a5e9bce3",
@@ -234,6 +234,6 @@
       "role": "upload"
     },
     "contentHash": "656809a14f94d2bd",
-    "status": "extracted"
+    "status": "verified"
   }
 ]

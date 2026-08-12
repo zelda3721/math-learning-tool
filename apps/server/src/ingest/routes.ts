@@ -9,6 +9,7 @@ import { boxQuality, classifyFigures } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
+import { deriveAnswerType } from "../grading.js";
 import { reviewQuestion } from "../knowledgeAdmin.js";
 import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
 import { processBatch, type BatchFile } from "./batch.js";
@@ -334,7 +335,8 @@ export function ingestRoutes(state: AppState): Hono {
         stem: q.stem,
         options: q.options,
         answer: q.answer,
-        answerType: q.answerType,
+        // 模型标的类型不可信（实测 120 道里 19 道标错），按答案本身推
+        answerType: deriveAnswerType(q.answer),
         // 答案的来历要跟着题一起进库：不记下来，入库后就再也分不清
         // 哪些答案有出处、哪些是模型自己算的
         ...(q.answerUnverified ? { answerUnverified: true } : {}),

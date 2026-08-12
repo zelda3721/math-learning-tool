@@ -1,0 +1,1765 @@
+[
+  {
+    "id": "77b44cee-8e16-459c-a6ee-53ffda2946b6",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "18个男同学和4个女同学一起做花，男同学共做红花30朵，男同学做的红花比黄花少9朵，你知道男同学做的红花和黄花一共多少朵吗．",
+    "answer": "69",
+    "answerType": "numeric",
+    "analysis": "识别出“4个女同学”为多余条件，先根据红花比黄花少9朵求出黄花数量，再将红花与黄花数量相加。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b35f3c71d059c4ff",
+    "status": "verified"
+  },
+  {
+    "id": "8976e3a4-8761-4f2b-9f89-6dacac6779a8",
+    "nodeIds": [
+      "add-sub-100",
+      "work-problem-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "师傅每小时生产16个零件，比徒弟每小时多生产10个．徒弟一天(工作8小时)能生产多少个零件？",
+    "answer": "48",
+    "answerType": "numeric",
+    "analysis": "先求徒弟每小时生产16-10=6个，再求8小时生产6×8=48个。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "223b7357e8970eb0",
+    "status": "verified"
+  },
+  {
+    "id": "c873788a-62c5-4715-9ef4-a46c7d9060a2",
+    "nodeIds": [
+      "add-sub-20",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "菜场原来青菜比萝卜多7筐，现在又运来14筐萝卜和11筐青菜．现在是青菜多还是萝卜多？多几筐？",
+    "answer": "4",
+    "answerType": "numeric",
+    "analysis": "通过计算萝卜增加量与青菜增加量的差值（14-11=3），从原有的差值中减去该差值（7-3=4），得出青菜仍多4筐。",
+    "figureImage": "620fcb2f43079e657bfe89e7b0d6bf19.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "eb8c20833cd0481f",
+    "status": "verified"
+  },
+  {
+    "id": "add75f06-edc3-4b25-928f-220fe825ac1d",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "一节地铁车厢里有80位乘客，到王府井站有40人下车，又上来18人，现在车上和原来比，人多了还是少了，多(或少)多少个人？",
+    "answer": "少22人",
+    "answerType": "numeric",
+    "analysis": "方法一：先算出现在的人数80-40+18=58人，再与原有人数比较80-58=22人；方法二：直接比较下车和上车的人数差40-18=22人，下车多所以少了22人。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "45fdf20f97ca3bdc",
+    "status": "verified"
+  },
+  {
+    "id": "bb4edf5a-b7e9-4463-aab8-8c087273a4d9",
+    "nodeIds": [
+      "add-sub-100",
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "商店里每天卖出电脑10台，卖出的彩电比电脑多5台，一个星期商店卖出电脑和彩电一共多少台？",
+    "answer": "175",
+    "answerType": "numeric",
+    "analysis": "先求每天卖出的彩电台数，再求每天卖出的总台数，最后乘7天即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d1a206f581de492d",
+    "status": "verified"
+  },
+  {
+    "id": "ace3b7c2-459c-4514-b854-ded28a16688f",
+    "nodeIds": [
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛今年6岁，妈妈今年36岁．再过6年，牛牛读初中时，妈妈比牛牛大多少岁？",
+    "answer": "30",
+    "answerType": "numeric",
+    "analysis": "年龄差不变，直接用今年的年龄相减即可：36-6=30。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3df05166e80cc7b1",
+    "status": "verified"
+  },
+  {
+    "id": "e1dac429-bd11-4e55-b683-0d5d632b8392",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁、牛牛、田田要开始他们的运动健身计划了，希望这个假期可以锻炼自己．首先他们要去称体重．田田和丁丁一起称是40千克，丁丁和牛牛一起称是39千克，三个人一起称是66千克．田田的体重是______千克，丁丁的体重是______千克，牛牛的体重是______千克．",
+    "answer": "27;13;26",
+    "answerType": "numeric",
+    "analysis": "利用总重量减去两人重量即可求出第三人的重量，例如牛牛体重=三人总重-田丁体重=66-40=26千克。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "007c279d18cbda20",
+    "status": "verified"
+  },
+  {
+    "id": "67bbeac6-e2e9-4d44-a522-12bd4a2463d0",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛的力气很大，要去粮店搬运粮食．粮店老板说粮店里原来大米比面粉多20袋，卖掉30袋大米和16袋面粉后，现在是大米多还是面粉多？多多少袋？",
+    "answer": "现在大米多，多6袋",
+    "answerType": "numeric",
+    "analysis": "通过比较大米和面粉卖出的数量差与原有的数量差，得出大米仍多且多6袋。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4f27bdce85eb3570",
+    "status": "verified"
+  },
+  {
+    "id": "5553306b-fec5-47df-90df-9f1333749255",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田问：“水果店有需要帮忙的活吗？”店老板说有三筐西瓜一共39个，红筐比粉筐少7个西瓜，红筐比绿筐少2个西瓜，你知道三筐各有多少个西瓜吗？",
+    "answer": "红筐有10个，粉筐有17个，绿筐有12个",
+    "answerType": "numeric",
+    "analysis": "已知三筐总数及两两之间的差值，通过假设其中一筐数量，利用总数关系求出该筐数量，进而求出其他两筐。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9e3186d19f9cbe16",
+    "status": "verified"
+  },
+  {
+    "id": "2d54ea8e-dadd-4749-864d-296391b1f233",
+    "nodeIds": [
+      "year-month-day",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁听说工厂那边有一些工作可以锻炼自己．甲工厂原计划在12月份生产100辆汽车，由于设备故障，前21天只生产出40辆．如果要完成原定计划，甲工厂需要在剩下的时间内，平均每天生产多少辆汽车？",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "12月共有31天，先求剩余天数（31-21=10天）和剩余产量（100-40=60辆），再求平均每天产量（60÷10=6辆）。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b5359cb08c296865",
+    "status": "verified"
+  },
+  {
+    "id": "5ff3ecb4-35af-4b84-92df-7066098460df",
+    "nodeIds": [
+      "year-month-day",
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "工厂又要临时更改计划了，甲工厂计划2016年4月份生产一批机器，上半月每天生产出3台，下半月比上半月每天多生产1台．4月份甲工厂一共生产多少台机器？",
+    "answer": "105",
+    "answerType": "numeric",
+    "analysis": "4月共有30天，上半月15天每天生产3台，下半月15天每天生产4台，分别计算后求和即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4893924249f8599d",
+    "status": "verified"
+  },
+  {
+    "id": "7686ddbf-c63b-4637-ab3b-dc17742f8801",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "三个人都忙碌了一天，完成了一天的工作．在回家的路边有三棵树，他们又开始了相互考题．三棵树共有60只鸟，有3只鸟从第一棵树飞到第二棵树上，有7只鸟从第二棵树飞到第三棵树上，有8只鸟从第三棵树飞到第一棵树上．这时，三棵树上的鸟同样多．原来每棵树上各有多少只鸟？",
+    "answer": "15只、24只、21只",
+    "answerType": "numeric",
+    "analysis": "采用倒推法，先求出最后每棵树上的鸟数（60÷3=20只），再根据飞动过程逆向还原每棵树原来的鸟数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3840f8787a52277c",
+    "status": "verified"
+  },
+  {
+    "id": "af79d540-db82-43f5-a517-4f7cc667d88f",
+    "nodeIds": [
+      "problem-solving-primary",
+      "classify-organize"
+    ],
+    "level": "elementary_upper",
+    "stem": "有黑色和白色两种卡片共150张，按每堆3张分成50堆．其中只有1张白色卡片的共10堆，有2张或3张黑色卡片的共28堆，有3张黑色卡片的与有3张白色卡片的堆数相等．那么，黑色卡片一共有多少张？",
+    "answer": "78",
+    "answerType": "numeric",
+    "analysis": "通过逻辑推理确定各类卡片堆的数量，进而计算黑色卡片的总数。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0a7686475ea1b77d",
+    "status": "verified"
+  },
+  {
+    "id": "3c7a5733-8021-4389-9882-13d524fedaa2",
+    "nodeIds": [
+      "angle-measure"
+    ],
+    "level": "elementary_upper",
+    "stem": "将下图中所有的角表示出来．",
+    "answer": "∠AOB，∠BOC，∠AOC",
+    "answerType": "steps",
+    "analysis": "以O为顶点的角有：∠AOB，∠BOC，∠AOC。",
+    "figureImage": "f4d6c76be40823091a98dbceb5558d64.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1d4f5578b4277c9b",
+    "status": "verified"
+  },
+  {
+    "id": "7d8bf90a-47c5-44b1-a312-051e9ea284eb",
+    "nodeIds": [
+      "angle-measure"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图所示，已知∠4的度数是∠1度数的3倍，求∠1，∠2，∠3，∠4分别是多少度？",
+    "answer": "∠1=45°，∠2=135°，∠3=45°，∠4=135°",
+    "answerType": "numeric",
+    "analysis": "利用邻补角和为180°及倍数关系，转化为和倍问题求解。",
+    "figureImage": "f5d3932adea8faab401701a307945cf0.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f242663521b9e668",
+    "status": "verified"
+  },
+  {
+    "id": "434e852f-f9c1-4dec-a326-cfa552585998",
+    "nodeIds": [
+      "angle-measure",
+      "parallel-perpendicular"
+    ],
+    "level": "middle",
+    "stem": "如图，已知OE与OF垂直，过点O作直线AB．若∠EOA=2∠AOF，求∠BOF的大小．",
+    "answer": "150°",
+    "answerType": "numeric",
+    "analysis": "由OE⊥OF得∠EOF=90°，结合∠EOA=2∠AOF求出∠AOF=30°，再利用平角定义得∠BOF=150°．",
+    "figureImage": "1e85d4f84a657287f2e7b23e14912232.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2782de92ebe6d2e2",
+    "status": "verified"
+  },
+  {
+    "id": "bc5494a7-271d-4845-bba0-b02c275717e8",
+    "nodeIds": [
+      "angle-measure",
+      "solid-plane-shapes"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，两个正方形重叠放在一起，已知∠1=70°，求∠3的度数．",
+    "answer": "70°",
+    "answerType": "numeric",
+    "analysis": "利用正方形的角是90°，先求出重叠部分∠2=90°-70°=20°，再求∠3=90°-20°=70°。",
+    "figureImage": "eea1526b95a817a64ebc33e7085e9354.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "676ece37534e9bc9",
+    "status": "verified"
+  },
+  {
+    "id": "e315ffa2-ea70-4523-b717-a56b98e39cb9",
+    "nodeIds": [
+      "angle-measure",
+      "quadrilateral"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，∠1+∠3=180°，∠2=60°，求∠4的大小．",
+    "answer": "120°",
+    "answerType": "numeric",
+    "analysis": "利用多边形外角和为360°，由∠4=360°-(∠1+∠3)-∠2计算得出。",
+    "figureImage": "fb5cffbba47a13c2ac3124ee2587f698.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "34704bf6814bf791",
+    "status": "verified"
+  },
+  {
+    "id": "a715d6cb-48cb-4444-9f78-8ac11786278c",
+    "nodeIds": [
+      "angle-measure",
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师拿来一捆铅笔，在班里举行动手操作大赛，道具就是这些铅笔牛牛决定用铅笔摆个特殊的数学图形，于是他把5根铅笔摆成下图．已知∠1=2∠2，试求∠1和∠2的大小．",
+    "answer": "∠1=100°；∠2=50°",
+    "answerType": "numeric",
+    "analysis": "利用多边形外角和为360°，结合已知条件列方程求解。",
+    "figureImage": "923bbeeea7369a7dcd17f071899bfd4d.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5bee31971562f211",
+    "status": "verified"
+  },
+  {
+    "id": "2cc33761-f47d-4548-bf11-54847ebb9bb5",
+    "nodeIds": [
+      "triangle-primary",
+      "angle-measure"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁认为牛牛摆的五边形有点复杂，于是他用其中的三支铅笔摆了一个三角形ABC，∠A - ∠C = ∠B . 那么这个三角形是不是直角三角形？",
+    "answer": "是",
+    "answerType": "steps",
+    "analysis": "由∠A - ∠C = ∠B 可知 ∠A = ∠B + ∠C，结合三角形内角和180°，可推得 ∠A = 90°。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "ee865342daa346ca",
+    "status": "verified"
+  },
+  {
+    "id": "867a3668-b2aa-4968-ab0e-0ae112048965",
+    "nodeIds": [
+      "angle-measure"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田向乐乐老师要来一捆铅笔，摆成了下图．已知AD，CE交于点O，OF是∠DOE的角平分线，∠EOF=70°，求∠COD的度数．",
+    "answer": "40°",
+    "answerType": "numeric",
+    "analysis": "由角平分线性质得∠DOF=70°，进而∠DOE=140°，利用邻补角关系求得∠COD=40°．",
+    "figureImage": "f09fbd53719e97e7818d13fa3126349f.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "44533ed64dc68502",
+    "status": "verified"
+  },
+  {
+    "id": "d59bc48b-af09-49a7-b6f4-4232d6755daf",
+    "nodeIds": [
+      "transformation",
+      "angle-measure"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图,将△ABC绕点C按顺时针方向旋转30°,得到△A'B'C,求∠BAC的度数.",
+    "answer": "60°",
+    "answerType": "numeric",
+    "analysis": "根据旋转性质，对应角相等，即∠BAC=∠B'A'C，由图可知∠B'A'C=90°-30°=60°。",
+    "figureImage": "046b72b8f435f53cdb8b727b867678fa.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "20daca2a27e55256",
+    "status": "verified"
+  },
+  {
+    "id": "066565d2-0726-4e85-868d-003cf465fcf0",
+    "nodeIds": [
+      "angle-measure",
+      "solid-plane-shapes"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普又变出一张长方形纸，如下图所示，在长方形ABCD中，∠ACB=34°阿普将其沿对角线AC折起，形成如下右图所示的图形，那么∠OCD的度数是多少？",
+    "answer": "22",
+    "answerType": "numeric",
+    "analysis": "利用长方形性质得∠ACD=90°-34°=56°，由折叠性质得∠ACO=∠ACB=34°，故∠OCD=56°-34°=22°。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "300a4dcb52f28377",
+    "status": "verified"
+  },
+  {
+    "id": "b463657e-43c9-4a08-a9fb-b52659069ee3",
+    "nodeIds": [
+      "numbers-10000",
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "计算：298 + 396 + 495 + 691 + 799 + 21",
+    "answer": "2700",
+    "answerType": "numeric",
+    "analysis": "利用凑整法，将21拆分为2、4、5、9、1，分别与298、396、495、691、799相加凑成整百数，最后求和。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "51a6767c82075c26",
+    "status": "verified"
+  },
+  {
+    "id": "a375a855-7b50-4fec-adc3-fc63cce9b586",
+    "nodeIds": [
+      "numbers-10000",
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "计算：( 1 ) 1250 ÷ (10 ÷ 8) ( 2 ) 2250 ÷ 75 ÷ 3",
+    "answer": "10",
+    "answerType": "numeric",
+    "analysis": "利用连除性质 a÷b÷c=a÷(b×c) 进行简便计算。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a0467d1dc63f9bed",
+    "status": "verified"
+  },
+  {
+    "id": "4d34225f-5f26-4ff0-a8b0-9328f190ae6e",
+    "nodeIds": [
+      "operation-laws",
+      "numbers-10000"
+    ],
+    "level": "elementary_upper",
+    "stem": "计算：\n( 1 ) 93 × 97 .\n( 2 ) 83 × 23 .",
+    "answer": "( 1 ) 9021 . ( 2 ) 1909 .",
+    "answerType": "numeric",
+    "analysis": "利用拆数法构造分配律进行简便计算。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3f363d62517b2054",
+    "status": "verified"
+  },
+  {
+    "id": "39e25c3b-04c0-48f7-be38-1a2d6fff45ec",
+    "nodeIds": [
+      "operation-laws",
+      "numbers-10000"
+    ],
+    "level": "elementary_upper",
+    "stem": "练习4 计算：( 1 ) 45 × 62 + 45 × 36 + 90 . ( 2 ) 36 × 12 + 36 × 35 + 36 × 52 + 36 . ( 3 ) 31 ÷ 5 + 32 ÷ 5 + 33 ÷ 5 + 34 ÷ 5 .",
+    "answer": "(1) 4500; (2) 3600; (3) 26",
+    "answerType": "numeric",
+    "analysis": "利用乘法分配律提取公因数进行简便计算，其中第(3)题利用除法性质将连续除法转化为和除以除数。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "727a959c78d51c75",
+    "status": "verified"
+  },
+  {
+    "id": "aceb3f6f-55da-4a21-82b2-312a3ca9bc8c",
+    "nodeIds": [
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "计算：39 + 142 × 39 + 103 .",
+    "answer": "5680",
+    "answerType": "numeric",
+    "analysis": "利用加法交换律将39与103结合凑成142，再利用乘法分配律提取公因数142进行简便计算。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "cc63231cb7bedcdf",
+    "status": "verified"
+  },
+  {
+    "id": "45690fe5-a084-43be-b916-4ec83d094b2d",
+    "nodeIds": [
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "计算：251×4+(753-251)×2",
+    "answer": "2008",
+    "answerType": "numeric",
+    "analysis": "利用乘法分配律提取公因数251进行简便计算。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "36f242917d34ca89",
+    "status": "verified"
+  },
+  {
+    "id": "389745d9-2ed0-43fc-9b18-dcae46c6c8fe",
+    "nodeIds": [
+      "add-sub-100",
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田和阿普参加学校组织的数学竞赛，第一道题很简单，我们大家也来试一试吧！计算：24 + 63 + 52 + 17 + 49 + 81 + 74 + 38 + 95 .",
+    "answer": "493",
+    "answerType": "numeric",
+    "analysis": "利用加法交换律和结合律进行凑整巧算，如将63与17、49与81、52与38分别结合凑成整十或整百数。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "40b582dca71778eb",
+    "status": "verified"
+  },
+  {
+    "id": "0fe1f501-3248-41c3-a336-cab6146a6ef3",
+    "nodeIds": [
+      "numbers-10000",
+      "operation-laws"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普在做下面这两道题时发生了错误，请你为他书写一遍正确的解题过程，计算：(1) 4032 ÷ (8 × 9). (2) (54 × 24) ÷ (9 × 4).",
+    "answer": "(1) 56; (2) 36",
+    "answerType": "numeric",
+    "analysis": "利用连除性质和商不变性质进行简便计算。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8722c549c8d44d9a",
+    "status": "verified"
+  },
+  {
+    "id": "b43f704c-a99d-47bd-a7cc-09bde2ed9a28",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) 127 × 123 . (2) 229 × 221 .",
+    "answer": "(1) 15621 (2) 50609",
+    "answerType": "numeric",
+    "analysis": "利用头同尾合十的速算规律：前两位数字乘（前两位数字+1）作为前段，个位数字相乘作为后段，最后相加。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d885b157116ff6d3",
+    "status": "verified"
+  },
+  {
+    "id": "bd1eb402-551d-4f93-ac80-05d51605e85a",
+    "nodeIds": [
+      "operation-laws",
+      "numbers-10000"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普不会做这道试题：36×19+64×144，所以他向田田请教．小朋友们，你们也来再试一试，不要轻易放弃哦．",
+    "answer": "9900",
+    "answerType": "numeric",
+    "analysis": "通过拆数法将144拆分为19+125，构造出公因数19利用乘法分配律，同时利用8×125=1000进行简便计算。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9139c7870c2ef796",
+    "status": "verified"
+  },
+  {
+    "id": "3892f885-3bf5-4b09-bf82-1ef20b97a4cb",
+    "nodeIds": [
+      "operation-laws",
+      "numbers-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "数学竞赛的后面几道题都很难，田田和阿普思考了很久，聪明的你能帮到他们吗？计算：31÷5+32÷5+33÷5+34÷5+35÷5.",
+    "answer": "33",
+    "answerType": "numeric",
+    "analysis": "利用除法分配律的逆运算，将算式转化为(31+32+33+34+35)÷5，利用等差数列求和性质（中间数×项数）计算得出结果。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "541a7b511456d832",
+    "status": "verified"
+  },
+  {
+    "id": "f0da4510-f951-47ac-bde9-2fa1d6cfcc2d",
+    "nodeIds": [
+      "numbers-10000"
+    ],
+    "level": "elementary_upper",
+    "stem": "决赛的时刻终于到了，“狭路相逢，勇者胜”，小朋友们，你们支持谁呢？\n计算：34965 ÷ 35 - 2772 ÷ 28 .",
+    "answer": "900",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "34965是35000-35，2772是2800-28，所以原式变为:(35000-35)÷35-(2800-28)÷28",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "63a7645af584869e",
+    "status": "verified"
+  },
+  {
+    "id": "4fdc863f-65e5-4799-b7ee-dee54c7fea91",
+    "nodeIds": [
+      "operation-laws",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田和阿普最后的得分相同，乐乐老师决定给他们出一道最终试题：\n计算：\n2000×1999−1999×1998+1998×1997−1997×1996+1996×1995−1995×1994\n小朋友，让我们也来大显身手，看看谁是这次考试的“NO.1”。",
+    "answer": "11982",
+    "answerType": "numeric",
+    "analysis": "通过提取公因数（乘法分配律）进行简便计算，将式子转化为 1999×2 + 1997×2 + 1995×2，进而利用等差数列求和性质得出结果。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b2afeda8d718264e",
+    "status": "verified"
+  },
+  {
+    "id": "f14f0fad-c589-44be-a863-7a28b8df0a21",
+    "nodeIds": [
+      "patterns-rules",
+      "multiplication-table"
+    ],
+    "level": "elementary_upper",
+    "stem": "下面每个图中的数都是按照规律排列的．\n\na = ( ) , b = ( ) .",
+    "answer": "36, 7",
+    "answerType": "numeric",
+    "analysis": "通过观察前两个三角形可以发现，下面两个数乘积等于上面的一个数，如：5×6=30，7×8=56。所以可以得出a=4×9=36；3×b=21，b=7。",
+    "figureImage": "ca2a85fd56919dfd41fb2fbb3733b912.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "28970b9c1739d3f2",
+    "status": "verified"
+  },
+  {
+    "id": "0cc7632e-f9d0-4121-9238-7880c563277e",
+    "nodeIds": [
+      "letter-for-number"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) a²与( )相等.\nA. a×2\nB. a+2\nC. a×a\n(2) 2x一定( )x².\nA. 大于\nB. 小于\nC. 等于\nD. 不能确定",
+    "options": [
+      "A. a×2",
+      "B. a+2",
+      "C. a×a",
+      "A. 大于",
+      "B. 小于",
+      "C. 等于",
+      "D. 不能确定"
+    ],
+    "answer": "(1)C (2)D",
+    "answerType": "expression",
+    "analysis": "a²表示两个a相乘，即a×a；2x表示2个x相加，x²表示两个x相乘，两者大小关系取决于x的取值，无法确定。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "eb053b36ee96155a",
+    "status": "verified"
+  },
+  {
+    "id": "5bcaff4b-9f1a-436c-aa38-cc224e275236",
+    "nodeIds": [
+      "letter-for-number"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁比牛牛小，丁丁今年a岁，牛牛今年b岁，2年后丁丁比牛牛小______岁．",
+    "answer": "b-a",
+    "answerType": "expression",
+    "analysis": "年龄差不变，2年后丁丁比牛牛小的岁数等于今年的年龄差。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c19f6b39ff24d954",
+    "status": "verified"
+  },
+  {
+    "id": "8f461acf-d3a1-486f-9083-7460f0c9cf09",
+    "nodeIds": [
+      "letter-for-number",
+      "quantity-relations"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1)一只白兔4条腿，一只公鸡2条腿，a只白兔和a只公鸡一共有______条腿．(2)小蜗牛叮当走8米用了a分钟，则叮当每分钟走______米，走一米用______分钟．",
+    "answer": "(1) 6a; (2) 8÷a; a÷8",
+    "answerType": "expression",
+    "analysis": "(1) 分别计算白兔和公鸡的腿数并求和；(2) 根据路程、时间、速度的关系，用除法表示每分钟走的距离和走一米用的时间。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "ac135c1a92dbbd8f",
+    "status": "verified"
+  },
+  {
+    "id": "0f72a7e3-39c6-4cf9-99dc-fb18d3167a42",
+    "nodeIds": [
+      "letter-for-number"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普刚刚学会了用字母表示数，特别兴奋．于是他做了好多题目，可是不知道做得对不对．亲爱的同学们，你能判断出下列各题是否正确吗？如果不正确，请将正确的答案写在括号后的横线上．\n(1) 4²=4×2 ( ) ____\n(2) 7×7=7² ( ) ____\n(3) a×2=a² ( ) ____\n乐乐老师对阿普说：“阿普，你还得好好学习用字母表示数这一单元呢!学会这一单元，才可以和丁丁他们去数学迷宫玩．”乐乐老师给阿普又出了几道题目，不知道同学们你会做吗？根据题意，求出下面算式的结果．\n(1) 当a=5时，6a+3=____．\n(2) 当m=3时，7+4m=____．\n(3) 当a=6，b=9时，3(a+b)=____．",
+    "answer": "(1) 33 (2) 19 (3) 45",
+    "answerType": "numeric",
+    "analysis": "将给定的数值代入含有字母的式子中，按照运算顺序进行计算即可得出结果。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f1b710d7c3260e5c",
+    "status": "verified"
+  },
+  {
+    "id": "56182580-920b-46f5-9bdb-5a8e45f80d8f",
+    "nodeIds": [
+      "letter-for-number",
+      "algebraic-expression"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普这次把题目全部做对了．他终于可以和丁丁、牛牛、田田一起去数学迷宫探险啦！刚走没多久，他们在一个分叉路口发现迎面挡着一道题目：魔法学校买来一批篮球和足球．买来篮球12个，每个a元；买来足球b个，每个25元．篮球的单价比足球贵多少元？买这批篮球和足球共用了多少元？",
+    "answer": "(a-25)元；12a+25b元",
+    "answerType": "expression",
+    "analysis": "篮球单价比足球贵(a-25)元；总价为篮球总价加足球总价，即12a+25b元。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "021a7d3c404eb503",
+    "status": "verified"
+  },
+  {
+    "id": "65d7f83e-1078-4c8f-a507-071d047cbe9e",
+    "nodeIds": [
+      "letter-for-number",
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "解决了这个难题后，四个人继续往前走．丁丁发现地上有2个长5厘米，宽a厘米的小长方形，把这两个小长方形拼成一个大长方形后，请问这个大长方形的面积是多少？",
+    "answer": "10a",
+    "answerType": "expression",
+    "analysis": "大长方形的面积等于两个小长方形面积之和，即 5a + 5a = 10a。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0d107c9aeae04903",
+    "status": "verified"
+  },
+  {
+    "id": "1ea63484-16d7-4584-a765-a1aec96d17ca",
+    "nodeIds": [
+      "letter-for-number",
+      "algebraic-expression"
+    ],
+    "level": "elementary_upper",
+    "stem": "小伙伴们继续往前走，在迷宫里遇到了两个小精灵在做纸花．小精灵哥做了a小时，每小时做12朵纸花，小精灵弟弟做了2小时，每小时做b朵纸花．现在两个小精灵想知道平均每人做几朵纸花，可是算来算去也算不清楚．同学们，你们能帮帮这两个小精灵吗？",
+    "answer": "6a+b",
+    "answerType": "expression",
+    "analysis": "先分别求出两人做的纸花总数（12a和2b），相加后除以2得到平均数。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "ec9c8612cbcbe7ef",
+    "status": "verified"
+  },
+  {
+    "id": "23522722-f98f-4d90-bccb-107ee16ec138",
+    "nodeIds": [
+      "letter-for-number",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "小伙伴们帮助了数学迷宫里的小精灵．小精灵哥哥给大家讲了一个有趣的故事：俄国著名诗人莱蒙托夫非常喜爱数学．在一次宴会上，他做了一个有趣的游戏．请每个人拿出纸和笔，记上所想的数．此数加上125，然后把得数减去48，再减去原来所想的数，然后除以5并把余数乘7，最后把所得数除以2，大家就一一照办了．莱蒙托夫毫不费力地就猜到了每个人的得数．大家看看自己的计算结果，竟然一点儿不差!不过他们惊奇地发现：不管你原来想的数是多少，莱蒙托夫的猜数都只有一个!同学们，你知道莱蒙托夫猜数的奥秘在哪里吗？你能使用字母来表示上面的猜数过程吗？",
+    "answer": "7",
+    "answerType": "numeric",
+    "analysis": "设所想的数为x，根据题意列式化简，发现x被抵消，最终结果恒为7。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "40515492075682a2",
+    "status": "verified"
+  },
+  {
+    "id": "aa814caa-56d1-491b-abad-5867a73b3830",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "最后，小精灵弟弟给丁丁出了个猜数的游戏．小精灵要丁丁想出一个数，然后把这数乘上5，再把新的数加上6，再把得数乘上4，接着把这数加上9，然后把这个和乘上5．丁丁就按照小精灵弟弟所说的去算得到结果3765．小精灵马上说：“丁丁，你想的数是36，是吗？”丁丁很惊讶，说是的．聪明的小朋友，你知道小精灵是怎么做到的吗？",
+    "answer": "36",
+    "answerType": "numeric",
+    "analysis": "设丁丁想的数为x，根据题意列出方程 5[4(5x+6)+9]=3765，解得 x=36。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c15645a185c5daee",
+    "status": "verified"
+  },
+  {
+    "id": "8e2220a2-29f4-4892-b0d0-348d767647ad",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁和田田共有图书58本，丁丁比牛牛少5本，牛牛比田田少7本，求丁丁和田田各有图书多少本．",
+    "answer": "23，35",
+    "answerType": "numeric",
+    "analysis": "先根据中间量牛牛求出丁丁和田田的差（5+7=12本），再利用和差公式（和-差）÷2求出较小数丁丁的本数，进而求出田田。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "cc0d1f49e246fa28",
+    "status": "verified"
+  },
+  {
+    "id": "43c7e458-0d9e-417f-b6bd-f7bb376cc3d8",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田、丁丁、牛牛和阿普分280个金币，田田说：我分到的金币比丁丁少11个，比牛牛多15个，比阿普少20个．那么，阿普分到了多少个金币？",
+    "answer": "86",
+    "answerType": "numeric",
+    "analysis": "以田田为基准，通过移多补少的方法求出田田的数量，再根据阿普比田田多20个求出阿普的数量。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "80dbba734dbe19d6",
+    "status": "verified"
+  },
+  {
+    "id": "2a1da6a4-6e81-4c33-89f7-14e7fb3741e4",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普一手可以搬运20千克的物品，而丁丁两手可以搬运10千克的物品，两人合作从甲地将450千克的小麦搬到乙地，要用最短的时间搬完．阿普搬的次数是丁丁的2倍，那么，阿普搬了多少千克的小麦，丁丁搬了多少千克的小麦？",
+    "answer": "400, 50",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "阿普每次搬20kg，丁丁每次搬10kg，阿普效率是丁丁的2倍。设丁丁搬x次，则阿普搬2x次，总重量 20*2x + 10*x = 450，解得x=15。阿普搬了 20*30=600kg（此处需修正：题目问的是阿普搬了多少千克，丁丁搬了多少千克。根据计算，阿普搬了 20*30=600kg，丁丁搬了 10*15=150kg。等等，让我重新算一下。设丁丁搬x次，阿普搬2x次。总重量 = 20*(2x) + 10*x = 50x = 450 => x=9。丁丁搬了 10*9=90kg，阿普搬了 20*18=360kg。360+90=450。看来我之前的草稿算错了。重新计算：设丁丁搬x次，阿普搬2x次。阿普每次20kg，丁丁每次10kg。总重 20*2x + 10*x = 50x = 450，x=9。阿普搬了 20*18=360kg，丁丁搬了 10*9=90kg。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1583d50faccfd34d",
+    "status": "verified"
+  },
+  {
+    "id": "33871b25-885b-4cc6-a287-82adbfb9ec0b",
+    "nodeIds": [
+      "numbers-100",
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "有40个连续的自然数，其中最大的数是最小的数的4倍，那么最大的数与最小的数之和是多少？",
+    "answer": "65",
+    "answerType": "numeric",
+    "analysis": "40个连续自然数中最大数与最小数之差为39，根据差倍公式（差÷(倍数-1)）求出最小数为13，进而求出最大数为52，两者之和为65。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "87251218a498a781",
+    "status": "verified"
+  },
+  {
+    "id": "db527c84-cb8d-4433-a836-a2c00b6d790f",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普站在梯子的一阶上，他看出在他所站一阶下面的阶数是上面的阶数的2倍，当下降8阶以后，在他所站一阶下面的阶数与上面的阶数相等，求梯子的阶数．",
+    "answer": "49",
+    "answerType": "numeric",
+    "analysis": "下降8阶后上下相等，说明原位置下面比上面多16阶，结合倍数关系可求。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4dbe78a1979005e2",
+    "status": "verified"
+  },
+  {
+    "id": "cc9e41c9-b570-4cd9-94fe-f3fd2051c814",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁、牛牛、阿普三个小朋友共有73块巧克力，如果阿普吃掉3块，那么牛牛和阿普的巧克力就一样多；如果牛牛给丁丁2块巧克力，那么丁丁的巧克力就是牛牛的2倍．阿普原来有多少块巧克力？",
+    "answer": "22",
+    "answerType": "numeric",
+    "analysis": "通过假设阿普吃掉3块使阿普与牛牛相等，以及牛牛给丁丁2块使丁丁是牛牛2倍，利用和倍关系求出牛牛原有19块，进而求得阿普原有22块。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7b03228a6de85cf3",
+    "status": "verified"
+  },
+  {
+    "id": "faf00f40-fdef-4a59-82be-8ea5ddda0fa1",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "这天丁丁和田田在学校的橱窗里发现一张海报《关于给贫困学校捐书的倡议书》，想到小朋友们困难的处境，丁丁和田田觉得应该贡献自己的一份力量，丁丁和田田一共捐了24本书．如果田田给丁丁13本，丁丁就比田田多4本，小朋友们，你们知道丁丁和田田各捐了多少本书吗？",
+    "answer": "1，23",
+    "answerType": "numeric",
+    "analysis": "先根据“田田给丁丁13本，丁丁就比田田多4本”求出两人原来的差（13×2-4=22），再利用和差公式（和-差）÷2求出丁丁的本数，最后求田田的本数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "81ebdd84dd31add7",
+    "status": "verified"
+  },
+  {
+    "id": "44e33235-df45-445f-b3e8-d911ba04567b",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "很快，牛牛他们也响应学校的号召加入捐书的队伍．第二次捐书中，已知田田比丁丁多22本，丁丁比牛牛少19本书，阿普比乐乐多2本书，而牛牛比阿普多15本书，丁丁和阿普一共捐了6本．这样的话，这5个人共捐了多少本书？",
+    "answer": "52",
+    "answerType": "numeric",
+    "analysis": "根据丁丁和阿普的和以及各人之间的差值，依次求出5人的捐书数量并求和。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0177bc78ca1bde37",
+    "status": "verified"
+  },
+  {
+    "id": "515664b1-b964-41bd-a5c4-ffd4c174fc15",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁、牛牛、田田他们分别统计了一小、二小、三小三个学校的情况．在这次捐书活动中，这三所小学一共捐了1999本书．已知一小捐书数量的2倍，二小捐书数量减3，三小捐书数量加4都是相等的．请问：各校捐书数量是多少？",
+    "answer": "400、803、796",
+    "answerType": "numeric",
+    "analysis": "通过设相等量为标准，将总数调整为1999-3+4=2000，再除以总份数1+2+2=5，求出一小的数量，进而求出其他两校数量。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1e050ae18fd95cb5",
+    "status": "verified"
+  },
+  {
+    "id": "915c45c0-b74d-4c91-b75a-b6a230f7e8ca",
+    "nodeIds": [
+      "simple-equation",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "这次公益活动捐的书中有一些要分给甲、乙、丙三所希望小学．已知丙比甲多20本，乙比甲多120本，又是丙的3倍，则乙希望小学得到多少本书？",
+    "answer": "150",
+    "answerType": "numeric",
+    "analysis": "设甲为x本，则丙为x+20本，乙为x+120本，根据乙是丙的3倍列方程x+120=3(x+20)，解得x=30，从而求得乙为150本。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c7af0d9f94ea20e2",
+    "status": "verified"
+  },
+  {
+    "id": "0f55a868-1f47-4c63-8799-0d6307869611",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲、乙两所希望小学原来一共有若干本书．如果从甲拿10本给乙，则乙的本数是甲的2倍，如果从乙拿10本给甲，则甲的本数是乙的3倍．那么，甲希望小学原来有图书多少本？乙希望小学原来有图书多少本？",
+    "answer": "26，22",
+    "answerType": "numeric",
+    "analysis": "通过两次转移后的倍数关系建立等量关系，利用份数法或方程求解。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b323dcbc6d07fe6b",
+    "status": "verified"
+  },
+  {
+    "id": "a9fc3488-25f7-4bec-9a93-366567664ec1",
+    "nodeIds": [
+      "problem-solving-primary",
+      "ratio-percent"
+    ],
+    "level": "elementary_upper",
+    "stem": "在这次公益活动中不仅捐书，还给希望小学设立了奖学金，用来奖励那些热爱学习的同学．这笔奖学金，要把它分成一等奖、二等奖、三等奖来颁发．每个一等奖奖金是每个二等奖奖金的2倍，每个二等奖奖金是每个三等奖奖金的2倍．如果一、二、三等奖各设置两人，那么每个一等奖的奖金是616元．如果设置一个一等奖、两个二等奖、三个三等奖，那么每个一等奖的奖金是多少元？",
+    "answer": "784",
+    "answerType": "numeric",
+    "analysis": "先根据第一种分配方案算出奖金总额，再根据倍数关系将总额按份数分配，最后求出第二种方案中一等奖的奖金。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e9399766ac22986e",
+    "status": "verified"
+  },
+  {
+    "id": "10880422-c799-4934-810d-07a2330e2ce1",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛老师带着37名同学到野外春游．休息时，小强问：“牛老师您今年多少岁啦？”牛老师有趣地回答：“我的年龄乘2，减去16后，再除以2，加上8，结果恰好是我们今天参加活动的总人数．”小朋友们，你知道牛老师今年多少岁吗？",
+    "answer": "38",
+    "answerType": "numeric",
+    "analysis": "先求出总人数38人，再根据运算顺序逆推：(38-8)×2+16=76，76÷2=38岁。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0f11a28ff15f81f2",
+    "status": "verified"
+  },
+  {
+    "id": "c63e8823-bc37-4cf1-8633-66dde0b5d696",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "练习2 小新在做一道加法题，由于粗心，将个位上的5看作9，把十位上的8看作3，结果所得的和是123．正确的答案是多少？",
+    "answer": "169",
+    "answerType": "numeric",
+    "analysis": "利用倒推法，将多算的减去，少算的加上，即 123 + 50 - 4 = 169。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8046d4cc6792eb01",
+    "status": "verified"
+  },
+  {
+    "id": "19984724-7be3-4580-a474-51dafb82f7dc",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "有一筐苹果，甲取出一半又1个，乙取出余下的一半又1个，丙取出再余下的一半又1个，这时筐里只剩下1个苹果．这筐苹果共值66元，问每个苹果平均值多少钱？",
+    "answer": "3",
+    "answerType": "numeric",
+    "analysis": "采用逆推法（还原问题），从最后剩下的1个苹果出发，依次倒推丙、乙、甲取之前的数量，算出苹果总数为22个，最后用总价66元除以22个得出单价。",
+    "analysisImage": "68de3abf403f0fb383c0031d7e6104d6.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "08307c97eaeea840",
+    "status": "verified"
+  },
+  {
+    "id": "0ecd1209-6381-45a6-a204-a0f436ec2ceb",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "货场原有煤若干吨.第一次运出原有煤的一半，第二次运进450吨，第三次又运出现有煤的一半又50吨，结果剩余煤的2倍是1200吨.货场原有煤多少吨？",
+    "answer": "1700",
+    "answerType": "numeric",
+    "analysis": "利用倒推法，从最后剩余的煤（1200÷2=600吨）出发，逆序还原第三次运出、第二次运进及第一次运出的过程，求得原有煤的吨数。",
+    "analysisImage": "76059be44436b4219fc9d174ef0d5b36.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4cef714679113bb5",
+    "status": "verified"
+  },
+  {
+    "id": "3b34c501-6644-43db-948c-ad5aa0599024",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一群小神仙玩扔沙袋游戏，他们分为甲、乙两个组，共有140只沙袋．如果甲组先给乙组5只，乙组又给甲组8只，这时两组沙袋数相等．两个组原来各有沙袋多少只？",
+    "answer": "67，73",
+    "answerType": "numeric",
+    "analysis": "利用两堆和始终不变（140只），得出最终每组70只，再根据甲给乙5只、乙给甲8只的过程逆推还原。",
+    "analysisImage": "c5e0ffdf96b7a29a726ddb09aeb8d071.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9ee8dac6622186ea",
+    "status": "verified"
+  },
+  {
+    "id": "3e28d051-ccfe-40ce-8a8e-350e8ff4c274",
+    "nodeIds": [
+      "periodicity",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "口渴的三个和尚分别捧着一个水罐，最初，老和尚的水最多，并且有一个和尚没水喝，于是，老和尚把自己的水全部平均分给了大、小两个和尚；接着，大和尚又把自己的水全部平均分给了老、小两个和尚；然后，小和尚又把自己的水全部平均分给了另外两个和尚．就这样，三人轮流谦让了一阵，结果太阳落山时，老和尚的水罐里有10升水，小和尚的水罐里则装着20升水．请问：最初大和尚的水罐里有多少升水？",
+    "answer": "10",
+    "answerType": "numeric",
+    "analysis": "通过逆推法或寻找周期规律，发现三个和尚的水量变化以3次操作为一个周期循环，且总量不变，最终状态与初始状态一致，故最初大和尚的水量为10升。",
+    "analysisImage": "aaa214de96ebe2ecbb8a8ce23faa9d03.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c915f0c762c2579c",
+    "status": "verified"
+  },
+  {
+    "id": "199f8123-f29b-44da-9419-cfca8acd74d5",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师带领牛牛、田田、丁丁、阿普他们参观数学博物馆．他们看见这样一种计算器，它由A、B、C、D四种装置组成，将一个数输入一种装置后会自动输出另一个数．各装置的运算程序如下：装置A，将输入的数加上6之后输出；装置B，将输入的数除以2之后输出；装置C，将输入的数减去5之后输出；装置D，将输入的数乘3之后输出．这些装置可以连接，如在装置A后连接装置B，就记作：A→B．例如：输入1后，经过A→B，输出3.5．（1）若经过A→B→C→D，输出120，则输入的数是多少？（2）若经过B→D→A→C，输出13，则输入的数是多少？",
+    "answer": "84，8",
+    "answerType": "numeric",
+    "analysis": "根据各装置的运算规则列出算式，通过正向列方程或逆向倒推的方法求解输入的数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8b3430a92ddf58d5",
+    "status": "verified"
+  },
+  {
+    "id": "55106cce-4de1-41b3-b878-f6bbc7a7aae3",
+    "nodeIds": [
+      "numbers-10000",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "参观完数学博物馆的神奇计算机后，牛牛发现在不远处有一个小黑板，走近一看，只见小黑板上写着请你猜一猜，下面是一道计算题(1800-□)÷25+192，因为没有注意题中的括号，先用□里的数除以25，然后按加减运算顺序计算，得1968．问这道题的正确答案是多少？",
+    "answer": "240",
+    "answerType": "numeric",
+    "analysis": "先根据错误的运算顺序逆推求出方框内的数为600，再代入原式按正确顺序计算即可。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "838a96c4a1977e76",
+    "status": "verified"
+  },
+  {
+    "id": "1f2475d3-427d-444e-81af-5857ff13323a",
+    "nodeIds": [
+      "problem-solving-primary",
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "大家很快得出了正确的答案，这时乐乐老师擦掉了黑板上的题，在黑板上写了一个数，叫班上的男同学从黑板前走过时，把它乘3减去14，擦去原数，换上答案；女同学从黑板前走过时，把它乘2减去7，擦去原数，换上答案．全班25名男生和15名女生都走过以后，乐乐老师把最后的数乘5，减去5，结果是30．小朋友，黑板上最初的数是多少？",
+    "answer": "7",
+    "answerType": "numeric",
+    "analysis": "通过逆推法（还原问题）求解：先由最终结果30逆推老师操作前的数，再根据男、女生操作规律（男生操作不改变数值，女生操作也不改变数值）逆推得出初始数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3986171b3295a6ad",
+    "status": "verified"
+  },
+  {
+    "id": "c2105b51-7447-4b17-ba45-1414a27dfa75",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在博物馆的尽头有一个箱子里面有只大虫子，老师介绍说，这是一只神奇的虫子，它每小时就长一倍，1天能长到20厘米，聪明的小朋友，你知道小虫到长到5厘米时需要多少小时吗？",
+    "answer": "22",
+    "answerType": "numeric",
+    "analysis": "已知1天（24小时）长到20厘米，每小时长一倍，逆推可知23小时是10厘米，22小时是5厘米。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "272d6c60845630ce",
+    "status": "verified"
+  },
+  {
+    "id": "7ffba55d-226d-4f03-8b59-c61986e3bf04",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "不知不觉间已到中午，大家都有些累了，老师提议大家在外面休息区休息一会儿，牛牛和田田觉得无聊，决定一起下棋．他们把棋子堆成甲、乙两堆，其中甲堆棋子多于乙堆．现在按如下方法移动棋子：第一次从甲堆中拿出和乙堆一样多的棋子放到乙堆；第二次从乙堆中拿出和甲堆剩下的同样多的棋子放到甲堆；第三次又从甲堆中拿出和乙堆同样多的棋子放到乙堆．照此移法，移动三次后，甲、乙两堆棋子数恰好都是32个．问甲、乙两堆棋子原来各有多少个？",
+    "answer": "44，20",
+    "answerType": "numeric",
+    "analysis": "采用逆推法（还原问题），从最后一步两堆均为32个的状态倒推，依次还原第三次、第二次、第一次移动前的数量，最终得出甲堆原有44个，乙堆原有20个。",
+    "analysisImage": "ab7c60da7a1ea94b86fdfb33a15bf0bb.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "32096712248bcac5",
+    "status": "verified"
+  },
+  {
+    "id": "86349ab3-ab6a-42d8-9923-78161b8ede12",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "这时，丁丁过来邀请牛牛和田田一起玩牌．他们分别抓了一些棋子作为筹码，第一局，牛牛输给了田田和丁丁，使他们俩人的棋子数都翻了一倍．第二局，牛牛和田田一起赢了，这样他们俩棋子袋里面的棋子也都翻了一倍．第三局，牛牛和丁丁赢了，这样他们俩棋子袋里的棋子都翻了一倍．结果，牛牛、田田、丁丁每人都赢了两局而输掉了一局，最后3人手中的棋子是完全一样的．细心的牛牛数了数他棋子袋里的棋子发现他自己输掉了100个，你能推算出牛牛、田田、丁丁3人刚开始各有多少个棋子吗？",
+    "answer": "260，80，140",
+    "answerType": "numeric",
+    "analysis": "设最后每人有x个棋子，根据三局输赢翻倍的过程逆推，结合牛牛输掉100个的条件列方程求解。",
+    "analysisImage": "e5a435c9ac11bcff23c5d133e7269a22.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8c2320420272a7a0",
+    "status": "verified"
+  },
+  {
+    "id": "044daa0b-2544-4af9-ba2d-c6881d2736de",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "A、B、C、D、E、F、G七个人都各有一些珠子．从A开始依序进行以下操作，每次都分给其他六个人与他们当时手中现有珠子数量一样多的珠子．当G操作完成后，每个人手中都恰好各有256颗珠子，请问D原先有多少颗珠子？",
+    "answer": "114",
+    "answerType": "numeric",
+    "analysis": "本题采用倒推法（还原问题），从最终每人256颗珠子开始，逆序还原G、F、E、D、C、B、A的操作过程，即可求得D原先的珠子数。",
+    "analysisImage": "78e8f03f0437f5fb44365c4a656fed11.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8ceae8842339d8d9",
+    "status": "verified"
+  },
+  {
+    "id": "9aaa45ed-f61e-4caa-b279-d5075e0b66fa",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲，乙，丙，丁四个同学中有两个同学在假日为街道做好事，班主任把这四人找来了解情况，四人分别回答如下．\n甲：“丙、丁两人中有人做了好事．”\n乙：“丙做了好事，我没做．”\n丙：“甲、丁中只有一人做了好事．”\n丁：“乙说的是事实．”\n最后通过仔细分析调查，发现四人中有两人说的是事实，另两人说的与事实有出入．到底是谁做了好事？",
+    "answer": "乙和丁",
+    "answerType": "steps",
+    "analysis": "通过假设乙和丁的话正确，推导出矛盾；进而假设甲和丙的话正确，结合“两人做好事”的条件，推导出做好事的是乙和丁。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "02a327697295347c",
+    "status": "verified"
+  },
+  {
+    "id": "b9a00996-c66c-426b-82e2-dfde40e62562",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "地理老师在黑板上挂了一张世界地图，并给五大洲的每一个洲都标上一个代号，让学生认出五个洲，五个学生分别回答如下：\n甲：3号是欧洲，2号是美洲；\n乙：4号是亚洲，2号是大洋洲；\n丙：1号是亚洲，5号是非洲；\n丁：4号是非洲，3号是大洋洲；\n戊：2号是欧洲，5号是美洲.\n结果他们每人都只说对了一半，请求出正确的编号和大洲的对应顺序.",
+    "answer": "1亚洲、2大洋洲、3欧洲、4非洲、5美洲",
+    "answerType": "steps",
+    "answerUnverified": true,
+    "analysis": "利用假设法，假设甲的第一句话是对的，推导出3是欧洲，进而推导出丁、戊、丙、乙的对应关系，最终得出正确顺序。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7295ade7a23329a3",
+    "status": "verified"
+  },
+  {
+    "id": "98e9109c-9ac9-4be8-8fa2-027162da303d",
+    "nodeIds": [
+      "logic-reasoning-primary",
+      "year-month-day"
+    ],
+    "level": "elementary_upper",
+    "stem": "传说有个说谎国，这个国家的男人在星期四、五、六、日说真话，在星期一、二、三说假话；女人在星期一、二、三、日说真话，在星期四、五、六说假话．有一天，一个人到说谎国去旅游，他在那里认识了一男一女．男人说：“昨天我说的是假话”，女人说：“昨天也是我说假话的日子”．这下，那个外来的游人可发愁了，到底今天星期几呢？请同学们根据他们说的话，判断一下今天是星期几呢？",
+    "answer": "星期四",
+    "answerType": "steps",
+    "analysis": "通过假设男人今天说真话或假话，结合两人关于“昨天”的陈述进行逻辑推理，排除矛盾情况，最终确定今天是星期四。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6b38a6bd0d12f436",
+    "status": "verified"
+  },
+  {
+    "id": "8d5f2751-94d2-4534-9681-5c6eae1690b3",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "2\n刘刚、马辉、李强三个男孩各有一个妹妹，六个人进行乒乓球混合双打比赛．事先规定：兄妹二人不许搭档．第一盘：刘刚和小丽对李强和小英；第二盘：李强和小红对刘刚和马辉的妹妹．问：三个男孩的妹妹分别是谁？",
+    "answer": "刘刚与小红、马辉与小英、李强与小丽",
+    "answerType": "steps",
+    "answerUnverified": true,
+    "analysis": "根据“兄妹二人不许搭档”的规则，通过列表排除法：刘刚不和小丽、小红是兄妹，故刘刚的妹妹是小红；李强不和小英、小红是兄妹，故李强的妹妹是小丽；剩下的马辉的妹妹是小英。",
+    "analysisImage": "277d4232e04fbbc185908b72cb202233.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d1d63a6979c72faa",
+    "status": "verified"
+  },
+  {
+    "id": "4b5e6bf7-9859-4d8b-80ca-8873d1fec462",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "某市举行家庭普法学习竞赛，有5家庭进入决赛（每家2名成员）.决赛时，进行四项比赛，每项比赛各家出一名成员参加，第一项参赛的是吴、孙、赵、李、王；第二项参赛的是郑、孙、吴、李、周；第三项参赛的是赵、张、吴、钱、郑；第四项参赛的是周、吴、孙、张、王；刘某因故四项均未参赛，问谁和谁是同一家？",
+    "answer": "孙钱、赵周、刘吴、王郑、李张",
+    "answerType": "steps",
+    "analysis": "根据刘某未参赛推断其配偶吴参加了所有比赛，再根据每项比赛各家出一人的规则，利用排除法确定其他家庭成员。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "43425e88ddd7c59c",
+    "status": "verified"
+  },
+  {
+    "id": "a10f13f4-f3c7-4a04-a9b9-23d904bc31bb",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲、乙、丙三人，他们的籍贯分别是辽宁、广西、山东，他们的职业分别是教师、工人、演员．已知：（1）甲不是辽宁人，乙不是广西人；（2）辽宁人不是演员，广西人是教师；（3）乙不是工人．求这三人各自的籍贯和职业．",
+    "answer": "甲是广西人，职业是教师；乙是山东人，职业是演员；丙是辽宁人，职业是工人；",
+    "answerType": "steps",
+    "answerUnverified": true,
+    "analysis": "根据条件（2）可知广西人是教师，结合（1）乙不是广西人，（3）乙不是工人，推知乙是演员；由（2）辽宁人不是演员，故乙不是辽宁人，乙只能是山东人；由（1）甲不是辽宁人，故甲是广西人（教师）；最后丙是辽宁人（工人）。",
+    "analysisImage": "92e684aab81b7be404ac10b115281ee9.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7f4da52287cef255",
+    "status": "verified"
+  },
+  {
+    "id": "7e24423d-8ac1-481a-a760-1a3974b8065f",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "校数学竞赛，牛牛、丁丁、田田、阿普、小乐、小明、小李、小丽这8位同学获得前八名，乐乐老师让他们猜一下谁是第一名．牛牛说：“小明或小丽是第一名．”丁丁说：“我是第一名．”田田说：“小李是第一名．”阿普说：“丁丁不是第一名．”小乐说：“牛牛说得不对．”小明说：“我不是第一名，小丽也不是第一名．”小李说：“田田不是第一名．”小丽说：“我同意牛牛的意见．”乐乐老师指出：8个人中有3人猜对了．请问：第一名是谁？",
+    "answer": "田田",
+    "answerType": "steps",
+    "analysis": "丁丁和阿普的话完全相反，必有一真一假；牛牛、小丽说法一致，小乐、小明说法一致且与前两者相反，这四组必为两真两假。已知共3人猜对，故田田和小李说的必为假话，由小李说“田田不是第一名”为假，推知田田是第一名。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c62bcb5f2833405a",
+    "status": "verified"
+  },
+  {
+    "id": "15d3dd67-377b-46f3-aa4d-352bee9d07ce",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师为了奖励考试优秀的同学，在3个小箱中各放一个彩色球，让这次考试前四名的牛牛、田田、丁丁、阿普各猜一下各个箱子中放了什么颜色的球．猜对的话有大奖噢．\n牛牛说：“1号箱中放的是黄色的，2号箱中放的是黑色的，3号箱中放的是红色的．”\n田田说：“1号箱中放的是橙色的，2号箱中放的是黑色的，3号箱中放的是绿色的．”\n丁丁说：“1号箱中放的是紫色的，2号箱中放的是黄色的，3号箱中放的是蓝色的．”\n阿普说：“1号箱中放的是橙色的，2号箱中放的是绿色的，3号箱中放的是紫色的．”\n乐乐老师说：“你们中有一个人恰好猜对了两个其余的三人都只猜对一个．”\n那么3号箱子中放的是什么颜色的球？",
+    "answer": "蓝色",
+    "answerType": "steps",
+    "answerUnverified": true,
+    "analysis": "根据乐乐老师的话，四人猜对的总次数为 2+1+1+1=5 次。由于只有3个箱子，根据抽屉原理，必然有一个箱子被猜对了3次。观察发现“2号箱是黑色”被牛牛和田田同时猜中，若2号箱是黑色，则牛牛猜对1个（2号），田田猜对2个（1号橙色、2号黑色），符合题意，进而推导出3号箱是蓝色。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0151a24c5ce3322f",
+    "status": "verified"
+  },
+  {
+    "id": "e17c2541-c277-4736-aba1-cfe7c307f48c",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在期末考试前，牛牛、田田、丁丁、阿普分别预测他们的成绩是A、B、C或D，评分标准是A比B好，B比C好，C比D好．牛牛说：“我们的成绩都不相同．若我的成绩是A，则丁丁将得D．”田田说：“若丁丁的成绩是C，则牛牛将得D．牛牛的成绩会比阿普好．”丁丁说：“若田田的成绩不是A，则牛牛将得C．若我的成绩是B，则阿普的成绩将不是D．”阿普说：“若丁丁的成绩是A，则我将得B．若田田的成绩不是B，则我也将不会得B．”当期末考试的成绩公布后，每位学生所得到的成绩都完全符合他们说过的话．请问这四位学生的成绩分别是什么？",
+    "answer": "牛牛B、田田A、丁丁D、阿普C",
+    "answerType": "steps",
+    "analysis": "根据已知条件进行逻辑推理，利用假设法和排除法（找矛盾）确定每个人的成绩。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9cfba414e45acfd4",
+    "status": "verified"
+  },
+  {
+    "id": "ec15cf32-55dd-44db-9899-5e0fc7f061e6",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "成绩出来后，乐乐老师让小明把牛牛、田田、丁丁、阿普、小乐的试卷带回去，小明见到这五人后就一人给了一份，结果全发错了．现在知道：\n①牛牛拿的不是田田的，也不是阿普的；\n②田田拿的不是丁丁的，也不是阿普的；\n③丁丁拿的不是田田的，也不是小乐的；\n④阿普拿的不是丁丁的，也不是小乐的；\n⑤小乐拿的不是阿普的，也不是牛牛的．\n另外，没有两人相互拿错（例如牛牛拿田田的，田田拿牛牛的）．\n问：丁丁拿的是谁的试卷？丁丁的试卷被谁拿走了？",
+    "answer": "丁丁拿了阿普的试卷，丁丁的试卷被小乐拿走了",
+    "answerType": "steps",
+    "analysis": "通过列表格法（或假设法）进行逻辑推理，利用排除法确定每个人拿到的试卷归属，最终得出丁丁拿了阿普的试卷，丁丁的试卷被小乐拿走了。",
+    "analysisImage": "4539c20fb5858ac94ddd3b19694c0cce.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0e4b3b33712473a8",
+    "status": "verified"
+  },
+  {
+    "id": "2ba25c0c-71d0-4a12-a664-ce50716b7b91",
+    "nodeIds": [
+      "logic-reasoning-primary",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一天上课，乐乐老师给牛牛、田田他们出了这么一道题，小朋友们，你们会做吗？甲、乙、丙、丁每人只会中、英、法、日四种语言中的两种，其中有一种语言只有一人会说．他们在一起交谈可有趣啦：（1）乙不会说英语，当甲与丙交谈时，却请他当翻译．（2）甲会日语，丁不会日语，但他们却能相互交谈．（3）乙、丙、丁找不到三人都会的语言．（4）没有人同时会日、法两种语言．请问：甲、乙、丙、丁各会哪两种语言？",
+    "answer": "甲会中、日语，乙会中、法语，丙会英、法语，丁会中、英语",
+    "answerType": "steps",
+    "analysis": "通过列表法（表格法）进行逻辑推理，利用假设法排除矛盾情况，最终确定甲会中、日语，乙会中、法语，丙会英、法语，丁会中、英语。",
+    "analysisImage": "51a7b72b8aaec437947b2fb62d8fce99.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a82d2207ace511aa",
+    "status": "verified"
+  },
+  {
+    "id": "d11bc339-9b32-4a4e-ac65-f0b89f663498",
+    "nodeIds": [
+      "logic-reasoning-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁、田田、牛牛各爱好游泳、羽毛球、乒乓球中的一项，老师分别派他们去一小、二小、三小中的一所小学去比赛．现知道：(1)丁丁不在一小；(2)田田不在二小；(3)爱好乒乓球的不三小；(4)爱好游泳的在一小；(5)爱好游泳的不是田田．问：三人各爱好什么运动？各去哪所小学？",
+    "answer": "丁丁在二小，爱好打乒乓球；田田在三小，爱好打羽毛球；牛牛在一小，爱好游泳．",
+    "answerType": "steps",
+    "analysis": "根据条件(4)爱好游泳的在一小，结合(5)爱好游泳的不是田田，以及(1)丁丁不在一小，可推断出牛牛爱好游泳去一小；再结合(3)爱好乒乓球的不去三小，可推断田田爱好乒乓球去三小，最后剩下丁丁爱好羽毛球去二小。",
+    "analysisImage": "76424f72ac17e7384b95cb28934b2a06.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5cd9c7e44d6c3342",
+    "status": "verified"
+  },
+  {
+    "id": "1b8e1f6f-7398-4717-be37-e3207ba1c2de",
+    "nodeIds": [
+      "logic-reasoning-primary",
+      "year-month-day"
+    ],
+    "level": "elementary_upper",
+    "stem": "A、B、C、D四人分别到甲、乙、丙、丁四个单位办事（顺序并不一一对应），已知甲单位星期一不接待，乙单位星期三不接待，丙单位星期四不接待，丁单位只在星期二、四、六接待，星期日四个单位都不办公． 一天，他们议论起哪天去办事． A说：“你们可别像我前天那样，在人家不接待的日子去． ” B说：“我今天必须去，明天人家就不接待了． ” C说：“我和B正相反，今天不能去，明天去． ” D说：“我从今天起，连着四天哪天去都行． ” 请问：这一天是星期几？他们分别去哪个单位办事？",
+    "answer": "今天是周三，A去丁单位，B去丙单位，C去乙单位，D去甲单位",
+    "answerType": "steps",
+    "analysis": "由D知今天起连四天都行，排除周日（无办公）、周六（周日无）、周五（周六丁不接）、周四（周五丁不接）、周三（周四丙不接）、周二（周三乙不接），故今天为周一。A前天是周六，丁周六接，故A去丁；B今天去明天不接，甲周一不接周二接，故B去甲；C今天不能去明天去，乙周三不接周四接，故C去乙；D去丙。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0909433ae4771c9f",
+    "status": "verified"
+  },
+  {
+    "id": "09006bb4-5a5c-4e4b-a9f7-250a271b15ac",
+    "nodeIds": [
+      "multiplication-table",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "有棋子若干，恰好可以排成每边10个的正方形，棋子总数多少个？从外向内数第二层有多少个？",
+    "answer": "100, 28",
+    "answerType": "numeric",
+    "analysis": "实心方阵总数为边长的平方，相邻两层相差8个。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "cea8eecd1add65b2",
+    "status": "verified"
+  },
+  {
+    "id": "239a269a-2b8e-4328-8632-eb0ae2182383",
+    "nodeIds": [
+      "numbers-10000",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "某校四年级学生排成一个方阵，最外一层的人数有60人，问方阵外层每边有多少人？这个方阵共有四年级学生多少人？",
+    "answer": "16，256",
+    "answerType": "numeric",
+    "analysis": "根据方阵最外层人数公式(每边人数-1)×4=60，求得每边16人，总人数为16×16=256人。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4ae523d1afdc3406",
+    "status": "verified"
+  },
+  {
+    "id": "36623603-0f3e-48c0-8571-c045ef3ca66a",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "某部队战士排成实心方阵行军，另一支共31人的队伍加入了他们的方阵，正好使横竖各增加一排，现共有多少战士？",
+    "answer": "256",
+    "answerType": "numeric",
+    "analysis": "实心方阵增加一排，增加的人数等于原方阵每边人数与新方阵每边人数之和，即 2n+1=31，解得原方阵每边15人，现方阵每边16人，总人数为16×16=256人。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1657aceabf64cdcc",
+    "status": "verified"
+  },
+  {
+    "id": "872d3b74-c790-408a-ac5c-2872e8406538",
+    "nodeIds": [
+      "patterns-rules",
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "某校四年级学生排成一个4层方阵，从外向内第二层人数为60人，问这个方阵共有多少人？",
+    "answer": "224",
+    "answerType": "numeric",
+    "analysis": "方阵中相邻两层人数相差8人，由第二层人数60人可推知最外层为68人，第三层52人，第四层44人，求和即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a6510c7b6ff4417f",
+    "status": "verified"
+  },
+  {
+    "id": "1c3d4743-7b52-41a1-843f-04fd97b0918b",
+    "nodeIds": [
+      "problem-solving-primary",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "120个棋子摆成一个三层空心方阵，最内层每边有多少棋子？",
+    "answer": "9",
+    "answerType": "numeric",
+    "analysis": "利用空心方阵相邻两层相差8个棋子的规律，先求出中层棋子数，再推算出内层每边棋子数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "328b0d250b7687c6",
+    "status": "verified"
+  },
+  {
+    "id": "a0c89c1d-f585-4e8d-a19d-5e02043ad753",
+    "nodeIds": [
+      "patterns-rules",
+      "add-sub-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "用棋子摆成一周每边有12颗棋子的空心方阵，但是发现所剩棋子很少，不够外围再增加一层．那么，要保持原有棋子不动的情况下，想变成一个更大的两层空心方阵，至少需要多少颗棋子？",
+    "answer": "44",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "原方阵每边12颗，变为两层空心方阵需每边13颗，外层增加半层需25颗，内层增加半层需19颗，共需44颗。",
+    "analysisImage": "e86b25df657611a791b09de015c6a446.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "65fc7bb3d1034635",
+    "status": "verified"
+  },
+  {
+    "id": "2e292562-96ee-47a2-8108-dd0dd4ebbb56",
+    "nodeIds": [
+      "counting-20",
+      "add-sub-20",
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_lower",
+    "stem": "星期天，田田和往常一样来到了图书馆，一本从来没有见过的书引起了她的注意．书上落满了厚厚的灰尘，当田田翻开第一页的时候，一行字出现在她的面前，Hi，同学你好，很高兴能和你一起进行我们奇妙的数学之旅，就让我们从一道简单的数学数学题目开始吧！，同学们做操，如果你站在左边第5列，右起第3列，从前边数前面有4个同学，从后数后面有6个同学，每行每列的人数同样多，做操的同学一共有多少人？",
+    "answer": "77",
+    "answerType": "numeric",
+    "analysis": "每行有5+3-1=7人，每列有4+6+1=11人，共有11×7=77人。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5c38b87a6bb8e57c",
+    "status": "verified"
+  },
+  {
+    "id": "753c5da3-d941-4cbd-aba1-9fb52707192d",
+    "nodeIds": [
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "很快田田就做出了答案，她对着书轻轻地说出了自己的结果，一道光闪过，神奇的一幕出现了，那本书变成了一把银色的钥匙，这时有一个声音在她耳边回响：拿着这把钥匙，打开左边的储物箱．当储物箱门打开的时候，里面放着一支钢笔，还有一张纸，纸上写着：把同学们排成一个三层空心方阵多出16人，如果空心部分再增加一层又少28人，请问共有多少人？如果他们改成实心方阵，每边应有多少人？请在纸上写出你的答案．",
+    "answer": "196，14",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "利用方阵相邻两层人数相差8人的规律，由空心部分增减一层的人数差求出中间层人数，进而求出总人数并开方得到实心方阵边长。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "67024272a949fb57",
+    "status": "verified"
+  },
+  {
+    "id": "06f271ba-31f0-4fc0-aafe-ee18aed4ff70",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "聪明的田田不假思索就算出了答案，可是让她不得其解的是，当她写下这两个答案的时候，她竟然出现在了一个神奇的森林里面．她的脚旁站着一只金色的小老鼠，小老鼠说：一群小老鼠排成一个实心方阵队列，还剩下5只，如果横竖各增加一排，排成一个稍大的实心方阵，则缺少26只，小老鼠有多少只？如果你回答不出来，你就永远回不了家了．",
+    "answer": "230",
+    "answerType": "numeric",
+    "analysis": "利用方阵增减规律，由(5+26-1)÷2求出原方阵每排只数，进而求得总数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4c60f4ee634badc1",
+    "status": "verified"
+  },
+  {
+    "id": "062ce275-1e19-4be8-92ac-ed2c42464ef7",
+    "nodeIds": [
+      "patterns-rules",
+      "counting-principle"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田害怕极了，她呜呜地哭了起来．小老鼠说，其实你也不要特别担心，如果你能帮我做对一道数学题，或许我可以帮你找到回家的路．如果有一个5层的空心三角阵，最外层每边有20个棋子，那么一共有多少个棋子？",
+    "answer": "195",
+    "answerType": "numeric",
+    "analysis": "最外层每边20个，共20×3-3=57个，相邻两层差9个，构成等差数列，求前5项和即可。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2133c862937a3ab6",
+    "status": "verified"
+  },
+  {
+    "id": "40631a08-5800-4307-b3cc-d9dce3891010",
+    "nodeIds": [
+      "add-sub-100",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田想啊想，却怎么都想不起来，小老鼠说，这样吧，我给你换一道：一个实心方阵，从外向内数，第一层和第三层共有64枚棋子，请问这个方阵共用了多少个棋子？",
+    "answer": "121",
+    "answerType": "numeric",
+    "analysis": "利用方阵相邻两层相差8个棋子的规律，结合和差问题求出第一层棋子数，进而求出每边棋子数及总数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3ae08030a2b50ece",
+    "status": "verified"
+  },
+  {
+    "id": "640f2ebe-88ea-4995-838b-5487d923ff31",
+    "nodeIds": [
+      "add-sub-100",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "可是过了很多天，田田还是没有想出来，她仍然每天都在哭．小老鼠有些于心不忍了，他说，罢了，我送你回去吧!回去之前我要告诉你一个秘密．我本是一个数学家，因为某些原因，我受到了诅咒变成了一只小老鼠．我在等待着一个有缘人，只有他帮我解决了所有的问题，我才能恢复真身．很遗憾，你没有通过，我要送你出去了，也希望你能帮我一个忙，把下面的这道题送给你身边最聪明的人：如果我用一些棋子摆成一个两层的空心方阵，后来又多摆上去28个棋子，使得图形变成一个三层的空心方阵，开始时可能摆了多少个棋子？",
+    "answer": "80个、32个或56个",
+    "answerType": "numeric",
+    "analysis": "根据空心方阵相邻两层数量差为8的规律，分三种情况（单层在内、单层在外、内外各加半圈）讨论，分别计算得出80、32或56。",
+    "analysisImage": "aa78176007463cbe3cb26674e5c7a834.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "fd69b2a2cb621f89",
+    "status": "verified"
+  },
+  {
+    "id": "6c7efee5-dd92-4ab0-84cb-bea0bf60f16f",
+    "nodeIds": [
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阳光小学的学生在操场上排成一个方阵，方阵的行距和列距都相等．已知方阵最外面一圈都是男生，往内一圈都是女生，然后是男生……如此下去直到最里面．如果男生总数比女生总数多52人，那么共有学生多少人？",
+    "answer": "676",
+    "answerType": "numeric",
+    "analysis": "利用方阵相邻两层人数相差8人的规律，结合男生比女生多52人推算出层数，再利用等差数列求和公式计算总人数。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5fa5229ab393f0fd",
+    "status": "verified"
+  }
+]
