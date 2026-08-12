@@ -242,3 +242,65 @@ describe("POST /api/v1/ingest/tail", () => {
     expect((await jsonPost(app, "/api/v1/ingest/tail", { content: PAGE })).status).toBe(501);
   });
 });
+
+/**
+ * 上一页只留下一个题号时，这一页开头是**新题的题干**，不是上一题的解析。
+ * 模型常把它标成 continuedKind="answer"，结构比它的猜测可靠。
+ */
+describe("光杆题号跨页", () => {
+  const LEAD = [
+    '{"index":1,"label":"","preview":"时间过得真快啊，一转眼，几位小朋友要离开图形王国了",',
+    '"box":[0.12,0.06,0.89,0.44],"hasFigure":true,"figureBox":[0.64,0.16,0.89,0.25],',
+    '"answerTop":0.28,"continued":true,"continuedKind":"answer"}',
+  ].join("");
+
+  function layoutProviderFrom(jsonl: string): ExtractionProvider {
+    return {
+      async extractFromText() {
+        return [];
+      },
+      async extractFromImage() {
+        return [];
+      },
+      async layoutFromImage() {
+        return parseLayout(jsonl);
+      },
+    };
+  }
+
+  it("告知上一页是光杆题号后，页首那张图算题干图", async () => {
+    const env = tempFixtureEnv([]);
+    env.state.extraction = layoutProviderFrom(LEAD);
+    const app = createApp(env.state);
+
+    const res = await jsonPost(app, "/api/v1/ingest/layout", {
+      content: PAGE,
+      previousEndedWithLabel: true,
+    });
+    const body = (await res.json()) as { items: { stemFigureBox?: unknown; analysisFigureBox?: unknown }[] };
+    expect(body.items[0]!.stemFigureBox).toEqual([0.64, 0.16, 0.89, 0.25]);
+    expect(body.items[0]!.analysisFigureBox).toBeUndefined();
+  });
+
+  it("不告知时按模型说的算解析图——它标的是 answer", async () => {
+    const env = tempFixtureEnv([]);
+    env.state.extraction = layoutProviderFrom(LEAD);
+    const app = createApp(env.state);
+
+    const res = await jsonPost(app, "/api/v1/ingest/layout", { content: PAGE });
+    const body = (await res.json()) as { items: { stemFigureBox?: unknown; analysisFigureBox?: unknown }[] };
+    expect(body.items[0]!.stemFigureBox).toBeUndefined();
+    expect(body.items[0]!.analysisFigureBox).toEqual([0.64, 0.16, 0.89, 0.25]);
+  });
+
+  it("下发时标出哪一条是光杆题号", async () => {
+    const env = tempFixtureEnv([]);
+    env.state.extraction = layoutProviderFrom(
+      '{"index":3,"label":"练习9","preview":"练习9","box":[0.12,0.89,0.89,0.91]}',
+    );
+    const app = createApp(env.state);
+    const res = await jsonPost(app, "/api/v1/ingest/layout", { content: PAGE });
+    const body = (await res.json()) as { items: { dangling: boolean }[] };
+    expect(body.items[0]!.dangling).toBe(true);
+  });
+});

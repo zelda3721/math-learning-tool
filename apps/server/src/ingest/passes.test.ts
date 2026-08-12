@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxQuality, classifyFigures, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes, type LayoutItem } from "./passes.js";
+import { boxQuality, classifyFigures, isDanglingLabel, normalizeBox, parseFirstObject, parseJsonObjects, parseLayout, snapBoxes, type LayoutItem } from "./passes.js";
 
 describe("normalizeBox", () => {
   it("收下 0~1 的相对框", () => {
@@ -376,5 +376,110 @@ describe("续文里的图", () => {
     expect(b[0]!.continuedKind).toBe("stem");
     const c = parseLayout('{"index":1,"preview":"甲","continued":false}');
     expect(c[0]!.continuedKind).toBeUndefined();
+  });
+});
+
+describe("光杆题号", () => {
+  /**
+   * 实测第10讲：练习7 的题号排在 p3 页脚、正文翻到 p4；练习9 的题号在 p4 页脚、
+   * 正文在 p5。版面那趟给出的是
+   *   {"label":"练习9","preview":"练习9","box":[0.12,0.89,0.89,0.91]}
+   * ——一条 2% 高、只有题号的窄带。
+   *
+   * 此前把它当一道题去抽：框太窄被 normalizeBox 判废、退回整页，
+   * 抽出来的是同页别的题，再被查重挡掉；而下一页的正文标着 continued，
+   * 被并进了上一道题。13 道题里这么丢了 2 道。
+   */
+  const item = (over: Partial<LayoutItem> = {}): LayoutItem => ({
+    index: 3,
+    label: "练习9",
+    preview: "练习9",
+    hasFigure: false,
+    continued: false,
+    ...over,
+  });
+
+  it("preview 与 label 一样 = 这条里没有题干", () => {
+    expect(isDanglingLabel(item())).toBe(true);
+  });
+
+  it("preview 为空也算", () => {
+    expect(isDanglingLabel(item({ preview: "" }))).toBe(true);
+  });
+
+  it("preview 是旁边的章节标题也算——判据是位置不是字面", () => {
+    // 实测第10讲 p3：练习7 的题号在页底，模型给的 preview 是「二、转动数学大脑」。
+    // 只看「preview 等于 label」会漏掉它，而它一直只占页底 4% 的窄带
+    expect(
+      isDanglingLabel(item({ label: "练习7", preview: "二、转动数学大脑", box: [0.08, 0.88, 0.92, 0.92] })),
+    ).toBe(true);
+    // 同一页跑两次，模型给的框时窄时宽——所以判据不能只看框高
+    expect(
+      isDanglingLabel(item({ label: "练习7", preview: "二、转动数学大脑", box: [0.08, 0.82, 0.92, 0.99] })),
+    ).toBe(true);
+  });
+
+  it("有题干就不是光杆", () => {
+    expect(isDanglingLabel(item({ preview: "如图，从梯形ABCD中分出两个平行四边形" }))).toBe(false);
+  });
+
+  it("不在页面下方的条目不算——那是一道真题，哪怕开头几个字很短", () => {
+    expect(isDanglingLabel(item({ preview: "计算：", box: [0.08, 0.2, 0.92, 0.8] }))).toBe(false);
+  });
+
+  it("没有题号的条目不算——那是别的情况（比如续文）", () => {
+    expect(isDanglingLabel(item({ label: "", preview: "时间过得真快啊，一转眼" }))).toBe(false);
+  });
+
+  it("从真实版面输出里认出来", () => {
+    const items = parseLayout(
+      [
+        '{"index":2,"label":"练习8","preview":"丁丁拿到的题目：如图，从梯形ABCD中分出","box":[0.12,0.46,0.89,0.86],"hasFigure":true}',
+        '{"index":3,"label":"练习9","preview":"练习9","box":[0.12,0.89,0.89,0.91]}',
+      ].join("\n"),
+    );
+    // 光杆题号没有框，排序时不能被当成 y=0 排到最前——它在页面最底下
+    expect(items.map((i) => i.label)).toEqual(["练习8", "练习9"]);
+    expect(items.map(isDanglingLabel)).toEqual([false, true]);
+    // 那条窄带的框本来就过不了校验（高 2%），所以它连裁都裁不出来
+    expect(items[1]!.box).toBeUndefined();
+  });
+});
+
+describe("排序时没有框的条目", () => {
+  /**
+   * 曾经把"没有框"当成 y=0，于是页脚那个光杆题号（框太窄被判废）
+   * 排到了整页最前面。位置错了两件事跟着错：
+   * 「最后一条是不是光杆题号」检测不出来，snapBoxes 也会照着错的顺序补边界。
+   */
+  it("沿用模型给的阅读顺序，不排到最前面", () => {
+    const items = parseLayout(
+      [
+        '{"index":1,"label":"练习1","preview":"甲","box":[0.08,0.05,0.92,0.3]}',
+        '{"index":2,"label":"练习2","preview":"乙","box":[0.08,0.35,0.92,0.6]}',
+        '{"index":3,"label":"练习3","preview":"练习3"}',
+      ].join("\n"),
+    );
+    expect(items.map((i) => i.label)).toEqual(["练习1", "练习2", "练习3"]);
+  });
+
+  it("模型顺序颠倒时仍按纵向位置纠正", () => {
+    const items = parseLayout(
+      [
+        '{"index":1,"label":"下面那道","preview":"甲","box":[0.08,0.5,0.92,0.8]}',
+        '{"index":2,"label":"上面那道","preview":"乙","box":[0.08,0.05,0.92,0.3]}',
+      ].join("\n"),
+    );
+    expect(items.map((i) => i.label)).toEqual(["上面那道", "下面那道"]);
+  });
+
+  it("补边界按纠正后的顺序来", () => {
+    const items = parseLayout(
+      [
+        '{"index":1,"label":"甲","preview":"甲","box":[0.08,0.05,0.92,0.2]}',
+        '{"index":2,"label":"乙","preview":"乙题干","box":[0.08,0.5,0.92,0.7]}',
+      ].join("\n"),
+    );
+    expect(items[0]!.box![3]).toBe(0.5);
   });
 });
