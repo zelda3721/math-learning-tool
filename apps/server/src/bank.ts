@@ -75,6 +75,17 @@ const PatchSchema = z.object({
   status: z.enum(["extracted", "verified"]).optional(),
   /** 配图：null 表示删掉配图；对象则要重新过门禁 */
   figure: z.unknown().optional(),
+  /**
+   * 把题干图改判为解析图。
+   *
+   * 分类器再准也会错（判据是版面结构，而讲义的排版千奇百怪），
+   * 而错的方向恰恰是危险的那一侧：一张答案表挂成了题干图，孩子一打开就看见答案。
+   * 家长抽检时看得出来，就该能一键改过来——不该为了一张图的归类
+   * 去重跑十分钟推理，何况查重还会把重传的题当成重复挡掉。
+   */
+  moveFigureToAnalysis: z.boolean().optional(),
+  /** 反过来：解析图其实是题干的一部分 */
+  moveAnalysisToFigure: z.boolean().optional(),
 });
 
 export function bankRoutes(state: AppState): Hono {
@@ -176,9 +187,22 @@ export function bankRoutes(state: AppState): Hono {
         }
       }
 
+      // 两张图互换归属。分类器错在哪一侧都能就地纠正
+      let figureImage = before.figureImage;
+      let analysisImage = before.analysisImage;
+      if (patch.moveFigureToAnalysis) {
+        analysisImage = figureImage;
+        figureImage = undefined;
+      } else if (patch.moveAnalysisToFigure) {
+        figureImage = analysisImage;
+        analysisImage = undefined;
+      }
+
       const next = QuestionSchema.safeParse({
         ...before,
         ...patch,
+        figureImage,
+        analysisImage,
         stem,
         answer,
         problemTypeId: patch.problemTypeId === null ? undefined : (patch.problemTypeId ?? before.problemTypeId),

@@ -243,3 +243,82 @@ describe("解析图只在讲解时用", () => {
     expect(readdirSync(dir)).toHaveLength(0);
   });
 });
+
+/**
+ * 分类器错了，家长要能就地纠正。
+ *
+ * 分类判据是版面结构，而讲义排版千奇百怪，总会有判错的时候——
+ * 而错的方向恰恰危险：一张答案表挂成题干图，孩子一打开就看见答案。
+ * 抽检时看得出来就该能一键改，不该为一张图去重跑十分钟推理
+ * （何况查重会把重传的题当成重复挡掉，重跑也修不好）。
+ */
+describe("改判图的归属", () => {
+  async function seeded(fields: Record<string, unknown>) {
+    const env = tempFixtureEnv([]);
+    env.state.config.figuresDir = tempDir();
+    const app = createApp(env.state);
+    await app.request("/api/v1/ingest/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batchName: "t",
+        questions: [
+          {
+            stem: "三个和尚分水，最初大和尚有多少升？",
+            answer: "10",
+            answerType: "numeric",
+            difficulty: 3,
+            level: "elementary_upper",
+            nodeIds: [NODE_A],
+            ...fields,
+          },
+        ],
+      }),
+    });
+    const q = env.state.questions.all[0]!;
+    return { env, app, id: q.id, before: q };
+  }
+
+  async function patch(app: ReturnType<typeof createApp>, id: string, body: unknown) {
+    return app.request(`/api/v1/bank/questions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("题干图改判为解析图后，孩子就看不到它了", async () => {
+    const { env, app, id, before } = await seeded({ figureImage: TINY_JPEG });
+    const res = await patch(app, id, { moveFigureToAnalysis: true });
+    expect(res.status).toBe(200);
+    const after = env.state.questions.byId.get(id)!;
+    expect(after.figureImage).toBeUndefined();
+    expect(after.analysisImage).toBe(before.figureImage);
+  });
+
+  it("反过来也能改：解析图其实是题干的一部分", async () => {
+    const { env, app, id, before } = await seeded({ analysisImage: TINY_JPEG });
+    await patch(app, id, { moveAnalysisToFigure: true });
+    const after = env.state.questions.byId.get(id)!;
+    expect(after.figureImage).toBe(before.analysisImage);
+    expect(after.analysisImage).toBeUndefined();
+  });
+
+  it("改判之后图还在盘上——它只是换了个身份，不该被当孤儿清掉", async () => {
+    const { env, app, id } = await seeded({ figureImage: TINY_JPEG });
+    await patch(app, id, { moveFigureToAnalysis: true });
+    const after = env.state.questions.byId.get(id)!;
+    expect(loadFigure(env.state.config.figuresDir, after.analysisImage!)).not.toBeNull();
+  });
+
+  it("不传这两个开关时两张图都不动", async () => {
+    const { env, app, id, before } = await seeded({
+      figureImage: TINY_JPEG,
+      analysisImage: TINY_PNG,
+    });
+    await patch(app, id, { difficulty: 4 });
+    const after = env.state.questions.byId.get(id)!;
+    expect(after.figureImage).toBe(before.figureImage);
+    expect(after.analysisImage).toBe(before.analysisImage);
+  });
+});

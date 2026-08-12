@@ -319,3 +319,62 @@ describe("跨页", () => {
     expect(items[0]!.continued).toBe(true);
   });
 });
+
+describe("续文里的图", () => {
+  /**
+   * 实机漏掉的那一个：第5讲 p5 整个页首是上一页那道题解析的后半截
+   * （推演表 + 结论 + 【标注】），模型给的是
+   *   {continued:true, figureBox:[0.11,0.05,0.46,0.27], answerTop:0.28}
+   * 表在 0.05~0.27、answerTop 是 0.28（那是【标注】的位置，
+   * 因为【答案】标签留在了上一页）→ 按位置判成"答案框之上"= 题干图。
+   * 而那张表最后一行写着答案 10。孩子一打开就看见了。
+   *
+   * 真相是个不变量：续文接的是答案时，这一整块里根本没有题干。
+   */
+  const tail = (over: Partial<LayoutItem> = {}): LayoutItem => ({
+    index: 1,
+    label: "",
+    preview: "从表二中看到，三个和尚水罐里的水以3为周期",
+    hasFigure: true,
+    continued: true,
+    continuedKind: "answer",
+    box: [0.08, 0.05, 0.92, 0.48],
+    figureBox: [0.11, 0.05, 0.46, 0.27],
+    answerTop: 0.28,
+    ...over,
+  });
+
+  it("接的是答案时，图一律算解析图——answerTop 在续页上没有意义", () => {
+    const out = classifyFigures(tail());
+    expect(out.stemFigureBox).toBeUndefined();
+    expect(out.analysisFigureBox).toEqual([0.11, 0.05, 0.46, 0.27]);
+  });
+
+  it("模型没说接的是哪一半时，按答案处理", () => {
+    const out = classifyFigures(tail({ continuedKind: undefined }));
+    expect(out.stemFigureBox).toBeUndefined();
+  });
+
+  it("接的是题干后半截时才可能有题干图（配图落到了下一页）", () => {
+    const out = classifyFigures(
+      tail({ continuedKind: "stem", figureBox: [0.11, 0.05, 0.46, 0.27], answerTop: 0.5 }),
+    );
+    expect(out.stemFigureBox).toEqual([0.11, 0.05, 0.46, 0.27]);
+  });
+
+  it("不是续文的题不受这条影响", () => {
+    const out = classifyFigures(
+      tail({ continued: false, continuedKind: undefined, answerTop: 0.5 }),
+    );
+    expect(out.stemFigureBox).toEqual([0.11, 0.05, 0.46, 0.27]);
+  });
+
+  it("从模型输出里解析出 continuedKind，缺省是 answer", () => {
+    const a = parseLayout('{"index":1,"preview":"甲","continued":true}');
+    expect(a[0]!.continuedKind).toBe("answer");
+    const b = parseLayout('{"index":1,"preview":"甲","continued":true,"continuedKind":"stem"}');
+    expect(b[0]!.continuedKind).toBe("stem");
+    const c = parseLayout('{"index":1,"preview":"甲","continued":false}');
+    expect(c[0]!.continuedKind).toBeUndefined();
+  });
+});
