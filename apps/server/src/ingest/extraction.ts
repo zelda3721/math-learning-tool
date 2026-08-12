@@ -188,6 +188,8 @@ export interface ParseOutcome {
   drafts: ExtractedDraft[];
   /** 被跳过的对象数（截断或格式坏掉）；> 0 时调用方应当提示 */
   skipped: number;
+  /** 这一页确实没有题目（封面、章节页、整页解析），不是失败 */
+  empty?: boolean;
 }
 
 /** 解析 LLM 的 JSON 数组输出：剥离围栏、逐个对象解析，坏的跳过不牵连好的 */
@@ -224,16 +226,28 @@ export function parseExtractionOutcome(raw: string, fallbackLevel: EducationLeve
     chunks = balancedObjects(text);
     ({ drafts, skipped } = harvest(chunks));
   }
-  // 一个都没抠出来才算真失败——那多半不是截断，是模型压根没按格式输出
   if (drafts.length === 0 && chunks.length === 0) {
-    // 分清两种情况：确实没给 JSON，还是给了但在第一个对象里就被截断了。
-    // 后者是输出预算问题，说成"找不到 JSON"会把人引到错误的方向。
-    const truncated = text.includes("{") && !text.trimEnd().endsWith("}");
-    throw new Error(
-      truncated
-        ? `模型输出在第一道题中间就被截断了（收到 ${text.length} 字符）：这一页题太多或解析写得太长，已跳过该页`
-        : `LLM 输出里找不到任何 JSON 对象（前 120 字：${text.slice(0, 120)}）`,
-    );
+    /**
+     * 一个对象都没抠出来，只有一种情况算失败：**被截断**。
+     *
+     * 输出里有 `{` 却没收尾，说明模型开了头写不完——那是输出预算问题，
+     * 得报出来让人知道这一页丢了。
+     *
+     * 而**一个 `{` 都没有**是正常的：提示词自己就写着"材料里没有题目时
+     * 什么都不输出"，封面页、章节页、整页解析都会走到这里。
+     * 此前一律抛错，于是一本讲义里几张没有题的页面就成了刺眼的红色报错
+     * （实机上是「材料中没有题目，不输出任何内容。」被当成了失败）。
+     * 这不是错，是这一页真的没题。
+     */
+    // 有 `{` 却一个完整对象都抠不出来，只可能是写到一半断了：
+    // 只要存在一对配对的括号，balancedObjects 就会抠出块来（那时 chunks 不为空，
+    // 走不到这里，坏掉的块记进 skipped 由调用方提示）。
+    if (text.includes("{")) {
+      throw new Error(
+        `模型输出在第一道题中间就被截断了（收到 ${text.length} 字符）：这一页题太多或解析写得太长，已跳过该页`,
+      );
+    }
+    return { drafts: [], skipped: 0, empty: true };
   }
   return { drafts, skipped };
 }
