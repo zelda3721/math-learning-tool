@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { grade, parseNumeric, expressionsEquivalent } from "../src/grading.js";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import type { Question } from "@mathtutor/schema";
+
+import { grade, parseNumeric, expressionsEquivalent, splitAnswerParts } from "../src/grading.js";
 
 describe("parseNumeric", () => {
   it("handles integers, decimals, fractions, percents, units, fullwidth", () => {
@@ -55,5 +60,169 @@ describe("grade steps", () => {
     const r = grade(q, "我先把长和宽加起来再乘二");
     expect(r.method).toBe("pending");
     expect(r.correct).toBe(false);
+  });
+});
+
+/**
+ * 用真实题库里的参考答案做样本（120 道题原样读自讲义，没有结构化）。
+ *
+ * 三条纪律：形式不同不算错；只答一半不算对；判不准就别判（转 pending）。
+ */
+describe("形式不同不算错", () => {
+  const ok = (ref: string, stu: string, type: "numeric" | "expression" | "steps" = "numeric") =>
+    grade({ answer: ref, answerType: type }, stu).correct;
+
+  it.each([
+    ["带单位", "26", "26厘米"],
+    ["带空格", "26", " 26 "],
+    ["全角数字", "26", "２６"],
+    ["分数与小数", "0.5", "1/2"],
+    ["带分数", "2.5", "2又1/2"],
+    ["中文数字", "10", "十"],
+    ["中文数字带单位", "15", "十五只"],
+    ["百分数", "0.25", "25%"],
+    ["角度符号", "150°", "150度"],
+  ])("%s：参考「%s」孩子写「%s」", (_why, ref, stu) => {
+    expect(ok(ref, stu)).toBe(true);
+  });
+
+  it("代数式的等价变形", () => {
+    expect(ok("2x+2", "2(x+1)", "expression")).toBe(true);
+    expect(ok("x=4", "4", "expression")).toBe(true);
+  });
+
+  it("集合型答案与顺序无关", () => {
+    expect(ok("乙和丁", "丁和乙")).toBe(true);
+  });
+
+  it("多值答案：孩子省掉序号也算对", () => {
+    // 参考答案带序号（1亚洲、2大洋洲…），孩子多半只写洲名
+    const r = grade(
+      { answer: "1亚洲、2大洋洲、3欧洲、4非洲、5美洲", answerType: "numeric" },
+      "亚洲、大洋洲、欧洲、非洲、美洲",
+    );
+    // 段数对得上，逐段判不准 → 交给家长，而不是判错
+    expect(r.correct).toBe(false);
+    expect(r.method).toBe("pending");
+  });
+});
+
+describe("只答一半不算对", () => {
+  it("参考「44，20」孩子只写「44」→ 判错（此前判对）", () => {
+    expect(grade({ answer: "44，20", answerType: "steps" }, "44").correct).toBe(false);
+  });
+
+  it("两个数都写对才算对", () => {
+    expect(grade({ answer: "44，20", answerType: "steps" }, "44，20").correct).toBe(true);
+    expect(grade({ answer: "44，20", answerType: "steps" }, "甲堆44个，乙堆20个").correct).toBe(true);
+    expect(grade({ answer: "16，256", answerType: "steps" }, "16和256").correct).toBe(true);
+  });
+
+  it("顺序反了不算对", () => {
+    expect(grade({ answer: "44，20", answerType: "numeric" }, "20，44").correct).toBe(false);
+  });
+
+  it("三个数的答案逐个比", () => {
+    const q = { answer: "27;13;26", answerType: "numeric" as const };
+    expect(grade(q, "27，13，26").correct).toBe(true);
+    expect(grade(q, "27，13，25").correct).toBe(false);
+  });
+
+  it("带小问编号的答案：比的是答案不是题号", () => {
+    // 此前抓到的是题号 1，两道题的答案都判成"1"
+    const q = { answer: "( 1 ) 9021 . ( 2 ) 1909 .", answerType: "numeric" as const };
+    expect(grade(q, "(1)9021,(2)1909").correct).toBe(true);
+    expect(grade(q, "(1)9021,(2)1900").correct).toBe(false);
+  });
+
+  it("角度答案：比的是度数不是角标", () => {
+    // 此前 ∠1=45° 抓到的是角标 1
+    const q = { answer: "∠1=45°，∠2=135°", answerType: "numeric" as const };
+    expect(grade(q, "∠1=45°，∠2=135°").correct).toBe(true);
+    expect(grade(q, "∠1=45°，∠2=145°").correct).toBe(false);
+  });
+
+  it("每段各带单位的答案", () => {
+    const q = { answer: "红筐有10个，粉筐有17个，绿筐有12个", answerType: "numeric" as const };
+    expect(grade(q, "10个,17个,12个").correct).toBe(true);
+    expect(grade(q, "10个,17个,13个").correct).toBe(false);
+  });
+});
+
+describe("方向反了就是错", () => {
+  it("参考「少22人」孩子写「多22人」→ 判错（此前判对）", () => {
+    const r = grade({ answer: "少22人", answerType: "numeric" }, "多22人");
+    expect(r.correct).toBe(false);
+    expect(r.method).not.toBe("pending"); // 这是确凿的错，不该丢给家长
+  });
+
+  it("参考「现在大米多，多6袋」——这是一句话，不是两个答案", () => {
+    const q = { answer: "现在大米多，多6袋", answerType: "steps" as const };
+    expect(grade(q, "大米多6袋").correct).toBe(true);
+    expect(grade(q, "面粉多6袋").correct).toBe(false);
+  });
+
+  it("孩子只写了数、没写方向 → 交给家长，不判错", () => {
+    const r = grade({ answer: "少22人", answerType: "numeric" }, "22");
+    expect(r.method).toBe("pending");
+  });
+
+  it("肯定与否定不能混", () => {
+    expect(grade({ answer: "是", answerType: "numeric" }, "不是").correct).toBe(false);
+  });
+});
+
+describe("判不准就别判", () => {
+  it("文字答案对不上时转 pending，而不是判错", () => {
+    const q = {
+      answer: "丁丁在二小，爱好打乒乓球；田田在三小，爱好打羽毛球",
+      answerType: "steps" as const,
+    };
+    expect(grade(q, "丁丁二小乒乓球，田田三小羽毛球").method).toBe("pending");
+  });
+
+  it("原样写对的文字答案照样算对", () => {
+    const q = { answer: "今天是周三", answerType: "steps" as const };
+    expect(grade(q, "今天是周三").correct).toBe(true);
+  });
+
+  it("空答案算错，不占用家长的抽检队列", () => {
+    expect(grade({ answer: "26", answerType: "numeric" }, "   ").method).not.toBe("pending");
+  });
+});
+
+describe("answerType 标错了也不影响判卷", () => {
+  it("纯数值题被标成 steps，照样判得出来", () => {
+    // 实测题库里 44，20 与 16，256 都被标成了 steps，于是孩子做对也没有反馈
+    expect(grade({ answer: "16，256", answerType: "steps" }, "16，256").correct).toBe(true);
+  });
+
+  it("纯文字题被标成 expression，照样按文字判", () => {
+    // 实测 13 道纯文字题被标成 expression
+    expect(grade({ answer: "乙和丁", answerType: "expression" }, "乙和丁").correct).toBe(true);
+  });
+});
+
+/**
+ * 拿真实题库扫一遍。这两条是判卷器的地板：
+ * 判不出参考答案自己，就一定判不出孩子写的；
+ * 而"只答第一段判成对"正是改这一版的起因。
+ */
+describe("真实题库全量自检", () => {
+  const dir = fileURLToPath(new URL("../../../data/knowledge/questions", import.meta.url));
+  const questions = readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .flatMap((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as Question[]);
+
+  it("每道题的参考答案原样写回都判对", () => {
+    const bad = questions.filter((q) => !grade(q, q.answer).correct);
+    expect(bad.map((q) => q.answer)).toEqual([]);
+  });
+
+  it("多值题只答第一段一律判错", () => {
+    const multi = questions.filter((q) => splitAnswerParts(q.answer).length >= 2);
+    expect(multi.length).toBeGreaterThan(0);
+    const leaked = multi.filter((q) => grade(q, splitAnswerParts(q.answer)[0]!).correct);
+    expect(leaked.map((q) => q.answer)).toEqual([]);
   });
 });

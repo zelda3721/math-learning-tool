@@ -3,9 +3,27 @@ import type { Question } from "@mathtutor/schema";
 
 const math = create(all!, {});
 
+/**
+ * 判卷。
+ *
+ * 参考答案是从讲义上原样读下来的一串文字（题库里没有结构化答案），
+ * 所以判卷器要自己把它拆开理解。三条纪律：
+ *
+ * ① **形式不同不算错**：单位、空格、全角半角、分数与小数、代数式的等价变形，
+ *    都要认。孩子写「26 厘米」和参考答案「26」是同一件事。
+ * ② **只答一半不算对**。曾经只比"两边各自的第一个数"，于是参考答案
+ *    「44，20」而孩子只写「44」判成对、「少22人」和「多22人」也判成对——
+ *    后者尤其糟，那道题考的就是多还是少。
+ * ③ **判不准就别判**：转成 pending 交给家长，而不是武断判错。
+ *    判错一次，孩子会开始怀疑自己而不是怀疑系统。
+ *
+ * answerType 只作参考、不作依据：实测题库里 13 道纯文字题被标成 expression、
+ * 2 道纯数值题被标成 steps（于是永远得不到反馈）。判卷策略由答案本身推导。
+ */
+
 export interface GradeResult {
   correct: boolean;
-  /** deterministic=程序判定；pending=主观步骤，进家长判卷抽检队列 */
+  /** deterministic=程序判定；pending=判不准，进家长判卷抽检队列 */
   method: "numeric" | "expression" | "string" | "pending";
 }
 
@@ -20,14 +38,83 @@ export function normalizeText(raw: string): string {
     .toLowerCase();
 }
 
+// ---------------------------------------------------------------------------
+// 数值解析
+// ---------------------------------------------------------------------------
+
+const CN_DIGITS: Record<string, number> = {
+  零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5,
+  六: 6, 七: 7, 八: 8, 九: 9,
+};
+
 /**
- * 提取数值：支持整数/小数/分数 a/b（含带分数 c又a/b 不支持，P1a 范围外）/百分数。
- * 学生答案常带单位（"26 厘米"）——按 answerType=numeric 提取数值比对。
+ * 纯中文数字 → 阿拉伯数字（十、二十五、一百零三）。
+ *
+ * **只在整串都是中文数字时才转**。否则「二小」会变成「2小」、
+ * 「三个和尚」会变成「3个和尚」，把文字答案搅烂。
+ */
+export function parseChineseNumber(text: string): number | null {
+  if (!/^[零〇一二两三四五六七八九十百千]+$/.test(text)) return null;
+  let total = 0;
+  let section = 0;
+  let current = 0;
+  for (const ch of text) {
+    if (ch in CN_DIGITS) {
+      current = CN_DIGITS[ch]!;
+    } else if (ch === "十") {
+      section += (current || 1) * 10;
+      current = 0;
+    } else if (ch === "百") {
+      section += (current || 1) * 100;
+      current = 0;
+    } else if (ch === "千") {
+      section += (current || 1) * 1000;
+      current = 0;
+    }
+  }
+  total += section + current;
+  return Number.isFinite(total) ? total : null;
+}
+
+/**
+ * 去掉小问的编号：「(1) 4500」里的 (1) 不是答案。
+ *
+ * 只剥括号形式与带圈数字——「44」这种裸数字本身就是答案，不能剥。
+ * 曾经吃过亏：参考答案「( 1 ) 9021 . ( 2 ) 1909 .」判卷时抓到的是题号 1。
+ */
+function stripPartLabel(text: string): string {
+  return text
+    .replace(/^[(（]\s*\d+\s*[)）]\s*/, "")
+    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/, "")
+    .replace(/^第\s*\d+\s*[题问]\s*[:：]?\s*/, "");
+}
+
+/**
+ * 提取数值：整数/小数、分数 a/b、带分数 c又a/b、百分数、纯中文数字。
+ * 学生答案常带单位（"26 厘米"）——按数值比对，单位不参与。
+ *
+ * 「∠1=45°」这类先取等号右边：左边是标号，不是答案。
  */
 export function parseNumeric(raw: string): number | null {
-  const text = normalizeText(raw);
+  let text = normalizeText(stripPartLabel(raw.trim()));
+  // 等号右边才是答案（∠1=45° / x=4）
+  const eq = text.lastIndexOf("=");
+  if (eq >= 0 && eq < text.length - 1) text = text.slice(eq + 1);
+
+  const cn = parseChineseNumber(text.replace(/[个只人袋条棵度分秒元米厘分平方]/g, ""));
+  if (cn !== null) return cn;
+
   const percent = text.match(/(-?\d+(?:\.\d+)?)%/);
   if (percent) return Number(percent[1]) / 100;
+  // 带分数要先于普通分数匹配，否则「2又1/2」会被读成 1/2
+  const mixed = text.match(/(-?\d+)又(\d+)\/(\d+)/);
+  if (mixed) {
+    const den = Number(mixed[3]);
+    if (den === 0) return null;
+    const whole = Number(mixed[1]);
+    const frac = Number(mixed[2]) / den;
+    return whole < 0 ? whole - frac : whole + frac;
+  }
   const fraction = text.match(/(-?\d+)\/(\d+)/);
   if (fraction) {
     const den = Number(fraction[2]);
@@ -43,7 +130,152 @@ function numbersClose(a: number, b: number): boolean {
   return Math.abs(a - b) <= 1e-9 * scale;
 }
 
-/** 表达式等价：mathjs 解析 + 随机采样多点求值一致（防「化简形式不同判错」） */
+// ---------------------------------------------------------------------------
+// 限定词：方向反了就是错，不能因为数字对上就放过
+// ---------------------------------------------------------------------------
+
+/**
+ * 互斥的限定词组。参考答案里出现了其中一个，孩子写了同组的另一个，
+ * 那就是**确凿的错**——「少22人」与「多22人」数字都是 22，
+ * 而那道题考的就是多还是少。
+ *
+ * 反过来，孩子只是**没写**这个词（写了「22」），不算确凿的错：
+ * 转 pending 交给家长，别武断判错。
+ */
+const OPPOSITES: string[][] = [
+  ["多", "少"],
+  ["大", "小"],
+  ["长", "短"],
+  ["快", "慢"],
+  ["高", "低"],
+  ["增", "减"],
+  ["升", "降"],
+  ["盈", "亏"],
+  ["奇", "偶"],
+  ["东", "西"],
+  ["南", "北"],
+  ["左", "右"],
+  ["前", "后"],
+  ["上", "下"],
+  ["甲", "乙", "丙", "丁"],
+  ["是", "否"],
+];
+
+interface QualifierCheck {
+  /** 孩子写了与参考答案互斥的词 */
+  contradicted: boolean;
+  /** 参考答案里的限定词，孩子一个都没提 */
+  omitted: boolean;
+}
+
+function checkQualifiers(reference: string, student: string): QualifierCheck {
+  const ref = normalizeText(reference);
+  const stu = normalizeText(student);
+  let contradicted = false;
+  let omitted = false;
+  for (const group of OPPOSITES) {
+    const inRef = group.filter((w) => ref.includes(w));
+    if (inRef.length !== 1) continue; // 参考答案里没有、或同组出现多个（如"比较大小"）：不判
+    const expected = inRef[0]!;
+    if (!stu.includes(expected)) {
+      if (group.some((w) => w !== expected && stu.includes(w))) contradicted = true;
+      else omitted = true;
+    }
+  }
+  // 否定词单独看：「是」与「不是」只差一个字，字面比对分不出轻重
+  if (/^不|^没|^无/.test(stu) !== /^不|^没|^无/.test(ref)) contradicted = true;
+  return { contradicted, omitted };
+}
+
+// ---------------------------------------------------------------------------
+// 多值答案：逐段比，段数必须相等
+// ---------------------------------------------------------------------------
+
+/** 分隔符：分号、逗号、顿号、"和"、"与" */
+const SEPARATORS = /[;；,，、]|和|与/;
+
+const hasDigit = (s: string) => /\d/.test(s);
+const hasLetter = (s: string) => /[a-z]/i.test(s);
+
+/**
+ * 把答案切成几段。
+ *
+ * **只在每一段都含数字时才切**——这是关键的一道闸：
+ * 「现在大米多，多6袋」切开会得到「现在大米多」和「多6袋」，
+ * 于是孩子写「大米多6袋」（一段）就因为段数对不上被判错，而他是对的。
+ * 那种答案是一句话，不是两个答案。
+ */
+export function splitAnswerParts(raw: string): string[] {
+  const parts = splitLoose(raw);
+  if (parts.length < 2) return [raw.trim()];
+  return parts.every(hasDigit) ? parts : [raw.trim()];
+}
+
+const pieces = (raw: string, sep: RegExp): string[] =>
+  raw
+    .split(sep)
+    .map((p) => p.trim().replace(/[.．。]$/, "").trim())
+    .filter(Boolean);
+
+/** 小问编号：(1) （2） ①② */
+const PART_LABEL = /[(（]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/g;
+
+/**
+ * 按小问编号切：「( 1 ) 9021 . ( 2 ) 1909 .」是两个答案。
+ *
+ * 这一条必须在标点之前试——那串答案里一个逗号都没有，只有编号和空格；
+ * 而按空格切会把「( 1 ) 9021」打成四段碎片，反倒判不出来。
+ */
+function splitByLabels(raw: string): string[] {
+  const marks = [...raw.matchAll(PART_LABEL)];
+  if (marks.length < 2) return [];
+  const out: string[] = [];
+  for (let i = 0; i < marks.length; i += 1) {
+    const start = marks[i]!.index!;
+    const end = i + 1 < marks.length ? marks[i + 1]!.index! : raw.length;
+    const chunk = raw.slice(start, end).trim().replace(/[.．。,，;；]$/, "").trim();
+    if (chunk) out.push(chunk);
+  }
+  return out.length >= 2 ? out : [];
+}
+
+/**
+ * 不带数字要求地切开。**只在已知参考答案是多值时**才用它切学生的答案。
+ *
+ * 为什么要分两套：参考答案「1亚洲、2大洋洲、…」是五段（每段带序号），
+ * 而孩子多半写「亚洲、大洋洲、…」——没有数字。用严格规则去切他的答案会切不开，
+ * 段数 1≠5，于是一个全对的答案被判错。既然参考答案已经告诉我们该有几段，
+ * 学生那边就不必再自己判断了。
+ *
+ * `expect` 是参考答案的段数：只有按标点切不出那么多段时，才退而用空格再切一次
+ * （孩子写「44 20」）。空格不能当默认分隔符——它会把带编号的答案打成碎片。
+ */
+function splitLoose(raw: string, expect?: number): string[] {
+  const byLabel = splitByLabels(raw);
+  if (byLabel.length >= 2) return byLabel;
+  const byPunct = pieces(raw, SEPARATORS);
+  if (byPunct.length >= 2 || !expect || expect < 2) return byPunct;
+  return pieces(raw, /[;；,，、\s]|和|与/);
+}
+
+/** 集合型答案（乙和丁 = 丁和乙）：切开、排序、比 */
+function sameTokenSet(a: string, b: string): boolean {
+  const tokens = (s: string) =>
+    s
+      .split(SEPARATORS)
+      .map((t) => normalizeText(t))
+      .filter(Boolean)
+      .sort();
+  const ta = tokens(a);
+  const tb = tokens(b);
+  return ta.length > 1 && ta.length === tb.length && ta.every((t, i) => t === tb[i]);
+}
+
+// ---------------------------------------------------------------------------
+// 表达式
+// ---------------------------------------------------------------------------
+
+/** 表达式等价：mathjs 解析 + 多点采样求值一致（防「化简形式不同判错」） */
 export function expressionsEquivalent(canonical: string, student: string): boolean {
   let nodeA: MathNode;
   let nodeB: MathNode;
@@ -93,34 +325,71 @@ function normalizeExpressionInput(raw: string): string {
     .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
     .replace(/[×✕]/g, "*")
     .replace(/[÷]/g, "/")
+    .replace(/[个只人袋条棵元米]/g, "")
     .trim();
   const eq = text.split("=");
   return (eq.length === 2 ? eq[1]! : text).trim();
 }
 
-export function grade(question: Pick<Question, "answer" | "answerType">, studentAnswer: string): GradeResult {
-  const student = studentAnswer.trim();
-  if (!student) return { correct: false, method: "string" };
-  switch (question.answerType) {
-    case "numeric": {
-      const expected = parseNumeric(question.answer);
-      const got = parseNumeric(student);
-      if (expected !== null && got !== null)
-        return { correct: numbersClose(expected, got), method: "numeric" };
-      return { correct: normalizeText(question.answer) === normalizeText(student), method: "string" };
-    }
-    case "expression": {
-      if (expressionsEquivalent(question.answer, student))
-        return { correct: true, method: "expression" };
-      // 数值型表达式答案（如方程解 x=4 vs 4）再给一次数值比对机会
-      const expected = parseNumeric(question.answer);
-      const got = parseNumeric(student);
-      if (expected !== null && got !== null && numbersClose(expected, got))
-        return { correct: true, method: "numeric" };
-      return { correct: false, method: "expression" };
-    }
-    case "steps":
-      // 主观步骤：P1a 不做 LLM 判卷，标 pending 进家长抽检；不计入掌握度
-      return { correct: false, method: "pending" };
+// ---------------------------------------------------------------------------
+// 判定
+// ---------------------------------------------------------------------------
+
+const CORRECT = (method: GradeResult["method"]): GradeResult => ({ correct: true, method });
+const WRONG = (method: GradeResult["method"]): GradeResult => ({ correct: false, method });
+const PENDING: GradeResult = { correct: false, method: "pending" };
+
+/** 判一段（也就是单值答案）。多值答案由 grade 拆开后逐段调用它 */
+function gradeSingle(reference: string, student: string): GradeResult {
+  const ref = reference.trim();
+  const stu = student.trim();
+  if (!stu) return WRONG("string");
+  if (normalizeText(ref) === normalizeText(stu)) return CORRECT("string");
+
+  const qualifiers = checkQualifiers(ref, stu);
+  if (qualifiers.contradicted) return WRONG("string");
+
+  // 代数式：含字母就先按等价变形比（2x+2 与 2(x+1) 是同一个答案）
+  if (hasLetter(ref) || hasLetter(stu)) {
+    if (expressionsEquivalent(ref, stu)) return CORRECT("expression");
   }
+
+  const expected = parseNumeric(ref);
+  const got = parseNumeric(stu);
+  if (expected !== null && got !== null) {
+    if (!numbersClose(expected, got)) return WRONG("numeric");
+    // 数字对上了，但参考答案里还有个限定词孩子没写——判不准，交给家长
+    return qualifiers.omitted ? PENDING : CORRECT("numeric");
+  }
+
+  // 纯文字：顺序无关的集合（乙和丁 = 丁和乙）算对
+  if (sameTokenSet(ref, stu)) return CORRECT("string");
+  // 剩下的都判不准。**不判错**——判错一次，孩子会开始怀疑自己
+  return PENDING;
+}
+
+/**
+ * 判卷。answerType 只作参考、不作依据（题库里的标注实测有 15 道是错的），
+ * 策略由答案本身推导。
+ */
+export function grade(
+  question: Pick<Question, "answer" | "answerType">,
+  studentAnswer: string,
+): GradeResult {
+  const student = studentAnswer.trim();
+  if (!student) return WRONG("string");
+
+  const refParts = splitAnswerParts(question.answer);
+  if (refParts.length >= 2) {
+    // 参考答案已经告诉我们该有几段，学生那边就按同样的分隔符切开，
+    // 不再要求每段都含数字（孩子写答案时常常省掉序号）
+    const stuParts = splitLoose(student, refParts.length);
+    // 段数对不上 = 少答了或多答了。这一条修掉了"参考答案 44，20 而孩子只写 44 判成对"
+    if (stuParts.length !== refParts.length) return WRONG("string");
+    const results = refParts.map((r, i) => gradeSingle(r, stuParts[i]!));
+    if (results.some((r) => r.method === "pending")) return PENDING;
+    return results.every((r) => r.correct) ? CORRECT("numeric") : WRONG("numeric");
+  }
+
+  return gradeSingle(question.answer, student);
 }
