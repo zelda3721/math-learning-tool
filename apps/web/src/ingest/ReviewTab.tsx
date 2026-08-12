@@ -3,7 +3,7 @@
  * 每题可「核验通过」（支持先内联编辑 stem/answer/难度，带 patch）、「剔除」或「跳过」。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Button } from '../ui'
+import { Button, MathText } from '../ui'
 import { QuestionImage } from '../practice/QuestionImage'
 import { extractErrorMessage, inputCls, LEVEL_LABELS } from './shared'
 import type { Level } from './shared'
@@ -111,7 +111,9 @@ function QuestionCard({
                             className={`${inputCls} resize-y`}
                         />
                     ) : (
-                        <p className="whitespace-pre-wrap text-sm text-ink">{stem}</p>
+                        <p className="text-sm text-ink">
+                            <MathText>{stem}</MathText>
+                        </p>
                     )}
                     {q.options && q.options.length > 0 && (
                         <p className="text-xs text-ink-soft">选项：{q.options.join(' / ')}</p>
@@ -137,7 +139,9 @@ function QuestionCard({
                             className={`${inputCls} numeric w-40`}
                         />
                     ) : (
-                        <span className="numeric font-semibold text-ink">{answer || '（无）'}</span>
+                        <span className="numeric font-semibold text-ink">
+                            {answer ? <MathText>{answer}</MathText> : '（无）'}
+                        </span>
                     )}
                 </span>
                 <span className="flex items-center gap-1.5">

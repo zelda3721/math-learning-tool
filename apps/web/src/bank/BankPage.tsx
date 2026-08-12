@@ -7,7 +7,7 @@
  * 配图必须与题干对得上），手改 JSON 绕得过的检查，这里绕不过。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, ErrorState, Field, LoadingState, PageHeader } from '../ui'
+import { Button, ErrorState, Field, LoadingState, MathText, PageHeader } from '../ui'
 import { QuestionFigure } from '../practice/QuestionFigure'
 import { QuestionImage } from '../practice/QuestionImage'
 import type { FigureSpec } from '@mathtutor/explainer-web'
@@ -222,7 +222,9 @@ export function BankPage() {
                     {list?.items.map((q) => (
                         <div key={q.id} className="plate p-4 space-y-2">
                             <div className="flex items-start justify-between gap-3">
-                                <p className="stem !text-base flex-1 whitespace-pre-wrap">{q.stem}</p>
+                                <p className="stem !text-base flex-1">
+                                    <MathText>{q.stem}</MathText>
+                                </p>
                                 <div className="flex gap-1.5 shrink-0">
                                     <Button size="sm" variant="ghost" onClick={() => setEditing(q)}>
                                         编辑
@@ -234,7 +236,10 @@ export function BankPage() {
                             </div>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
                                 <span>
-                                    答案 <span className="numeric text-ink-soft font-semibold">{q.answer}</span>
+                                    答案{' '}
+                                    <span className="numeric text-ink-soft font-semibold">
+                                        <MathText>{q.answer}</MathText>
+                                    </span>
                                 </span>
                                 <span>{LEVEL_LABEL[q.level] ?? q.level}</span>
                                 <span>难度 <span className="numeric">{q.difficulty}</span></span>

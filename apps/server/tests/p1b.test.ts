@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { offlineTextDrafts } from "../src/ingest/extraction.js";
 import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,7 +31,6 @@ describe("chunkByQuestions", () => {
   });
 
   it("chunk → offline re-segmentation round-trips question count (回归：题号补回)", async () => {
-    const { offlineTextDrafts } = await import("../src/ingest/extraction.js");
     const text = "1. 果园里有 45 棵苹果树，梨树比苹果树少 18 棵，梨树有多少棵？\n2. 一本书 96 页，小芳每天看 8 页，几天能看完？";
     const chunks = chunkByQuestions(text);
     expect(chunks.length).toBe(1);
@@ -39,7 +39,6 @@ describe("chunkByQuestions", () => {
   });
 
   it("offline drafts parse inline teacher answers/analysis (答案：/解析：)", async () => {
-    const { offlineTextDrafts } = await import("../src/ingest/extraction.js");
     const drafts = offlineTextDrafts(
       "1. 果园里有 45 棵苹果树，梨树比苹果树少 18 棵，梨树有多少棵？ 答案：27 棵。解析：45-18=27。",
       "elementary_upper",

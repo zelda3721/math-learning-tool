@@ -3,6 +3,8 @@ import { REVIEW_PARAMS } from "@mathtutor/schema";
 import { advanceReviewCard, ensureReviewCard, pickReviewQuestion } from "../src/review.js";
 import { composeToday } from "../src/composer.js";
 import { knowledge, makeApp, makeQuestion, NODE_A, NODE_B } from "./helpers.js";
+// 静态导入：写在用例体内的 await import 在并发跑整套时会超时（见 figure-gate.test.ts）
+import { createApp } from "../src/app.js";
 
 async function post(app: ReturnType<typeof makeApp>["app"], url: string, body: unknown) {
   const res = await app.request(url, {
@@ -160,7 +162,7 @@ describe("photo grading", () => {
     const learner = env.repo.createLearner("拍照生", "elementary_upper");
 
     env.state.photoGrader = { extractAnswer: async () => ({ answer: "26 厘米", confident: true }) };
-    const appWithVision = (await import("../src/app.js")).createApp(env.state);
+    const appWithVision = createApp(env.state);
     const ok = await post(appWithVision, "/api/v1/practice/submit-photo", {
       learnerId: learner.id, questionId: "ph1", image: "data:image/jpeg;base64,AAAA",
     });
@@ -169,7 +171,7 @@ describe("photo grading", () => {
     expect(ok.body.mastery.length).toBe(1);
 
     env.state.photoGrader = { extractAnswer: async () => ({ answer: "26?", confident: false }) };
-    const appUnsure = (await import("../src/app.js")).createApp(env.state);
+    const appUnsure = createApp(env.state);
     const unsure = await post(appUnsure, "/api/v1/practice/submit-photo", {
       learnerId: learner.id, questionId: "ph1", image: "AAAA",
     });
@@ -177,7 +179,7 @@ describe("photo grading", () => {
     expect(unsure.body.mastery).toEqual([]); // 低置信不计证据
 
     env.state.photoGrader = null;
-    const appNoVision = (await import("../src/app.js")).createApp(env.state);
+    const appNoVision = createApp(env.state);
     const off = await post(appNoVision, "/api/v1/practice/submit-photo", {
       learnerId: learner.id, questionId: "ph1", image: "AAAA",
     });
