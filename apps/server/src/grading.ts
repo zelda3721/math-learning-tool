@@ -206,9 +206,27 @@ const hasLetter = (s: string) => /[a-z]/i.test(s);
  * 那种答案是一句话，不是两个答案。
  */
 export function splitAnswerParts(raw: string): string[] {
-  const parts = splitLoose(raw);
+  const parts = stripEnumeration(splitLoose(raw));
   if (parts.length < 2) return [raw.trim()];
   return parts.every(hasDigit) ? parts : [raw.trim()];
+}
+
+/**
+ * 去掉条目序号：「1亚洲、2大洋洲、3欧洲、4非洲、5美洲」里的 1~5 是编号，不是答案。
+ *
+ * 判据是**各段开头的数恰好是 1、2、3…**——这种连号只可能是编号。
+ * 「44，20」「27;13;26」「10个,17个,12个」都不连号，原样保留。
+ * 剥完变空的也不剥：答案本身就是「1，2，3」的题确实存在。
+ */
+function stripEnumeration(parts: string[]): string[] {
+  if (parts.length < 2) return parts;
+  const stripped: string[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const m = /^(\d+)\s*[.、．:：)）]?\s*(.+)$/.exec(parts[i]!);
+    if (!m || Number(m[1]) !== i + 1 || !m[2]!.trim()) return parts;
+    stripped.push(m[2]!.trim());
+  }
+  return stripped;
 }
 
 const pieces = (raw: string, sep: RegExp): string[] =>
@@ -366,6 +384,39 @@ function gradeSingle(reference: string, student: string): GradeResult {
   if (sameTokenSet(ref, stu)) return CORRECT("string");
   // 剩下的都判不准。**不判错**——判错一次，孩子会开始怀疑自己
   return PENDING;
+}
+
+/**
+ * 由答案本身推出该用哪种判卷方式。
+ *
+ * 模型标的 answerType 不可信：实测题库里 13 道纯文字题被标成 expression、
+ * 2 道纯数值题被标成 steps。后者代价很实在——steps 的题不判对错、
+ * 不计掌握度、也不进变式题池，孩子做对了只会看到"已交给家长确认"。
+ * 根因是抽取提示词写的是"**单个**数值答案用 numeric"，模型看到两个数只能塞进 steps。
+ *
+ * 判卷本身已经不看这个字段了（策略在 grade 里现推），但它还影响变式选题
+ * 与界面展示，所以入库时按这里的推导归一，别把模型的错标留在库里。
+ */
+export function deriveAnswerType(answer: string): Question["answerType"] {
+  // 先把条目序号剥掉再看：「1亚洲、2大洋洲…」剥完一个数字都不剩，它是文字答案，
+  // 不剥的话那几个序号会让它冒充数值题
+  const cleaned = stripEnumeration(splitLoose(answer)).join(",");
+  if (hasDigit(cleaned) && !hasLetter(cleaned)) return "numeric";
+  // 含字母：逐段试解析（「(a-25)元；12a+25b元」整串解析不了，分开就行）
+  if (hasLetter(cleaned)) {
+    const parts = splitAnswerParts(answer);
+    const parsable = parts.every((part) => {
+      try {
+        math.parse(normalizeExpressionInput(part));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (parsable) return "expression";
+  }
+  // 剩下的是文字答案：程序未必判得了，交给 grade 的 pending 兜底
+  return "steps";
 }
 
 /**

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import type { Question } from "@mathtutor/schema";
 
-import { grade, parseNumeric, expressionsEquivalent, splitAnswerParts } from "../src/grading.js";
+import { grade, parseNumeric, expressionsEquivalent, splitAnswerParts, deriveAnswerType } from "../src/grading.js";
 
 describe("parseNumeric", () => {
   it("handles integers, decimals, fractions, percents, units, fullwidth", () => {
@@ -224,5 +224,48 @@ describe("真实题库全量自检", () => {
     expect(multi.length).toBeGreaterThan(0);
     const leaked = multi.filter((q) => grade(q, splitAnswerParts(q.answer)[0]!).correct);
     expect(leaked.map((q) => q.answer)).toEqual([]);
+  });
+});
+
+describe("deriveAnswerType：按答案本身推，不信模型的标注", () => {
+  it.each([
+    ["单个数", "26", "numeric"],
+    ["多个数", "44，20", "numeric"],
+    ["带单位", "16，256", "numeric"],
+    ["数值 + 方向词", "少22人", "numeric"],
+    ["一句话里含数值", "现在大米多，多6袋", "numeric"],
+    ["角度带标号", "∠1=100°；∠2=50°", "numeric"],
+    ["代数式", "2x+2", "expression"],
+    ["多段代数式", "(a-25)元；12a+25b元", "expression"],
+    ["纯文字", "乙和丁", "steps"],
+    ["肯否", "是", "steps"],
+    ["角的名字（有字母但不是算式）", "∠AOB，∠BOC，∠AOC", "steps"],
+    ["带序号的文字清单", "1亚洲、2大洋洲、3欧洲、4非洲、5美洲", "steps"],
+    ["推理题的对应关系", "刘刚与小红、马辉与小英、李强与小丽", "steps"],
+  ])("%s：「%s」→ %s", (_why, answer, want) => {
+    expect(deriveAnswerType(answer)).toBe(want);
+  });
+
+  it("条目序号不能让文字清单冒充数值题", () => {
+    // 「1亚洲、2大洋洲…」里的 1~5 是编号；剥掉之后一个数字都不剩
+    expect(deriveAnswerType("1亚洲、2大洋洲、3欧洲")).toBe("steps");
+    // 而「44，20」不连号，是两个真答案
+    expect(deriveAnswerType("44，20")).toBe("numeric");
+    // 答案本身就是 1、2、3 的题也不能被剥空
+    expect(deriveAnswerType("1，2，3")).toBe("numeric");
+  });
+
+  it("题库里每道题推出来的类型都判得动", () => {
+    const dir = fileURLToPath(new URL("../../../data/knowledge/questions", import.meta.url));
+    const questions = readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as Question[]);
+    for (const q of questions) {
+      const derived = deriveAnswerType(q.answer);
+      // 推成 numeric/expression 的，参考答案原样写回必须判对（不能落进 pending）
+      if (derived !== "steps") {
+        expect(grade({ ...q, answerType: derived }, q.answer).correct, q.answer).toBe(true);
+      }
+    }
   });
 });

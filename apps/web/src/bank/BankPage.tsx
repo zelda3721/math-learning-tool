@@ -91,6 +91,18 @@ export function BankPage() {
         [list],
     )
 
+    /**
+     * 重新归类答案类型。模型标的不可信——纯数值题被标成 steps 时，
+     * 孩子做对了也只会看到"已交给家长确认"，掌握度不计、也进不了变式题池。
+     * 入库时已按答案推导，这个按钮是给入库之前就存在的题补一次。
+     */
+    const reclassify = async () => {
+        const res = await fetch('/api/v1/bank/reclassify', { method: 'POST' })
+        const body = (await res.json()) as { changed?: number; error?: string }
+        setNotice(res.ok ? `已重新归类 ${body.changed} 道题的答案类型` : (body.error ?? '归类失败'))
+        void load()
+    }
+
     const removeOne = async (q: BankQuestion) => {
         if (!window.confirm(`删除这道题？\n\n${q.stem.slice(0, 40)}…`)) return
         const res = await fetch(`/api/v1/bank/questions/${encodeURIComponent(q.id)}`, { method: 'DELETE' })
@@ -189,6 +201,14 @@ export function BankPage() {
                         <span className="text-xs text-ink-faint">导错一整份材料时用它，比一条条删快</span>
                     </div>
                 )}
+                <div className="flex items-center gap-3">
+                    <Button size="sm" variant="ghost" onClick={() => void reclassify()}>
+                        重新归类答案类型
+                    </Button>
+                    <span className="text-xs text-ink-faint">
+                        抽取时模型标的类型常有错；标成"解答步骤"的题不判对错、也不计掌握度
+                    </span>
+                </div>
                 {notice && <p className="text-xs text-[color:var(--color-correct)]">{notice}</p>}
             </div>
 

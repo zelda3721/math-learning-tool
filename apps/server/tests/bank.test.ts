@@ -149,3 +149,42 @@ describe("题库管理：通过的题也要够得着", () => {
     expect(patch.status).toBe(404);
   });
 })
+
+/**
+ * 重新归类：模型标的 answerType 不可信（实测 120 道里 19 道标错）。
+ * 其中最伤的是纯数值题被标成 steps——那种题不判对错、不计掌握度、
+ * 也进不了变式题池，孩子做对了只会看到"已交给家长确认"。
+ */
+describe("POST /api/v1/bank/reclassify", () => {
+  it("把标错的类型改过来，并说清改了哪些", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "q1", answer: "44，20", answerType: "steps" }),
+      makeQuestion({ id: "q2", answer: "乙和丁", answerType: "expression" }),
+      makeQuestion({ id: "q3", answer: "26", answerType: "numeric" }),
+    ]);
+    const app = createApp(env.state);
+    const res = await app.request("/api/v1/bank/reclassify", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      changed: number;
+      changes: { id: string; from: string; to: string }[];
+    };
+    expect(body.changed).toBe(2);
+    expect(body.changes.find((c) => c.id === "q1")).toMatchObject({ from: "steps", to: "numeric" });
+    expect(body.changes.find((c) => c.id === "q2")).toMatchObject({
+      from: "expression",
+      to: "steps",
+    });
+    // 改动落盘并 reload：内存里也是新的
+    expect(env.state.questions.byId.get("q1")!.answerType).toBe("numeric");
+  });
+
+  it("已经对的题不动，也不白写一遍文件", async () => {
+    const env = tempFixtureEnv([makeQuestion({ id: "q1", answer: "26", answerType: "numeric" })]);
+    const app = createApp(env.state);
+    const body = (await (await app.request("/api/v1/bank/reclassify", { method: "POST" })).json()) as {
+      changed: number;
+    };
+    expect(body.changed).toBe(0);
+  });
+});

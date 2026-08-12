@@ -24,6 +24,7 @@ import { checkFigure } from "./ingest/figureGate.js";
 import { contentHashOf } from "./questions.js";
 import { pruneFigures } from "./figures.js";
 import { practiceReady } from "./questions.js";
+import { deriveAnswerType } from "./grading.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
 
@@ -238,6 +239,31 @@ export function bankRoutes(state: AppState): Hono {
       return c.json({ ok: true, removed: 1, batch: b.batch, prunedFigures: pruneOrphanFigures(state) });
     }
     return c.json({ error: `题目不存在：${id}` }, 404);
+  });
+
+  /**
+   * 按答案本身重新归类 answerType。
+   *
+   * 模型标的类型不可信：实测 120 道里 19 道标错，其中 3 道纯数值题被标成 steps——
+   * 那 3 道孩子做对了也只会看到"已交给家长确认"，掌握度不计，也进不了变式题池。
+   * 入库时已按答案推导，这条是给**入库之前就存在的题**补一次。
+   */
+  app.post("/reclassify", (c) => {
+    const changes: { id: string; from: string; to: string; answer: string }[] = [];
+    for (const b of listBatches(state.config.dataDir)) {
+      let touched = false;
+      for (let i = 0; i < b.items.length; i += 1) {
+        const item = b.items[i]!;
+        const want = deriveAnswerType(item.answer);
+        if (want === item.answerType) continue;
+        changes.push({ id: item.id, from: item.answerType, to: want, answer: item.answer });
+        b.items[i] = { ...item, answerType: want };
+        touched = true;
+      }
+      if (touched) writeBatch(state.config.dataDir, b.file, b.items);
+    }
+    if (changes.length) state.questions.reload();
+    return c.json({ changed: changes.length, changes });
   });
 
   /**
