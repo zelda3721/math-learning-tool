@@ -8,6 +8,7 @@ import {
   contentUserPrompt,
   parseFirstObject,
   parseLayout,
+  repairJsonEscapes,
   tailUserPrompt,
   FIGURE_PROMPT,
   LAYOUT_PROMPT,
@@ -99,26 +100,40 @@ const DEFAULT_LEVEL: EducationLevel = "elementary_upper";
 // LLM 输出解析（容错：markdown 代码块、单对象、字段缺失/类型飘移）
 // ---------------------------------------------------------------------------
 
+/**
+ * 收下模型的输出。**每个可选字段都要能接住 `null`。**
+ *
+ * 这是实机上丢题最多的一处，而且藏得极深：模型时而写 `"problemTypeId":""`、
+ * 时而写 `"problemTypeId":null`，写 null 那次整道题就被 schema 判废、
+ * 静默丢掉——界面上只剩一句"这一块没读出题目"。同一张图连打两次一次成一次败，
+ * 看着像模型随机，其实是这里。一份 13 道的讲义反复抽出 8~11 道，根子在此。
+ *
+ * 所以：可选字段一律 `.nullable()`，null 与缺失同等对待。
+ * 抽取器的职责是**尽量把题接住**，字段脏了后面还有门禁与人工抽检，
+ * 而丢掉的题谁也找不回来。
+ */
+const nullish = <T extends z.ZodTypeAny>(schema: T) => schema.nullish();
+
 const LenientDraftSchema = z.object({
   stem: z.string().min(1),
-  answer: z.union([z.string(), z.number()]).optional(),
-  answerType: z.enum(["numeric", "expression", "steps"]).optional(),
-  options: z.array(z.union([z.string(), z.number()])).optional(),
-  analysis: z.string().optional(),
-  difficulty: z.coerce.number().optional(),
-  level: EducationLevelSchema.optional(),
+  answer: nullish(z.union([z.string(), z.number()])),
+  answerType: nullish(z.enum(["numeric", "expression", "steps"])),
+  options: nullish(z.array(z.union([z.string(), z.number()]))),
+  analysis: nullish(z.string()),
+  difficulty: nullish(z.coerce.number()),
+  level: nullish(EducationLevelSchema),
   /** 分层的内容趟要求模型自报答案出处（见 ExtractedDraft.answerUnverified） */
-  answerFrom: z.string().optional(),
-  answerUnique: z.boolean().optional(),
+  answerFrom: nullish(z.string()),
+  answerUnique: nullish(z.boolean()),
   // 宽松收下：合法性与真实性交给 checkFigure，这里不拦
   figure: z.unknown().optional(),
   // 模型给的说法五花八门（id、名字、近似说法），一律先收下再吸附
-  nodeIds: z.array(z.union([z.string(), z.number()])).optional(),
-  problemTypeId: z.union([z.string(), z.number()]).optional(),
+  nodeIds: nullish(z.array(z.union([z.string(), z.number()]))),
+  problemTypeId: nullish(z.union([z.string(), z.number()])),
 });
 
 function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel: EducationLevel): ExtractedDraft {
-  const difficulty = Number.isFinite(item.difficulty)
+  const difficulty = Number.isFinite(item.difficulty ?? NaN)
     ? Math.min(5, Math.max(1, Math.round(item.difficulty!)))
     : 2;
   const stem = item.stem.trim();
@@ -128,8 +143,8 @@ function normalizeDraft(item: z.infer<typeof LenientDraftSchema>, fallbackLevel:
     ...(fig.figure ? { figure: fig.figure } : {}),
     ...(fig.rejected ? { figureRejected: fig.rejected } : {}),
     ...(item.nodeIds?.length ? { proposedNodeIds: item.nodeIds.map(String) } : {}),
-    ...(item.problemTypeId !== undefined ? { proposedProblemTypeId: String(item.problemTypeId) } : {}),
-    answer: item.answer === undefined ? "" : String(item.answer).trim(),
+    ...(item.problemTypeId != null ? { proposedProblemTypeId: String(item.problemTypeId) } : {}),
+    answer: item.answer == null ? "" : String(item.answer).trim(),
     // 只有明确说了 material 才算材料给的。字段缺失时（老的整页路径不问这个）
     // 不标记——那条路上答案通常确实来自教师版，乱标会让抽检页全是红字而失去意义
     ...(item.answerFrom === "solved" ? { answerUnverified: true } : {}),
@@ -194,7 +209,9 @@ export interface ParseOutcome {
 
 /** 解析 LLM 的 JSON 数组输出：剥离围栏、逐个对象解析，坏的跳过不牵连好的 */
 export function parseExtractionOutcome(raw: string, fallbackLevel: EducationLevel): ParseOutcome {
-  let text = raw.trim();
+  // 模型写题干时会带 LaTeX，而 `\div` 在 JSON 里是非法转义，
+  // JSON.parse 会把整道题连带扔掉——这是实机上丢题最多的一处
+  let text = repairJsonEscapes(raw.trim());
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   if (fence) text = fence[1]!.trim();
   // 围栏没闭合（同样是截断的症状）时，取开围栏之后的全部内容
@@ -456,19 +473,35 @@ export function createLlmExtractionProvider(
     },
 
     async questionFromImage(base64, mime, hint) {
-      const raw = await collectText(
-        visionClient,
-        imageAsk(
-          contentSystem(hint),
-          contentUserPrompt(hint?.level, hint?.carryOver),
-          base64,
-          mime,
-        ),
-        2048,
+      /**
+       * 重试一次。
+       *
+       * 这一趟是**随机失败**的：同一张裁好的单题图连打两次，一次正常返回、
+       * 一次 `draft: null`，实测大约一半概率。每失败一次就静默少一道题——
+       * 一份 13 道的讲义反复抽出 8~11 道，根子全在这里，与切题、跨页都无关。
+       *
+       * 所以失败时原样再来一次（温度 0.2 不是 0，两次不会是同一个结果）。
+       * 两次都不行才认输，并把模型实际吐出来的头 120 字记下来——
+       * 否则这种失败在日志里只是一句"没读出题目"，谁也查不出为什么。
+       */
+      const messages = imageAsk(
+        contentSystem(hint),
+        contentUserPrompt(hint?.level, hint?.carryOver),
+        base64,
+        mime,
       );
-      // 一张图就一道题：多解出来的忽略，取第一个（模型偶尔会把选项拆成额外对象）
-      const outcome = parseExtractionOutcome(raw, hint?.level ?? DEFAULT_LEVEL);
-      return outcome.drafts[0] ?? null;
+      let lastRaw = "";
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        lastRaw = await collectText(visionClient, messages, 2048);
+        // 一张图就一道题：多解出来的忽略，取第一个（模型偶尔会把选项拆成额外对象）
+        const outcome = parseExtractionOutcome(lastRaw, hint?.level ?? DEFAULT_LEVEL);
+        if (outcome.drafts[0]) return outcome.drafts[0];
+        console.warn(
+          `[ingest] 单题抽取第 ${attempt} 次没读出题目（收到 ${lastRaw.length} 字）：` +
+            JSON.stringify(lastRaw.slice(0, 120)),
+        );
+      }
+      return null;
     },
 
     async tailFromImage(base64, mime, carryOver) {

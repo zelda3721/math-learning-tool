@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTail, looksLikeQuestion, mergeContinued } from './shared'
+import { applyTail, carryableText, looksLikeQuestion, mergeContinued } from './shared'
 import type { Draft } from './shared'
 
 /**
@@ -148,5 +148,25 @@ describe('looksLikeQuestion', () => {
         expect(looksLikeQuestion(draft({ stem: '练习9 牛牛拿到的题目：两个相同的直角三角形重叠' }), '练习9')).toBe(
             true,
         )
+    })
+})
+
+describe('carryableText', () => {
+    /**
+     * 上一页页脚那条的文字要不要当作"这道题的开头"传下去。
+     * 传错了比不传更坏：实测传过去一句「二、转动数学大脑」，
+     * 提示词要求模型"把它与本图的内容拼成完整题干"，模型直接答不出题来。
+     */
+    it('像题干的才传', () => {
+        expect(carryableText('小明有12个苹果，平均分给4个人', '练习5')).toBe('小明有12个苹果，平均分给4个人')
+    })
+
+    it.each([
+        ['题号本身', '练习9', '练习9'],
+        ['章节标题', '二、转动数学大脑', '练习7'],
+        ['三两个字', '如图', '练习5'],
+        ['空的', '   ', '练习5'],
+    ])('不像题干的不传：%s', (_why, preview, label) => {
+        expect(carryableText(preview, label)).toBeUndefined()
     })
 })
