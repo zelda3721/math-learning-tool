@@ -58,6 +58,39 @@ export interface LayoutItem {
   continuedKind?: "stem" | "answer";
 }
 
+/**
+ * 这一条只有题号、没有题干——**下一页那道题的头**。
+ *
+ * 讲义常把题号排在页脚、正文翻到下一页：版面那趟于是给出
+ * `{"label":"练习9","preview":"练习9","box":[0.12,0.89,0.89,0.91]}`——
+ * 一条 2% 高的窄带。此前把它当成一道题去抽，抽出来的是同页别的题
+ * （框太窄判废、退回整页），被查重挡掉；而下一页的正文因为标着 continued
+ * 被并进了上一道题。第10讲的练习7、练习9 就是这么一起丢的。
+ *
+ * 判据只看内容：preview 与 label 一模一样，说明这条里除了题号什么都没有。
+ */
+export function isDanglingLabel(item: LayoutItem): boolean {
+  const label = item.label.trim();
+  if (!label) return false; // 没有题号就没有东西可以传给下一页
+  /**
+   * 判据是**位置**，不是 preview 的字面。
+   *
+   * 一度只看「preview 与 label 相同」，结果第10讲的练习7 还是漏了：
+   * 模型给它的 preview 是旁边的章节标题「二、转动数学大脑」。
+   * 改看框高又不稳——同一页跑两次，框时窄时宽。
+   * 稳的是这两件事合起来：**在页面最下方**，而且**开头这几个字不像题干**。
+   *
+   * 判错的代价也压到了最低：这一条的文字会随题号一起带到下一页去拼
+   * （见前端的 pendingPreview），所以哪怕误判，也只是多带几个字，不会丢内容。
+   */
+  // 在页面最下方（拿不到框的那种更是——normalizeBox 把窄条判废了）
+  const atBottom = !item.box || item.box[1] >= 0.7;
+  if (!atBottom) return false;
+  const preview = item.preview.trim();
+  // 那里放得下的只有题号或章节标题，都短；真题干的开头十几个字装不进去
+  return preview === label || preview.length < 12;
+}
+
 export interface FigureSplit {
   /** 题干配图：孩子做题时看的那张 */
   stemFigureBox?: [number, number, number, number];
@@ -341,7 +374,7 @@ export function snapBoxes(items: LayoutItem[]): LayoutItem[] {
 }
 
 export function parseLayout(raw: string): LayoutItem[] {
-  const items: LayoutItem[] = [];
+  let items: LayoutItem[] = [];
   for (const obj of parseJsonObjects(raw)) {
     if (typeof obj !== "object" || obj === null) continue;
     const o = obj as Record<string, unknown>;
@@ -378,7 +411,23 @@ export function parseLayout(raw: string): LayoutItem[] {
         : {}),
     });
   }
-  items.sort((a, b) => (a.box?.[1] ?? 0) - (b.box?.[1] ?? 0) || a.index - b.index);
+  /**
+   * 按纵向位置排序，但**没有框的条目不能当成 y=0**。
+   *
+   * 曾经写成 `a.box?.[1] ?? 0`：页脚那个光杆题号（框太窄被判废、没有框）
+   * 于是排到了整页最前面——它明明在页面最底下。排错了位置，
+   * "最后一条是不是光杆题号"就检测不出来，snapBoxes 补边界也会补错。
+   *
+   * 没有框就沿用模型给出的阅读顺序：紧跟在它前面那条之后。
+   */
+  let lastTop = 0;
+  const keyed = items.map((item, i) => {
+    if (item.box) lastTop = item.box[1];
+    // 加一点点增量，保证与前一条的先后关系稳定
+    return { item, key: item.box ? item.box[1] : lastTop + 1e-6 * (i + 1) };
+  });
+  keyed.sort((a, b) => a.key - b.key || a.item.index - b.item.index);
+  items = keyed.map((k) => k.item);
   // 先排序再补边界：补的依据就是"下一道题在哪"，顺序错了就补错了
   return snapBoxes(items);
 }

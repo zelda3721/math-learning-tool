@@ -5,7 +5,7 @@ import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { checkFigure } from "./figureGate.js";
 import { snapToGraph } from "./vocabulary.js";
-import { boxQuality, classifyFigures } from "./passes.js";
+import { boxQuality, classifyFigures, isDanglingLabel } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
@@ -193,7 +193,17 @@ export function ingestRoutes(state: AppState): Hono {
 
   // ---- 分层抽取：版面 → 逐题内容（+ 配图）。见 passes.ts 里的缘由 ----
 
-  const LayoutSchema = z.object({ content: z.string().min(1) });
+  const LayoutSchema = z.object({
+    content: z.string().min(1),
+    /**
+     * 上一页结尾是不是一个光杆题号（题号在页脚、正文翻到了这一页）。
+     *
+     * 知道这件事就能纠正模型的一处常见误判：它会把这一页开头的正文
+     * 标成 continuedKind="answer"（以为是上一题的解析），可上一页明明只留下
+     * 一个题号——那这段正文就是**新题的题干**，它带的图也是题干图。
+     */
+    previousEndedWithLabel: z.boolean().optional(),
+  });
 
   /**
    * 第一趟：只切题。输出极短，因此几乎不会截断——
@@ -210,10 +220,19 @@ export function ingestRoutes(state: AppState): Hono {
     const { base64, mime } = stripDataUrl(parsed.data.content);
     try {
       const items = await provider.layoutFromImage(base64, mime ?? "image/jpeg");
+      // 上一页只留下一个题号时，这一页开头必然是那道题的题干——
+      // 模型常误判成"上一题的解析"，结构比它的猜测可靠
+      if (parsed.data.previousEndedWithLabel && items[0]?.continued) {
+        items[0] = { ...items[0], continuedKind: "stem" };
+      }
       // 题干图 / 解析图在这里判完再下发：判据是结构（图在不在题干框内），
       // 前端只管按框裁，同一条规则不写两遍
       return c.json({
-        items: items.map((item) => ({ ...item, ...classifyFigures(item) })),
+        items: items.map((item) => ({
+          ...item,
+          ...classifyFigures(item),
+          dangling: isDanglingLabel(item),
+        })),
         quality: boxQuality(items),
       });
     } catch (err) {

@@ -56,6 +56,8 @@ interface LayoutItem {
     stemFigureBox?: [number, number, number, number]
     analysisFigureBox?: [number, number, number, number]
     continued: boolean
+    /** 这一条只有题号、没有题干——下一页那道题的头 */
+    dangling?: boolean
 }
 
 interface BatchReport {
@@ -146,11 +148,14 @@ export function IngestPage() {
     }
 
     /** 第一趟：这一页有哪几道题、各在哪、有没有图 */
-    const fetchLayout = async (pageDataUrl: string): Promise<LayoutItem[]> => {
+    const fetchLayout = async (
+        pageDataUrl: string,
+        previousEndedWithLabel: boolean,
+    ): Promise<LayoutItem[]> => {
         const res = await fetch('/api/v1/ingest/layout', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ content: pageDataUrl }),
+            body: JSON.stringify({ content: pageDataUrl, previousEndedWithLabel }),
         })
         if (!res.ok) throw new Error(await extractErrorMessage(res, '服务端不支持分层识别。'))
         const body = (await res.json()) as { items?: LayoutItem[] }
@@ -206,10 +211,29 @@ export function IngestPage() {
         pageDataUrl: string,
         /** 上一页最后那道题：这一页开头若是它的续文，两半要合成一道 */
         previous: Draft | undefined,
-    ): Promise<{ drafts: Draft[]; mergedFirst: boolean; boxes: { total: number; withBox: number } }> => {
-        const items = await fetchLayout(pageDataUrl)
+        /**
+         * 上一页页脚那条只有题号的窄带（正文翻到了这一页）。
+         * 连它的文字一起带过来：判错时也只是多带几个字，不会丢内容。
+         */
+        pending: { label: string; preview: string } | undefined,
+    ): Promise<{
+        drafts: Draft[]
+        mergedFirst: boolean
+        boxes: { total: number; withBox: number }
+        pending: { label: string; preview: string } | undefined
+    }> => {
+        const raw = await fetchLayout(pageDataUrl, Boolean(pending))
+        /**
+         * 页脚那个光杆题号不是一道题，是下一页那道题的头。
+         * 拿它去抽只会抽出同页别的题（框太窄判废、退回整页），然后被查重挡掉。
+         */
+        const trailing = raw.length > 0 && raw[raw.length - 1]!.dangling ? raw[raw.length - 1]! : undefined
+        const items = trailing ? raw.slice(0, -1) : raw
+        const nextPending = trailing ? { label: trailing.label, preview: trailing.preview } : undefined
         const boxes = { total: items.length, withBox: items.filter((i) => i.box).length }
-        if (items.length === 0) return { drafts: [], mergedFirst: false, boxes }
+        if (items.length === 0) {
+            return { drafts: [], mergedFirst: false, boxes, pending: nextPending }
+        }
 
         const drafts: Draft[] = []
         let mergedFirst = false
@@ -223,7 +247,8 @@ export function IngestPage() {
          * 上一页那道题的答案就此丢失。
          */
         const leadTop = items[0]?.box?.[1] ?? 0
-        if (previous && leadTop >= LEAD_MIN && !items[0]?.continued) {
+        // 上一页留了个光杆题号时，页首那段是新题的题干，不是上一题的尾巴
+        if (previous && !pending && leadTop >= LEAD_MIN && !items[0]?.continued) {
             const leadCrop = await cropPage(pageDataUrl, [0, 0, 1, leadTop]).catch(() => null)
             if (leadCrop) {
                 try {
@@ -250,13 +275,21 @@ export function IngestPage() {
             // 框不可用（或裁出来太小）就用整页图：效果差一点，但绝不裁坏
             const cropped = await cropPage(pageDataUrl, item.box).catch(() => null)
             // 只有本页第一题才可能是上一页的续文
-            // 页首那块已被上面认领时，这里就别再合并一次
-            const carryFrom = i === 0 && item.continued && !mergedFirst ? previous : undefined
+            /**
+             * 什么时候该合并进上一道题：只有上一页那道题**确实被切开**时。
+             * 上一页只留下一个题号（pendingLabel）的话，这一页开头是**新题**——
+             * 合并进去就等于把新题吞了，那正是练习7、练习9 丢失的方式。
+             */
+            const carryFrom =
+                i === 0 && item.continued && !mergedFirst && !pending ? previous : undefined
+            // 上一页只留下题号时：这是**新题**，但它的开头那几个字在上一页，
+            // 一并交给模型去拼（不合并进上一道题）
+            const carryText = i === 0 && pending ? pending.preview : carryFrom?.stem
             try {
                 const draft = await fetchQuestion({
                     content: cropped ?? pageDataUrl,
                     hasFigure: item.hasFigure,
-                    ...(carryFrom ? { carryOver: carryFrom.stem } : {}),
+                    ...(carryText ? { carryOver: carryText } : {}),
                 })
                 if (draft) {
                     /**
@@ -290,7 +323,7 @@ export function IngestPage() {
                 setPdfNote(`「${item.label || item.preview.slice(0, 10)}」识别失败（${String(err)}），继续下一题`)
             }
         }
-        return { drafts, mergedFirst, boxes }
+        return { drafts, mergedFirst, boxes, pending: nextPending }
     }
 
     /**
@@ -327,14 +360,19 @@ export function IngestPage() {
         // 没有题的页（封面、章节页、整页解析）攒起来最后一起说。
         // 它们不是失败——此前当成错误逐页弹红字，一本讲义能红好几条
         const emptyPages: number[] = []
+        // 上一页页脚那个光杆题号（题号在页脚、正文翻到下一页）
+        let pending: { label: string; preview: string } | undefined
         for (const [i, page] of pages.entries()) {
             setPdfProgress({ done: i, total: pages.length, phase: 'layout' })
             try {
-                const { drafts, mergedFirst, boxes } = await extractPageLayered(
+                const outcome = await extractPageLayered(
                     page.dataUrl,
                     // 跨页题：上一页最后一道多半就是被切断的那道
                     all[all.length - 1],
+                    pending,
                 )
+                const { drafts, mergedFirst, boxes } = outcome
+                pending = outcome.pending
                 boxTally.total += boxes.total
                 boxTally.withBox += boxes.withBox
                 setBoxStat({ ...boxTally })
