@@ -120,6 +120,82 @@ export function normalizeDraft(raw: unknown): Draft | null {
     }
 }
 
+/**
+ * 把跨页的两半拼成一道题。
+ *
+ * 讲义里一道题常被页边切开：题干在上一页、第二问或【解析】在下一页。
+ * 内容那趟已经拿到了上一页的题干（carryOver）并拼出完整题面，
+ * 但**图不能这么处理**——下一页开头那张图多半是上一页那道题的解法图，
+ * 拿它当题干图，等于把解法直接摆在孩子面前。
+ * 实机上就是这么错的：合并时整个丢掉上一半，图跟着换成了第二页那张。
+ *
+ * 所以：题干图以先出现的那张为准，后出现的一律进解析图。
+ */
+export function mergeContinued(prev: Draft, next: Draft): Draft {
+    // 模型没照着 carryOver 拼（第二半太短、或压根没提上一半）时自己接上，
+    // 否则上一页那半截题干就凭空消失了
+    const head = prev.stem.slice(0, 12)
+    const stem = next.stem.includes(head) ? next.stem : `${prev.stem}\n${next.stem}`
+    // 一题两问时两半各有一个答案，都要留住
+    const answers = [prev.answer, next.answer].map((a) => a.trim()).filter(Boolean)
+    const answer = [...new Set(answers)].join('；')
+    return {
+        ...next,
+        key: prev.key,
+        stem,
+        answer,
+        nodes: next.nodes.length > 0 ? next.nodes : prev.nodes,
+        analysis: next.analysis ?? prev.analysis,
+        options: next.options ?? prev.options,
+        // 题干图只认先出现的那张（见上）
+        figureImage: prev.figureImage ?? next.figureImage,
+        analysisImage: prev.analysisImage ?? next.analysisImage,
+        answerUnverified: prev.answerUnverified || next.answerUnverified,
+    }
+}
+
+/** 续页开头那块（整块是【答案】【解析】）读出来的东西 */
+export interface QuestionTail {
+    answer?: string
+    answerUnverified?: boolean
+    analysis?: string
+    hasFigure?: boolean
+}
+
+/**
+ * 把续页开头那块的答案与解析补回上一页那道题。
+ *
+ * 关键是**谁说了算**：上一页那道题此刻的答案多半是模型自己算的
+ * （它只看到题干，没看到答案框），而续页这一块才是讲义印着的那个。
+ * 所以讲义读到的答案优先，并且把"模型猜的"这个标记摘掉——
+ * 它已经不是猜的了。
+ */
+export function applyTail(prev: Draft, tail: QuestionTail): Draft {
+    const fromMaterial = Boolean(tail.answer?.trim()) && !tail.answerUnverified
+    const tailAnswer = tail.answer?.trim() ?? ''
+    let answer = prev.answer
+    let answerUnverified = prev.answerUnverified
+
+    if (fromMaterial) {
+        // 上一半的答案也是讲义给的、且与这半不同 → 一题两问，两个都留住
+        answer =
+            prev.answer.trim() && !prev.answerUnverified && prev.answer.trim() !== tailAnswer
+                ? `${prev.answer.trim()}；${tailAnswer}`
+                : tailAnswer
+        answerUnverified = false
+    } else if (tailAnswer && !prev.answer.trim()) {
+        answer = tailAnswer
+        answerUnverified = tail.answerUnverified
+    }
+
+    return {
+        ...prev,
+        answer,
+        answerUnverified,
+        analysis: tail.analysis ?? prev.analysis,
+    }
+}
+
 export function todayString(): string {
     const d = new Date()
     const mm = String(d.getMonth() + 1).padStart(2, '0')

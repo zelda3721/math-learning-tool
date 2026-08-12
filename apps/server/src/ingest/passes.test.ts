@@ -285,3 +285,37 @@ describe("classifyFigures", () => {
     expect(parseLayout('{"index":1,"preview":"甲","answerTop":null}')[0]!.answerTop).toBeUndefined();
   });
 });
+
+describe("跨页", () => {
+  /**
+   * 讲义里一道题常被页边切开。两种切法都在实机上出过错：
+   * ① 一题两问，第二问在下一页 → 第二问整个抽不出来
+   * ② 教师版的解答落到下一页 → 那张解法图被当成题干配图
+   */
+  it("续页开头全是上一页的答案时，answerTop=0，图一律算解法图", () => {
+    const items = parseLayout(
+      '{"index":1,"preview":"（上一页那道题的解析）","box":[0.08,0.02,0.92,0.3],' +
+        '"hasFigure":true,"figureBox":[0.15,0.06,0.4,0.24],"answerTop":0,"continued":true}',
+    );
+    expect(items[0]!.answerTop).toBe(0);
+    const out = classifyFigures(items[0]!);
+    // 这一段里没有任何题干，所以没有题干图
+    expect(out.stemFigureBox).toBeUndefined();
+    expect(out.analysisFigureBox).toEqual([0.15, 0.06, 0.4, 0.24]);
+  });
+
+  it("answerTop=0 不能被当成「没给」丢掉", () => {
+    // 丢掉它就退回"信模型标注"，而模型把那张图标成了 figureBox——
+    // 解法图于是成了题干图，正是跨页时出错的那条路径
+    expect(parseLayout('{"index":1,"preview":"甲","answerTop":0}')[0]!.answerTop).toBe(0);
+  });
+
+  it("只有一个小问的续文照样是一道题", () => {
+    const items = parseLayout(
+      '{"index":1,"label":"","preview":"（2）如果每人多分2个，还剩几个？",' +
+        '"box":[0.08,0.03,0.92,0.18],"hasFigure":false,"continued":true}',
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.continued).toBe(true);
+  });
+});

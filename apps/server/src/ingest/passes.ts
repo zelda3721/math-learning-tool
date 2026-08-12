@@ -71,6 +71,8 @@ export function classifyFigures(item: LayoutItem): FigureSplit {
   // 知道灰框在哪时，位置说了算——模型偶尔会把两张图标反，而"图在灰框上面还是
   // 下面"是几何事实。不知道时（学生版没有答案框，或模型没答）就信它的标注：
   // 那种材料里本来就不存在解析图。
+  // answerTop === 0 时下面那个比较恒为假，于是所有图都算解法图——
+  // 这正是"续页开头全是上一页的答案"该有的结果
   const decideByPosition = typeof answerTop === "number";
   const aboveAnswer = (box?: [number, number, number, number]) =>
     box !== undefined && box[1] < answerTop!;
@@ -107,10 +109,18 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
   教师版常在解析里再画一张（割补怎么割、阴影怎么挪、辅助线画在哪）——
   那张图是解法，不属于题干，必须和 figureBox 分开
 - answerTop：这道题的【答案】灰框**从哪一行开始**（只写上边缘那一个 0~1 的数）。
-  没有灰框（学生版）就省略。这条用来复核上面两个框有没有标反
+  没有灰框（学生版）就省略。这条用来复核上面两个框有没有标反。
+  **这一页开头就是上一页那道题的答案/解析时，answerTop 写 0**——
+  那说明这一段里没有任何题干，图都是解法图
 - continued：只有第一道题可能为 true——当这一页开头是上一页某题的续文时
 
-页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。这一页没有题就什么都不输出。`;
+**跨页的那一半也要输出**，这是最容易漏的一处：
+- 只有「(2)」「②」这样一个小问，没有题号、看着不像一道完整的题 → 照样输出，continued 写 true
+- 这一页开头只有上一页那道题的【答案】【解析】（连题干都没有）→ 也要输出一条，
+  continued 写 true、answerTop 写 0。漏掉它，上一页那道题的答案就永远找不回来了
+
+除此之外，页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。
+这一页没有任何题目内容才什么都不输出。`;
 
 export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）。抽出它的内容，输出**一个** JSON 对象（不要数组、不要围栏）：
 {"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
@@ -141,6 +151,24 @@ on-segment（可带 ratio 表示分点比例）。
 - 条件必须能画得出来（不自相矛盾）。
 图形太复杂（辅助线堆叠、立体图、函数图像）写不清楚时，输出 {} 即可，不要硬凑。`;
 
+/**
+ * 一页的开头是上一页那道题的后半截（多半整块都是【答案】【解析】）时用它。
+ *
+ * 为什么单独一套：这块图里根本没有题干，按常规提示词去问，模型会把
+ * 解析里的例子当成新题目抽出来，或者干脆答一片空。而这块内容偏偏很要紧——
+ * 上一页那道题的答案就在里面，漏掉它那道题就永远没有答案。
+ */
+export const TAIL_PROMPT = `这张图是**上一页那道题的后半截**，通常整块都是【答案】【解析】，里面没有新的题目。
+
+请输出**一个** JSON 对象（不要数组、不要围栏）：
+{"answer":"答案","answerFrom":"material|solved","analysis":"一句话解析","hasFigure":true|false}
+规则：
+- answer 只写【答案】栏里的那个最终答案（数值题只写数，不带单位）；找不到就留空字符串；
+- answerFrom：从图里读到的写 material，你自己算的写 solved；
+- analysis 一句话概括解法即可，不要抄整段；
+- hasFigure：这一块里有没有画图形（解析里的示意图、分解图、数阵）。
+**不要把解析里举的例子当成新题目**，也不要输出题干。`;
+
 export function contentUserPrompt(level?: EducationLevel, carryOver?: string): string {
   const lv = level ? `材料年级：${level}。` : "";
   // 跨页题：把上一页残缺的开头交给模型，让它把两半拼成一道完整的题
@@ -148,6 +176,11 @@ export function contentUserPrompt(level?: EducationLevel, carryOver?: string): s
     ? `\n注意：这道题的开头在上一页，内容是「${carryOver}」，请把它与本图的内容拼成完整题干。`
     : "";
   return `${lv}${CONTENT_PROMPT}${carry}`;
+}
+
+export function tailUserPrompt(carryOver?: string): string {
+  const carry = carryOver ? `\n上一页那道题的题干是「${carryOver}」。` : "";
+  return `${TAIL_PROMPT}${carry}`;
 }
 
 function stripFence(raw: string): string {
@@ -299,7 +332,10 @@ export function parseLayout(raw: string): LayoutItem[] {
         // 有的模型给 0~100 的百分数，与 normalizeBox 同一套理解
         let top = num(o.answerTop ?? o.answer_top);
         if (top !== undefined && top > 1) top = top <= 100 ? top / 100 : undefined;
-        return top !== undefined && top > 0 && top < 1 ? { answerTop: top } : {};
+        // **0 是有意义的值**：续页开头就是上一页那道题的答案/解析，
+        // 这一段里没有任何题干，所以图全是解法图。一度把它当"没给"丢掉，
+        // 于是解法图被判成题干图——正是跨页时出错的那条路径。
+        return top !== undefined && top >= 0 && top < 1 ? { answerTop: top } : {};
       })(),
       continued: o.continued === true,
     });

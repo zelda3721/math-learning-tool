@@ -16,6 +16,8 @@ import {
     fileInputCls,
     inputCls,
     LEVEL_LABELS,
+    applyTail,
+    mergeContinued,
     normalizeDraft,
     readFileAsDataUrl,
     todayString,
@@ -30,6 +32,12 @@ type InputMode = 'single' | 'batch'
 
 /** 分层识别的四个阶段，进度条上要分得清是在渲染、切题还是读题 */
 type PdfPhase = 'render' | 'layout' | 'question' | 'extract'
+/**
+ * 页首留出多少空白才算"这块内容不属于本页任何一道题"。
+ * 正常起始的题从 0.05 上下开始；到了 0.15 以上，上面那一截必然是上一页的尾巴。
+ */
+const LEAD_MIN = 0.15
+
 const PHASE_LABEL: Record<PdfPhase, string> = {
     render: '渲染页面',
     layout: '切分题目',
@@ -149,6 +157,25 @@ export function IngestPage() {
         return body.items ?? []
     }
 
+    /**
+     * 这一页开头那块没人认领的内容 —— 上一页那道题的尾巴。
+     *
+     * 版面那趟经常整块跳过它（"不是题"），而上一页那道题的答案就在里面。
+     * 判据不靠模型：第一道题从哪儿开始，之前的就是尾巴。
+     */
+    const fetchTail = async (payload: { content: string; carryOver?: string }) => {
+        const res = await fetch('/api/v1/ingest/tail', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error(await extractErrorMessage(res, '服务端不支持分层识别。'))
+        const body = (await res.json()) as {
+            tail?: { answer?: string; answerUnverified?: boolean; analysis?: string; hasFigure?: boolean } | null
+        }
+        return body.tail ?? null
+    }
+
     /** 第二趟（服务端顺带跑第三趟配图）：一道题的内容 */
     const fetchQuestion = async (payload: {
         content: string
@@ -177,7 +204,8 @@ export function IngestPage() {
      */
     const extractPageLayered = async (
         pageDataUrl: string,
-        onCarry: () => string | undefined,
+        /** 上一页最后那道题：这一页开头若是它的续文，两半要合成一道 */
+        previous: Draft | undefined,
     ): Promise<{ drafts: Draft[]; mergedFirst: boolean; boxes: { total: number; withBox: number } }> => {
         const items = await fetchLayout(pageDataUrl)
         const boxes = { total: items.length, withBox: items.filter((i) => i.box).length }
@@ -185,17 +213,50 @@ export function IngestPage() {
 
         const drafts: Draft[] = []
         let mergedFirst = false
+
+        /**
+         * 先认领页首那块无主区域。
+         *
+         * 第一道题从 leadTop 才开始，说明上面那一截不属于本页任何一道题——
+         * 它是上一页那道题的后半截（教师版里多半整块是【答案】【解析】）。
+         * 实测第12讲 p4 有 79% 的篇幅是这种内容，版面那趟一条都没输出，
+         * 上一页那道题的答案就此丢失。
+         */
+        const leadTop = items[0]?.box?.[1] ?? 0
+        if (previous && leadTop >= LEAD_MIN && !items[0]?.continued) {
+            const leadCrop = await cropPage(pageDataUrl, [0, 0, 1, leadTop]).catch(() => null)
+            if (leadCrop) {
+                try {
+                    const tail = await fetchTail({ content: leadCrop, carryOver: previous.stem })
+                    if (tail && (tail.answer || tail.analysis || tail.hasFigure)) {
+                        // 这一块整个是解析：里面有图就是老师画的解法图，
+                        // 绝不会是题干图（题干在上一页）
+                        const analysisImage = tail.hasFigure
+                            ? ((await cropPage(pageDataUrl, [0, 0, 1, leadTop], FIGURE_PAD).catch(
+                                  () => null,
+                              )) ?? previous.analysisImage)
+                            : previous.analysisImage
+                        drafts.push({ ...applyTail(previous, tail), analysisImage })
+                        mergedFirst = true
+                    }
+                } catch (err) {
+                    setPdfNote(`页首那段续文没读出来（${String(err)}），上一页那道题可能缺答案`)
+                }
+            }
+        }
+
         for (const [i, item] of items.entries()) {
             setPdfProgress({ done: i, total: items.length, phase: 'question' })
             // 框不可用（或裁出来太小）就用整页图：效果差一点，但绝不裁坏
             const cropped = await cropPage(pageDataUrl, item.box).catch(() => null)
             // 只有本页第一题才可能是上一页的续文
-            const carryOver = i === 0 && item.continued ? onCarry() : undefined
+            // 页首那块已被上面认领时，这里就别再合并一次
+            const carryFrom = i === 0 && item.continued && !mergedFirst ? previous : undefined
             try {
                 const draft = await fetchQuestion({
                     content: cropped ?? pageDataUrl,
                     hasFigure: item.hasFigure,
-                    ...(carryOver ? { carryOver } : {}),
+                    ...(carryFrom ? { carryOver: carryFrom.stem } : {}),
                 })
                 if (draft) {
                     /**
@@ -215,8 +276,14 @@ export function IngestPage() {
                     draft.analysisImage =
                         (await cropPage(pageDataUrl, split.analysisFigureBox, FIGURE_PAD).catch(() => null)) ??
                         undefined
-                    drafts.push(draft)
-                    if (carryOver) mergedFirst = true
+                    if (carryFrom) {
+                        // 合并而不是替换：上一页那道题的题干图必须留住，
+                        // 否则会被这一页开头的解法图顶掉（见 mergeContinued）
+                        drafts.push(mergeContinued(carryFrom, draft))
+                        mergedFirst = true
+                    } else {
+                        drafts.push(draft)
+                    }
                 }
             } catch (err) {
                 // 一道题读不出来不该拖累同页其他题
@@ -263,7 +330,7 @@ export function IngestPage() {
                 const { drafts, mergedFirst, boxes } = await extractPageLayered(
                     page.dataUrl,
                     // 跨页题：上一页最后一道多半就是被切断的那道
-                    () => all[all.length - 1]?.stem,
+                    all[all.length - 1],
                 )
                 boxTally.total += boxes.total
                 boxTally.withBox += boxes.withBox
