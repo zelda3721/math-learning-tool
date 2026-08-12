@@ -87,8 +87,16 @@ export function isDanglingLabel(item: LayoutItem): boolean {
   const atBottom = !item.box || item.box[1] >= 0.7;
   if (!atBottom) return false;
   const preview = item.preview.trim();
-  // 那里放得下的只有题号或章节标题，都短；真题干的开头十几个字装不进去
-  return preview === label || preview.length < 12;
+  /**
+   * 只认两种**不会误伤真题**的形态：
+   * ① 开头就是题号本身（`preview === label`）——那条里除了题号什么都没有
+   * ② 开头是章节标题（「二、转动数学大脑」）——模型看到题号旁边的大标题就写了它
+   *
+   * 一度放宽成"开头不足 12 字就算"，那是错的：真题的开头完全可能很短
+   * （「如图，求阴影面积」正好 9 字），而被判成光杆的那一条会被整条丢掉。
+   * 宁可漏认几个光杆题号（还有补漏那道网兜着），也不能误伤真题。
+   */
+  return preview === "" || preview === label || /^[一二三四五六七八九十]+\s*[、.．]/.test(preview);
 }
 
 export interface FigureSplit {

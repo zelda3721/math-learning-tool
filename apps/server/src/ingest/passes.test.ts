@@ -427,6 +427,15 @@ describe("光杆题号", () => {
     expect(isDanglingLabel(item({ preview: "计算：", box: [0.08, 0.2, 0.92, 0.8] }))).toBe(false);
   });
 
+  it("排在页面底部但开头是真题干的，不能丢", () => {
+    // 一度放宽成"开头不足 12 字就算光杆"，于是页底那道开头很短的真题
+    // 被整条丢掉——比"漏认一个题号"严重得多
+    expect(isDanglingLabel(item({ label: "练习5", preview: "如图，求阴影面积", box: [0.08, 0.78, 0.92, 0.95] }))).toBe(
+      false,
+    );
+    expect(isDanglingLabel(item({ label: "练习5", preview: "计算：", box: [0.08, 0.8, 0.92, 0.95] }))).toBe(false);
+  });
+
   it("没有题号的条目不算——那是别的情况（比如续文）", () => {
     expect(isDanglingLabel(item({ label: "", preview: "时间过得真快啊，一转眼" }))).toBe(false);
   });

@@ -70,6 +70,28 @@ interface LayoutItem {
     dangling?: boolean
 }
 
+/**
+ * 逐页战报。
+ *
+ * 抽少了题时，只知道"一共 8 道"是查不出原因的——版面那趟报了几条、
+ * 丢了几条光杆题号、补漏有没有触发、哪一页整页兜底了，这些才指得出问题在哪。
+ * 此前排查全靠猜，来回改了三轮。
+ */
+interface PageReport {
+    page: number
+    /** 版面那趟报了几条 */
+    layout: number
+    /** 其中被当作光杆题号（正文翻到下一页）丢掉的 */
+    dangling?: string
+    /** 最终抽到几道 */
+    got: number
+    /** 走了整页兜底 */
+    fallback?: boolean
+    /** 补漏补出了几道 */
+    rescued?: number
+    note?: string
+}
+
 interface BatchReport {
     pairing?: PairingReport
     warnings: string[]
@@ -122,6 +144,7 @@ export function IngestPage() {
     const [pdfNote, setPdfNote] = useState<string | null>(null)
     // 版面框的可用率：低了就该换模型，所以这个数必须摆到台面上
     const [boxStat, setBoxStat] = useState<{ total: number; withBox: number } | null>(null)
+    const [pageReports, setPageReports] = useState<PageReport[]>([])
     const [text, setText] = useState('')
     const [file, setFile] = useState<File | null>(null)
     const [batchName, setBatchName] = useState(todayString())
@@ -231,6 +254,7 @@ export function IngestPage() {
         mergedFirst: boolean
         boxes: { total: number; withBox: number }
         pending: { label: string; preview: string } | undefined
+        rescued: number
     }> => {
         const raw = await fetchLayout(pageDataUrl, Boolean(pending))
         /**
@@ -242,10 +266,11 @@ export function IngestPage() {
         const nextPending = trailing ? { label: trailing.label, preview: trailing.preview } : undefined
         const boxes = { total: items.length, withBox: items.filter((i) => i.box).length }
         if (items.length === 0) {
-            return { drafts: [], mergedFirst: false, boxes, pending: nextPending }
+            return { drafts: [], mergedFirst: false, boxes, pending: nextPending, rescued: 0 }
         }
 
         const drafts: Draft[] = []
+        let rescued = 0
         // 哪一条版面项产出了哪份草稿——补漏时要把它换掉
         const draftsByItem = new Map<number, Draft>()
         let mergedFirst = false
@@ -360,6 +385,7 @@ export function IngestPage() {
                     setPdfNote(`「${item.label || item.preview.slice(0, 8)}」那一块里其实有 ${found.length} 道题，已补上`)
                     // 换掉那一条对应的草稿：它只抽到了其中一道
                     const at = drafts.findIndex((d) => d.stem === draftsByItem.get(i)?.stem)
+                    rescued += found.length - (at >= 0 ? 1 : 0)
                     if (at >= 0) drafts.splice(at, 1, ...found)
                     else drafts.push(...found)
                 }
@@ -367,7 +393,7 @@ export function IngestPage() {
                 /* 补漏失败就算了，本来就是额外一道保险 */
             }
         }
-        return { drafts, mergedFirst, boxes, pending: nextPending }
+        return { drafts, mergedFirst, boxes, pending: nextPending, rescued }
     }
 
     /**
@@ -406,6 +432,7 @@ export function IngestPage() {
         const emptyPages: number[] = []
         // 上一页页脚那个光杆题号（题号在页脚、正文翻到下一页）
         let pending: { label: string; preview: string } | undefined
+        const reports: PageReport[] = []
         for (const [i, page] of pages.entries()) {
             setPdfProgress({ done: i, total: pages.length, phase: 'layout' })
             try {
@@ -416,6 +443,15 @@ export function IngestPage() {
                     pending,
                 )
                 const { drafts, mergedFirst, boxes } = outcome
+                const report: PageReport = {
+                    page: page.page,
+                    layout: boxes.total + (outcome.pending ? 1 : 0),
+                    got: drafts.length,
+                    ...(outcome.pending ? { dangling: outcome.pending.label } : {}),
+                    ...(outcome.rescued > 0 ? { rescued: outcome.rescued } : {}),
+                }
+                reports.push(report)
+                setPageReports([...reports])
                 pending = outcome.pending
                 boxTally.total += boxes.total
                 boxTally.withBox += boxes.withBox
@@ -430,17 +466,24 @@ export function IngestPage() {
                 setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
                 const fallback = await uploadOnce({ kind: 'image', content: page.dataUrl })
                 if (fallback.length === 0) emptyPages.push(page.page)
+                report.fallback = true
+                report.got = fallback.length
+                setPageReports([...reports])
                 all.push(...fallback)
             } catch (err) {
                 // 分层这条路走不通（端点不支持、模型不配合）就整页兜底，
                 // 兜底也失败才算这一页丢了
                 try {
                     setPdfProgress({ done: i, total: pages.length, phase: 'extract' })
-                    all.push(...(await uploadOnce({ kind: 'image', content: page.dataUrl })))
+                    const rescue = await uploadOnce({ kind: 'image', content: page.dataUrl })
+                    all.push(...rescue)
+                    reports.push({ page: page.page, layout: 0, got: rescue.length, fallback: true, note: String(err) })
                     setPdfNote(`第 ${page.page} 页分层识别不可用（${String(err)}），已按整页识别`)
                 } catch (fallbackErr) {
+                    reports.push({ page: page.page, layout: 0, got: 0, note: String(fallbackErr) })
                     setPdfNote(`第 ${page.page} 页识别失败（${String(fallbackErr)}），其余页继续`)
                 }
+                setPageReports([...reports])
             }
         }
         setPdfProgress({ done: pages.length, total: pages.length, phase: 'question' })
@@ -459,6 +502,7 @@ export function IngestPage() {
         setPdfNote(null)
         setPdfProgress(null)
         setBoxStat(null)
+        setPageReports([])
         setExtracting(true)
         try {
             const next =
@@ -662,6 +706,49 @@ export function IngestPage() {
                                         {pdfNote && <p className="text-xs text-ink-soft leading-relaxed">{pdfNote}</p>}
                                         {/* 框给不准就该换模型——把这个判断依据摆出来，
                                             而不是让人从识别结果去猜 */}
+                                        {/* 逐页战报：抽少了题时，只知道"一共 8 道"查不出原因，
+                                            得看每页版面报了几条、丢了几条光杆题号、补漏有没有触发 */}
+                                        {pageReports.length > 0 && (
+                                            <details className="text-xs text-ink-soft">
+                                                <summary className="cursor-pointer text-ink-faint">
+                                                    逐页明细（抽少了题时看这里）
+                                                </summary>
+                                                <table className="mt-2 w-full numeric text-left">
+                                                    <thead className="text-ink-faint">
+                                                        <tr>
+                                                            <th className="pr-3 font-normal">页</th>
+                                                            <th className="pr-3 font-normal">切出</th>
+                                                            <th className="pr-3 font-normal">抽到</th>
+                                                            <th className="font-normal">说明</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {pageReports.map((r) => (
+                                                            <tr
+                                                                key={r.page}
+                                                                className={
+                                                                    r.got === 0 ? 'text-[color:var(--color-wrong)]' : ''
+                                                                }
+                                                            >
+                                                                <td className="pr-3">{r.page}</td>
+                                                                <td className="pr-3">{r.layout}</td>
+                                                                <td className="pr-3">{r.got}</td>
+                                                                <td className="text-ink-faint">
+                                                                    {[
+                                                                        r.dangling && `页脚题号 ${r.dangling} 顺到下一页`,
+                                                                        r.rescued && `补漏 +${r.rescued}`,
+                                                                        r.fallback && '整页兜底',
+                                                                        r.note,
+                                                                    ]
+                                                                        .filter(Boolean)
+                                                                        .join(' · ')}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </details>
+                                        )}
                                         {boxStat && boxStat.total > 0 && (
                                             <p className="text-xs text-ink-faint leading-relaxed">
                                                 切题定位：
