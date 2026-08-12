@@ -319,6 +319,7 @@ const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全
 {"stem":"完整题干","answer":"答案","answerType":"numeric|expression|steps","options":["选项A",...],"analysis":"简要解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；
+- 分数、根号、角度写成 LaTeX 并用 $ 包起来（$50\\frac{1}{4}$、$\\sqrt{16}$、$45^\\circ$）；
 - answer 只写最终答案（数值题只写数，不带单位）；材料没给答案就自己解出来，解不出留空字符串；
 - answerUnique：正确答案是不是只有一种。填运算符、数阵图、"举一个例子"这类
   往往多解；材料里出现「或」「答案不唯一」「方法一/方法二」时写 false；

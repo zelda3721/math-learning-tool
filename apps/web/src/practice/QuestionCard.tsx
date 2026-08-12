@@ -281,7 +281,9 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {flow.kind === 'answering' && (
                 <>
             {/* 题干 */}
-            <p className="stem whitespace-pre-wrap">{q.stem}</p>
+            {/* 题干里带 LaTeX（分数、根号、角度）是常事——不走渲染，
+                孩子看到的就是 `50\frac{1}{4}` 这样的源码 */}
+            <p className="stem"><MathText>{q.stem}</MathText></p>
 
             {/* 配图：几何题的图是题面的一部分，没有它读不懂题 */}
             {/* 原图优先：孩子看的应当是讲义上那张图本身。

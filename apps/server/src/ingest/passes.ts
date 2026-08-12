@@ -151,6 +151,8 @@ export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）
 {"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerUnique":true,"answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；图里的数字务必看准；
+- 分数、根号、角度这些**要写成 LaTeX 并用 $ 包起来**：$50\\frac{1}{4}$、$\\sqrt{16}$、$45^\\circ$。
+  不加 $ 的话界面上会原样显示成源码；带分数要连整数部分一起包进去；
 - answer 只写最终答案（数值题只写数，不带单位）；材料没给答案就自己解出来，解不出留空字符串；
 - **answerFrom 必须如实写**：答案是从图里【答案】栏读到的就写 material，
   是你自己算出来的就写 solved。这两者要分开——你算的那个会被标出来让人复核，

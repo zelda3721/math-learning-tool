@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { checkFigure } from "../src/ingest/figureGate.js";
+// 这几个曾写成用例体内的 await import()。并发跑整套时，加载服务端那一大坨
+// （app.js 会连带拉起 better-sqlite3）经常超过 5 秒的用例超时，
+// 还出现过拿到半初始化模块的「createApp is not a function」。
+// 顶部静态导入没有这两个问题——模块在用例开始前就绪好了。
+import { createApp } from "../src/app.js";
+import { makeQuestion, tempFixtureEnv, NODE_A } from "./helpers.js";
 
 const STEM = "如图，直角三角形 ABC 中，∠B = 90°，AB = 3 厘米，BC = 4 厘米。求斜边 AC 的长。";
 
@@ -86,8 +92,6 @@ describe("配图门禁：解得出来，且数字得有出处", () => {
 
 describe("入库这一刻的最后一道关", () => {
   it("确认入库时若配图被改坏，去掉配图但保留题目", async () => {
-    const { createApp } = await import("../src/app.js");
-    const { makeQuestion, tempFixtureEnv, NODE_A } = await import("./helpers.js");
     const env = tempFixtureEnv([makeQuestion({ id: "x1", nodeIds: [NODE_A] })]);
     const app = createApp(env.state);
 
@@ -125,8 +129,6 @@ describe("入库这一刻的最后一道关", () => {
   });
 
   it("合规的配图确实存进了题库", async () => {
-    const { createApp } = await import("../src/app.js");
-    const { makeQuestion, tempFixtureEnv, NODE_A } = await import("./helpers.js");
     const env = tempFixtureEnv([makeQuestion({ id: "x2", nodeIds: [NODE_A] })]);
     const app = createApp(env.state);
     await app.request("/api/v1/ingest/confirm", {
