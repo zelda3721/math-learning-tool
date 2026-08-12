@@ -62,12 +62,15 @@ function QuestionCard({
     onVerify,
     onReject,
     onSkip,
+    onMoveFigure,
 }: {
     q: ReviewQuestion
     busy: boolean
     onVerify: (patch: { stem?: string; answer?: string; difficulty?: number; nodeIds?: string[] } | undefined) => void
     onReject: () => void
     onSkip: () => void
+    /** 分类器把图判错了：一键改判，不必为一张图重跑整份材料 */
+    onMoveFigure: (to: 'analysis' | 'stem') => void
 }) {
     const [editing, setEditing] = useState(false)
     const [stem, setStem] = useState(q.stem)
@@ -188,15 +191,36 @@ function QuestionCard({
                 题干图孩子做题时看得见，解析图只在讲解时出现 */}
             {q.figureImage && (
                 <div>
-                    <span className="eyebrow block mb-1">题干配图 · 孩子做题时看这张</span>
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                        <span className="eyebrow">题干配图 · 孩子做题时看这张</span>
+                        {/* 判错的方向恰恰危险：答案表挂成题干图，孩子一打开就看见答案 */}
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onMoveFigure('analysis')}
+                            className="text-xs text-ink-faint hover:text-wrong transition-colors"
+                        >
+                            这其实是解析里的图 →
+                        </button>
+                    </div>
                     <QuestionImage name={q.figureImage} />
                 </div>
             )}
             {q.analysisImage && (
                 <div>
-                    <span className="eyebrow block mb-1 text-[color:var(--color-correct)]">
-                        讲义解析里的解法图 · 只在讲解时出现，做题时不给孩子看
-                    </span>
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                        <span className="eyebrow text-[color:var(--color-correct)]">
+                            讲义解析里的解法图 · 只在讲解时出现，做题时不给孩子看
+                        </span>
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onMoveFigure('stem')}
+                            className="text-xs text-ink-faint hover:text-beam transition-colors"
+                        >
+                            ← 这其实是题干的图
+                        </button>
+                    </div>
                     <QuestionImage name={q.analysisImage} alt="讲义解析里的解法图" />
                 </div>
             )}
@@ -300,6 +324,30 @@ export function ReviewTab() {
         }
     }
 
+    /** 改判图的归属：分类判据是版面结构，讲义排版千奇百怪，总会有判错的时候 */
+    const moveFigure = async (questionId: string, to: 'analysis' | 'stem') => {
+        setBusyId(questionId)
+        setError(null)
+        try {
+            const res = await fetch(`/api/v1/bank/questions/${encodeURIComponent(questionId)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(
+                    to === 'analysis' ? { moveFigureToAnalysis: true } : { moveAnalysisToFigure: true },
+                ),
+            })
+            if (!res.ok) {
+                setError(await extractErrorMessage(res, '题库接口尚未就绪。'))
+                return
+            }
+            await load()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err))
+        } finally {
+            setBusyId(null)
+        }
+    }
+
     const visible = (list?.items ?? []).filter((q) => !skipped.has(q.id))
 
     return (
@@ -351,6 +399,7 @@ export function ReviewTab() {
                         }
                     }}
                     onSkip={() => setSkipped((s) => new Set(s).add(q.id))}
+                    onMoveFigure={(to) => void moveFigure(q.id, to)}
                 />
             ))}
         </div>

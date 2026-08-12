@@ -45,6 +45,17 @@ export interface LayoutItem {
   answerTop?: number;
   /** 这一页开头是不是上一页某题的续文 */
   continued: boolean;
+  /**
+   * 续文接的是哪一半：题干还没写完，还是上一页那道题的【答案】【解析】。
+   *
+   * 这个区分不能靠 answerTop 顶替。实测第5讲 p5：整个页首是上一页那道题
+   * 解析的后半截（推演表 + 结论 + 【标注】），【答案】标签在上一页，
+   * 模型只能指着【标注】说"答案框从 0.28 开始"，于是 0.05~0.27 的推演表
+   * 被判成"答案框之上"= 题干图——而那张表最后一行就是答案。
+   *
+   * 缺省当 answer：判不准时少一张题干图看得见，多给一张答案表看不见。
+   */
+  continuedKind?: "stem" | "answer";
 }
 
 export interface FigureSplit {
@@ -67,6 +78,16 @@ export interface FigureSplit {
 export function classifyFigures(item: LayoutItem): FigureSplit {
   const { figureBox, analysisFigureBox, answerTop } = item;
   const out: FigureSplit = {};
+
+  /**
+   * 续文接的是上一题的答案/解析时，**这一整块里没有题干**——题干在上一页。
+   * 所以它带的图一律是解析图，不必再看 answerTop（在续页上那个数没有意义：
+   * 【答案】标签留在了上一页，模型只能指着【标注】之类的东西作答）。
+   */
+  if (item.continued && item.continuedKind !== "stem") {
+    const box = figureBox ?? analysisFigureBox;
+    return box ? { analysisFigureBox: box } : {};
+  }
 
   // 知道灰框在哪时，位置说了算——模型偶尔会把两张图标反，而"图在灰框上面还是
   // 下面"是几何事实。不知道时（学生版没有答案框，或模型没答）就信它的标注：
@@ -113,6 +134,10 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
   **这一页开头就是上一页那道题的答案/解析时，answerTop 写 0**——
   那说明这一段里没有任何题干，图都是解法图
 - continued：只有第一道题可能为 true——当这一页开头是上一页某题的续文时
+- continuedKind：continued 为 true 时必填，二选一——
+  写 "stem" = 上一页那道题的**题干还没写完**（比如第二个小问、或配图落在了这一页）；
+  写 "answer" = 接的是上一页那道题的**【答案】【解析】**（推演表、分解图、结论都算）。
+  拿不准写 "answer"
 
 **跨页的那一半也要输出**，这是最容易漏的一处：
 - 只有「(2)」「②」这样一个小问，没有题号、看着不像一道完整的题 → 照样输出，continued 写 true
@@ -338,6 +363,9 @@ export function parseLayout(raw: string): LayoutItem[] {
         return top !== undefined && top >= 0 && top < 1 ? { answerTop: top } : {};
       })(),
       continued: o.continued === true,
+      ...(o.continued === true
+        ? { continuedKind: o.continuedKind === "stem" ? ("stem" as const) : ("answer" as const) }
+        : {}),
     });
   }
   items.sort((a, b) => (a.box?.[1] ?? 0) - (b.box?.[1] ?? 0) || a.index - b.index);
