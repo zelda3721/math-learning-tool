@@ -58,6 +58,8 @@ export interface Draft {
      * 这种数进了库，孩子做错会被判对、做对会被判错，所以必须先让家长看见。
      */
     answerUnverified?: boolean
+    /** 答案不唯一（巧填算符这类多解题）：对不上时交给家长，不判错 */
+    answerUnique?: boolean
 }
 
 export interface ConfirmResult {
@@ -117,6 +119,7 @@ export function normalizeDraft(raw: unknown): Draft | null {
             ? o.droppedSuggestions.filter((x): x is string => typeof x === 'string')
             : undefined,
         answerUnverified: o.answerUnverified === true,
+        answerUnique: o.answerUnique === false ? false : undefined,
     }
 }
 

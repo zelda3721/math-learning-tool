@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import type { Question } from "@mathtutor/schema";
 
-import { grade, parseNumeric, expressionsEquivalent, splitAnswerParts, deriveAnswerType } from "../src/grading.js";
+import { grade, parseNumeric, expressionsEquivalent, splitAnswerParts, deriveAnswerType, equationSatisfiesCondition } from "../src/grading.js";
 
 describe("parseNumeric", () => {
   it("handles integers, decimals, fractions, percents, units, fullwidth", () => {
@@ -267,5 +267,91 @@ describe("deriveAnswerType：按答案本身推，不信模型的标注", () => 
         expect(grade({ ...q, answerType: derived }, q.answer).correct, q.answer).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * 答案不唯一。
+ *
+ * 第8讲 巧填算符整讲都是这类题，讲义原文就写着「答案不唯一」，
+ * 还列着「方法一…方法五」。此前拿整串当一个答案比，荒唐到
+ * **参考答案自己列出的第一种解法都判错**。
+ */
+describe("答案不唯一", () => {
+  const q = (answer: string, unique?: boolean) => ({
+    answer,
+    answerType: deriveAnswerType(answer),
+    ...(unique === false ? { answerUnique: false } : {}),
+  });
+
+  it("参考答案用「或」列了几种时，命中任一都算对", () => {
+    const item = q("12×3+4=40 或 12+3×4=24");
+    expect(grade(item, "12×3+4=40").correct).toBe(true);
+    expect(grade(item, "12+3×4=24").correct).toBe(true);
+  });
+
+  it("参考答案没列、但同样满足条件的填法照样算对", () => {
+    // 1×2×3×4 用的是同一组数字、得数也是 24——它就是一个正确解法，
+    // 只是讲义没列出来。这正是"按条件验算"要救回来的那一类。
+    expect(grade(q("12×3+4=40 或 12+3×4=24"), "1×2×3×4=24").correct).toBe(true);
+  });
+
+  it("每一条都被条件否掉时是确凿的错", () => {
+    // 得数既不是 40 也不是 24
+    expect(grade(q("12×3+4=40 或 12+3×4=24"), "1+2+3+4=10").correct).toBe(false);
+  });
+
+  it("不是算术等式的多解答案，对不上就交给家长", () => {
+    expect(grade(q("甲和乙 或 丙和丁"), "甲和丙").method).toBe("pending");
+  });
+
+  it("「大于或等于」里的或不是分隔符", () => {
+    expect(grade(q("大于或等于5"), "大于或等于5").correct).toBe(true);
+  });
+
+  it("标了答案不唯一的题，对不上时交给家长而不是判错", () => {
+    const r = grade(q("1+2+3+4=10", false), "4+3+2+1=10");
+    expect(r.correct === true || r.method === "pending").toBe(true);
+  });
+
+  it("没标不唯一的普通题，答错照样判错", () => {
+    expect(grade(q("26"), "25").method).toBe("numeric");
+    expect(grade(q("26"), "25").correct).toBe(false);
+  });
+});
+
+/**
+ * 等式类：按条件验算，不按答案比对。
+ * 「使等式成立」的正确性在于满不满足条件，不在于写出来长什么样。
+ */
+describe("按条件验算等式", () => {
+  const q = (answer: string) => ({ answer, answerType: "expression" as const });
+
+  it("换一种同样正确的填法也算对", () => {
+    // 用的数字相同、得数相同、等式自己成立 → 就是对的
+    expect(grade(q("12+3×4=24"), "3×4+12=24").correct).toBe(true);
+    expect(grade(q("1+2+3+4=10"), "4+3+2+1=10").correct).toBe(true);
+  });
+
+  it("等式自己不成立 → 判错", () => {
+    expect(grade(q("1+2+3+4=10"), "1+2+3+4=11").correct).toBe(false);
+  });
+
+  it("得数不是题目要求的那个 → 判错", () => {
+    expect(grade(q("1+2+3+4=10"), "1×2×3×4=24").correct).toBe(false);
+  });
+
+  it("用了题目没给的数字 → 判错", () => {
+    // 凑出 10 了，但用的是 5、5，不是题目给的 1、2、3、4
+    expect(grade(q("1+2+3+4=10"), "5+5=10").correct).toBe(false);
+  });
+
+  it("1、2 拼成 12 与拆开用都认（比的是数位不是数）", () => {
+    expect(equationSatisfiesCondition("12+3×4=24", "12+3×4=24")).toBe(true);
+    expect(equationSatisfiesCondition("12+3×4=24", "1×2+3×4=14")).toBe(false);
+  });
+
+  it("带括号的填法", () => {
+    expect(grade(q("(1+2)×3+4=13"), "4+3×(2+1)=13").correct).toBe(true);
   });
 });

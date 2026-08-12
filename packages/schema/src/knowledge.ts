@@ -145,6 +145,14 @@ export const QuestionSchema = z.object({
    * 所以这类题在家长核对之前不进练习队列（见 questions.ts 的 practiceReady）。
    */
   answerUnverified: z.boolean().optional(),
+  /**
+   * 这道题的答案**不唯一**（巧填算符、数阵图、"举一个例子"这类）。
+   *
+   * 参考答案只是其中一种解法，拿它去比会把写出另一种正确解法的孩子判错——
+   * 而那是最伤的一种错。标了这个的题，对不上时转"交给家长确认"而不是判错。
+   * 等式类还能更进一步：按条件验算（见 grading.ts 的 equationSatisfiesCondition）。
+   */
+  answerUnique: z.boolean().optional(),
   analysis: z.string().optional(),
   /**
    * 原题原图：从讲义页上裁下来的那一块，孩子做题时看的就是它。

@@ -184,3 +184,44 @@ describe("photo grading", () => {
     expect(off.status).toBe(501);
   });
 });
+
+/**
+ * 待批改条数：导航角标用的。
+ *
+ * 判不准的作答转给家长是对的，但此前转过去就没下文了——孩子看到
+ * "已交给家长确认"，家长那边一点动静都没有，那几道题就一直悬着。
+ */
+describe("GET /api/v1/parent/pending-count", () => {
+  it("只回一个数，够导航挂角标", async () => {
+    const env = makeApp([makeQuestion({ id: "q1", answer: "乙和丁", answerType: "steps" })]);
+    const app = env.app;
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+
+    const before = (await (
+      await app.request(`/api/v1/parent/pending-count?learnerId=${learner.id}`)
+    ).json()) as { count: number };
+    expect(before.count).toBe(0);
+
+    env.repo.insertAttempt({
+      learnerId: learner.id,
+      questionId: "q1",
+      answer: "丙和丁",
+      correct: false,
+      hintLevelUsed: 0,
+      source: "daily",
+      needsReview: true,
+    });
+
+    const after = (await (
+      await app.request(`/api/v1/parent/pending-count?learnerId=${learner.id}`)
+    ).json()) as { count: number };
+    expect(after.count).toBe(1);
+  });
+
+  it("没有 learnerId 时回 0，不报错——角标不该把页面拖垮", async () => {
+    const { app } = makeApp([]);
+    const res = await app.request("/api/v1/parent/pending-count");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { count: number }).count).toBe(0);
+  });
+});

@@ -74,6 +74,20 @@ export function parentRoutes(state: AppState): Hono {
     });
   });
 
+  /**
+   * 待批改的条数。**只回一个数**，为的是能在导航上挂个角标常驻轮询——
+   * overview 那个接口要算错因模式、趋势、掌握度，扛不住这种频率。
+   *
+   * 为什么需要它：孩子做完题看到"已交给家长确认"，可家长那边一点动静都没有，
+   * 得自己想起来去翻。判不准转人工是对的，但转过去之后没人知道，
+   * 等于这道题就这么悬着了。
+   */
+  app.get("/pending-count", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ count: 0 });
+    return c.json({ count: state.repo.pendingReviewAttempts(learnerId, 200).length });
+  });
+
   // 判卷裁决：pending 作答此前不计掌握度，裁决后按结论补记（不污染证据基础）
   const VerdictSchema = z.object({
     attemptId: z.string(),
