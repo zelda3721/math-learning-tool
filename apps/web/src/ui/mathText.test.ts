@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitMath } from './MathText'
+import { splitMath, splitTables } from './MathText'
 
 describe('splitMath', () => {
     it('splits inline $...$ keeping surrounding text', () => {
@@ -77,5 +77,51 @@ describe('裸露的 LaTeX', () => {
         // 够用了——渲染出来是「√16 = 4」，只是等号没进公式字体
         expect(math('\\sqrt{16}=4')).toEqual(['\\sqrt{16}'])
         expect(math('∠1=45\\circ')).toEqual(['45\\circ'])
+    })
+})
+
+/**
+ * 题干里的表格。
+ *
+ * 统计类讲义的题干里表格是常客，而模型写出来的是 markdown 竖线
+ * （偶尔是 LaTeX tabular）。此前两种都原样糊给孩子——
+ * 「| 月份 | 1月 | 2月 |」这样一行行源码，孩子读不了。
+ */
+describe('题干里的表格', () => {
+    it('markdown 表格切成行列，分隔行丢掉', () => {
+        const input = '根据统计表回答：\n| 月份 | 1月 | 2月 |\n| :--- | :--- | :--- |\n| 产量 | 450 | 300 |\n（1）平均每月多少吨？'
+        const blocks = splitTables(input)
+        expect(blocks.map((b) => b.kind)).toEqual(['text', 'table', 'text'])
+        const table = blocks[1] as { rows: string[][] }
+        expect(table.rows).toEqual([
+            ['月份', '1月', '2月'],
+            ['产量', '450', '300'],
+        ])
+    })
+
+    it('LaTeX tabular 也解析成行列（实机上模型偶尔这么写）', () => {
+        const input =
+            '统计如下：\\begin{tabular}{|c|c|}\\hline 种类 & 合计 \\\\\\hline 五年级 & 66 \\\\\\hline\\end{tabular}后续'
+        const blocks = splitTables(input)
+        const table = blocks.find((b) => b.kind === 'table') as { rows: string[][] }
+        expect(table.rows).toEqual([
+            ['种类', '合计'],
+            ['五年级', '66'],
+        ])
+    })
+
+    it('待填的空格保留成空单元格', () => {
+        const input = '| 星期 | 一 | 二 |\n| 台数 |  | 45 |'
+        const table = splitTables(input)[0] as { rows: string[][] }
+        expect(table.rows[1]).toEqual(['台数', '', '45'])
+    })
+
+    it('单独一行竖线不算表格', () => {
+        const blocks = splitTables('绝对值 |x| 的意义')
+        expect(blocks.every((b) => b.kind === 'text')).toBe(true)
+    })
+
+    it('没有表格的题干原样一块', () => {
+        expect(splitTables('一个长方形长 8 厘米')).toEqual([{ kind: 'text', value: '一个长方形长 8 厘米' }])
     })
 })

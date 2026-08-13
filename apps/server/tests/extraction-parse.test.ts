@@ -104,3 +104,53 @@ describe("可选字段为 null 时不能丢题", () => {
     expect(parseExtractionOutcome('{"answer":"98"}', "elementary_upper").drafts).toHaveLength(0);
   });
 });
+
+/**
+ * 一题多问被拆散。
+ *
+ * 整页抽取的提示词写着"一行一道题"，模型于是把一题多问拆成了多行：
+ * 实机上「田田来到希望小学…统计如下(表格)」之后跟着三条孤儿小问，
+ * 「(3) 哪种标本的件数最多？」单独放着根本没法答。
+ */
+describe("被拆散的小问并回主题干", () => {
+  const line = (stem: string, answer: string) =>
+    JSON.stringify({ stem, answer, answerType: "numeric", difficulty: 2, level: "elementary_upper" });
+
+  it("主题干 + 三条小问 → 一道题", () => {
+    const raw = [
+      line("田田来到一所希望小学，五、六年级同学制作标本情况统计如下：", "168"),
+      line("(1) 根据统计表数据，将总数填入表格。", "40,72,56"),
+      line("(2) 绘制复式条形统计图。", "见解析"),
+      line("(3) 哪种标本的件数最多？", "植物"),
+    ].join("\n");
+    const r = parseExtractionOutcome(raw, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    const q = r.drafts[0]!;
+    expect(q.stem).toContain("统计如下");
+    expect(q.stem).toContain("(3) 哪种标本");
+    expect(q.answer).toBe("168；40,72,56；见解析；植物");
+  });
+
+  it("本来就以 (1) 开头的独立计算题不动", () => {
+    // 「(1) 127×123. (2) 229×221.」整体是一道题，模型没拆它时也别帮倒忙
+    const raw = line("(1) 127 × 123 . (2) 229 × 221 .", "15621；50609");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(1);
+  });
+
+  it("两道正常的题不会被并起来", () => {
+    const raw = [line("第一道题", "1"), line("第二道题", "2")].join("\n");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(2);
+  });
+
+  it("带圈编号也认", () => {
+    const raw = [line("主题干带表格", "10"), line("① 第一问", "3"), line("② 第二问", "7")].join("\n");
+    const r = parseExtractionOutcome(raw, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    expect(r.drafts[0]!.answer).toBe("10；3；7");
+  });
+
+  it("小问答案与主答案相同（模型两边都写）时不重复", () => {
+    const raw = [line("主题干", "42"), line("(1) 唯一的小问", "42")].join("\n");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts[0]!.answer).toBe("42");
+  });
+})

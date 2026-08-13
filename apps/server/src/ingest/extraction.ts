@@ -199,6 +199,47 @@ function lineObjects(text: string): string[] {
   return out;
 }
 
+/** 小问编号开头：「(1) …」「（2）…」「① …」 */
+const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/;
+
+/**
+ * 把被拆散的小问并回它的主题干。
+ *
+ * 整页抽取的提示词写着"一行一道题"，模型于是把一题多问拆成了多行：
+ * 实机上「田田来到希望小学…统计如下(表格)」之后跟着三条
+ * 「(1) 根据统计表数据…」「(2) 绘制统计图…」「(3) 哪种标本最多？」——
+ * 每条都当成了独立的题。孤儿小问没有表格没有图，
+ * 「(3) 哪种标本的件数最多？」单独放着根本没法答，
+ * 而且它们还会顶掉主题干的配图。
+ *
+ * 规则：以小问编号开头、且前面有主题干的，并进前面那道
+ * （题干接上去、答案用分号接、answerUnverified 取或）。
+ * 整份输出第一条就以 (1) 开头的不动——那道题本来就长那样
+ * （「(1) 127×123. (2) 229×221.」是一道计算题的两个小题）。
+ */
+export function coalesceSubQuestions(drafts: ExtractedDraft[]): ExtractedDraft[] {
+  const out: ExtractedDraft[] = [];
+  for (const d of drafts) {
+    const prev = out[out.length - 1];
+    if (!prev || !SUB_QUESTION_HEAD.test(d.stem.trim())) {
+      out.push(d);
+      continue;
+    }
+    const answers = [prev.answer, d.answer].map((a) => a.trim()).filter(Boolean);
+    out[out.length - 1] = {
+      ...prev,
+      stem: `${prev.stem.trimEnd()}\n${d.stem.trim()}`,
+      answer: [...new Set(answers)].join("；"),
+      // 两半的图不会都有；主题干那半的优先（小问是从它拆出去的）
+      figure: prev.figure ?? d.figure,
+      analysis: prev.analysis ?? d.analysis,
+      ...(prev.answerUnverified || d.answerUnverified ? { answerUnverified: true } : {}),
+      ...(prev.answerUnique === false || d.answerUnique === false ? { answerUnique: false } : {}),
+    };
+  }
+  return out;
+}
+
 export interface ParseOutcome {
   drafts: ExtractedDraft[];
   /** 被跳过的对象数（截断或格式坏掉）；> 0 时调用方应当提示 */
@@ -266,7 +307,8 @@ export function parseExtractionOutcome(raw: string, fallbackLevel: EducationLeve
     }
     return { drafts: [], skipped: 0, empty: true };
   }
-  return { drafts, skipped };
+  // 被拆散的小问并回主题干（详见 coalesceSubQuestions——孤儿小问没法答，还会顶掉配图）
+  return { drafts: coalesceSubQuestions(drafts), skipped };
 }
 
 /** 兼容既有调用方 */
