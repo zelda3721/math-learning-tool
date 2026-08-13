@@ -177,7 +177,8 @@
       "role": "upload"
     },
     "contentHash": "b5359cb08c296865",
-    "status": "verified"
+    "status": "verified",
+    "problemTypeId": "average-problem"
   },
   {
     "id": "5ff3ecb4-35af-4b84-92df-7066098460df",
@@ -800,7 +801,8 @@
       "role": "upload"
     },
     "contentHash": "ec9c8612cbcbe7ef",
-    "status": "verified"
+    "status": "verified",
+    "problemTypeId": "average-problem"
   },
   {
     "id": "23522722-f98f-4d90-bccb-107ee16ec138",
@@ -818,7 +820,8 @@
       "role": "upload"
     },
     "contentHash": "40515492075682a2",
-    "status": "verified"
+    "status": "verified",
+    "problemTypeId": "reverse-problem"
   },
   {
     "id": "aa814caa-56d1-491b-abad-5867a73b3830",
@@ -1213,7 +1216,8 @@
       "role": "upload"
     },
     "contentHash": "3986171b3295a6ad",
-    "status": "verified"
+    "status": "verified",
+    "problemTypeId": "reverse-problem"
   },
   {
     "id": "c2105b51-7447-4b17-ba45-1414a27dfa75",
@@ -1649,7 +1653,8 @@
       "role": "upload"
     },
     "contentHash": "5c38b87a6bb8e57c",
-    "status": "verified"
+    "status": "verified",
+    "problemTypeId": "magic-square"
   },
   {
     "id": "753c5da3-d941-4cbd-aba1-9fb52707192d",
@@ -1760,6 +1765,435 @@
       "role": "upload"
     },
     "contentHash": "5fa5229ab393f0fd",
+    "status": "verified"
+  },
+  {
+    "id": "d84e1f53-3d2f-4747-8b25-b7b7cdd3e551",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在下面题中填上适当的运算符号或括号，使等式成立：1 2 3 4 5 = 20",
+    "answer": "1+2-3+4×5=20; 1+2+3×4+5=20; (1+2-3+4)×5=20; 1+2×3×4-5=20",
+    "answerType": "numeric",
+    "analysis": "通过尝试不同的运算符号和括号组合，利用四则运算的优先级，使等式左边计算结果等于20。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0505624e4424b9fc",
+    "status": "verified"
+  },
+  {
+    "id": "77b1fabf-3e9d-4abf-9bf9-e01b4fa309dd",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在下式的相邻两数之间填上四则运算符号，使等式成立．9  2  3 = 3  3",
+    "answer": "9×2÷3=3+3",
+    "answerType": "numeric",
+    "analysis": "首先观察右端“3 3”，它有四种填法：3+3=6，3-3=0，3×3=9，3÷3=1；对于3+3=6，由于6为双数，左端唯一的双数2必须是“×”，试算可得，左端可填9×2÷3=6，所以只有一种填法：9×2÷3=3+3。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "70bc0c6fe1440a37",
+    "status": "verified"
+  },
+  {
+    "id": "e0bad112-2d48-4b61-b278-fe15e150b320",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "从+、-、×、÷、( )中，挑选出合适的符号，填入下列算式合适的地方，使等式成立．\n5 5 5 5 5 = 4",
+    "answer": "(5+5+5+5)÷5=4;5-5+5-5÷5=4",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "通过尝试不同的运算组合，发现 5×5=25，再减去三个5（即25-5-5-5=10，不对），或者利用除法构造1，如 5-(5+5+5)÷5=4，或者 5×5-5-5-5=4（25-15=10，不对，应为 5-(5+5+5)÷5=4 或 (5+5+5+5)÷5=4）。最简单的解法之一是 (5+5+5+5)÷5=4 或 5-(5+5+5)÷5=4。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1c568b3de968b84c",
+    "status": "verified"
+  },
+  {
+    "id": "b1f5a6e5-4ce7-47d4-a3c5-875d92e4d010",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "从+、-、×、÷、( )中，挑选出合适的符号，填入下列算式合适的地方，使等式成立。\n9 9 9 9 9 9 = 100",
+    "answer": "(999-99)÷9=100;99+9÷9+9-9=100;(9÷9+9)×(9÷9+9)=100;9×9+9+9÷9+9=100",
+    "answerType": "numeric",
+    "analysis": "通过凑数法或称象法，利用括号改变运算顺序，如(999-99)÷9=100。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f30e8006789b11ee",
+    "status": "verified"
+  },
+  {
+    "id": "4d76865e-3af5-4a9f-b9be-3900841349e5",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "在下面算式的适当地方，填上运算符号+、-、×、÷和（ ），使算式成立．1 2 3 4 5 6 = 3；",
+    "answer": "1+2-3+4+5-6=3",
+    "answerType": "numeric",
+    "analysis": "利用4×6=24或15+9=24的凑数思路，通过加减乘除组合得到结果。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f4b3831cdcc9ec9a",
+    "status": "verified"
+  },
+  {
+    "id": "2610ef55-a549-4400-870c-57b912f344d9",
+    "nodeIds": [
+      "add-sub-100",
+      "multiplication-table",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田、丁丁、牛牛组成一支战队玩密室逃脱游戏，第一个密室的门上有下图，要求在下图中的空格填入“+、-、×、÷”各一个，要使计算的结果最大，那么算式的结果最大是多少？\n5□5□5□5□5",
+    "answer": "29",
+    "answerType": "numeric",
+    "analysis": "要使结果最大，需让被减数尽可能大，减数尽可能小。通过组合可得 5×5+5-5÷5=29。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "68d4cff6a3c10933",
+    "status": "verified"
+  },
+  {
+    "id": "f533b327-035f-4aa1-9b8d-650d777142fd",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "顺利进入第二个密室，密室的保险柜上有下面的题目：在下面相邻两数之间，填上“+”或“-”，使等式成立． 6 5 4 3 2 1 = 11．",
+    "answer": "6-5+4+3+2+1=11;6+5-4+3+2-1=11;6+5+4-3-2+1=11;6+5+4-3-2+1=11",
+    "answerType": "numeric",
+    "analysis": "根据图片中的【标注】及算式，填入的符号依次为加号、加号、减号、减号、加号。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "aa4f2ffa5ae1471a",
+    "status": "verified"
+  },
+  {
+    "id": "70179fc4-3359-4922-90de-a4da98d92618",
+    "nodeIds": [
+      "add-sub-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "走出第二个密室，系统提示在下面有9个数，在相邻两个数之间都填上一个“+”或“-”，使得结果为31．请问：所有减数（即前面为减号的数）的乘积最大是多少？\n9 8 7 6 5 4 3 2 1 = 31",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "利用和差法，先算出总和45，再根据结果31求出减数之和为7，最后通过拆分7（如3+4）求最大乘积。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a2502a9a228f56d6",
+    "status": "verified"
+  },
+  {
+    "id": "c64ccec4-f2b0-407e-80bb-91eb3cf4c1ac",
+    "nodeIds": [
+      "numbers-10000",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "最后来到了终极密室，小怪物让在算式8×3+12÷4中添加括号来改变原来的运算顺序．如果只能添加一对括号，那么算式的结果最小是多少？",
+    "answer": "9",
+    "answerType": "numeric",
+    "analysis": "通过尝试添加括号改变运算顺序，比较三种情况的结果，得出最小值为9。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "dcfe30db67e17414",
+    "status": "verified",
+    "problemTypeId": "reverse-problem"
+  },
+  {
+    "id": "92705db8-74bd-4efa-beac-675c47fab77b",
+    "nodeIds": [
+      "add-sub-100",
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "成功逃离密室，主持人把100个桃子分给6支战队作为奖励，每支战队分得的桃子数都要含有数字6，最后让我们用加法算式表示分配方法，一起来试试吧！",
+    "answer": "60+16+6+6+6+6=100",
+    "answerType": "numeric",
+    "analysis": "通过个位分析，确定其中一支战队分得60个，一支分得16个，其余四支各分得6个，满足每支战队数字含6且总和为100。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "92af2d2f48ee3687",
+    "status": "verified"
+  },
+  {
+    "id": "1529c330-0a48-483d-9870-a6cf7d2aff39",
+    "nodeIds": [
+      "numbers-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "输的战队不服气，决定给其他战队出一道难题：在10□10□10□10□10的四个□中填入“+”“-”“×”“÷”运算符号各一个，所成的算式的最大值是（ ）。",
+    "options": [
+      "A. 104",
+      "B. 109",
+      "C. 114",
+      "D. 119"
+    ],
+    "answer": "B",
+    "answerType": "expression",
+    "analysis": "要使结果最大，需让加数最大（10×10）且减数最小（10÷10），算式为10×10+10-10÷10=109。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1a22f40194b07737",
+    "status": "verified"
+  },
+  {
+    "id": "7e223dd0-dcb7-4c2c-9393-2f18335bcf6e",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "5个只由数字8组成的自然数之和为1000，其中最大的数与第二大的数之差是多少？",
+    "answer": "800",
+    "answerType": "numeric",
+    "analysis": "由和为1000倒推，这5个数分别为888、88、8、8、8，最大数888与第二大数88之差为800。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a6d28dab7645e002",
+    "status": "verified"
+  },
+  {
+    "id": "f1dfd3cc-3ef8-4dba-a202-e042d475b71e",
+    "nodeIds": [
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "用3、9、9、5四个数字，在它们之间填上+、-、×、 ÷ 或 （ ），使得结果等于24。（每个数字只能用一次）",
+    "answer": "(9-5)×(9-3)=24;9÷3×5+9=24",
+    "answerType": "numeric",
+    "analysis": "利用括号改变运算顺序，如(9+9)×(5-3)=18×2=24。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9e519ee8a7e45471",
+    "status": "verified"
+  },
+  {
+    "id": "e71ac7c4-3f66-4f9d-8702-a687a08fdbb4",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "小数62.345中，6在十位，表示6个10；2在______位，表示______个______；3在______位，表示______个______；4在______位，表示______个______；5在______位，表示______个______。",
+    "answer": "个;2;1;十分;3;0.1;百分;4;0.01;千分;5;0.001",
+    "answerType": "numeric",
+    "analysis": "根据小数的数位顺序表，小数点左边从右往左依次是个位、十位...，右边从左往右依次是十分位、百分位...，据此填空。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "719124dcca0988a7",
+    "status": "verified"
+  },
+  {
+    "id": "4d203877-411f-4a6a-b58c-f0643b10eb83",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) 0.1按整数部分分类为______，按小数部分分类为______。\n(2) 0.333...按整数部分分类为______，按小数部分分类为______。\n(3) 2.56按整数部分分类为______，按小数部分分类为______。\n(4) 5.222...按整数部分分类为______，按小数部分分类为______。",
+    "answer": "(1) 纯小数;有限小数 (2) 纯小数;无限小数 (3) 带小数;有限小数 (4) 带小数;无限小数",
+    "answerType": "numeric",
+    "analysis": "根据有限小数和无限小数的定义进行判断。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c1eb33dd455ec5dd",
+    "status": "verified"
+  },
+  {
+    "id": "25251193-7621-4a0f-8f78-33724726f91e",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "比较下面两个数的大小：\n0.35 ____ 0.351 .\n4.99 ____ 5.1 .\n0.699 ____ 0.7 .\n2.567 ____ 25.67 .",
+    "answer": "<;<;<;<",
+    "answerType": "steps",
+    "analysis": "根据小数比较大小的规则，先比整数部分，整数部分相同再依次比较十分位、百分位、千分位等。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f775beff2a2aeacb",
+    "status": "verified"
+  },
+  {
+    "id": "3aa510cb-3f6d-4ec8-b8be-aa861043943a",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) 19.123的小数点向左移动两位，小数缩小为原来的____，变为____；向右移动三位，小数扩大____倍，变为____。\n(2) 把3.5282扩大10倍，只需把小数点向____移动____位，变为____；若扩大10000倍，再除以100，小数变为____。\n(3) 把2.06扩大____倍是2060；把591.3缩小为原来的____是0.05913；把625缩小为原来的____是6.25。",
+    "answer": "(1) 1/100; 0.19123; 1000; 19123 (2) 右; 1; 35.282; 352.82 (3) 1000; 1/10000; 1/100；",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "根据小数点移动引起小数大小变化的规律：小数点向右移动一位、两位、三位...，数就扩大到原来的10倍、100倍、1000倍...；小数点向左移动一位、两位、三位...，数就缩小到原来的1/10、1/100、1/1000...。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "53b6fe09207576b6",
+    "status": "verified"
+  },
+  {
+    "id": "25d1a8d6-3eb8-4c3a-87ef-a9538b75f470",
+    "nodeIds": [
+      "fraction",
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "分数与小数互化：(1)将分数化为小数：134/100 = ____，57/200 = ____。(2)将小数化为分数：0.032 = ____，0.43 = ____。",
+    "answer": "1.34, 0.285, 4/125, 43/100",
+    "answerType": "numeric",
+    "analysis": "分数化小数用分子除以分母；小数化分数先写成分母为10、100...的分数，再约分。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e7676747325bf499",
+    "status": "verified"
+  },
+  {
+    "id": "333c0a57-c1e0-4fcf-89db-63b1465cd9da",
+    "nodeIds": [
+      "decimal",
+      "fraction"
+    ],
+    "level": "elementary_upper",
+    "stem": "将50.032，50\\frac{1}{4}，49.99，50.00按照从小到大的顺序排列：",
+    "answer": "49.99 < 50.00 < 50.032 < 50\\frac{1}{4}",
+    "answerType": "steps",
+    "analysis": "将分数化为小数（50\\frac{1}{4}=50.25），然后比较小数大小即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "908ee1546be15872",
+    "status": "verified"
+  },
+  {
+    "id": "bce15c36-d045-4790-a549-63b41dbf8f8a",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师这周给大家布置的生活作业是：在生活中找到本周学习的“小数”．这个过程中，他们不仅觉得生活中处处有数学，而且觉得数学很有趣．先来复习一下课上学过的知识吧．乐乐老师在黑板上写下145.67和14.567两个数，要牛牛分别指出个位、十位、百位、十分位、百分位、千分位．粗心的牛牛看不出这两个数的区别，我们一起来回答这个问题吧．",
+    "answer": "145.67：百位1，十位4，个位5，十分位6，百分位7；14.567：十位1，个位4，十分位5，百分位6，千分位7",
+    "answerType": "numeric",
+    "analysis": "小数点左边从低位到高位依次是个位、十位、百位；小数点右边从高位到低位依次是十分位、百分位、千分位。",
+    "analysisImage": "05c9919903156409ad1cb6a9ae930d67.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "41acc0f72121b57d",
+    "status": "verified",
+    "problemTypeId": "sum-difference"
+  },
+  {
+    "id": "6dd404ea-5ea8-4809-8093-b4d5da516855",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "下课后，丁丁陪妈妈去超市，就发现了小数的存在．西瓜的单价为0.98元，特价的桃子10元3千克，请问桃子的单价是多少？按照小数的分类，西瓜和桃子的单价分别属于什么类型？",
+    "answer": "3.33...; 纯小数、有限小数; 带小数、无限小数",
+    "answerType": "numeric",
+    "analysis": "桃子单价为10÷3=3.33...元；0.98是纯小数、有限小数，3.33...是带小数、无限小数。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6aa7e163e3122731",
+    "status": "verified"
+  },
+  {
+    "id": "368ac0a6-f47f-46bb-bb42-20ca1c95fec3",
+    "nodeIds": [
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛下课后去商店买了10本作业本，花了5元，那么一本作业本多少钱？小数点如何移动？1000本多少钱？小数点如何移动？",
+    "answer": "0.5,500",
+    "answerType": "numeric",
+    "analysis": "一本作业本0.5元，小数点向左移动一位；1000本作业本500元，小数点向右移动两位。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "25402fa264fda9dd",
+    "status": "verified"
+  },
+  {
+    "id": "442f2d09-6bde-4b91-ae32-c8f23f6a84b1",
+    "nodeIds": [
+      "fraction",
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师看到大家交回来的生活作业很满意，于是接着给大家讲小数的其他知识．先在黑板上写下了几个分数：$\\frac{10}{3}$，$\\frac{3}{10}$，$5\\frac{199}{100}$．要求把它们转化为小数．",
+    "answer": "3.33···，0.3，6.99",
+    "answerType": "numeric",
+    "analysis": "分数化为小数的方法是分子除以分母，除不尽的一般保留到小数点后两位．",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "65a25146963427c3",
+    "status": "verified"
+  },
+  {
+    "id": "631ee1ea-2ce6-438a-8325-4520283410c2",
+    "nodeIds": [
+      "problem-solving-primary",
+      "decimal"
+    ],
+    "level": "elementary_upper",
+    "stem": "下课后，丁丁去文具店买了13本语文本，8本算术本，共用去10元．已知6本语文本的价钱与4本算术本的价钱相等．问：1本语文本、1本算术本各多少钱？",
+    "answer": "0.4,0.6",
+    "answerType": "numeric",
+    "analysis": "利用等量代换，将8本算术本换算成12本语文本，总本数变为25本，从而求出单价。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b77ea77dc5516a30",
     "status": "verified"
   }
 ]

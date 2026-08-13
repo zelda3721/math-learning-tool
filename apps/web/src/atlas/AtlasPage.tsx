@@ -242,6 +242,10 @@ export function AtlasPage() {
                     questionCount={questionCountOf.get(selectedId)}
                     verified={verifiedIds.has(selectedId)}
                     onVerified={handleVerified}
+                    // 题型不单独成星，挂在它所属的知识点下（反向索引）
+                    problemTypes={(data?.problemTypes ?? []).filter((t) =>
+                        (t.nodes ?? []).includes(selectedId),
+                    )}
                 />
             )}
         </div>

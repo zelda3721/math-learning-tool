@@ -18,6 +18,15 @@ interface NodeDetailProps {
     verified?: boolean
     /** 核验成功回调（父级同步 coverage / 覆写集合） */
     onVerified?: (id: string) => void
+    /**
+     * 这个知识点涵盖的题型。
+     *
+     * 星图上的星是**知识点**（大纲的骨架），题型不单独成星——
+     * 它是知识点在具体情境下的变体：「年龄问题」不是一个知识点，
+     * 它是「100以内加减法」加上「年龄差不变」这个情境。
+     * 所以题型挂在知识点下面：点开一颗星，才看得到它管着哪几类题。
+     */
+    problemTypes?: { id: string; name: string; essence?: string }[]
 }
 
 const chipStyle = (color: string) => ({ '--c': color }) as CSSProperties
@@ -30,6 +39,7 @@ export function NodeDetail({
     questionCount,
     verified,
     onVerified,
+    problemTypes,
 }: NodeDetailProps) {
     // 本地核验状态：按钮成功后立即翻徽章（父级 verified 覆写用于跨开合保持）
     const [localVerified, setLocalVerified] = useState(false)
@@ -149,6 +159,26 @@ export function NodeDetail({
                             </button>
                         ))}
                     </div>
+                </section>
+            )}
+
+            {problemTypes && problemTypes.length > 0 && (
+                <section className="mt-4">
+                    <h3 className="eyebrow mb-2">
+                        这个知识点管着这几类题
+                    </h3>
+                    <ul className="space-y-2">
+                        {problemTypes.map((t) => (
+                            <li key={t.id} className="rounded-[8px] bg-paper px-3 py-2">
+                                <p className="text-sm font-semibold text-ink">{t.name}</p>
+                                {/* 本质那句才是这类题唯一要讲的东西：
+                                    「年龄差永远不变」比十道年龄题都管用 */}
+                                {t.essence && (
+                                    <p className="mt-0.5 text-xs leading-relaxed text-ink-soft">{t.essence}</p>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
                 </section>
             )}
 

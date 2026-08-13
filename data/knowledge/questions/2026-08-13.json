@@ -1,0 +1,480 @@
+[
+  {
+    "id": "05afe41a-171e-429e-b111-d46a942478cd",
+    "nodeIds": [
+      "parallelogram-trapezoid"
+    ],
+    "level": "elementary_upper",
+    "stem": "( 1 ) 平行四边形的对边平行且 ______ .\n( 2 ) 平行四边形的两条对角线互相 ______ .\n( 3 ) 等腰梯形的两条腰 ______ .\n( 4 ) 菱形的两条对角线互相 ______ .",
+    "answer": "相等,平分,相等,垂直",
+    "answerType": "steps",
+    "analysis": "根据平行四边形、等腰梯形和菱形的性质填空：平行四边形对边相等、对角线互相平分；等腰梯形两腰相等；菱形对角线互相垂直。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "369fc0e176c918f1",
+    "status": "verified"
+  },
+  {
+    "id": "c8d30d05-7914-400e-892b-05b6dbec8f95",
+    "nodeIds": [
+      "parallelogram-trapezoid",
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，在平行四边形$ABCD$中，$CD=8$厘米，$AE=3$厘米，请问平行四边形的面积是多少？",
+    "answer": "24",
+    "answerType": "numeric",
+    "analysis": "平行四边形的面积等于底乘高，即$8 \\times 3 = 24$平方厘米。",
+    "figureImage": "a729a4fd7f7837805c0c07601ff8381f.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a7b136593b23e5f3",
+    "status": "verified"
+  },
+  {
+    "id": "2122e6c0-66cf-461e-99b3-72a991ef0991",
+    "nodeIds": [
+      "parallelogram-trapezoid",
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，已知梯形的上底$AB=6$厘米，下底$CD=10$厘米，$EF$垂直$CD$于点$F$，$EF=8$厘米，求梯形$ABCD$的面积．",
+    "answer": "64",
+    "answerType": "numeric",
+    "analysis": "根据梯形面积公式：（上底+下底）×高÷2，代入数据计算即可。",
+    "figureImage": "ea4fa12fe4f0aaf8e80779db9ca76123.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "499715b9741c1088",
+    "status": "verified"
+  },
+  {
+    "id": "d84c6ebf-16e5-4e38-bc1a-0ed84f1bfa71",
+    "nodeIds": [
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "两个边长为10厘米的正方形互相错开3厘米，那么图中阴影平行四边形的面积是多少平方厘米？",
+    "answer": "91",
+    "answerType": "numeric",
+    "analysis": "阴影平行四边形的底是$10-3=7$厘米，高是$10+3=13$厘米，面积为$7 \\times 13 = 91$平方厘米。",
+    "figureImage": "166c6c87d8be43ae5d1256ac1978ae0f.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6e0a708308416814",
+    "status": "verified"
+  },
+  {
+    "id": "eac9d294-3698-4681-b8b2-ccca8164f929",
+    "nodeIds": [
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "已知平行四边形$ABCD$的面积是$48$平方厘米，高$AE=8$厘米，求$CD$是多少厘米？",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "根据平行四边形面积公式$S=ah$，已知面积和高，底$CD=48\\div8=6$厘米。",
+    "figureImage": "a813d562cb9d50211df1506c3e060f81.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0c53b421ae35debc",
+    "status": "verified"
+  },
+  {
+    "id": "6dcec5c8-39d8-4f58-b014-81047d8d0062",
+    "nodeIds": [
+      "area-units",
+      "parallelogram-trapezoid"
+    ],
+    "level": "elementary_upper",
+    "stem": "已知直角梯形 $ABCD$ 的面积为 $48$ 平方厘米，$AB=6$ 厘米，$CD=10$ 厘米，求直角梯形 $ABCD$ 的高 $AD$ 是多少厘米．",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "根据梯形面积公式 $S=(a+b)h\\div2$，逆推得高 $h=2S\\div(a+b)$，代入数据计算即可。",
+    "figureImage": "8e3d61f94d0f94fe15359dc742be47ef.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "59093c54e8964f6b",
+    "status": "verified"
+  },
+  {
+    "id": "55053985-552a-4ed3-9dd6-e6694e3cdaf0",
+    "nodeIds": [
+      "area-units",
+      "triangle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "时间过得真快啊，一转眼，几位小朋友要离开图形王国了，图形王国的国王说：\"进来容易出去难，要想出去先做题，做出来送你们回家，做不出来留下来……\" 田田拿到的题目：已知平行四边形$ABCD$的面积为32平方厘米，三角形$CED$是一个直角三角形．已知$AE = 5$厘米，$CE = 4$厘米，那么阴影部分的面积是多少？",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "根据平行四边形面积公式求出底边$AD$的长，进而求出$DE$的长，最后利用三角形面积公式计算阴影部分面积。",
+    "figureImage": "0bc07ebbe4edf166be0d1b100cb91e6e.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e19d376bfc944e66",
+    "status": "verified"
+  },
+  {
+    "id": "1888ea23-2631-41b3-b3a3-94092bea0be5",
+    "nodeIds": [
+      "area-units",
+      "parallelogram-trapezoid"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁拿到的题目：如图，从梯形$ABCD$中分出两个平行四边形$ABEF$和$CDFG$，其中$ABEF$的面积为$60$平方米，且$AF$的长度为$10$米，$FD$的长度为$4$米，$EG$是$BE$的$2$倍．求平行四边形$CDFG$和梯形$ABCD$的面积．",
+    "answer": "24, 144",
+    "answerType": "numeric",
+    "analysis": "先根据平行四边形$ABEF$的面积和底$AF$求出高，再利用该高和底$FD$求出平行四边形$CDFG$的面积，最后根据梯形上下底和高求梯形面积。",
+    "figureImage": "c6cd8ae1e7e2c21af034879e76d9c6c4.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "13d47677d35307df",
+    "status": "verified"
+  },
+  {
+    "id": "9354e059-b019-4ac6-abf0-83a7a797a083",
+    "nodeIds": [
+      "area-units",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛拿到的题目：两个相同的直角三角形如图所示重叠在一起，求阴影部分的面积．(单位：厘米)",
+    "answer": "17",
+    "answerType": "numeric",
+    "analysis": "阴影部分面积等于直角梯形OEFC的面积，即(7+10)×2÷2=17。",
+    "figureImage": "55972bc4627657db90b6b0a0a166fdae.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "099457668df6919a",
+    "status": "verified"
+  },
+  {
+    "id": "6146a671-8b1b-47ff-a976-f3738f5cc18b",
+    "nodeIds": [
+      "area-units",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图两个相同的直角梯形重叠在一起，求阴影部分的面积．(单位：米)．",
+    "answer": "100",
+    "answerType": "numeric",
+    "analysis": "利用容斥原理（或等积变形），阴影部分的面积等于下方梯形的面积，即 (15 + 10) × 8 ÷ 2 = 100。",
+    "figureImage": "8a97b95b00de8976a0abff3c3429e3d0.jpg",
+    "analysisImage": "6d130cf255224c0b702423760d60690a.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b49265102d0824bc",
+    "status": "verified"
+  },
+  {
+    "id": "c7069d4c-c9b1-4784-9add-f82dfee42846",
+    "nodeIds": [
+      "area-units",
+      "solid-plane-shapes"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田因为慌张，算错了答案，焦急中想到乐乐老师曾经讲过的题目：如图，平行四边形$ABCD$的$BC$边的长度为$10$厘米，$FG \\perp AD$于点$G$，$FG$的长为$10$厘米，求平行四边形$BCEF$的面积比平行四边形$ABCD$的面积大多少平方厘米？",
+    "answer": "100",
+    "answerType": "numeric",
+    "analysis": "平行四边形$BCEF$和平行四边形$ABCD$的底相等，平行四边形$BCEF$的高比平行四边形$ABCD$的高多$FG$，所以面积差为底$BC$乘以$FG$，即$10 \\times 10 = 100$平方厘米。",
+    "figureImage": "6c7eef561db5417cc59b12e1f0015814.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9b78c66983455f2c",
+    "status": "verified"
+  },
+  {
+    "id": "f80815f4-9974-41a1-b610-b86a48982537",
+    "nodeIds": [
+      "triangle-primary",
+      "parallelogram-trapezoid",
+      "area-units"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁冷静下来后仔细思考这个题目：如图，在直角梯形$ABCD$中，三角形$ABE$和三角形$CDE$都是等腰直角三角形，且$BC=20$厘米，那么直角梯形$ABCD$的面积是多少？",
+    "answer": "200",
+    "answerType": "numeric",
+    "analysis": "根据题意，直角梯形ABCD中，三角形ABE和三角形CDE均为等腰直角三角形，可知上底AB等于高AE，下底CD等于高DE，因此梯形的高AD等于上底与下底之和（AD=AB+CD），利用梯形面积公式S=(AB+CD)×AD÷2，代入BC=20（即AD=20）计算得出面积为200平方厘米。",
+    "figureImage": "66351ac575014c89eb54c9484f9c2aac.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "49e5a34a9fb2ffca",
+    "status": "verified"
+  },
+  {
+    "id": "60a385f4-4b2c-4579-81ca-9b8e6ace39ce",
+    "nodeIds": [
+      "area-units",
+      "parallelogram-trapezoid"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，小正方形$ABCD$放在大正方形$EFGH$的上面．已知小正方形的边长为$4$厘米，且梯形$AEHD$的面积是$28$平方厘米．那么梯形$AFGD$的面积是多少平方厘米？",
+    "answer": "98",
+    "answerType": "numeric",
+    "analysis": "先由梯形$AEHD$的面积和上底求出下底$EH$，进而得到大正方形边长，再求出梯形$AFGD$的高与下底，最后利用梯形面积公式求解。",
+    "figureImage": "9e1887f5001c86bf7fa7bb7f2f3d7352.jpg",
+    "analysisImage": "b69a69cfcee5c1ba1a87f809009f6f66.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6f711b5ed4b6053c",
+    "status": "verified"
+  },
+  {
+    "id": "69d76874-2935-4168-867b-c4fd9ffa0905",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "五年前，小明与爸爸的年龄和是42岁，今年小明年龄的4倍还比爸爸的年龄小2岁，小明和爸爸相差多少岁？",
+    "answer": "32",
+    "answerType": "numeric",
+    "analysis": "先求出今年两人的年龄和，利用和倍公式求出小明年龄，再求爸爸年龄，最后求差。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "fd40ecd92813ee6a",
+    "status": "verified",
+    "problemTypeId": "sum-difference"
+  },
+  {
+    "id": "156e462e-23c0-4d70-848e-db37677d64c1",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "爸爸比女儿大28岁，已知5年后爸爸的年龄将是女儿年龄的3倍．那么爸爸和女儿今年的年龄各是多少？",
+    "answer": "37,9",
+    "answerType": "numeric",
+    "analysis": "利用年龄差不变原理，5年后爸爸比女儿大28岁，且是女儿年龄的3倍，即28岁是女儿5年后年龄的2倍，可求出女儿5年后年龄，进而求出今年年龄。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "38237645dff8d215",
+    "status": "verified"
+  },
+  {
+    "id": "44f11294-4b0a-45df-80dd-57660a74a352",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "今年乐乐老师32岁，丁丁11岁，等到两人年龄和为53岁时，丁丁几岁了？",
+    "answer": "16",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "先求出两人的年龄差，利用年龄和减去年龄差再除以2即可求出丁丁的年龄。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "03dca04bc712ef3c",
+    "status": "verified"
+  },
+  {
+    "id": "c67e8038-e9ff-4bd1-917e-b86bcc386698",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "兄弟俩今年年龄和为30岁，当哥哥像弟弟现在这样大时，弟弟的年龄恰好是哥哥当时年龄的一半，哥哥今年几岁？",
+    "answer": "18",
+    "answerType": "numeric",
+    "analysis": "利用年龄差不变原理，通过线段图分析可知，兄弟俩今年的年龄和相当于5份，其中哥哥占3份，即 30 \\div 5 \times 3 = 18 岁。",
+    "analysisImage": "813983d150c2cb3d74bfe1f26d7c14f9.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1c65e84120fa6571",
+    "status": "verified"
+  },
+  {
+    "id": "88ef49cd-05b8-4e3a-9c1c-dc7853114097",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "今年楠楠的年龄等于父母的年龄差，4年后，楠楠的年龄等于父母年龄差的3倍．今年楠楠多少岁？",
+    "answer": "2",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "利用年龄差不变原理，4年后楠楠年龄是年龄差的3倍，即楠楠今年年龄的4倍，故今年年龄为4÷(3-1)=2岁。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "44b117fd4ff3e905",
+    "status": "verified"
+  },
+  {
+    "id": "c034e02e-1311-41ab-b24a-eb3db6e75694",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "今年爸爸年龄是儿子的5倍，15年后，爸爸年龄是儿子年龄的2倍．问：现在父子的年龄各是多少岁？",
+    "answer": "5,25",
+    "answerType": "numeric",
+    "analysis": "利用年龄差不变的原理，通过倍数关系的变化求出儿子今年的年龄，进而求出爸爸的年龄。",
+    "analysisImage": "a8a02a3c37b96d4366c21ceac36b3899.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c959a9d45d558010",
+    "status": "verified",
+    "problemTypeId": "age-problem"
+  },
+  {
+    "id": "03a99f71-f3c4-40b6-b634-479d4e206ac5",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师带着她的同学们外出游玩，晚上为了体验农村生活，他们选在一户农家借宿．这家一共有三口人，年龄和是72岁，爸爸妈妈同岁，妈妈年龄是孩子年龄的4倍．你知道这家三口各是多少岁吗？",
+    "answer": "8,32,32",
+    "answerType": "numeric",
+    "analysis": "将孩子年龄看作1份，父母各为4份，共9份，用72除以9求出孩子年龄，再求父母年龄。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "000623ad88ce9bde",
+    "status": "verified"
+  },
+  {
+    "id": "e3ff4675-efa6-4314-a458-9d0d2e23c4b8",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "睡觉前，丁丁发现牛牛有点儿不开心，一问才知道牛牛想哥哥了．牛牛有一个比他大12岁的哥哥，再过4年牛牛的年龄就是哥哥的一半了，你知道牛牛的哥哥今年多少岁吗？",
+    "answer": "20",
+    "answerType": "numeric",
+    "analysis": "利用年龄差不变原理，4年后哥哥比牛牛大12岁且是牛牛年龄的2倍，算出4年后哥哥24岁，减去4年得今年20岁。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1c57100bd1654502",
+    "status": "verified"
+  },
+  {
+    "id": "2c7963a4-eec7-48a8-ba6b-edd54a8ec9b4",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田本想想安慰牛牛，可是她这时候也想起了自己的弟弟．今年田田的年龄是弟弟年龄的4倍，20年后，田田的年龄比弟的年龄的2倍少12岁，今年田田和弟弟各多少岁？",
+    "answer": "4，16",
+    "answerType": "numeric",
+    "analysis": "设弟弟今年x岁，田田今年4x岁，根据20年后的年龄关系列方程求解。",
+    "analysisImage": "98d4b1f471e7992c01c908c57269f385.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a10886f966bea5c9",
+    "status": "verified"
+  },
+  {
+    "id": "5d731f60-a3f8-498b-a54b-26865c70d893",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师看到同学们比较伤感，便给大家讲了一个小故事：小鲸鱼对妈妈说，“妈妈，我到你的岁数时，您就43岁了”，鲸鱼妈妈笑着说，“我像你一样大的时候，你只有1岁”．你知道小鲸鱼和妈妈现在的年龄吗？",
+    "answer": "15,29",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "根据题意，1岁与43岁之间相差3个年龄差，算出年龄差为14岁，进而求得小鲸鱼15岁，妈妈29岁。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6168117d172b2b7a",
+    "status": "verified"
+  },
+  {
+    "id": "8c5ac173-463b-4a2c-b872-4091b9166690",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "农家小女孩也参与进来，她笑嘻嘻地说：我的祖父今年75岁，他有三个孙子，年龄分别为：17岁、15岁、13岁，再过多少年，三个孙子的年龄之和就等于祖父的年龄了？",
+    "answer": "15",
+    "answerType": "numeric",
+    "analysis": "先求三个孙子今年年龄之和，再求与祖父的年龄差，最后用年龄差除以每年年龄和的增长差（3-1=2）即可。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a4c67bdc6a861b32",
+    "status": "verified"
+  },
+  {
+    "id": "ba458536-3c5a-45be-816b-591351e1c4ee",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普第一个算出小鲸鱼的年龄，这时它来了兴致，主动出了一道难题考考小朋友们：今年父亲的年龄是儿子的6倍，20年后，父亲的年龄是儿子年龄的2倍，问：现在父子的年龄各是多少岁？",
+    "answer": "5,30",
+    "answerType": "numeric",
+    "analysis": "图片内容为‘练习13’的题干部分，属于一道新的年龄问题，未包含上一题（父子年龄）的答案或解析。",
+    "analysisImage": "86e8aa71c91e74dfcc0a1bc624550e49.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "ddb0e999446f0332",
+    "status": "verified",
+    "problemTypeId": "age-problem"
+  },
+  {
+    "id": "568bc45e-15cb-4972-8046-81ad0d093520",
+    "nodeIds": [
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲对乙说：“我在你这么大岁数的时候，你的岁数是我今年岁数的一半．”乙对甲说：“我到你这么大岁数的时候，你的岁数是我今年岁数的2倍减7．”问：甲、乙二人现在各多少岁？",
+    "answer": "28, 21",
+    "answerType": "numeric",
+    "analysis": "设甲乙分别x、y岁，根据年龄差不变列方程组求解，或利用年龄差倍数关系分析。",
+    "analysisImage": "605b0b13a571992752291c6b32bb243c.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1b00a015a08f3d4f",
+    "status": "verified"
+  }
+]
