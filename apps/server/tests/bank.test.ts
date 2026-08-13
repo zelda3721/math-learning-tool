@@ -204,6 +204,8 @@ describe("POST /api/v1/bank/rematch-types", () => {
         id: "q1",
         stem: "今年爸爸年龄是儿子的5倍，15年后，爸爸年龄是儿子年龄的2倍，今年儿子几岁？",
         level: "elementary_upper",
+        // 年龄问题声明它属于这个知识点——对得上才补挂（见下面那条）
+        nodeIds: ["problem-solving-primary"],
       }),
       makeQuestion({ id: "q2", stem: "计算 12 + 13", problemTypeId: "planting-trees" }),
     ]);
@@ -222,6 +224,30 @@ describe("POST /api/v1/bank/rematch-types", () => {
    * 会撞上高中的「解三角形与三角恒等」——实测 22 个匹配里 12 个是这么来的。
    * 关键词分数分不清"题里出现了三角形"和"这是一道解三角形的题"，学段能。
    */
+  /**
+   * 题型表自己声明了它属于哪些知识点，那就是现成的一致性校验。
+   * 一开始没用它，代价立刻显形：10 道自动补挂里错了 2 道——
+   * 「小精灵每小时做12朵纸花」（答案 6a+b）被判成平均数问题，
+   * 「145.67 的百位是1」被判成和差问题。关键词分数只看字面撞了几个词。
+   */
+  it("题型声明的知识点与题目挂的对不上，就不补挂", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({
+        id: "q1",
+        stem: "今年爸爸年龄是儿子的5倍，15年后，爸爸年龄是儿子年龄的2倍，今年儿子几岁？",
+        level: "elementary_upper",
+        // 年龄问题声明的是 100以内加减法 / 问题解决与策略，这里挂的都不是
+        nodeIds: ["decimal"],
+      }),
+    ]);
+    const app = createApp(env.state);
+    const body = (await (
+      await app.request("/api/v1/bank/rematch-types", { method: "POST" })
+    ).json()) as { changed: number };
+    expect(body.changed).toBe(0);
+    expect(env.state.questions.byId.get("q1")!.problemTypeId).toBeUndefined();
+  });
+
   it("小学的题不会被判成高中题型", async () => {
     const env = tempFixtureEnv([
       makeQuestion({
@@ -237,5 +263,47 @@ describe("POST /api/v1/bank/rematch-types", () => {
       const stage = env.state.knowledge.problemTypes.find((t) => t.id === got)!.stage;
       expect(stage).toBe("primary");
     }
+  });
+})
+
+/**
+ * 题库体检。
+ *
+ * 知识点与题型都是模型标的，标歪了不报错，只让诊断悄悄跑偏——
+ * 一道小学数图形的题挂上高中「解三角形」，星图上就点亮一颗不该亮的星。
+ * 这里只查不用读题就能判的那几类。
+ */
+describe("GET /api/v1/bank/audit", () => {
+  it("挑出结构上对不上的地方", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "ok", stem: "正常题", nodeIds: [NODE_A] }),
+      makeQuestion({ id: "cross", stem: "小学题挂了初中知识点", level: "elementary_upper", nodeIds: ["quadrilateral"] }),
+      makeQuestion({ id: "ghost", stem: "知识点不存在", nodeIds: ["查无此点"] }),
+      makeQuestion({ id: "mismatch", stem: "题型对不上", nodeIds: [NODE_A], problemTypeId: "age-problem" }),
+    ]);
+    const app = createApp(env.state);
+    const body = (await (await app.request("/api/v1/bank/audit")).json()) as {
+      total: number;
+      byKind: Record<string, number>;
+      findings: { kind: string; questionId: string; detail: string }[];
+    };
+    const kinds = (id: string) => body.findings.filter((f) => f.questionId === id).map((f) => f.kind);
+    expect(kinds("ok")).toEqual([]);
+    expect(kinds("cross")).toContain("知识点跨学段");
+    expect(kinds("ghost")).toContain("知识点不存在");
+    expect(kinds("mismatch")).toContain("题型与知识点对不上");
+  });
+
+  it("说清为什么可疑，而不只是标红", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "m", stem: "题型对不上", nodeIds: [NODE_A], problemTypeId: "age-problem" }),
+    ]);
+    const app = createApp(env.state);
+    const body = (await (await app.request("/api/v1/bank/audit")).json()) as {
+      findings: { detail: string }[];
+    };
+    // 要指出题型声明的是哪些知识点，人才知道该改哪一头
+    expect(body.findings[0]!.detail).toContain("年龄问题");
+    expect(body.findings[0]!.detail).toContain("声明属于");
   });
 })

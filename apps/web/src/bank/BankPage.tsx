@@ -60,6 +60,16 @@ export function BankPage() {
     const [status, setStatus] = useState('')
     const [batch, setBatch] = useState('')
     const [blockedOnly, setBlockedOnly] = useState(false)
+    /**
+     * 题库体检。知识点与题型都是模型标的，标歪了不报错，
+     * 只会让诊断悄悄跑偏——一道小学数图形的题挂上高中「解三角形」，
+     * 星图上就点亮一颗不该亮的星，而谁也不会发现。
+     */
+    const [audit, setAudit] = useState<{
+        total: number
+        byKind: Record<string, number>
+        findings: { kind: string; questionId: string; stem: string; detail: string }[]
+    } | null>(null)
     const [editing, setEditing] = useState<BankQuestion | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
 
@@ -223,11 +233,57 @@ export function BankPage() {
                     <Button size="sm" variant="ghost" onClick={() => void rematchTypes()}>
                         补挂题型
                     </Button>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                            void fetch('/api/v1/bank/audit')
+                                .then((r) => r.json())
+                                .then(setAudit)
+                        }
+                    >
+                        体检
+                    </Button>
                     <span className="text-xs text-ink-faint">
                         抽取时模型标的类型常有错；标成"解答步骤"的题不判对错、也不计掌握度
                     </span>
                 </div>
                 {notice && <p className="text-xs text-[color:var(--color-correct)]">{notice}</p>}
+
+                {audit && (
+                    <div className="rounded-[10px] border border-rule bg-paper p-3 space-y-2">
+                        <p className="text-sm">
+                            体检出 <span className="numeric font-semibold">{audit.total}</span> 处可疑
+                            {audit.total === 0 && ' —— 知识点与题型都对得上'}
+                        </p>
+                        {audit.total > 0 && (
+                            <>
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                    {Object.entries(audit.byKind).map(([kind, n]) => (
+                                        <span key={kind} className="rounded-md bg-plate px-2 py-0.5 text-ink-soft">
+                                            {kind} <span className="numeric">{n}</span>
+                                        </span>
+                                    ))}
+                                </div>
+                                <ul className="space-y-1.5 text-xs">
+                                    {audit.findings.slice(0, 30).map((f, i) => (
+                                        <li key={i} className="leading-relaxed">
+                                            <span className="text-[color:var(--color-wrong)]">{f.kind}</span>
+                                            <span className="text-ink-faint"> · {f.stem}…</span>
+                                            <br />
+                                            <span className="text-ink-soft">{f.detail}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                {/* 跨学段不一定是错：培优/奥数材料确实会用到下一学段的内容。
+                                    所以这里只报可疑、不自动改——判断留给人 */}
+                                <p className="text-xs text-ink-faint">
+                                    「跨学段」不一定是错：培优材料常用到下一学段的内容。这里只挑出可疑的，改不改由你定。
+                                </p>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
 
             {busy && !list ? (

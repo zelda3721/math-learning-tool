@@ -260,8 +260,7 @@
       "role": "upload"
     },
     "contentHash": "fd40ecd92813ee6a",
-    "status": "verified",
-    "problemTypeId": "sum-difference"
+    "status": "verified"
   },
   {
     "id": "156e462e-23c0-4d70-848e-db37677d64c1",

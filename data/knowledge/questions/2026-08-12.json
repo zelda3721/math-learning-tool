@@ -177,8 +177,7 @@
       "role": "upload"
     },
     "contentHash": "b5359cb08c296865",
-    "status": "verified",
-    "problemTypeId": "average-problem"
+    "status": "verified"
   },
   {
     "id": "5ff3ecb4-35af-4b84-92df-7066098460df",
@@ -801,8 +800,7 @@
       "role": "upload"
     },
     "contentHash": "ec9c8612cbcbe7ef",
-    "status": "verified",
-    "problemTypeId": "average-problem"
+    "status": "verified"
   },
   {
     "id": "23522722-f98f-4d90-bccb-107ee16ec138",
@@ -820,8 +818,7 @@
       "role": "upload"
     },
     "contentHash": "40515492075682a2",
-    "status": "verified",
-    "problemTypeId": "reverse-problem"
+    "status": "verified"
   },
   {
     "id": "aa814caa-56d1-491b-abad-5867a73b3830",
@@ -2123,8 +2120,7 @@
       "role": "upload"
     },
     "contentHash": "41acc0f72121b57d",
-    "status": "verified",
-    "problemTypeId": "sum-difference"
+    "status": "verified"
   },
   {
     "id": "6dd404ea-5ea8-4809-8093-b4d5da516855",
