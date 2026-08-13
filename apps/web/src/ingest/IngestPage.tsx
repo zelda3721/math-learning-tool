@@ -1041,8 +1041,9 @@ export function IngestPage() {
                                                 <span
                                                     key={n.nodeId}
                                                     className="inline-flex items-center gap-1.5 rounded-md border border-beam/20 bg-beam-wash px-2.5 py-1 text-xs text-beam"
+                                                    title={n.nodeId}
                                                 >
-                                                    {n.nodeId}
+                                                    {n.name ?? n.nodeId}
                                                     {typeof n.confidence === 'number' && (
                                                         <span className="numeric opacity-70">
                                                             {Math.round(n.confidence * 100)}%

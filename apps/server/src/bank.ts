@@ -26,6 +26,7 @@ import { contentHashOf } from "./questions.js";
 import { pruneFigures } from "./figures.js";
 import { practiceReady } from "./questions.js";
 import { deriveAnswerType } from "./grading.js";
+import { runSemanticAudit } from "./bankAudit.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
 
@@ -145,10 +146,26 @@ export function bankRoutes(state: AppState): Hono {
       return out;
     };
 
+    /**
+     * 把知识点与题型的**名字**一并下发。
+     *
+     * 界面上只显示 id（add-sub-100、age-problem）没法用——家长抽检时
+     * 得对着 id 猜那是什么。名字只有服务端手里有（图谱在这边），
+     * 与其让前端再拉一份图谱回去自己映射，不如这里顺手带上。
+     */
+    const named = matched.slice(offset, offset + limit).map((item) => ({
+      ...item,
+      nodeNames: item.nodeIds.map((n) => state.knowledge.index.nodeById.get(n)?.name ?? n),
+      problemTypeName: item.problemTypeId
+        ? (state.knowledge.problemTypes.find((t) => t.id === item.problemTypeId)?.name ??
+          item.problemTypeId)
+        : undefined,
+    }));
+
     return c.json({
       total: all.length,
       matched: matched.length,
-      items: matched.slice(offset, offset + limit),
+      items: named,
       facets: {
         status: count((i) => i.status),
         level: count((i) => i.level),
@@ -215,6 +232,43 @@ export function bankRoutes(state: AppState): Hono {
     const byKind: Record<string, number> = {};
     for (const f of findings) byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
     return c.json({ total: findings.length, byKind, findings: findings.slice(0, 200) });
+  });
+
+  /**
+   * 语义核查：逐题问模型「这道题挂的知识点对不对」。
+   *
+   * /audit 查的是结构（id 在不在、学段对不对），不用读题。但常见的错法是
+   * **结构上完全合法、语义上不对**——一道数图形的题挂着「表内乘除法」，
+   * 两边都在图谱里、学段也对，谁也看不出来。那种只能读题才判得了。
+   *
+   * 本地模型单卡，逐题串行，170 道约 20 分钟，所以做成后台任务带进度。
+   * **只报不改**：知识点是诊断与复习的地基，模型说的不算数，人看过才算。
+   */
+  app.post("/semantic-audit", async (c) => {
+    if (!state.jobs) return c.json({ error: "任务存储未初始化" }, 503);
+    const body = (await c.req.json().catch(() => ({}))) as { limit?: number; batch?: string };
+    const all = listBatches(state.config.dataDir).flatMap((b) =>
+      body.batch && b.batch !== body.batch ? [] : b.items,
+    );
+    const questions = all.slice(0, Math.min(body.limit ?? all.length, 500));
+    if (questions.length === 0) return c.json({ error: "没有题可核查" }, 400);
+
+    const jobId = state.jobs.create(`语义核查 ${questions.length} 道`);
+    const jobs = state.jobs;
+    // fire-and-forget：与批量抽取同一套（单机单发，进程内异步，进度写 job 表供轮询）
+    void runSemanticAudit(state.knowledge, questions, {
+      onProgress: (p) => jobs.updateProgress(jobId, p as never),
+    })
+      .then((result) => jobs.finish(jobId, result))
+      .catch((err) => jobs.fail(jobId, String(err)));
+    return c.json({ jobId, total: questions.length }, 202);
+  });
+
+  app.get("/jobs/:id", (c) => {
+    if (!state.jobs) return c.json({ error: "任务存储未初始化" }, 503);
+    const job = state.jobs.get(c.req.param("id"));
+    if (!job) return c.json({ error: "任务不存在" }, 404);
+    return c.json(job);
   });
 
   /** 就地修改。走同一套校验：手改 JSON 绕得过，这条通道绕不过 */

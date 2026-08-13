@@ -307,3 +307,36 @@ describe("GET /api/v1/bank/audit", () => {
     expect(body.findings[0]!.detail).toContain("声明属于");
   });
 })
+
+/**
+ * 界面上只显示 id（add-sub-100、age-problem）没法用——家长抽检时
+ * 得对着 id 猜那是什么。名字只有服务端手里有（图谱在这边），
+ * 与其让前端再拉一份图谱回去自己映射，不如接口顺手带上。
+ */
+describe("下发中文名而不只是 id", () => {
+  it("题库列表带知识点与题型的名字", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({
+        id: "q1",
+        stem: "年龄题",
+        nodeIds: ["problem-solving-primary"],
+        problemTypeId: "age-problem",
+      }),
+    ]);
+    const app = createApp(env.state);
+    const body = (await (await app.request("/api/v1/bank/questions")).json()) as {
+      items: { nodeNames: string[]; problemTypeName?: string }[];
+    };
+    expect(body.items[0]!.nodeNames).toEqual(["问题解决与策略"]);
+    expect(body.items[0]!.problemTypeName).toBe("年龄问题");
+  });
+
+  it("图谱里没有的 id 原样回显，不能显示成空", async () => {
+    const env = tempFixtureEnv([makeQuestion({ id: "q1", stem: "题", nodeIds: ["查无此点"] })]);
+    const app = createApp(env.state);
+    const body = (await (await app.request("/api/v1/bank/questions")).json()) as {
+      items: { nodeNames: string[] }[];
+    };
+    expect(body.items[0]!.nodeNames).toEqual(["查无此点"]);
+  });
+})

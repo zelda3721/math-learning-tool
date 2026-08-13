@@ -67,6 +67,8 @@ const ConfirmSchema = z.object({
 
 interface LocatedDraft extends ExtractedDraft {
   suggestedNodeIds: string[];
+  suggestedNodeNames?: string[];
+  suggestedProblemTypeName?: string;
   suggestedProblemTypeId?: string;
   confidence: number;
   /** 模型提了但图谱里没有的说法（抽检时能看出它想选什么、我们缺什么节点） */
@@ -94,6 +96,14 @@ function locateDraft(state: AppState, draft: ExtractedDraft): LocatedDraft {
   return {
     ...draft,
     suggestedNodeIds: snapped.nodeIds,
+    // 界面上只显示 id 家长没法核对，名字一并带上
+    suggestedNodeNames: snapped.nodeIds.map(
+      (n) => state.knowledge.index.getNode(n)?.name ?? n,
+    ),
+    suggestedProblemTypeName: snapped.problemTypeId
+      ? (state.knowledge.problemTypes.find((t) => t.id === snapped.problemTypeId)?.name ??
+        snapped.problemTypeId)
+      : undefined,
     suggestedProblemTypeId: snapped.problemTypeId ?? ptMatches[0]?.id,
     // 模型点名过的题置信度不该被关键词分数拖低：那个分数量的是字面重合，
     // 而模型量的是题意。仍保留下限，让家长知道哪些是猜的。
@@ -481,7 +491,12 @@ export function ingestRoutes(state: AppState): Hono {
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const items = state.questions.all
       .filter((q) => (status ? q.status === status : true))
-      .slice(0, limit);
+      .slice(0, limit)
+      // 名字只有服务端手里有；界面上只显示 id 家长没法核对
+      .map((q) => ({
+        ...q,
+        nodeNames: q.nodeIds.map((n) => state.knowledge.index.getNode(n)?.name ?? n),
+      }));
     return c.json({
       total: state.questions.all.length,
       extracted: state.questions.all.filter((q) => q.status === "extracted").length,
