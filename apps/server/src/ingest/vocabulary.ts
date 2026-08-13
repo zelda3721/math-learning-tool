@@ -85,6 +85,14 @@ export function snapToGraph(
   knowledge: Knowledge,
   proposed: { nodeIds?: unknown; problemTypeId?: unknown },
   stem: string,
+  /**
+   * 一个都吸不上时，要不要退回关键词匹配。
+   *
+   * **抽取时要**（总比让题目没有知识点强），**核查时不要**：
+   * 核查报告的是"模型建议改成什么"，退回关键词就会报出一条模型根本没提过的建议，
+   * 人照着改反而把对的改坏。默认 true 是为了不动既有调用。
+   */
+  fallbackToOffline = true,
 ): SnapResult {
   const byId = knowledge.index.nodeById;
   const byName = new Map(knowledge.graph.nodes.map((n) => [n.name, n.id]));
@@ -105,7 +113,7 @@ export function snapToGraph(
   }
 
   // 一个都没吸上时退回离线匹配器——总比让题目没有知识点强
-  if (out.length === 0) {
+  if (out.length === 0 && fallbackToOffline) {
     for (const m of matchOffline(knowledge.index, stem, 3)) push(out, m.id);
   }
 

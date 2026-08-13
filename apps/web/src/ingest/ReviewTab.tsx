@@ -15,6 +15,7 @@ interface ReviewQuestion {
     difficulty: number
     level?: Level
     nodeIds: string[]
+    nodeNames?: string[]
     options?: string[]
     analysis?: string
     sourceFile?: string
@@ -47,6 +48,9 @@ function normalizeQuestion(raw: unknown): ReviewQuestion | null {
             typeof o.difficulty === 'number' ? Math.min(5, Math.max(1, Math.round(o.difficulty))) : 3,
         level: typeof o.level === 'string' && o.level in LEVEL_LABELS ? (o.level as Level) : undefined,
         nodeIds: Array.isArray(o.nodeIds) ? o.nodeIds.filter((x): x is string => typeof x === 'string') : [],
+        nodeNames: Array.isArray(o.nodeNames)
+            ? o.nodeNames.filter((x): x is string => typeof x === 'string')
+            : undefined,
         options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : undefined,
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
         sourceFile: typeof source.file === 'string' ? source.file : undefined,
@@ -180,12 +184,13 @@ function QuestionCard({
 
             {q.nodeIds.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                    {q.nodeIds.map((n) => (
+                    {q.nodeIds.map((n, i) => (
                         <span
                             key={n}
+                            title={n}
                             className="inline-flex items-center rounded-md border border-beam/20 bg-beam-wash px-2.5 py-1 text-xs text-beam"
                         >
-                            {n}
+                            {q.nodeNames?.[i] ?? n}
                         </span>
                     ))}
                 </div>

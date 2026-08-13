@@ -21,7 +21,10 @@ interface BankQuestion {
     difficulty: number
     level: string
     nodeIds: string[]
+    /** 知识点的中文名（服务端一并下发；缺省退回 id） */
+    nodeNames?: string[]
     problemTypeId?: string
+    problemTypeName?: string
     analysis?: string
     status: string
     answerUnverified?: boolean
@@ -69,6 +72,30 @@ export function BankPage() {
         total: number
         byKind: Record<string, number>
         findings: { kind: string; questionId: string; stem: string; detail: string }[]
+    } | null>(null)
+    /**
+     * 语义核查：逐题问模型「这道题挂的知识点对不对」。
+     * 本地模型单卡逐题串行，170 道要跑二十来分钟，所以是后台任务 + 轮询。
+     */
+    const [semantic, setSemantic] = useState<{
+        status: string
+        progress?: { done?: number; total?: number; disputed?: number }
+        result?: {
+            checked: number
+            byKind?: Record<string, number>
+            disputed: {
+                questionId: string
+                stem: string
+                current: string[]
+                currentNames?: string[]
+                suggested: string[]
+                suggestedNames?: string[]
+                why: string
+                kind?: string
+            }[]
+            dropped: string[]
+        }
+        error?: string
     } | null>(null)
     const [editing, setEditing] = useState<BankQuestion | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
@@ -126,6 +153,32 @@ export function BankPage() {
         const body = (await res.json()) as { changed?: number; error?: string }
         setNotice(res.ok ? `已给 ${body.changed} 道题补上题型` : (body.error ?? '补挂失败'))
         void load()
+    }
+
+    /** 起一个语义核查任务，然后轮询进度（跑得久，不能卡在一个请求里） */
+    const startSemanticAudit = async () => {
+        setSemantic({ status: 'running' })
+        const res = await fetch('/api/v1/bank/semantic-audit', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+        })
+        const body = (await res.json()) as { jobId?: string; error?: string }
+        if (!res.ok || !body.jobId) {
+            setSemantic({ status: 'failed', error: body.error ?? '起不来' })
+            return
+        }
+        const poll = window.setInterval(() => {
+            void fetch(`/api/v1/bank/jobs/${body.jobId}`)
+                .then((r) => r.json())
+                .then((job: { status: string; progress?: unknown; result?: unknown; error?: string }) => {
+                    setSemantic(job as never)
+                    if (job.status !== 'running') window.clearInterval(poll)
+                })
+                .catch(() => {
+                    /* 网络抖一下不必中断轮询 */
+                })
+        }, 3000)
     }
 
     const removeOne = async (q: BankQuestion) => {
@@ -226,28 +279,130 @@ export function BankPage() {
                         <span className="text-xs text-ink-faint">导错一整份材料时用它，比一条条删快</span>
                     </div>
                 )}
-                <div className="flex items-center gap-3">
-                    <Button size="sm" variant="ghost" onClick={() => void reclassify()}>
-                        重新归类答案类型
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void rematchTypes()}>
-                        补挂题型
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                            void fetch('/api/v1/bank/audit')
-                                .then((r) => r.json())
-                                .then(setAudit)
-                        }
-                    >
-                        体检
-                    </Button>
-                    <span className="text-xs text-ink-faint">
-                        抽取时模型标的类型常有错；标成"解答步骤"的题不判对错、也不计掌握度
-                    </span>
+                {/* 题库维护那几件事。此前用 ghost（纯文字）画，看着不像按钮，
+                    用户根本没发现它们能点——工具区就该有边框有底 */}
+                <div className="rounded-[10px] border border-rule bg-paper p-3 space-y-2">
+                    <p className="eyebrow">题库维护</p>
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => void reclassify()}>
+                            重新归类答案类型
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => void rematchTypes()}>
+                            补挂题型
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                                void fetch('/api/v1/bank/audit')
+                                    .then((r) => r.json())
+                                    .then(setAudit)
+                            }
+                        >
+                            体检（查结构）
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={semantic?.status === 'running'}
+                            onClick={() => void startSemanticAudit()}
+                        >
+                            {semantic?.status === 'running' ? '语义核查中…' : '语义核查（逐题问模型）'}
+                        </Button>
+                    </div>
+                    <p className="text-xs text-ink-faint">
+                        体检查的是结构（id 在不在、学段对不对），秒回；语义核查要逐题问模型，几百道要二十来分钟。
+                    </p>
                 </div>
+
+                {semantic && (
+                    <div className="rounded-[10px] border border-rule bg-paper p-3 space-y-2">
+                        {semantic.status === 'running' && (
+                            <p className="text-sm text-beam">
+                                逐题核查中{' '}
+                                <span className="numeric">
+                                    {semantic.progress?.done ?? 0} / {semantic.progress?.total ?? '…'}
+                                </span>
+                                {(semantic.progress?.disputed ?? 0) > 0 && (
+                                    <span className="text-ink-soft">
+                                        {' '}
+                                        · 已发现 <span className="numeric">{semantic.progress!.disputed}</span> 处存疑
+                                    </span>
+                                )}
+                                <span className="ml-2 text-xs text-ink-faint">本地模型逐题跑，几百道要二十来分钟</span>
+                            </p>
+                        )}
+                        {semantic.status === 'failed' && (
+                            <p className="text-sm text-wrong">核查失败：{semantic.error}</p>
+                        )}
+                        {semantic.result && (
+                            <>
+                                <p className="text-sm">
+                                    核查 <span className="numeric font-semibold">{semantic.result.checked}</span> 道，
+                                    <span className="numeric font-semibold text-[color:var(--color-wrong)]">
+                                        {semantic.result.byKind?.actionable ?? semantic.result.disputed.length}
+                                    </span>{' '}
+                                    道值得改
+                                    {(semantic.result.byKind?.['cross-stage'] ?? 0) > 0 && (
+                                        <span className="text-ink-faint">
+                                            {' '}
+                                            · 另有{' '}
+                                            <span className="numeric">
+                                                {semantic.result.byKind!['cross-stage']}
+                                            </span>{' '}
+                                            条建议跨了学段（多半是把小学题往方程上带，别照着改）
+                                        </span>
+                                    )}
+                                    {(semantic.result.byKind?.narrower ?? 0) > 0 && (
+                                        <span className="text-ink-faint">
+                                            {' '}
+                                            ·{' '}
+                                            <span className="numeric">{semantic.result.byKind!.narrower}</span>{' '}
+                                            条只是想少挂一个
+                                        </span>
+                                    )}
+                                </p>
+                                <ul className="space-y-2 text-xs">
+                                    {semantic.result.disputed.map((d) => (
+                                        <li
+                                            key={d.questionId}
+                                            className={`leading-relaxed ${
+                                                d.kind && d.kind !== 'actionable' ? 'opacity-50' : ''
+                                            }`}
+                                        >
+                                            {d.kind === 'cross-stage' && (
+                                                <span className="mr-1 text-ink-faint">[跨学段]</span>
+                                            )}
+                                            {d.kind === 'narrower' && (
+                                                <span className="mr-1 text-ink-faint">[想少挂一个]</span>
+                                            )}
+                                            <span className="text-ink">{d.stem}…</span>
+                                            <br />
+                                            <span className="text-ink-faint">
+                                                现在：{(d.currentNames ?? d.current).join('、')}
+                                            </span>
+                                            {' → '}
+                                            <span className="text-beam">
+                                                建议：{(d.suggestedNames ?? d.suggested).join('、')}
+                                            </span>
+                                            <br />
+                                            <span className="text-ink-soft">{d.why}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                {/* 模型提了但图谱里没有的说法，是"我们缺哪个节点"的线索 */}
+                                {semantic.result.dropped.length > 0 && (
+                                    <p className="text-xs text-ink-faint">
+                                        模型还提到「{semantic.result.dropped.join('、')}」，图谱里没有对应节点——补大纲的线索。
+                                    </p>
+                                )}
+                                <p className="text-xs text-ink-faint">
+                                    只报不改：知识点是诊断与复习的地基，模型说的不算数。要改请点进那道题编辑。
+                                </p>
+                            </>
+                        )}
+                    </div>
+                )}
                 {notice && <p className="text-xs text-[color:var(--color-correct)]">{notice}</p>}
 
                 {audit && (
@@ -347,13 +502,27 @@ export function BankPage() {
                                     <QuestionFigure figure={q.figure as FigureSpec} width={320} />
                                 </div>
                             ) : null}
-                            {q.nodeIds.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {q.nodeIds.map((n) => (
-                                        <span key={n} className="rounded-md border border-beam/20 bg-beam-wash px-2 py-0.5 text-xs text-beam">
-                                            {n}
+                            {(q.nodeIds.length > 0 || q.problemTypeId) && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {q.nodeIds.map((n, i) => (
+                                        <span
+                                            key={n}
+                                            title={n}
+                                            className="rounded-md border border-beam/20 bg-beam-wash px-2 py-0.5 text-xs text-beam"
+                                        >
+                                            {q.nodeNames?.[i] ?? n}
                                         </span>
                                     ))}
+                                    {/* 题型和知识点不是一回事，别混成一排一样的胶囊：
+                                        知识点是大纲的骨架，题型是它在具体情境下的变体 */}
+                                    {q.problemTypeId && (
+                                        <span
+                                            title={q.problemTypeId}
+                                            className="rounded-md border border-rule bg-plate px-2 py-0.5 text-xs text-ink-soft"
+                                        >
+                                            题型 · {q.problemTypeName ?? q.problemTypeId}
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -446,7 +615,11 @@ function EditDialog({
                         />
                     </Field>
                 </div>
-                <Field label="知识点 id（逗号分隔；图谱里没有的会被拒绝）">
+                <Field
+                    label={`知识点（逗号分隔的 id；当前：${
+                        question.nodeNames?.join('、') || '（无）'
+                    }）`}
+                >
                     <input className="input-hero !text-base !py-2" value={nodeIds} onChange={(e) => setNodeIds(e.target.value)} />
                 </Field>
                 <Field label="解析">

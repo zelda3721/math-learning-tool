@@ -22,6 +22,8 @@ export const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
 
 export interface NodeSuggestion {
     nodeId: string
+    /** 中文名。界面上只显示 id（add-sub-100）家长没法核对 */
+    name?: string
     confidence?: number
 }
 
@@ -71,18 +73,21 @@ export interface ConfirmResult {
 let draftSeq = 0
 
 /** 容错归一化：suggestedNodeIds 可能是 string[] 或 {nodeId,confidence}[]，也可能落在 nodeIds */
-export function normalizeNodes(raw: unknown): NodeSuggestion[] {
+export function normalizeNodes(raw: unknown, names?: unknown): NodeSuggestion[] {
     if (!Array.isArray(raw)) return []
+    const nameAt = (i: number) =>
+        Array.isArray(names) && typeof names[i] === 'string' ? (names[i] as string) : undefined
     const out: NodeSuggestion[] = []
-    for (const item of raw) {
+    for (const [i, item] of raw.entries()) {
         if (typeof item === 'string') {
-            out.push({ nodeId: item })
+            out.push({ nodeId: item, name: nameAt(i) })
         } else if (item && typeof item === 'object') {
-            const o = item as { nodeId?: unknown; id?: unknown; confidence?: unknown }
+            const o = item as { nodeId?: unknown; id?: unknown; name?: unknown; confidence?: unknown }
             const nodeId = typeof o.nodeId === 'string' ? o.nodeId : typeof o.id === 'string' ? o.id : null
             if (nodeId) {
                 out.push({
                     nodeId,
+                    name: typeof o.name === 'string' ? o.name : nameAt(i),
                     confidence: typeof o.confidence === 'number' ? o.confidence : undefined,
                 })
             }
@@ -110,7 +115,7 @@ export function normalizeDraft(raw: unknown): Draft | null {
         level,
         options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : undefined,
         analysis: typeof o.analysis === 'string' ? o.analysis : undefined,
-        nodes: normalizeNodes(o.suggestedNodeIds ?? o.nodeIds),
+        nodes: normalizeNodes(o.suggestedNodeIds ?? o.nodeIds, o.suggestedNodeNames ?? o.nodeNames),
         figureImage: typeof o.figureImage === 'string' ? o.figureImage : undefined,
         analysisImage: typeof o.analysisImage === 'string' ? o.analysisImage : undefined,
         figure: o.figure,
