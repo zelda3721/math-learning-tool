@@ -545,3 +545,40 @@ describe("repairJsonEscapes", () => {
     expect(obj.analysis).toContain("\\div");
   });
 });
+
+describe("题干图不许越过答案线", () => {
+  /**
+   * 实机：练习4（五次测验统计图）的图框上边在题干里、下边伸进了【答案】灰框，
+   * 裁出来的"题干配图"底部印着「【答案】92」——正是要孩子算的平均分。
+   */
+  const item = (over: Partial<LayoutItem> = {}): LayoutItem => ({
+    index: 1,
+    label: "练习4",
+    preview: "如图，是牛牛五次数学测验成绩的统计图",
+    hasFigure: true,
+    continued: false,
+    box: [0.08, 0.05, 0.92, 0.6],
+    answerTop: 0.4,
+    ...over,
+  });
+
+  it("下边越线的题干图裁到答案线为止", () => {
+    const out = classifyFigures(item({ figureBox: [0.5, 0.1, 0.92, 0.55] }));
+    expect(out.stemFigureBox).toEqual([0.5, 0.1, 0.92, 0.4]);
+  });
+
+  it("裁完剩不下什么就整个不要——宁可没图也不能把答案递过去", () => {
+    const out = classifyFigures(item({ figureBox: [0.5, 0.39, 0.92, 0.55] }));
+    expect(out.stemFigureBox).toBeUndefined();
+  });
+
+  it("没越线的不动", () => {
+    const out = classifyFigures(item({ figureBox: [0.5, 0.1, 0.92, 0.35] }));
+    expect(out.stemFigureBox).toEqual([0.5, 0.1, 0.92, 0.35]);
+  });
+
+  it("没有答案线（学生版）时不裁", () => {
+    const out = classifyFigures(item({ answerTop: undefined, figureBox: [0.5, 0.1, 0.92, 0.55] }));
+    expect(out.stemFigureBox).toEqual([0.5, 0.1, 0.92, 0.55]);
+  });
+})

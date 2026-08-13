@@ -241,6 +241,41 @@ export function carryableText(preview: string, label: string): string | undefine
     return text
 }
 
+/** 小问编号开头：「(1) …」「（2）…」「① …」 */
+const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/
+
+/**
+ * 把被拆散的小问并回它的主题干（分层路径版）。
+ *
+ * 服务端的 coalesceSubQuestions 管的是整页抽取；分层路径的拆散发生得更早——
+ * **版面那趟**就把 (1)(2)(3) 切成了独立条目，每条各走一次内容抽取，
+ * 到这里已经是三份独立草稿了。同一页里相邻的小问草稿并回前面那道：
+ * 题干接上、答案用分号接、图用先有的那张（小问是从主题干拆出去的，图在主干上）。
+ * 整页第一份就以 (1) 开头的不动——那道题本来就长那样。
+ */
+export function mergeSubQuestionDrafts(drafts: Draft[]): Draft[] {
+    const out: Draft[] = []
+    for (const d of drafts) {
+        const prev = out[out.length - 1]
+        if (!prev || !SUB_QUESTION_HEAD.test(d.stem.trim())) {
+            out.push(d)
+            continue
+        }
+        const answers = [prev.answer, d.answer].map((a) => a.trim()).filter(Boolean)
+        out[out.length - 1] = {
+            ...prev,
+            stem: `${prev.stem.trimEnd()}\n${d.stem.trim()}`,
+            answer: [...new Set(answers)].join('；'),
+            figureImage: prev.figureImage ?? d.figureImage,
+            analysisImage: prev.analysisImage ?? d.analysisImage,
+            analysis: prev.analysis ?? d.analysis,
+            nodes: prev.nodes.length > 0 ? prev.nodes : d.nodes,
+            answerUnverified: prev.answerUnverified || d.answerUnverified,
+        }
+    }
+    return out
+}
+
 export function todayString(): string {
     const d = new Date()
     const mm = String(d.getMonth() + 1).padStart(2, '0')

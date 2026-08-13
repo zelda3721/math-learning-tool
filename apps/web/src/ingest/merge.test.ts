@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTail, carryableText, looksLikeQuestion, mergeContinued } from './shared'
+import { applyTail, carryableText, looksLikeQuestion, mergeContinued, mergeSubQuestionDrafts } from './shared'
 import type { Draft } from './shared'
 
 /**
@@ -168,5 +168,36 @@ describe('carryableText', () => {
         ['空的', '   ', '练习5'],
     ])('不像题干的不传：%s', (_why, preview, label) => {
         expect(carryableText(preview, label)).toBeUndefined()
+    })
+})
+
+describe('mergeSubQuestionDrafts', () => {
+    /**
+     * 分层路径的拆散发生在版面那趟：(1)(2)(3) 被切成独立条目，
+     * 各走一次内容抽取，到草稿层已是三份孤儿。实机上练习6
+     * （科普读物折线图 + 三个小问）就是这么被拆的，孤儿小问还把
+     * 图形规格的报错也带了出来。
+     */
+    it('相邻的小问草稿并回主题干，图用主干那张', () => {
+        const merged = mergeSubQuestionDrafts([
+            draft({ stem: '根据统计图回答下列问题．', answer: '', figureImage: 'CHART' }),
+            draft({ key: 'k2', stem: '（1）四年级喜欢看科普读物的学生人数是多少？', answer: '57' }),
+            draft({ key: 'k3', stem: '（2）丁丁是哪个年级的？', answer: '五年级' }),
+        ])
+        expect(merged).toHaveLength(1)
+        expect(merged[0]!.stem).toContain('（2）丁丁')
+        expect(merged[0]!.answer).toBe('57；五年级')
+        expect(merged[0]!.figureImage).toBe('CHART')
+    })
+
+    it('第一份就以 (1) 开头的不动——那道题本来就长那样', () => {
+        const merged = mergeSubQuestionDrafts([draft({ stem: '(1) 127×123. (2) 229×221.', answer: '15621；50609' })])
+        expect(merged).toHaveLength(1)
+    })
+
+    it('正常的两道题不受影响', () => {
+        expect(
+            mergeSubQuestionDrafts([draft({ stem: '甲题', answer: '1' }), draft({ key: 'k2', stem: '乙题', answer: '2' })]),
+        ).toHaveLength(2)
     })
 })
