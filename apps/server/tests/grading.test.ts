@@ -355,3 +355,26 @@ describe("按条件验算等式", () => {
     expect(grade(q("(1+2)×3+4=13"), "4+3×(2+1)=13").correct).toBe(true);
   });
 });
+
+describe("条目序号不能把数字咬掉", () => {
+  /**
+   * 「15,29」一度被切成 ["5","9"]——序号规则把「15」的 1 当成了编号。
+   * 于是一道答案是 15 和 29 的题，参考答案原样写回都判错。
+   * 序号后面必须跟着分隔符或非数字：「1亚洲」是编号，「15」不是。
+   */
+  it.each([
+    ["两个两位数", "15,29", ["15", "29"]],
+    ["三个数", "1,2,3", ["1", "2", "3"]],
+    ["带序号的文字清单", "1亚洲、2大洋洲", ["1亚洲、2大洋洲"]],
+    ["带标点的序号", "1. 甲，2. 乙", ["1. 甲，2. 乙"]],
+  ])("%s：「%s」", (_why, answer, want) => {
+    expect(splitAnswerParts(answer)).toEqual(want);
+  });
+
+  it("15,29 原样写回判对", () => {
+    const q = { answer: "15,29", answerType: deriveAnswerType("15,29") };
+    expect(grade(q, "15,29").correct).toBe(true);
+    expect(grade(q, "15，29").correct).toBe(true);
+    expect(grade(q, "15").correct).toBe(false);
+  });
+});

@@ -222,9 +222,19 @@ function stripEnumeration(parts: string[]): string[] {
   if (parts.length < 2) return parts;
   const stripped: string[] = [];
   for (let i = 0; i < parts.length; i += 1) {
-    const m = /^(\d+)\s*[.、．:：)）]?\s*(.+)$/.exec(parts[i]!);
-    if (!m || Number(m[1]) !== i + 1 || !m[2]!.trim()) return parts;
-    stripped.push(m[2]!.trim());
+    const m = /^(\d+)(\s*[.、．:：)）]\s*|\s+)?(.+)$/.exec(parts[i]!);
+    if (!m || Number(m[1]) !== i + 1) return parts;
+    const rest = m[3]!.trim();
+    const separated = Boolean(m[2]?.trim()) || /^\D/.test(rest);
+    /**
+     * 序号后面必须跟着分隔符或非数字。
+     *
+     * 少了这一条，「15,29」会被读成序号 1 加内容 5、序号 2 加内容 9——
+     * 于是一道答案是 15 和 29 的题，参考答案原样写回都判错。
+     * 「1亚洲」是编号（后面是汉字），「15」不是（后面还是数字）。
+     */
+    if (!rest || !separated) return parts;
+    stripped.push(rest);
   }
   return stripped;
 }
