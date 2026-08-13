@@ -203,6 +203,10 @@ export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）
 {"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerUnique":true,"answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；图里的数字务必看准；
+- 题干里的**表格用 markdown 竖线格式**写（| 月份 | 1月 | 2月 |，每行一排），
+  不要用 LaTeX 的 tabular；待填的空格留空即可；
+- **一题多问是一道题**：把 (1)(2)(3) 连同共用的题干写进同一个 stem，
+  千万不要拆成几道——拆开后小问没有表格没有图，根本没法答；
 - 分数、根号、角度这些**要写成 LaTeX 并用 $ 包起来**：$50\\frac{1}{4}$、$\\sqrt{16}$、$45^\\circ$。
   不加 $ 的话界面上会原样显示成源码；带分数要连整数部分一起包进去；
 - answer 只写最终答案（数值题只写数，不带单位）；材料没给答案就自己解出来，解不出留空字符串；

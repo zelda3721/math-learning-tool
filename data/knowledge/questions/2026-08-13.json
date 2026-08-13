@@ -475,5 +475,710 @@
     },
     "contentHash": "1b00a015a08f3d4f",
     "status": "verified"
+  },
+  {
+    "id": "a97a36fa-7ad6-4f5a-9c36-a3dd7862ad93",
+    "nodeIds": [
+      "simple-equation",
+      "remainder-division"
+    ],
+    "level": "elementary_upper",
+    "stem": "两数相除，被除数、除数、商与余数之和是2143，已知商是33，余数是52，求被除数和除数．",
+    "answer": "1999, 59",
+    "answerType": "numeric",
+    "analysis": "设除数为x，根据被除数=商×除数+余数及四数之和列方程求解。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8f4dca9b03a81fb4",
+    "status": "verified"
+  },
+  {
+    "id": "a56d1889-73cf-4314-b9f8-9916eb1ad49e",
+    "nodeIds": [
+      "remainder-division",
+      "factor-multiple"
+    ],
+    "level": "elementary_upper",
+    "stem": "5122除以一个两位数得到的余数是66，求这个两位数．",
+    "answer": "79",
+    "answerType": "numeric",
+    "analysis": "根据除法中四量关系，被除数减余数等于除数与商的乘积，即5122-66=5056，5056的约数中大于66且为两位数的只有79。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "bcbd48f8113bcf17",
+    "status": "verified"
+  },
+  {
+    "id": "4d26d58d-ae28-4c68-b32a-8f4bea50d9e4",
+    "nodeIds": [
+      "remainder-division"
+    ],
+    "level": "elementary_upper",
+    "stem": "68除以一个两位数，余数是12．求出符合条件的两位数．有14，28，56．",
+    "answer": "14,28,56",
+    "answerType": "numeric",
+    "analysis": "根据除法中余数小于除数的性质，除数必须大于12；且除数必须是(68-12)=56的因数。56的大于12的两位数因数有14、28、56。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e92a857b3fabb046",
+    "status": "verified"
+  },
+  {
+    "id": "e4b9ad7f-095a-4af2-8ed9-f60ede1b6c2e",
+    "nodeIds": [
+      "remainder-division"
+    ],
+    "level": "elementary_upper",
+    "stem": "128除以一个数得到的商是9，并且除数与余数的差是2，求除数和余数．",
+    "answer": "13,11",
+    "answerType": "numeric",
+    "analysis": "被除数加上除数与余数的差2的和刚好是除数的10倍，则除数为(128+2)÷10=13，余数为11．",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "f98a2a9772b4ce55",
+    "status": "verified"
+  },
+  {
+    "id": "bd86c540-9397-49c3-8b8d-49d388f32513",
+    "nodeIds": [
+      "remainder-division"
+    ],
+    "level": "elementary_upper",
+    "stem": "求$478 \\times 296 \\times 351$除以$17$的余数.",
+    "answer": "1",
+    "answerType": "numeric",
+    "analysis": "利用余数的可乘性，先分别求出各因数除以$17$的余数，再求余数之积除以$17$的余数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "66a2c0059fbcd66a",
+    "status": "verified"
+  },
+  {
+    "id": "152aef99-7e2d-47f0-aa82-57ff3dc6d142",
+    "nodeIds": [
+      "remainder-division",
+      "factor-multiple"
+    ],
+    "level": "elementary_upper",
+    "stem": "在$1, 2, \\cdots, 1994$这$1994$个数中选出一些数，使得这些数中的每两个数的和都能被$26$整除，那么这样的数最多能选出____个.",
+    "answer": "77",
+    "answerType": "numeric",
+    "analysis": "根据有余数除法中“被除数=除数×商+余数”的关系，先求出被除数减余数的差（48），再找出48的一位数因数中大于余数2的数即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a93ddac1033e3280",
+    "status": "verified"
+  },
+  {
+    "id": "fbe622fe-29e9-4314-99e4-786ab1e598dd",
+    "nodeIds": [
+      "remainder-division",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "用一个自然数去除另一个整数，商18，余数是33，被除数、除数、商、余数的和是1034，求被除数和除数各是多少．",
+    "answer": "933,50",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "根据被除数、除数、商、余数的关系，先求和减去商与余数得到被除数与除数的和，再结合商与余数求出除数，最后求被除数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3b9a61fa5a7549a6",
+    "status": "verified"
+  },
+  {
+    "id": "fe6da938-be77-43f8-bb98-5548bfa70ee0",
+    "nodeIds": [
+      "remainder-division",
+      "factor-multiple"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田来闯第三关：57除以一个数，余数是12，求出符合条件的这个数．",
+    "answer": "15,45",
+    "answerType": "numeric",
+    "analysis": "根据有余数除法中“被除数减余数等于除数乘商”的关系，先求出45，再找45的大于12的因数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "02779ef8800d73be",
+    "status": "verified"
+  },
+  {
+    "id": "5d822650-4173-4b31-8c54-777dd174eda2",
+    "nodeIds": [
+      "remainder-division",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田很顺利地通过第三关后，接着闯第四关：用一个自然数去除另一个自然数，商为40，余数是16，被除数、除数的和是877，求这两个自然数是多少．",
+    "answer": "21,856",
+    "answerType": "numeric",
+    "analysis": "根据被除数=除数×商+余数，结合被除数与除数的和，利用和倍关系求出除数，再求被除数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7b1533bdddfd19e8",
+    "status": "verified"
+  },
+  {
+    "id": "090a6c10-1a7d-4044-8d14-69e1ba6cc194",
+    "nodeIds": [
+      "factor-multiple",
+      "remainder-division"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁来闯第五关：一个整数，被300、262、205除得到相同的余数（余数不为0）．求这个整数是多少？",
+    "answer": "19",
+    "answerType": "numeric",
+    "analysis": "利用同余性质，该整数必能整除被除数两两之差（38和57），求其公因数并排除1即可。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4de94fb9535aded2",
+    "status": "verified"
+  },
+  {
+    "id": "baa13e4b-c1be-4201-9435-898c713fdec6",
+    "nodeIds": [
+      "remainder-division",
+      "classify-organize",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "最后一关也由丁丁来闯关：在$1, 2, 3, \\cdots, 30$，这$30$个自然数中，最多能取出______个数，使取出的这些数中，任意两个不同的数的和都不是$7$的倍数．",
+    "answer": "15",
+    "answerType": "numeric",
+    "analysis": "将$1$到$30$按除以$7$的余数分类，利用余数之和不能为$7$或$0$的原则，选取余数为$1, 2, 3$的所有数以及余数为$0$的一个数。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8ed681f03f4482dc",
+    "status": "verified"
+  },
+  {
+    "id": "74a81716-d44d-4777-8c98-a34ae69cc9d9",
+    "nodeIds": [
+      "factor-multiple",
+      "remainder-division",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一个数除以3余2，除以5余3，除以7余2．求满足条件的最小自然数．",
+    "answer": "23",
+    "answerType": "numeric",
+    "analysis": "利用逐级满足法，先找满足前两个条件的数（8, 23, 38...），再从中筛选满足第三个条件的最小数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "eec06cdc8d8bf642",
+    "status": "verified"
+  },
+  {
+    "id": "461c7f97-a8d1-436b-8c5c-95d66988b19f",
+    "nodeIds": [
+      "remainder-division",
+      "factor-multiple"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师组织了一场智力运动模拟会，目的是选拔出一位同学作为他们班的代表参加学校智力运动会．于是大家都摩拳擦掌，跃跃欲试．来看看他们遇到的题目吧，注意每关限时8分钟哦．牛牛来闯第一关：50除以一个一位数，余数是2，求出符合条件的一位数．",
+    "answer": "3,4,6,8",
+    "answerType": "numeric",
+    "analysis": "50除以一位数余2，说明该数能整除48且大于2，48的一位数因数有3,4,6,8。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "966ec664961178af",
+    "status": "verified"
+  },
+  {
+    "id": "98f4c49a-b7d0-4b93-a27c-b380ce2ac05b",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "( 1 ) 等差数列 $9, 13, 17, 21, \\ldots$ 中，第 $65$ 项是 ______ .\n( 2 ) 等差数列 $3, 5, 7, 9, \\ldots$ 中，第 $102$ 项是 ______ .",
+    "answer": "265, 205",
+    "answerType": "numeric",
+    "analysis": "利用等差数列通项公式 $a_n = a_1 + (n-1)d$ 计算即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "23ceaaf383a8c624",
+    "status": "verified"
+  },
+  {
+    "id": "5c7fc5c0-d704-4676-888f-7279a10bfe6b",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "按要求完成下列各题．\n(1) 已知等差数列 $2, 6, 10, 14, \\cdots$，则 $82$ 是这个数列的第______项．\n(2) 已知等差数列 $2, 5, 8, 11, \\cdots$，则 $38$ 是这个数列的第______项．",
+    "answer": "21, 13",
+    "answerType": "numeric",
+    "analysis": "利用等差数列通项公式 $a_n = a_1 + (n-1)d$ 的逆运算，即项数 $n = (a_n - a_1) \\div d + 1$ 求解。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0dd8d31d5a28b3ab",
+    "status": "verified"
+  },
+  {
+    "id": "3fb82e8f-f64a-4164-b3e5-abbe6e729ca9",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) 2+5+8+11+\\cdots+41. (2) 6+9+12+15+\\cdots+63.",
+    "answer": "301, 690",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "利用等差数列求和公式：先求项数，再求和。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "afaf1060858ee044",
+    "status": "verified"
+  },
+  {
+    "id": "f325f9a4-257a-4e4e-9a92-6d7fccb0f234",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "一个递减的等差数列，第18项是298，第51项是67，这个等差数列公差是______．",
+    "answer": "7",
+    "answerType": "numeric",
+    "analysis": "利用等差数列通项公式，通过第51项与第18项的差值除以项数差（$51-18=33$）求得公差。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "460ddc9a53c9d2ba",
+    "status": "verified"
+  },
+  {
+    "id": "68d73d81-46fa-47fe-b73f-5d9ffd594436",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "一个等差数列的第3项是13，第11项是45，它的第21项是什么数？它的前21项的和是多少？",
+    "answer": "945",
+    "answerType": "numeric",
+    "analysis": "先求公差为4，再求第21项为85；利用奇数项等差数列求和公式（中间项乘以项数）得前21项和为45×21=945。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1522cd62957df360",
+    "status": "verified"
+  },
+  {
+    "id": "f20dbc48-5625-4fda-8e25-0087913ae744",
+    "nodeIds": [
+      "add-sub-100",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "(1) 有一个7层书架共放了679本书，上层比下层少5本，最上层放几本书？\n(2) 有一个6层书架共放了762本书，上层比下层少8本，最下层放几本书？",
+    "answer": "82，147",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "这是等差数列求和问题。第(1)题利用中间项（第4层）乘以层数等于总数，求出中间项后再减去3个公差得到最上层；第(2)题利用（首项+末项）×层数÷2等于总数，结合公差关系求出末项。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "abb9c6fc52c14d1b",
+    "status": "verified"
+  },
+  {
+    "id": "4628f69a-e83c-460a-9db4-04e438db640f",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田和牛牛来到了一个很神秘的地方,那里有很多的雕塑,每个雕塑都是由蝴蝶组成的.第一个雕塑有3只蝴蝶,第二个雕塑有5只蝴蝶,第三个雕塑有7只蝴蝶,第四个雕塑有9只蝴蝶,以后的雕塑按照这样的规律一直延伸到很远的地方,田田和牛牛看不到这排雕塑的尽头在哪里,田田问牛牛:第102个雕塑有多少只蝴蝶呢?",
+    "answer": "205",
+    "answerType": "numeric",
+    "analysis": "这是一个首项为3、公差为2的等差数列，利用通项公式 $a_n = a_1 + (n-1)d$ 计算第102项即可。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1d08ed4285c017fa",
+    "status": "verified"
+  },
+  {
+    "id": "c5b26476-4ee1-4892-ae7e-3dcc91182f92",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "在这个神秘的地方还有很多美丽的蝴蝶,田田想让牛牛把66只蝴蝶放在若干个盒子里,按第一个盒子里放1只,第2个盒子里放2只,第3个盒子里放3只,$\\cdots$,这样下去,最后刚好将蝴蝶放完,那么牛牛用了多少个盒子呢?",
+    "answer": "11",
+    "answerType": "numeric",
+    "analysis": "这是一个求和问题，即求 $1+2+3+\\cdots+n=66$ 中的 $n$，利用等差数列求和公式或试算可知 $n=11$。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "ce4aa7e0d38b5f09",
+    "status": "verified"
+  },
+  {
+    "id": "fa57d905-b7fd-49a9-bbda-13d1d22906a7",
+    "nodeIds": [
+      "numbers-100",
+      "factor-multiple",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "当他们抓完蝴蝶后，突然出现了一位神秘的老爷爷，老爷爷告诉田田和牛牛，他是这里的守护者，他们随意抓蝴蝶破坏了这里美丽的环境，要受到惩罚．田田哭着向老爷爷求情，老爷爷说不接受惩罚也可以，但要放回蝴蝶且回答对我问的问题：“在100以内的自然数中，所有是3的倍数的数的平均数是多少？”",
+    "answer": "49.5",
+    "answerType": "numeric",
+    "analysis": "100以内3的倍数构成等差数列，利用求和公式计算总和后除以项数即可得到平均数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "88d063d9dce8e0e1",
+    "status": "verified"
+  },
+  {
+    "id": "824b7ffa-7d61-4e3d-85b2-0419c35eb19c",
+    "nodeIds": [
+      "quantity-relations"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田和牛牛通过了老爷爷的考验，老爷爷决定给他们一些奖励．老爷爷给了他们编号为1～9的9个盒子，里面共放有351块糖，老爷爷告诉他们每个盒子都比前一个盒子里多同样数量的糖．而且1号盒子里放11块糖，如果他们能告诉老爷爷后面的盒子比它前一个盒子里多放几块糖，就把这些好吃的糖果送给他们，他们能得到吗？",
+    "answer": "7",
+    "answerType": "numeric",
+    "analysis": "根据等差数列求和公式求出末项，再根据公差公式求出相邻两项的差。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "db8cd3927d5fa9b0",
+    "status": "verified"
+  },
+  {
+    "id": "aa245c37-4621-4f73-9e0c-ff5fd02be4d7",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛和田田得到了很多糖果，牛牛打算把自己的糖果分开按数量呈等差数列的形式包装，如果第4个盒子里放了27块糖，第8个盒子里放了47块糖，来计算一下牛牛的前二十个盒子一共装有多少块糖？",
+    "answer": "1190",
+    "answerType": "numeric",
+    "analysis": "根据第4项和第8项求出公差为5，进而求得首项为12，第20项为107，最后利用等差数列求和公式计算前20项之和。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "346e50c3a7afc68f",
+    "status": "verified"
+  },
+  {
+    "id": "af84f70a-f24f-422a-9c9b-deef0a4df65c",
+    "nodeIds": [
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛和田田玩投石子游戏，牛牛从$A$出发走1米放1块石子，第二次走4米放3块石子了，第三次走7米放5块石子，再走10米放7块石子，$\\cdots$，照此规律最后走到$B$处放下35块石子，请问小朋友们，从$A$到$B$路程有多远？",
+    "answer": "477",
+    "answerType": "numeric",
+    "analysis": "通过石子数数列求出投放次数，再利用路程数列求和得出总路程。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4f2d1f56e5ecf237",
+    "status": "verified"
+  },
+  {
+    "id": "99410523-c183-4615-82d5-d2c27780350d",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛和田田来到了一个神秘的工厂，这个工厂原有工人不少于63人，在1月底以前的某一天调进了若干工人，以后，每天都新调入1人进车间工作．现在知道该车间1月份每人每天生产一件产品．共生产了1994件．试问：1月几日开始调进工人？共调进了多少工人？",
+    "answer": "1月30日，21人；1月28日，4人",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "answerUnique": false,
+    "analysis": "通过估算原有工人产量，利用调进工人产量为连续自然数之和（等差数列求和）进行拆分，结合1月份天数确定调进日期。",
+    "difficulty": 5,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a0364fc3e4a62fb7",
+    "status": "verified"
+  },
+  {
+    "id": "4499df5f-62a0-49a2-a95e-b77cb381eb10",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据下面某水泥厂第一季度产量统计表，解答下面的问题：\n\n| 月份 | 1月 | 2月 | 3月 |\n| :--- | :--- | :--- | :--- |\n| 产量（吨） | 450 | 300 | 585 |\n\n（1）平均每月生产多少吨？\n（2）3月份产量比1月份增产多少？",
+    "answer": "445,135",
+    "answerType": "numeric",
+    "analysis": "（1）求平均数用总产量除以3；（2）求增产多少用3月产量减去1月产量。",
+    "figureImage": "70b5518659506991ce99acade10afb07.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "053c811cd15342f4",
+    "status": "extracted"
+  },
+  {
+    "id": "7e9511b8-ed67-4709-8ca8-45e09da745ab",
+    "nodeIds": [
+      "numbers-10000",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据下面实验小学今年上半年各年级学生人数，完成下面统计表．\n一年级258人 二年级234人 三年级280人\n四年级207人 五年级305人 六年级268人\n\n| 年级 | 一 | 二 | 三 | 四 | 五 | 六 | 总计 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| 人数 | | | | | | | |",
+    "answer": "258, 234, 280, 207, 305, 268, 1552",
+    "answerType": "numeric",
+    "analysis": "将各年级人数填入表格，并将各年级人数相加得到总计1552。",
+    "figureImage": "0f8a5829404b63755c0798bcda9539ac.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8f80bb20d478eb25",
+    "status": "extracted"
+  },
+  {
+    "id": "5b6c6555-a0f9-49f2-bc10-50af9643e350",
+    "nodeIds": [
+      "average-charts",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据图显示的前进汽车厂去年1～6月汽车产量，解答问题．\n（1）平均每个月制造汽车多少辆？\n（2）6月份制造的汽车比1月份增长多少？\n（3）第一季度制造的汽车比第二季度少多少辆？",
+    "answer": "446,100,164",
+    "answerType": "numeric",
+    "analysis": "（1）求6个月产量的平均数；（2）用6月产量减去1月产量；（3）用第二季度（4、5、6月）总产量减去第一季度（1、2、3月）总产量。",
+    "figureImage": "27058b5c38e25681ec126255041fe5ad.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "be98698a74fbcac0",
+    "status": "extracted"
+  },
+  {
+    "id": "95887ed8-d049-4e3a-8165-a182304277cb",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，是牛牛五次数学测验成绩的统计图．牛牛五次测验的平均分是 ______ 分．",
+    "answer": "92",
+    "answerType": "numeric",
+    "answerUnverified": true,
+    "analysis": "从折线统计图中读取五次成绩分别为90、95、85、90、100，求和除以5即可得到平均分。",
+    "analysisImage": "400f7bed965dfe37a7ba6b328615dd47.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "dca4980015652249",
+    "status": "extracted"
+  },
+  {
+    "id": "f28c4cea-9130-4afc-b22b-15872c70504d",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "观察统计图，回答问题。\n某城市2016年月平均气温统计图\n（1）哪个月的平均气温最低？\n（2）哪两个相邻月份之间平均气温升高最快？\n（3）哪两个相邻月份之间平均气温下降最快？",
+    "answer": "1月份, 3月到4月, 11月到12月",
+    "answerType": "numeric",
+    "analysis": "通过观察折线统计图，找到折点最低的月份即为气温最低；观察折线上升最陡峭的区间即为气温升高最快；观察折线下降最陡峭的区间即为气温下降最快。",
+    "figureImage": "7d0208053a77bf6814471e9b88659256.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "90baae1a612033a3",
+    "status": "extracted"
+  },
+  {
+    "id": "3912f29e-5aa8-4fcf-9712-08220de2cae6",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛来到一家生产机器零件的工厂，将生产情况绘成条形统计图(如图所示)，求平均每个工人生产了几件产品．",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "根据条形统计图，利用加权平均数公式计算：(6×10+14×11+25×12+18×13+4×14)÷(6+14+25+18+4)=12．",
+    "analysisImage": "dc7c7f86d685a15699b94519fdd60f28.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "496360d6f33295d0",
+    "status": "extracted"
+  },
+  {
+    "id": "ae0c1ea7-1b84-4a21-96d4-3b61ed958607",
+    "nodeIds": [
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田来到一所希望小学，五、六年级同学制作标本情况统计如下：\n\\begin{tabular}{|c|c|c|c|c|}\\hline 种类 & 合计 & 昆虫 & 植物 & 矿石 \\\\\\hline 年级 & & & & \\\\\\hline 总计 & & & & \\\\\\hline 五年级 & & 15 & 30 & 21 \\\\\\hline 六年级 & & 25 & 42 & 35 \\\\\\hline\\end{tabular}\n（1）将表格填写完整。\n（2）根据统计表中的数据，绘制五、六年级同学制作标本情况统计图（复式条形统计图）。\n（3）哪种标本的件数最多？",
+    "answer": "五年级合计66，六年级合计102，总计合计168，昆虫总计40，植物总计72，矿石总计56；见解析；植物标本",
+    "answerType": "numeric",
+    "analysis": "分别计算五年级和六年级的横向合计，以及昆虫、植物、矿石的纵向总计，最后计算总合计。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6c9a2520abfe16dc",
+    "status": "extracted"
+  },
+  {
+    "id": "c7e07be1-ce89-4943-ab38-091c4bc6d450",
+    "nodeIds": [
+      "average-charts",
+      "add-sub-100",
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普来到飞碟工厂，一周生产机器台数的统计表破损，如图，表中缺少几个数字．请你根据这张统计表上的信息，求出星期三和星期四的产量．\n\n| 星期 | 一 | 二 | 三 | 四 | 五 | 平均 |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| 台数 | 81 | 74 | 6□ | □7 | 69 | 73 |",
+    "answer": "64, 77",
+    "answerType": "numeric",
+    "analysis": "先根据平均数求出总产量，再减去已知三天的产量得到周三周四之和，最后结合数字特征（周三60多，周四个位是7）确定具体数值。",
+    "figureImage": "849441a27bddab487fe251d597fb54b6.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8fdac5a0aaf4dbeb",
+    "status": "extracted"
+  },
+  {
+    "id": "0b35236d-0869-4785-9425-a638cff57c08",
+    "nodeIds": [
+      "data-collection",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田为了了解希望小学学生体能的情况，随意抽取了30名学生，测试了他们1分钟做仰卧起坐的次数，并将结果绘制成右侧统计图。（1）根据统计图，填写下面的统计表。（2）1分钟仰卧起坐少于20次的有几人？（3）1分钟仰卧起坐不少于30次的有几人？（4）多数人的次数在哪个范围内？",
+    "answer": "3,10,12,5; 3; 5; 25 \\leqslant x < 30；3, 5, 20至30次",
+    "answerType": "steps",
+    "analysis": "根据统计图数据填表，分别统计少于20次（3人）和不少于30次（5人）的人数，并观察数据分布发现20至30次范围内人数最多。",
+    "figureImage": "28d5226db99c5c963dd9f03ff1950a52.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5dda8b42aa08087f",
+    "status": "extracted"
+  },
+  {
+    "id": "24e3f7b7-2072-48ac-9c0b-d46b9f67ff66",
+    "nodeIds": [
+      "add-sub-100",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "四年级有97人参加学校集邮协会，共收集了2367张邮票，学校集邮协会按四年级各班平均每人收集邮票张数制成如图所示的条形统计图，已知四（一）班有34人，平均每人集邮票28张，那么四（二）班有多少人？四（三）班有多少人？",
+    "answer": "32人；31人",
+    "answerType": "numeric",
+    "analysis": "先求出四（二）班与四（三）班的总人数和总邮票数，再根据统计图读取两班的人均邮票数，利用鸡兔同笼方法求解。",
+    "figureImage": "30b0645e74da61a6b2e70d9ce36606f9.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e22e28b930af2a9a",
+    "status": "extracted"
+  },
+  {
+    "id": "e97959cd-f05d-4066-965c-389722f16a1d",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，$A,B$ 两地相距 $1500$ 米，实线表示牛牛上午 $8$ 时由 $A$ 地出发往 $B$ 地行走，到达 $B$ 地后稍作休息，又从 $B$ 地出发返回 $A$ 地的步行情况；虚线表示丁丁上午 $8$ 时从 $B$ 地出发向 $A$ 地行走，到了 $A$ 地，立即返回 $B$ 地的步行情况。牛牛在 $B$ 地休息了多长时间？休息前后的速度各是多少？",
+    "answer": "13,75,60",
+    "answerType": "numeric",
+    "analysis": "休息时间：$33-20=13$ 分钟；休息前速度：$1500 \\div 20 = 75$ 米/分；休息后速度：$1500 \\div (58-33) = 60$ 米/分。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "eb5236dbb03f4318",
+    "status": "extracted"
+  },
+  {
+    "id": "42c4a803-3377-47ac-b60a-9dd84d57aae2",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，$A,B$ 两地相距 $1500$ 米，实线表示牛牛上午 $8$ 时由 $A$ 地出发往 $B$ 地行走，到达 $B$ 地后稍作休息，又从 $B$ 地出发返回 $A$ 地的步行情况；虚线表示丁丁上午 $8$ 时从 $B$ 地出发向 $A$ 地行走，到了 $A$ 地，立即返回 $B$ 地的步行情况。丁丁从 $B$ 地到 $A$ 地，从 $A$ 地到 $B$ 地的速度各是多少？",
+    "answer": "50,50",
+    "answerType": "numeric",
+    "analysis": "从 $B$ 到 $A$ 用时 $30$ 分钟，速度 $1500 \\div 30 = 50$ 米/分；从 $A$ 到 $B$ 用时 $60-30=30$ 分钟，速度 $1500 \\div 30 = 50$ 米/分。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d84c5d6b6a71e125",
+    "status": "extracted"
+  },
+  {
+    "id": "e783a715-5cdd-4206-bd23-717dfc93e4c8",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，$A,B$ 两地相距 $1500$ 米，实线表示牛牛上午 $8$ 时由 $A$ 地出发往 $B$ 地行走，到达 $B$ 地后稍作休息，又从 $B$ 地出发返回 $A$ 地的步行情况；虚线表示丁丁上午 $8$ 时从 $B$ 地出发向 $A$ 地行走，到了 $A$ 地，立即返回 $B$ 地的步行情况。从图中可以看出，牛牛和丁丁相遇了几次？算一算，第一次相遇是几点几分？",
+    "answer": "2,8点12分",
+    "answerType": "numeric",
+    "analysis": "相遇次数为 $2$ 次；第一次相遇时间：$1500 \\div (75+50) = 12$ 分钟，即 $8$ 点 $12$ 分。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "11a497d35a6e5484",
+    "status": "extracted"
   }
 ]

@@ -68,6 +68,7 @@ interface LayoutItem {
     stemFigureBox?: [number, number, number, number]
     analysisFigureBox?: [number, number, number, number]
     continued: boolean
+    continuedKind?: 'stem' | 'answer' 
     /** 这一条只有题号、没有题干——下一页那道题的头 */
     dangling?: boolean
 }
@@ -324,6 +325,31 @@ export function IngestPage() {
             setPdfProgress({ done: i, total: items.length, phase: 'question' })
             // 框不可用（或裁出来太小）就用整页图：效果差一点，但绝不裁坏
             const cropped = await cropPage(pageDataUrl, item.box).catch(() => null)
+
+            /**
+             * 版面把「上一题的答案/解析续块」当条目报上来时，走 tail 流。
+             *
+             * 此前它走的是下面的常规抽取 + mergeContinued：模型对着一块解析
+             * 读出来的"题干"就是解析原文（「平均气温最低就是找拐点最低的月份…」），
+             * 再被并进上一题——上一题的题干里就多出了一整段带答案的解析。
+             * tail 流只读答案与解析，不产题干，正对这块内容的本性。
+             */
+            if (i === 0 && item.continued && item.continuedKind !== 'stem' && previous && !mergedFirst && !pending) {
+                try {
+                    const tail = cropped ? await fetchTail({ content: cropped, carryOver: previous.stem }) : null
+                    if (tail && (tail.answer || tail.analysis || tail.hasFigure)) {
+                        const analysisImage = tail.hasFigure
+                            ? ((await cropPage(pageDataUrl, item.box, FIGURE_PAD).catch(() => null)) ??
+                              previous.analysisImage)
+                            : previous.analysisImage
+                        drafts.push({ ...applyTail(previous, tail), analysisImage })
+                        mergedFirst = true
+                    }
+                } catch {
+                    /* 读不出来就当它不存在；上一题最多缺一段解析 */
+                }
+                continue
+            }
             /**
              * 但页脚那条光杆题号例外：它的框窄到裁不出图，退回整页必然抽到
              * 同页别的题——实测就这么抽出了一份练习8 的副本，而且一份带 LaTeX
@@ -428,8 +454,18 @@ export function IngestPage() {
                 const found = await uploadOnce({ kind: 'image', content: crop })
                 if (found.length > 1) {
                     setPdfNote(`「${item.label || item.preview.slice(0, 8)}」那一块里其实有 ${found.length} 道题，已补上`)
-                    // 换掉那一条对应的草稿：它只抽到了其中一道
-                    const at = drafts.findIndex((d) => d.stem === draftsByItem.get(i)?.stem)
+                    // 换掉那一条对应的草稿：它只抽到了其中一道。
+                    // 原稿的图必须带过去——uploadOnce 走的是整页抽取，不裁图，
+                    // 实机上统计讲义的折线图就是在这一步被顶掉的
+                    const original = draftsByItem.get(i)
+                    const at = drafts.findIndex((d) => d.stem === original?.stem)
+                    if (original && found[0]) {
+                        found[0] = {
+                            ...found[0],
+                            figureImage: found[0].figureImage ?? original.figureImage,
+                            analysisImage: found[0].analysisImage ?? original.analysisImage,
+                        }
+                    }
                     rescued += found.length - (at >= 0 ? 1 : 0)
                     if (at >= 0) drafts.splice(at, 1, ...found)
                     else drafts.push(...found)
