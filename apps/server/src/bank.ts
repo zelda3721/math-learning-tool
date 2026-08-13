@@ -18,6 +18,7 @@ import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/schema";
+import { matchProblemTypesOffline } from "@mathtutor/knowledge";
 import type { AppState } from "./app.js";
 import { requireParentRole } from "./app.js";
 import { checkFigure } from "./ingest/figureGate.js";
@@ -27,6 +28,15 @@ import { practiceReady } from "./questions.js";
 import { deriveAnswerType } from "./grading.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
+
+/** 年级 → 学段（题型按学段组织，题目按年级标注） */
+const LEVEL_STAGE: Record<Question["level"], string> = {
+  elementary_lower: "primary",
+  elementary_upper: "primary",
+  middle: "junior",
+  high: "senior",
+  advanced: "university",
+};
 
 /** 批次 = 文件名（不含 .json）；一份材料导进来就是一个批次 */
 function listBatches(dataDir: string): { batch: string; file: string; items: Question[] }[] {
@@ -258,6 +268,46 @@ export function bankRoutes(state: AppState): Hono {
         if (want === item.answerType) continue;
         changes.push({ id: item.id, from: item.answerType, to: want, answer: item.answer });
         b.items[i] = { ...item, answerType: want };
+        touched = true;
+      }
+      if (touched) writeBatch(state.config.dataDir, b.file, b.items);
+    }
+    if (changes.length) state.questions.reload();
+    return c.json({ changed: changes.length, changes });
+  });
+
+  /**
+   * 给还没挂题型的题补一次题型匹配。
+   *
+   * 实测 157 道题只有 6 道挂上了题型——抽取时那句"拿不准就省略"写得太保守。
+   * 题型不是知识点：**知识点是大纲的骨架，题型是它在具体情境下的变体**。
+   * 挂上题型，讲解才拿得到"这类题的本质是什么"——「年龄问题」的本质是
+   * 「年龄差永远不变」，那正是这类题唯一要讲的东西；漏了就只剩"这道题这么算"。
+   *
+   * 纯离线匹配（matchProblemTypesOffline，带分数下限），不调模型：
+   * 已入库的题重新过一遍模型既慢又会引入新的不确定。**只补不改**——
+   * 已经有题型的不动，那可能是人工核对过的。
+   */
+  app.post("/rematch-types", (c) => {
+    const changes: { id: string; to: string; stem: string }[] = [];
+    for (const b of listBatches(state.config.dataDir)) {
+      let touched = false;
+      for (let i = 0; i < b.items.length; i += 1) {
+        const item = b.items[i]!;
+        if (item.problemTypeId) continue;
+        /**
+         * **只在本学段的题型里找。**
+         * 不筛的话「下面这幅图形中有多少个三角形？」会撞上高中的
+         * 「解三角形与三角恒等」——实测 22 个匹配里有 12 个是这么来的。
+         * 关键词分数分不清"题里出现了三角形"和"这是一道解三角形的题"，
+         * 而学段能：小学的题不可能是高中题型。
+         */
+        const stage = LEVEL_STAGE[item.level];
+        const candidates = state.knowledge.problemTypes.filter((t) => t.stage === stage);
+        const hit = matchProblemTypesOffline(candidates, item.stem, 1)[0];
+        if (!hit) continue;
+        changes.push({ id: item.id, to: hit.id, stem: item.stem.slice(0, 28) });
+        b.items[i] = { ...item, problemTypeId: hit.id };
         touched = true;
       }
       if (touched) writeBatch(state.config.dataDir, b.file, b.items);

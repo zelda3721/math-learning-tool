@@ -103,6 +103,21 @@ export function BankPage() {
         void load()
     }
 
+    /**
+     * 给还没挂题型的题补一次匹配。
+     *
+     * 题型不是知识点：知识点是大纲的骨架，题型是它在具体情境下的变体。
+     * 挂上题型，讲解才拿得到"这类题的本质是什么"——「年龄问题」的本质是
+     * 「年龄差永远不变」，那正是这类题唯一要讲的东西。
+     * 纯离线匹配，不调模型；只补不改（已有的可能是人工核对过的）。
+     */
+    const rematchTypes = async () => {
+        const res = await fetch('/api/v1/bank/rematch-types', { method: 'POST' })
+        const body = (await res.json()) as { changed?: number; error?: string }
+        setNotice(res.ok ? `已给 ${body.changed} 道题补上题型` : (body.error ?? '补挂失败'))
+        void load()
+    }
+
     const removeOne = async (q: BankQuestion) => {
         if (!window.confirm(`删除这道题？\n\n${q.stem.slice(0, 40)}…`)) return
         const res = await fetch(`/api/v1/bank/questions/${encodeURIComponent(q.id)}`, { method: 'DELETE' })
@@ -204,6 +219,9 @@ export function BankPage() {
                 <div className="flex items-center gap-3">
                     <Button size="sm" variant="ghost" onClick={() => void reclassify()}>
                         重新归类答案类型
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void rematchTypes()}>
+                        补挂题型
                     </Button>
                     <span className="text-xs text-ink-faint">
                         抽取时模型标的类型常有错；标成"解答步骤"的题不判对错、也不计掌握度

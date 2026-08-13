@@ -188,3 +188,54 @@ describe("POST /api/v1/bank/reclassify", () => {
     expect(body.changed).toBe(0);
   });
 });
+
+/**
+ * 补挂题型。
+ *
+ * 题型不是知识点：**知识点是大纲的骨架，题型是它在具体情境下的变体**。
+ * 「年龄问题」不该出现在图谱里，它是「100以内加减法」加上
+ * 「年龄差永远不变」这个情境——而那句话正是这类题唯一要讲的东西。
+ * 实测 157 道题只有 6 道挂上了题型，抽取时那句"拿不准就省略"太保守了。
+ */
+describe("POST /api/v1/bank/rematch-types", () => {
+  it("按题干补上题型，只补不改", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({
+        id: "q1",
+        stem: "今年爸爸年龄是儿子的5倍，15年后，爸爸年龄是儿子年龄的2倍，今年儿子几岁？",
+        level: "elementary_upper",
+      }),
+      makeQuestion({ id: "q2", stem: "计算 12 + 13", problemTypeId: "planting-trees" }),
+    ]);
+    const app = createApp(env.state);
+    const body = (await (
+      await app.request("/api/v1/bank/rematch-types", { method: "POST" })
+    ).json()) as { changed: number; changes: { id: string; to: string }[] };
+
+    expect(body.changes.find((c) => c.id === "q1")?.to).toBe("age-problem");
+    // 已经有题型的不动——那可能是人工核对过的
+    expect(env.state.questions.byId.get("q2")!.problemTypeId).toBe("planting-trees");
+  });
+
+  /**
+   * 只在本学段的题型里找。不筛的话「下面这幅图形中有多少个三角形？」
+   * 会撞上高中的「解三角形与三角恒等」——实测 22 个匹配里 12 个是这么来的。
+   * 关键词分数分不清"题里出现了三角形"和"这是一道解三角形的题"，学段能。
+   */
+  it("小学的题不会被判成高中题型", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({
+        id: "q1",
+        stem: "下面这幅图形中有多少个三角形？",
+        level: "elementary_upper",
+      }),
+    ]);
+    const app = createApp(env.state);
+    await app.request("/api/v1/bank/rematch-types", { method: "POST" });
+    const got = env.state.questions.byId.get("q1")!.problemTypeId;
+    if (got) {
+      const stage = env.state.knowledge.problemTypes.find((t) => t.id === got)!.stage;
+      expect(stage).toBe("primary");
+    }
+  });
+})
