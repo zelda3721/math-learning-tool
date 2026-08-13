@@ -160,6 +160,63 @@ export function bankRoutes(state: AppState): Hono {
     });
   });
 
+  /**
+   * 题库体检：把结构上对不上的地方摊出来。
+   *
+   * 知识点与题型都是模型标的，标歪了不会报错，只会让诊断悄悄跑偏——
+   * 一道小学数图形的题挂上高中「解三角形」，星图上就点亮了一颗不该亮的星。
+   * 这里只查**不用读题就能判**的：id 存不存在、学段对不对得上、
+   * 题型声明的知识点与题目挂的有没有交集、挂了几个。
+   * 读题才能判的（这道题考的到底是不是这个知识点）留给人，
+   * 但先把可疑的挑出来，人就不用一条条翻 170 道。
+   */
+  app.get("/audit", (c) => {
+    const g = state.knowledge.index.nodeById;
+    const types = new Map(state.knowledge.problemTypes.map((t) => [t.id, t]));
+    const findings: {
+      kind: string;
+      questionId: string;
+      stem: string;
+      detail: string;
+    }[] = [];
+
+    for (const b of listBatches(state.config.dataDir)) {
+      for (const q of b.items) {
+        const stem = q.stem.slice(0, 30);
+        const stage = LEVEL_STAGE[q.level];
+        const add = (kind: string, detail: string) =>
+          findings.push({ kind, questionId: q.id, stem, detail });
+
+        if (q.nodeIds.length === 0) add("没有知识点", "这道题不会进练习（出题按知识点选）");
+        if (q.nodeIds.length > 3) add("知识点过多", `挂了 ${q.nodeIds.length} 个，通常 1~3 个`);
+        for (const nid of q.nodeIds) {
+          const node = g.get(nid);
+          if (!node) {
+            add("知识点不存在", `图谱里没有 ${nid}`);
+          } else if (node.stage !== stage) {
+            // 培优/奥数材料确实会用到下一学段的内容，所以只报可疑，不判错
+            add("知识点跨学段", `${q.level} 的题挂了 ${node.stage} 的「${node.name}」`);
+          }
+        }
+        const t = q.problemTypeId ? types.get(q.problemTypeId) : undefined;
+        if (q.problemTypeId && !t) add("题型不存在", `题型表里没有 ${q.problemTypeId}`);
+        else if (t) {
+          if (t.stage !== stage) add("题型跨学段", `${q.level} 的题挂了 ${t.stage} 的「${t.name}」`);
+          if (!t.nodes.some((n) => q.nodeIds.includes(n))) {
+            add(
+              "题型与知识点对不上",
+              `「${t.name}」声明属于 ${t.nodes.map((n) => g.get(n)?.name ?? n).join("、")}，` +
+                "而这道题一个都没挂——多半是题型标错了，或这道题的知识点没挂全",
+            );
+          }
+        }
+      }
+    }
+    const byKind: Record<string, number> = {};
+    for (const f of findings) byKind[f.kind] = (byKind[f.kind] ?? 0) + 1;
+    return c.json({ total: findings.length, byKind, findings: findings.slice(0, 200) });
+  });
+
   /** 就地修改。走同一套校验：手改 JSON 绕得过，这条通道绕不过 */
   app.patch("/questions/:id", async (c) => {
     const parsed = PatchSchema.safeParse(await c.req.json().catch(() => null));
@@ -303,7 +360,21 @@ export function bankRoutes(state: AppState): Hono {
          * 而学段能：小学的题不可能是高中题型。
          */
         const stage = LEVEL_STAGE[item.level];
-        const candidates = state.knowledge.problemTypes.filter((t) => t.stage === stage);
+        /**
+         * 两道闸：本学段 + **题型声明的知识点要和这道题挂的对得上**。
+         *
+         * 第二道是题型表自己给的一致性校验，一开始没用，代价立刻显形：
+         * 10 道自动补挂里错了 2 道——「小精灵每小时做12朵纸花」（答案 6a+b）
+         * 被判成平均数问题，「145.67 的百位是1」被判成和差问题。
+         * 关键词分数只看字面撞了几个词；而"这道题挂的知识点里，
+         * 有没有一个是这个题型声明它属于的"是结构性的，撞不了运气。
+         *
+         * 代价是漏掉一些本来对的（题型对、只是题目没挂全知识点）。
+         * 这个方向是安全的：漏挂只是少一句提示，错挂会把孩子往别的解法上带。
+         */
+        const candidates = state.knowledge.problemTypes.filter(
+          (t) => t.stage === stage && t.nodes.some((n) => item.nodeIds.includes(n)),
+        );
         const hit = matchProblemTypesOffline(candidates, item.stem, 1)[0];
         if (!hit) continue;
         changes.push({ id: item.id, to: hit.id, stem: item.stem.slice(0, 28) });
