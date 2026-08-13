@@ -20,6 +20,7 @@ import {
     carryableText,
     looksLikeQuestion,
     mergeContinued,
+    mergeSubQuestionDrafts,
     normalizeDraft,
     readFileAsDataUrl,
     todayString,
@@ -474,7 +475,8 @@ export function IngestPage() {
                 /* 补漏失败就算了，本来就是额外一道保险 */
             }
         }
-        return { drafts, mergedFirst, boxes, pending: nextPending, rescued }
+        // 版面把 (1)(2)(3) 切成独立条目时，这里已经是几份孤儿草稿了——并回主题干
+        return { drafts: mergeSubQuestionDrafts(drafts), mergedFirst, boxes, pending: nextPending, rescued }
     }
 
     /**

@@ -150,10 +150,27 @@ export function classifyFigures(item: LayoutItem): FigureSplit {
   const aboveAnswer = (box?: [number, number, number, number]) =>
     box !== undefined && box[1] < answerTop!;
 
+  /**
+   * 题干图的下边不许越过答案线。
+   *
+   * 归属只看框的上边在不在答案线之上是不够的：实机上练习4（五次测验统计图）
+   * 的图框上边在题干里、**下边却伸进了【答案】灰框**，裁出来的"题干配图"
+   * 底部印着「【答案】92」——正是这道题要孩子算的平均分。
+   * 所以判完归属再裁一刀：超出答案线的部分切掉；切完剩不下什么就整个不要
+   * （宁可没图，也不能把答案递过去）。
+   */
+  const clampToAnswer = (
+    box: [number, number, number, number],
+  ): [number, number, number, number] | undefined => {
+    if (!decideByPosition || box[3] <= answerTop!) return box;
+    const clamped: [number, number, number, number] = [box[0], box[1], box[2], answerTop!];
+    return clamped[3] - clamped[1] >= 0.03 ? clamped : undefined;
+  };
+
   if (decideByPosition) {
     for (const box of [figureBox, analysisFigureBox]) {
       if (!box) continue;
-      if (aboveAnswer(box)) out.stemFigureBox ??= box;
+      if (aboveAnswer(box)) out.stemFigureBox ??= clampToAnswer(box);
       else out.analysisFigureBox ??= box;
     }
   } else {
@@ -196,7 +213,10 @@ export const LAYOUT_PROMPT = `你在做**版面切分**，不要读题、不要�
 - 这一页开头只有上一页那道题的【答案】【解析】（连题干都没有）→ 也要输出一条，
   continued 写 true、answerTop 写 0。漏掉它，上一页那道题的答案就永远找不回来了
 
-除此之外，页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。
+除此之外，**(1)(2)(3) 这样的小问不是独立的题**：它们和共用的题干、配图同属一道题，
+整道题输出一条，box 框住从题干到最后一个小问的整个范围。
+
+页眉、页脚、章节标题、纯讲解文字都不是题，不要输出。
 这一页没有任何题目内容才什么都不输出。`;
 
 export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）。抽出它的内容，输出**一个** JSON 对象（不要数组、不要围栏）：

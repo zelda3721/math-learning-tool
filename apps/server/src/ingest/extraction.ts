@@ -404,22 +404,10 @@ const SYSTEM_PROMPT = `你是数学题目抽取器。从用户材料中抽出全
 - 材料里没有题目时什么都不输出。
 - analysis 一句话即可，不要写解题全过程——写长了会把后面的题挤掉。
 
-**如果题目带图（几何题居多），再加一个 figure 字段，用「点线角 + 约束」描述这张图，不要描述像素**：
-{"figure":{
-  "points":[{"id":"A"},{"id":"B"},{"id":"C"}],
-  "segments":[{"from":"A","to":"B","label":"3 厘米"},{"from":"B","to":"C"},{"from":"C","to":"A"}],
-  "angles":[{"at":"B","from":"A","to":"C","right":true}],
-  "polygons":[{"points":["A","B","C"],"shaded":false}],
-  "constraints":[
-    {"kind":"length","from":"A","to":"B","value":3},
-    {"kind":"right-angle","at":"B","from":"A","to":"C"}]}}
-约束可用：length（边长）、equal-length（两边等长）、angle（度数）、right-angle（直角）、
-parallel（平行）、perpendicular（垂直）、on-segment（点在线段上，可带 ratio 表示分点比例）。
-两条硬规则：
-- **只写题干明确给出的量**。图上量着像 5 但题干没说，就不许写 length=5——
-  多写一个条件，这道题就从"要推"变成"看图就有答案"了。
-- 条件必须能画得出来（不自相矛盾）。画不出来的会被丢弃，题目本身仍会保留。
-没有图的题就不要 figure 字段。`;
+**不要输出 figure 字段、不要用文字描述图形长什么样。**
+配图走的是另一条路（原图直接从页面上裁下来）；此前让模型在这里写「点线角」规格，
+对着统计图它只能硬凑出 {"kind":"value"} 这类不存在的约束，一律被门禁打回，
+除了给抽检页添一行红字什么都得不到。`;
 
 function userPrompt(text: string, hint?: ExtractionHint): string {
   const levelNote = hint?.level ? `材料年级：${hint.level}。` : "";
