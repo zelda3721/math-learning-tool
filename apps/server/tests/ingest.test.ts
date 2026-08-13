@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import type { ExtractedDraft, ExtractionProvider } from "../src/ingest/extraction.js";
 import { parseExtractionJson, parseExtractionOutcome, segmentQuestionsOffline } from "../src/ingest/extraction.js";
-import { tempFixtureEnv } from "./helpers.js";
+import { tempFixtureEnv, NODE_A } from "./helpers.js";
 
 function jsonPost(app: ReturnType<typeof createApp>, path: string, body: unknown) {
   return app.request(path, {
@@ -363,3 +363,54 @@ describe("空白页不算失败", () => {
     expect(outcome.empty).toBeUndefined();
   });
 });
+
+/**
+ * 一道题坏掉不该拖垮整批。
+ *
+ * 曾经 nodeIds 写成 `.min(1)`：一道题没挂上知识点，整个 confirm 请求 400，
+ * 同一份材料里其余几十道好题一起进不去，报错还只有一句
+ * 「questions.0.nodeIds Array must contain at least 1 element(s)」——
+ * 看不出是哪一道、也不知道该怎么办。
+ */
+describe("逐题裁决，不要整批 400", () => {
+  const good = (stem: string) => ({
+    stem,
+    answer: "26",
+    answerType: "numeric" as const,
+    difficulty: 2,
+    level: "elementary_upper" as const,
+    nodeIds: [NODE_A],
+  });
+
+  it("没有知识点的那道单独说明，其余照常入库", async () => {
+    const env = tempFixtureEnv([]);
+    const app = createApp(env.state);
+    const res = await jsonPost(app, "/api/v1/ingest/confirm", {
+      batchName: "t",
+      questions: [
+        { ...good("一个逻辑推理题，谁也没认出知识点"), nodeIds: [] },
+        good("一个长方形长 8 厘米、宽 5 厘米，周长是多少？"),
+        good("在一条 100 米长的小路一侧植树，每隔 5 米栽一棵，一共几棵？"),
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { written: number; issues: { problem: string }[] };
+    expect(body.written).toBe(2);
+    // 说清楚是哪一道、为什么、怎么办
+    expect(body.issues[0]!.problem).toContain("第 1 道");
+    expect(body.issues[0]!.problem).toContain("没有知识点");
+    expect(body.issues[0]!.problem).toContain("逻辑推理题");
+  });
+
+  it("悬挂知识点也是逐题裁决", async () => {
+    const env = tempFixtureEnv([]);
+    const app = createApp(env.state);
+    const res = await jsonPost(app, "/api/v1/ingest/confirm", {
+      batchName: "t",
+      questions: [{ ...good("图谱里没有这个知识点"), nodeIds: ["不存在的知识点"] }, good("正常题目一道")],
+    });
+    const body = (await res.json()) as { written: number; issues: { problem: string }[] };
+    expect(body.written).toBe(1);
+    expect(body.issues[0]!.problem).toContain("悬挂知识点");
+  });
+})

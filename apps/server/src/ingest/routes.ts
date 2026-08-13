@@ -40,7 +40,16 @@ const ConfirmQuestionSchema = z.object({
   answerUnique: z.boolean().optional(),
   difficulty: z.number().int().min(1).max(5),
   level: EducationLevelSchema,
-  nodeIds: z.array(z.string()).min(1),
+  /**
+   * 知识点。**这里不设下限**——空数组要能通过 schema。
+   *
+   * 曾经写成 `.min(1)`：一道题没挂上知识点，整个请求就 400，
+   * 同一份材料里其余几十道好题一起进不去，报错还只有一句
+   * 「questions.0.nodeIds Array must contain at least 1 element(s)」，
+   * 看不出是哪一道、也不知道该怎么办。
+   * 改成逐题裁决（见下面的 issues），坏的那一道单独说明，其余照常入库。
+   */
+  nodeIds: z.array(z.string()),
   problemTypeId: z.string().optional(),
   variantOf: z.string().optional(),
   // 宽松收下，入库前统一过 checkFigure（前端传回来的东西一律不可信）
@@ -323,6 +332,14 @@ export function ingestRoutes(state: AppState): Hono {
 
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i]!;
+      if (q.nodeIds.length === 0) {
+        // 没有知识点的题进了库也是死的：出题按知识点选，掌握度也无处记
+        issues.push({
+          index: i,
+          problem: `第 ${i + 1} 道没有知识点，未入库：「${q.stem.slice(0, 24)}…」——请在草稿里补一个再确认`,
+        });
+        continue;
+      }
       const badNodes = q.nodeIds.filter((n) => !state.knowledge.index.nodeById.has(n));
       if (badNodes.length) {
         issues.push({ index: i, problem: `悬挂知识点 ${badNodes.join(",")}，题目未入库` });

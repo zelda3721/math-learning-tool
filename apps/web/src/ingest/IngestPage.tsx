@@ -885,6 +885,15 @@ export function IngestPage() {
                             <div className="flex items-center justify-between gap-3 flex-wrap">
                                 <h2 className="text-section">
                                     抽取到 <span className="numeric">{drafts.length}</span> 道题 · 请核对后入库
+                                    {drafts.filter((d) => d.nodes.length === 0).length > 0 && (
+                                        <span className="ml-2 text-sm font-normal text-wrong">
+                                            其中{' '}
+                                            <span className="numeric">
+                                                {drafts.filter((d) => d.nodes.length === 0).length}
+                                            </span>{' '}
+                                            道没有知识点，不会入库
+                                        </span>
+                                    )}
                                 </h2>
                                 <Button disabled={confirming} onClick={() => void handleConfirm()}>
                                     {confirming ? '入库中…' : '确认入库'}
@@ -1004,10 +1013,30 @@ export function IngestPage() {
 
                                     <div>
                                         <span className="eyebrow block mb-1">关联知识点 · AI 建议可删除</span>
+                                        {/* 没有知识点的题入不了库：出题按知识点选，掌握度也无处记。
+                                            所以这里要显眼，并且当场能补 */}
+                                        {d.nodes.length === 0 && (
+                                            <div className="rounded-[8px] border border-wrong/30 bg-wrong-wash px-3 py-2 space-y-1.5">
+                                                <p className="text-xs text-wrong">
+                                                    没认出知识点，这道题不会入库——补一个再确认
+                                                </p>
+                                                <input
+                                                    type="text"
+                                                    placeholder="知识点 id，如 perimeter；多个用逗号分开"
+                                                    onChange={(e) => {
+                                                        const ids = e.target.value
+                                                            .split(/[,，\s]+/)
+                                                            .map((x) => x.trim())
+                                                            .filter(Boolean)
+                                                        updateDraft(d.key, {
+                                                            nodes: ids.map((nodeId) => ({ nodeId })),
+                                                        })
+                                                    }}
+                                                    className={`${inputCls} !py-1.5`}
+                                                />
+                                            </div>
+                                        )}
                                         <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                            {d.nodes.length === 0 && (
-                                                <span className="text-xs text-ink-faint">（无建议知识点）</span>
-                                            )}
                                             {d.nodes.map((n) => (
                                                 <span
                                                     key={n.nodeId}
