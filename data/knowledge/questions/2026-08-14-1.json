@@ -1,0 +1,307 @@
+[
+  {
+    "id": "6a355652-8881-4311-b4cf-73eb61f5f3a9",
+    "nodeIds": [
+      "average-charts",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据下面某水泥厂第一季度产量统计表，解答下面的问题：\n\n| 月份 | 1月 | 2月 | 3月 |\n| :--- | :--- | :--- | :--- |\n| 产量（吨） | 450 | 300 | 585 |\n\n（1）平均每月生产多少吨？\n（2）3月份产量比1月份增产多少？",
+    "answer": "445,135",
+    "answerType": "numeric",
+    "analysis": "（1）求平均数：(450+300+585)÷3=445；（2）求差值：585-450=135。",
+    "figureImage": "d2e5567027e0da55a4fa7d253c0265c9.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "053c811cd15342f4",
+    "status": "extracted"
+  },
+  {
+    "id": "4efd15a8-915f-4c8e-9ba2-bfc4d294bb47",
+    "nodeIds": [
+      "numbers-10000",
+      "data-collection"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据下面实验小学今年上半年各年级学生人数，完成下面统计表。\n一年级258人 二年级234人 三年级280人\n四年级207人 五年级305人 六年级268人\n\n| 年级 | 一 | 二 | 三 | 四 | 五 | 六 | 总计 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| 人数 | | | | | | | |",
+    "answer": "258,234,280,207,305,268,1552；1552",
+    "answerType": "numeric",
+    "analysis": "将一至六年级人数相加（258+234+280+207+305+268）得出总计1552人。",
+    "figureImage": "5084436d05a3a3dcb24d7fa99bf42016.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d090605696f7808b",
+    "status": "extracted"
+  },
+  {
+    "id": "8d1b1f70-78aa-4a41-a54a-8591bc42e207",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据图显示的前进汽车厂去年1～6月汽车产量，解答问题．\n\n| 月份 | 一月 | 二月 | 三月 | 四月 | 五月 | 六月 |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| 产量（辆） | 400 | 416 | 440 | 450 | 470 | 500 |\n\n（1）平均每个月制造汽车多少辆？\n（2）6月份制造的汽车比1月份增长多少？\n（3）第一季度制造的汽车比第二季度少多少辆？",
+    "answer": "446, 100, 164",
+    "answerType": "numeric",
+    "analysis": "（1）求6个月产量的平均数；（2）用6月产量减去1月产量；（3）分别计算第一季度（1-3月）和第二季度（4-6月）的总产量，再求差值。",
+    "figureImage": "27058b5c38e25681ec126255041fe5ad.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "bfbef13d684d0f86",
+    "status": "extracted"
+  },
+  {
+    "id": "06a40395-308c-4a3c-a350-b0419da72fa9",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，是牛牛五次数学测验成绩的统计图．牛牛五次测验的平均分是______分．",
+    "answer": "92",
+    "answerType": "numeric",
+    "analysis": "根据折线统计图读出五次成绩分别为90、95、85、90、100分，求和除以5即可得到平均分。",
+    "figureImage": "53d15414b19520fa7294ac2b5631571e.jpg",
+    "analysisImage": "066bd926617adb22676deb5a4d6f5365.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "dca4980015652249",
+    "status": "extracted"
+  },
+  {
+    "id": "3c99a50a-d3d7-47cd-b4d4-d8764d1576ed",
+    "nodeIds": [
+      "statistics-junior",
+      "statistics-senior",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "观察统计图，回答问题。\n某城市2016年月平均气温统计图\n（1）哪个月的平均气温最低？\n（2）哪两个相邻月份之间平均气温升高最快？\n（3）哪两个相邻月份之间平均气温下降最快？",
+    "answer": "1月份, 3月到4月, 11月到12月；1月;3月到4月;11月到12月",
+    "answerType": "numeric",
+    "analysis": "通过观察折线统计图，1月份拐点最低，3月到4月折线上升最陡峭，11月到12月折线下降最陡峭。",
+    "figureImage": "7d0208053a77bf6814471e9b88659256.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8720c02f1aa84370",
+    "status": "extracted"
+  },
+  {
+    "id": "9ba7e0f2-0424-49c7-a4d0-3f90a1e3255e",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "根据某小学一至六年级喜欢看科普读物的人数绘制如下统计图，根据统计图回答下列问题．\n（1）四年级喜欢看科普读物的学生人数是多少？\n（2）丁丁所在年级喜欢看科普读物的人数排第2位，丁丁是哪个年级的？\n（3）你还能提出什么数学问题？",
+    "answer": "57；五年级；合理即可，如六个年级喜欢看科普读物的同学总共有多少人",
+    "answerType": "numeric",
+    "analysis": "观察折线统计图，找到横轴“四年级”对应的数据点，其数值为57。",
+    "figureImage": "43f3b42d8fc0275fab0aea637c44168e.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6c6e0a1aee2d5157",
+    "status": "extracted"
+  },
+  {
+    "id": "45ee2729-fc5b-45c5-bd2c-216993e219de",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师让同学们做社会实践调查，丁丁走访了两个超市，下图是关于这两个超市的一个复式折线统计图，表示$A$、$B$两个超市月销售额的情况．请根据此图，回答下列问题：（1）季节的变化对销售额（ ）影响． A. 有 B. 没有",
+    "options": [
+      "A. 有",
+      "B. 没有"
+    ],
+    "answer": "A",
+    "answerType": "expression",
+    "analysis": "观察折线统计图可知，两个超市的销售额随月份变化而波动，说明季节变化对销售额有影响。",
+    "figureImage": "4391c7f6cd12405df20c378d06be7294.jpg",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "825ff0dfd1ceca35",
+    "status": "extracted"
+  },
+  {
+    "id": "da49db4e-60aa-49c8-8ce2-16b70b0620f0",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师让同学们做社会实践调查，丁丁走访了两个超市，下图是关于这两个超市的一个复式折线统计图，表示$A$、$B$两个超市月销售额的情况．请根据此图，回答下列问题：（2）求出两个超市的月平均销售额．",
+    "answer": "80,70",
+    "answerType": "numeric",
+    "analysis": "$A$超市月平均销售额为$(40+20+100+110+120+90)\\div 6=80$（万元）；$B$超市月平均销售额为$(50+30+90+80+90+80)\\div 6=70$（万元）。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d67441ed7d653916",
+    "status": "extracted"
+  },
+  {
+    "id": "1379b762-e692-44b7-bf8d-292f9b59ae8e",
+    "nodeIds": [
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛来到一家生产机器零件的工厂，将生产情况绘成条形统计图(如图所示)，求平均每个工人生产了几件产品．",
+    "answer": "5；12",
+    "answerType": "numeric",
+    "analysis": "根据条形统计图，利用加权平均数公式计算得出平均每个工人生产了12件产品。",
+    "figureImage": "dc7c7f86d685a15699b94519fdd60f28.jpg",
+    "analysisImage": "8835bc6e5df1ab266c18df4a94711b51.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "53de07d681d7a5bb",
+    "status": "extracted"
+  },
+  {
+    "id": "6dcf4b10-e5dd-4f52-8b72-d7b7bbacd6b6",
+    "nodeIds": [
+      "add-sub-100",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田来到一所希望小学，五、六年级同学制作标本情况统计如下：\n\n| 种类 | 合计 | 昆虫 | 植物 | 矿石 |\n| :--- | :--- | :--- | :--- | :--- |\n| 数量/件 | | | | |\n| 年级 | | | | |\n| 总计 | | | | |\n| 五年级 | | 15 | 30 | 21 |\n| 六年级 | | 25 | 42 | 35 |\n\n（1）将表格填写完整。\n（2）根据上面的统计表，完成下面的统计图。\n\n希望小学五、六年级同学制作标本情况统计图\n2017年1月\n\n（注：统计图为复式条形统计图，横轴为种类：昆虫标本、植物标本、矿石标本；纵轴为数量/件，刻度0-45，每格代表5件。图例显示浅灰色为五年级，深灰色为六年级。图中已画出昆虫标本的五年级（15件）和六年级（25件）的条形。）",
+    "answer": "植物标本",
+    "answerType": "steps",
+    "analysis": "通过计算各类标本的总数（昆虫40件，植物72件，矿石56件），比较得出植物标本数量最多。",
+    "figureImage": "63263c813dfc5fca3cc66816c1dd42e9.jpg",
+    "analysisImage": "ed58e65f5415ac96a6cb0c3ff265268d.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7c52eb1d059c2b56",
+    "status": "extracted"
+  },
+  {
+    "id": "2f0863a6-0f28-408e-bb9d-04f940f07d6d",
+    "nodeIds": [
+      "average-charts",
+      "add-sub-100",
+      "number-puzzle-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普来到飞碟工厂，一周生产机器台数的统计表破损，如图，表中缺少几个数字．请你根据这张统计表上的信息，求出星期三和星期四的产量．\n\n| 星期 | 一 | 二 | 三 | 四 | 五 | 平均 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| 台数 | 81 | 74 | 6 | 7 | 69 | 73 |",
+    "answer": "64,77",
+    "answerType": "numeric",
+    "analysis": "先利用平均数求出5天的总产量，减去已知的三天产量得到周三和周四的总和，再结合表格中给出的十位和个位数字特征进行推理求解。",
+    "figureImage": "67d95f2ed8a4558ff0effd1d229a9425.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2b233f261d95611c",
+    "status": "extracted"
+  },
+  {
+    "id": "c106235b-f679-4673-a130-87f35531f179",
+    "nodeIds": [
+      "data-collection",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "练习11\n田田为了了解希望小学学生体能的情况，随意抽取了30名学生，测试了他们1分钟做仰卧起坐的次数，并将结果绘制成右侧统计图．\n\n(1) 根据统计图，填写下面的统计表．\n| 次数$x$ | $15 \\leqslant x < 20$ | $20 \\leqslant x < 25$ | $25 \\leqslant x < 30$ | $30 \\leqslant x \\leqslant 35$ |\n| :--- | :--- | :--- | :--- | :--- |\n| 人数 | | | | |\n\n(2) 1分钟仰卧起坐少于20次的有几人？\n(3) 1分钟仰卧起坐不少于30次的有几人？\n(4) 多数人的次数在哪个范围内？",
+    "answer": "3,10,12,5; 3; 5; 25≤x<30；(1) 3, 10, 12, 5; (2) 3; (3) 5; (4) 20至30次",
+    "answerType": "numeric",
+    "analysis": "根据统计图读取各区间人数填表，直接读取少于20次和不少于30次的人数，通过计算20至30次区间人数之和判断集中范围。",
+    "figureImage": "28d5226db99c5c963dd9f03ff1950a52.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0304f5ffc195c70f",
+    "status": "extracted"
+  },
+  {
+    "id": "daee052f-7d19-4142-99cf-9d215dd1397f",
+    "nodeIds": [
+      "add-sub-100",
+      "multiplication-table",
+      "average-charts"
+    ],
+    "level": "elementary_upper",
+    "stem": "四年级有97人参加学校集邮协会，共收集了2367张邮票，学校集邮协会按四年级各班平均每人收集邮票张数制成如图所示的条形统计图，已知四（一）班有34人，平均每人集邮票28张，那么四（二）班有多少人？四（三）班有多少人？",
+    "answer": "32人；31人",
+    "answerType": "numeric",
+    "analysis": "先求出二、三班总人数和总邮票数，利用二、三班平均每人集邮张数（从图中读出）的差，通过鸡兔同笼方法（或方程）求解。",
+    "figureImage": "30b0645e74da61a6b2e70d9ce36606f9.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e22e28b930af2a9a",
+    "status": "extracted"
+  },
+  {
+    "id": "34f5eea7-4ef4-449e-900b-e09f216621c9",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "middle",
+    "stem": "如图，$A$，$B$两地相距$1500$米，实线表示牛牛上午$8$时由$A$地出发往$B$地行走，到达$B$地后稍作休息，又从$B$地出发返回$A$地的步行情况；虚线表示丁丁上午$8$时从$B$地出发向$A$地行走，到了$A$地，立即返回$B$地的步行情况。（$1$）牛牛在$B$地休息了多长时间？休息前后的速度各是多少？",
+    "answer": "13分钟；75米/分，60米/分",
+    "answerType": "numeric",
+    "analysis": "休息时间$33-20=13$分钟；休息前速度$1500\\div20=75$，休息后速度$1500\\div(58-33)=60$。",
+    "figureImage": "8bcecbf5d54eb3fc6043f4e29385ad82.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9cc5fde5df4c2b02",
+    "status": "extracted"
+  },
+  {
+    "id": "f15815e0-7324-4932-93ee-31683f11afc1",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "middle",
+    "stem": "如图，$A$，$B$两地相距$1500$米，实线表示牛牛上午$8$时由$A$地出发往$B$地行走，到达$B$地后稍作休息，又从$B$地出发返回$A$地的步行情况；虚线表示丁丁上午$8$时从$B$地出发向$A$地行走，到了$A$地，立即返回$B$地的步行情况。（$2$）丁丁从$B$地到$A$地，从$A$地到$B$地的速度各是多少？",
+    "answer": "50米/分，50米/分",
+    "answerType": "numeric",
+    "analysis": "丁丁去程$1500\\div30=50$，回程$1500\\div30=50$。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8896d0d94a0f147b",
+    "status": "extracted"
+  },
+  {
+    "id": "1166fcc7-9891-446d-85b1-ae760ea9e1f1",
+    "nodeIds": [
+      "journey-primary",
+      "data-collection"
+    ],
+    "level": "middle",
+    "stem": "如图，$A$，$B$两地相距$1500$米，实线表示牛牛上午$8$时由$A$地出发往$B$地行走，到达$B$地后稍作休息，又从$B$地出发返回$A$地的步行情况；虚线表示丁丁上午$8$时从$B$地出发向$A$地行走，到了$A$地，立即返回$B$地的步行情况。（$3$）从图中可以看出，牛牛和丁丁相遇了几次？算一算，第一次相遇是几点几分？",
+    "answer": "两次；8点12分",
+    "answerType": "numeric",
+    "analysis": "相遇两次；第一次相遇时间$1500\\div(75+50)=12$分钟，即8点12分。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "57cc98ef67301af9",
+    "status": "extracted"
+  }
+]

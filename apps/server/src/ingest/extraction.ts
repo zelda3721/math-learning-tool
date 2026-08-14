@@ -9,7 +9,6 @@ import {
   parseFirstObject,
   parseLayout,
   repairJsonEscapes,
-  SUB_QUESTION_HEAD,
   tailUserPrompt,
   FIGURE_PROMPT,
   LAYOUT_PROMPT,
@@ -200,35 +199,54 @@ function lineObjects(text: string): string[] {
   return out;
 }
 
+/** 小问编号（不锚定开头）：「（1）」「(2)」「①」 */
+const SUB_MARKER = /[(（]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/;
+
+/** 按第一个小问编号把题干拆成「头 + 尾」；没有编号返回 null */
+function splitAtMarker(stem: string): { head: string; tail: string } | null {
+  const m = SUB_MARKER.exec(stem);
+  if (!m) return null;
+  return { head: stem.slice(0, m.index).trim(), tail: stem.slice(m.index).trim() };
+}
+
+const squash = (t: string) => t.replace(/\s+/g, "");
+
 /**
  * 把被拆散的小问并回它的主题干。
  *
- * 整页抽取的提示词写着"一行一道题"，模型于是把一题多问拆成了多行：
- * 实机上「田田来到希望小学…统计如下(表格)」之后跟着三条
- * 「(1) 根据统计表数据…」「(2) 绘制统计图…」「(3) 哪种标本最多？」——
- * 每条都当成了独立的题。孤儿小问没有表格没有图，
- * 「(3) 哪种标本的件数最多？」单独放着根本没法答，
- * 而且它们还会顶掉主题干的配图。
+ * 模型拆一题多问有**两种花样**，都在实机上见过：
+ * ① 光杆小问：「(1) 根据统计表…」「(2) 绘制统计图…」——头是空的；
+ * ② 重复题干：每条都是「完整题干＋一个小问」——
+ *    「根据某小学…回答下列问题．（1）四年级…」
+ *    「根据某小学…回答下列问题．（2）丁丁…」
+ *    「根据某小学…回答下列问题．（3）你还能…」
+ *    第二种更隐蔽：开头不是编号，按"开头是小问"的判据完全看不见，
+ *    第14讲练习6 连着两轮就是这么漏掉的。
  *
- * 规则：以小问编号开头、且前面有主题干的，并进前面那道
- * （题干接上去、答案用分号接、answerUnverified 取或）。
- * 整份输出第一条就以 (1) 开头的不动——那道题本来就长那样
- * （「(1) 127×123. (2) 229×221.」是一道计算题的两个小题）。
+ * 统一判据：按第一个小问编号拆出「头」，相邻两条的头对得上
+ * （光杆的头是空串；重复题干的头是同一段话）就是同一道题——
+ * 合并时只留一份题干，小问接排，答案用分号接。
  */
 export function coalesceSubQuestions(drafts: ExtractedDraft[]): ExtractedDraft[] {
   const out: ExtractedDraft[] = [];
   for (const d of drafts) {
     const prev = out[out.length - 1];
-    if (!prev || !SUB_QUESTION_HEAD.test(d.stem.trim())) {
+    const cur = splitAtMarker(d.stem.trim());
+    const mergeable =
+      prev !== undefined &&
+      cur !== null &&
+      (cur.head === "" ||
+        // 重复题干：头得够长（短前缀撞车太容易），且上一条确实以它开头
+        (squash(cur.head).length >= 8 && squash(prev.stem).startsWith(squash(cur.head))));
+    if (!mergeable) {
       out.push(d);
       continue;
     }
     const answers = [prev.answer, d.answer].map((a) => a.trim()).filter(Boolean);
     out[out.length - 1] = {
       ...prev,
-      stem: `${prev.stem.trimEnd()}\n${d.stem.trim()}`,
+      stem: `${prev.stem.trimEnd()}\n${cur.tail}`,
       answer: [...new Set(answers)].join("；"),
-      // 两半的图不会都有；主题干那半的优先（小问是从它拆出去的）
       figure: prev.figure ?? d.figure,
       analysis: prev.analysis ?? d.analysis,
       ...(prev.answerUnverified || d.answerUnverified ? { answerUnverified: true } : {}),
