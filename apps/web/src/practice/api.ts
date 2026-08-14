@@ -4,7 +4,7 @@ import type { validateSpec } from '@mathtutor/explainer-web'
 import type { FigureSpec } from '@mathtutor/explainer-web'
 
 /** 'asked' 是前端专有槽位：孩子自由提问转成的临时题目，server 的今日题组不会返回它 */
-export type Slot = 'review' | 'queue' | 'weak' | 'new' | 'challenge' | 'asked'
+export type Slot = 'review' | 'queue' | 'weak' | 'consolidate' | 'new' | 'challenge' | 'asked'
 export type MasteryBand = 'dim' | 'glow' | 'lit'
 
 export interface PracticeQuestion {
