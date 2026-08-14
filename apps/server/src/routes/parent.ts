@@ -88,6 +88,22 @@ export function parentRoutes(state: AppState): Hono {
     return c.json({ count: state.repo.pendingReviewAttempts(learnerId, 200).length });
   });
 
+  /**
+   * 重置一个孩子的学习状态。危险操作：要求把孩子的名字原样再输一遍确认
+   * （与题库"整批撤回"同一套防手滑纪律）。
+   */
+  app.post("/reset-learner", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { learnerId?: string; confirm?: string };
+    if (!body.learnerId) return c.json({ error: "需要 learnerId" }, 400);
+    const learner = state.repo.getLearner(body.learnerId);
+    if (!learner) return c.json({ error: "learner 不存在" }, 404);
+    if (body.confirm !== learner.name) {
+      return c.json({ error: `请把孩子的名字原样输入确认（${learner.name}）` }, 400);
+    }
+    const cleared = state.repo.resetLearnerState(body.learnerId);
+    return c.json({ ok: true, cleared });
+  });
+
   // 判卷裁决：pending 作答此前不计掌握度，裁决后按结论补记（不污染证据基础）
   const VerdictSchema = z.object({
     attemptId: z.string(),
