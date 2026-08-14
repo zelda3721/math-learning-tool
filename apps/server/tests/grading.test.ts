@@ -401,3 +401,52 @@ describe("或与多段并存", () => {
     expect(grade(q, "544；816；999").correct).toBe(false);
   });
 })
+
+/**
+ * 孩子给每个数带了名字时，名字说了算——位置靠边。
+ *
+ * 实机（Pokemon）：参考答案「27;13;26」按填空顺序（田田、丁丁、牛牛），
+ * 孩子填「田田27kg,牛牛26kg,丁丁13kg」——三个值全对、只是顺序不同，
+ * 按位置比被连判两次错，孩子对着正确答案只能靠调换文字顺序过关。
+ */
+describe("带名字的多值答案", () => {
+  const q = {
+    answer: "27;13;26",
+    answerType: "numeric" as const,
+    stem:
+      "丁丁、牛牛、田田要开始他们的运动健身计划了…田田的体重是______千克，丁丁的体重是______千克，牛牛的体重是______千克．",
+  };
+
+  it("名字全对、顺序不同 → 按名字对应，判对（Pokemon 第 2 次的原文）", () => {
+    expect(grade(q, "田田27kg,牛牛26kg,丁丁13kg").correct).toBe(true);
+  });
+
+  it("顺序恰好一致当然也对", () => {
+    expect(grade(q, "田田27kg，丁丁13kg,牛牛26kg").correct).toBe(true);
+  });
+
+  it("名字配错了值 → 判错，判得确凿（名字暴露了他配错人）", () => {
+    // 数值集合一模一样，但田田和丁丁换了个——不是顺序问题，是真错
+    expect(grade(q, "田田13kg,丁丁27kg,牛牛26kg").correct).toBe(false);
+    expect(grade(q, "田田13kg,丁丁27kg,牛牛26kg").method).not.toBe("pending");
+  });
+
+  it("数值本身错了 → 判错（Pokemon 第 1 次的原文）", () => {
+    expect(grade(q, "田田27kg,牛牛24kg,丁丁15kg").correct).toBe(false);
+  });
+
+  it("没带名字时顺序仍然要紧——位置就是他的对应关系", () => {
+    expect(grade(q, "27,26,13").correct).toBe(false);
+  });
+
+  it("题干没有填空可对应时，集合一致转家长而不是判错", () => {
+    const noBlank = { answer: "27;13;26", answerType: "numeric" as const, stem: "三人体重各多少？" };
+    expect(grade(noBlank, "田田27,牛牛26,丁丁13").method).toBe("pending");
+  });
+
+  it("叙事顺序骗不了它——按填空前的名字对应，不按名字在题干里的先后", () => {
+    // 题干开头是「丁丁、牛牛、田田」，填空却是「田田…丁丁…牛牛」；
+    // 按叙事顺序对应会把每个数都配错人
+    expect(grade(q, "牛牛26kg,田田27kg,丁丁13kg").correct).toBe(true);
+  });
+})
