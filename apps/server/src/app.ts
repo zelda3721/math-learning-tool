@@ -33,6 +33,8 @@ export interface AppState {
   questions: QuestionStore;
   repo: Repo;
   hintProvider: HintProvider | null;
+  /** 语义判卷（规则判不准时问模型；只许判对不许判错）；null 时一切照旧 */
+  judge?: import("./semanticJudge.js").AnswerJudge | null;
   /** 上传抽取 LLM Provider；null/缺省时 text 走离线兜底、image/pdf 返回 501 */
   extraction?: ExtractionProvider | null;
   /** P1b 批量抽取任务存储；未提供时批量端点返回 503 */

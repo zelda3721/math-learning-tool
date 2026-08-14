@@ -191,7 +191,30 @@ export function practiceRoutes(state: AppState): Hono {
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
 
-    const result = grade(question, body.answer);
+    let result = grade(question, body.answer);
+    /**
+     * 规则判不准时，问模型「是不是同一个意思」。
+     *
+     * **只许判对，不许判错**：模型说 correct 才生效，说 wrong/unsure、
+     * 超时、答非所问，一律维持 pending 交家长（见 semanticJudge.ts 的纪律）。
+     * 放行的每一次都记事件，家长可审。
+     */
+    if (result.method === "pending" && state.judge) {
+      const verdict = await state.judge({
+        stem: question.stem,
+        reference: question.answer,
+        student: body.answer,
+      });
+      if (verdict?.verdict === "correct") {
+        result = { correct: true, method: "numeric" };
+        state.repo.appendEvent(body.learnerId, "ai_judge_accepted", {
+          questionId: body.questionId,
+          student: body.answer,
+          reference: question.answer,
+          why: verdict.why,
+        });
+      }
+    }
     const pending = result.method === "pending";
     const attempt = state.repo.insertAttempt({
       learnerId: body.learnerId,
