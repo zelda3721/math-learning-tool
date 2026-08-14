@@ -16,7 +16,16 @@ const LEVEL_ORDER: EducationLevel[] = [
 
 export interface ComposedQuestion {
   question: Question;
-  slot: "review" | "queue" | "weak" | "new" | "challenge";
+  /**
+   * weak 与 consolidate 的分界是**掌握度档位**，不是"点没点亮"。
+   *
+   * 曾把"有证据且未点亮"一律标成 weak：点亮要 p≥0.7 且 ≥3 次作答，
+   * 孩子第一次做对后 p≈0.55、证据 1 次——不亮，于是被标「弱点」。
+   * 第一次练习之后几乎每道题都顶着红色的弱点徽章，做对了反而挨标，
+   * 既不诚实也伤士气。真弱（dim，p<0.4）才叫弱点；
+   * 摸过但还没点亮的叫「巩固」——那本来就是学习的正常阶段。
+   */
+  slot: "review" | "queue" | "weak" | "consolidate" | "new" | "challenge";
   queueItemId?: string;
   /** SM-2 复习卡：submit 带回以推进间隔 */
   reviewCardId?: string;
@@ -80,10 +89,12 @@ export function composeToday(
 
   for (const weak of weakNodes) {
     if (picked.length >= target) break;
+    // 选题顺序不变（最弱的先练），只有标签按档位如实分
+    const slot = masteryBand(weak.p, weak.evidenceN) === "dim" ? "weak" : "consolidate";
     for (const q of store.byNode.get(weak.nodeId) ?? []) {
       if (picked.length >= target) break;
       if (isChallengePool(q)) continue;
-      if (q.level === learner.level || sameStage(q.level, learner.level)) take(q, "weak");
+      if (q.level === learner.level || sameStage(q.level, learner.level)) take(q, slot);
     }
   }
 

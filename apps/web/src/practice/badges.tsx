@@ -7,6 +7,8 @@ const SLOT_META: Record<Slot, { label: string; tone: BadgeTone }> = {
     review: { label: '复习', tone: 'slate' },
     queue: { label: '探针', tone: 'beam' },
     weak: { label: '弱点', tone: 'wrong' },
+    // 摸过但还没点亮 ≠ 弱点——那是学习的正常阶段，用中性色
+    consolidate: { label: '巩固', tone: 'slate' },
     new: { label: '新题', tone: 'beam' },
     challenge: { label: '挑战', tone: 'slate' },
     asked: { label: '我问的', tone: 'beam' },

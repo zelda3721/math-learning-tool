@@ -62,3 +62,44 @@ describe("composeToday minimal composer", () => {
     expect(composed[0]!.queueItemId).toBe(queueItemId);
   });
 });
+
+/**
+ * 「弱点」这个词要诚实。
+ *
+ * 曾把"有证据且未点亮"一律标成 weak：点亮要 p≥0.7 且 ≥3 次作答，
+ * 孩子第一次做对后 p≈0.55、证据 1 次——不亮，于是被标弱点。
+ * 第一次练习之后几乎每道题都顶着红色的弱点徽章，做对了反而挨标。
+ */
+describe("弱点与巩固分开标", () => {
+  it("做对过一次（p 高但没点亮）→ 巩固，不是弱点", () => {
+    const { store, repo } = tempFixtureEnv([
+      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "巩固题", answer: "1" }),
+    ]);
+    const learner = repo.createLearner("小明", "elementary_upper");
+    repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_A,
+      p: 0.55, // 一次做对后的典型值
+      evidenceN: 1,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    const composed = composeToday(store, knowledge.index, repo, learner.id, { count: 3, challenge: false });
+    expect(composed[0]!.slot).toBe("consolidate");
+  });
+
+  it("真弱（p 低于 0.4）→ 弱点", () => {
+    const { store, repo } = tempFixtureEnv([
+      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "弱点题", answer: "1" }),
+    ]);
+    const learner = repo.createLearner("小明", "elementary_upper");
+    repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_A,
+      p: 0.25,
+      evidenceN: 2,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    const composed = composeToday(store, knowledge.index, repo, learner.id, { count: 3, challenge: false });
+    expect(composed[0]!.slot).toBe("weak");
+  });
+})
