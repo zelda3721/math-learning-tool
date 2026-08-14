@@ -288,3 +288,88 @@ describe("POST /api/v1/parent/reset-learner", () => {
     expect(env.repo.allMastery(learner.id)).toHaveLength(1);
   });
 })
+
+/**
+ * 「卡住的题」：从作答记录直接汇总，不经错题本。
+ *
+ * 实机（Pokemon）：同一道题连错 3 次、第 4 次自己做对，全程没用提示——
+ * 归因流程没触发，错题本 0 条，趋势里错误占比却涨了。家长看不见孩子卡在哪。
+ */
+describe("家长总览：卡住的题与薄弱知识点", () => {
+  it("连错几次后做对的题，按题聚合给家长看", async () => {
+    const env = makeApp([
+      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "田田、牛牛、丁丁分体重", answer: "27,13,24" }),
+    ]);
+    const learner = env.repo.createLearner("Pokemon", "elementary_upper");
+    for (const [correct, ans] of [
+      [false, "田田27kg,牛牛24kg"],
+      [false, "田田27kg,牛牛26kg"],
+      [true, "田田27kg，丁丁13kg"],
+    ] as const) {
+      env.repo.insertAttempt({
+        learnerId: learner.id,
+        questionId: "q1",
+        answer: ans,
+        correct,
+        hintLevelUsed: 0,
+        source: "daily",
+        needsReview: false,
+      });
+    }
+    const body = (await (
+      await env.app.request(`/api/v1/parent/summary?learnerId=${learner.id}`)
+    ).json()) as {
+      struggles: { stem: string; wrongCount: number; solved: boolean; childAnswers: string[]; nodeNames: string[] }[];
+    };
+    expect(body.struggles).toHaveLength(1);
+    const s = body.struggles[0]!;
+    expect(s.wrongCount).toBe(2);
+    expect(s.solved).toBe(true);
+    expect(s.childAnswers).toContain("田田27kg,牛牛24kg");
+    // 知识点给名字，不给 id
+    expect(s.nodeNames[0]).not.toMatch(/^[a-z-]+$/);
+  });
+
+  it("薄弱知识点按掌握度从低到高点名", async () => {
+    const env = makeApp([]);
+    const learner = env.repo.createLearner("Pokemon", "elementary_upper");
+    env.repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_A,
+      p: 0.25,
+      evidenceN: 2,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    env.repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_B,
+      p: 0.55,
+      evidenceN: 1,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    const body = (await (
+      await env.app.request(`/api/v1/parent/summary?learnerId=${learner.id}`)
+    ).json()) as { weakNodes: { nodeId: string; band: string; nodeName: string }[] };
+    expect(body.weakNodes[0]!.nodeId).toBe(NODE_A);
+    expect(body.weakNodes[0]!.band).toBe("dim");
+    expect(body.weakNodes[1]!.nodeId).toBe(NODE_B);
+  });
+
+  it("全对的题不进卡住的题", async () => {
+    const env = makeApp([makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "题", answer: "1" })]);
+    const learner = env.repo.createLearner("Pokemon", "elementary_upper");
+    env.repo.insertAttempt({
+      learnerId: learner.id,
+      questionId: "q1",
+      answer: "1",
+      correct: true,
+      hintLevelUsed: 0,
+      source: "daily",
+      needsReview: false,
+    });
+    const body = (await (
+      await env.app.request(`/api/v1/parent/summary?learnerId=${learner.id}`)
+    ).json()) as { struggles: unknown[] };
+    expect(body.struggles).toEqual([]);
+  });
+})

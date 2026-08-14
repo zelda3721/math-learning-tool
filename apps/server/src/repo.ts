@@ -121,6 +121,23 @@ export class Repo {
     });
   }
 
+  /** 最近的全部作答（含对错与所填答案），供家长端汇总"卡住的题" */
+  recentAttempts(learnerId: string, limit = 300) {
+    const rows = this.db
+      .prepare(
+        `SELECT question_id, correct, hint_level_used, answer, at
+         FROM attempts WHERE learner_id = ? ORDER BY at DESC LIMIT ?`,
+      )
+      .all(learnerId, limit);
+    return rows.map((r) => ({
+      questionId: String(r.question_id),
+      correct: Boolean(r.correct),
+      hintLevelUsed: Number(r.hint_level_used),
+      answer: String(r.answer ?? ""),
+      at: String(r.at),
+    }));
+  }
+
   attemptedQuestionIds(learnerId: string): Set<string> {
     const rows = this.db
       .prepare("SELECT DISTINCT question_id FROM attempts WHERE learner_id = ?")
