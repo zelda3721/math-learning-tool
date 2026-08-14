@@ -378,3 +378,26 @@ describe("条目序号不能把数字咬掉", () => {
     expect(grade(q, "15").correct).toBe(false);
   });
 });
+
+/**
+ * 「或」与多段并存时的优先级：**先分段，段内再认或**。
+ * 顺序反了会把「544或456；816；184」劈成「544」和「456；816；184」两个备选——
+ * 孩子只答第一问的 544 就被判全对。全量自检抓出来的真事故。
+ */
+describe("或与多段并存", () => {
+  const q = { answer: "544或456；816；184", answerType: "numeric" as const };
+
+  it("三问全答对才算对，段内的或两边都认", () => {
+    expect(grade(q, "544；816；184").correct).toBe(true);
+    expect(grade(q, "456，816，184").correct).toBe(true);
+  });
+
+  it("只答第一问不算对——哪怕写全了「544或456」", () => {
+    expect(grade(q, "544").correct).toBe(false);
+    expect(grade(q, "544或456").correct).toBe(false);
+  });
+
+  it("某一问答错就是错", () => {
+    expect(grade(q, "544；816；999").correct).toBe(false);
+  });
+})
