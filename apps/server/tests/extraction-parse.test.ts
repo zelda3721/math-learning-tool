@@ -195,3 +195,35 @@ describe("重复题干式的拆散", () => {
     expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(2);
   });
 })
+
+/**
+ * 小问编号被 LaTeX 包住：「（$1$）」。
+ * 提示词要求数字用 $ 包起来，模型把小问编号也一并包了——
+ * 实机上练习13 的三条碎片就是靠它躲过合并的（题干取自实机题库）。
+ */
+describe("LaTeX 包裹的小问编号", () => {
+  const line = (stem: string, answer: string) =>
+    JSON.stringify({ stem, answer, answerType: "numeric", difficulty: 3, level: "elementary_upper" });
+  const HEAD =
+    "如图，$A$，$B$两地相距$1500$米，实线表示牛牛上午$8$时由$A$地出发往$B$地行走，虚线表示丁丁的步行情况。";
+
+  it("三条「（$n$）」碎片并成一道", () => {
+    const raw = [
+      line(`${HEAD}（$1$）牛牛在$B$地休息了多长时间？`, "13分钟；75米/分，60米/分"),
+      line(`${HEAD}（$2$）丁丁的速度各是多少？`, "50米/分，50米/分"),
+      line(`${HEAD}（$3$）牛牛和丁丁相遇了几次？`, "两次；8点12分"),
+    ].join("\n");
+    const r = parseExtractionOutcome(raw, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    const q = r.drafts[0]!;
+    expect(q.stem.match(/两地相距/g)).toHaveLength(1);
+    expect(q.stem).toContain("（$3$）");
+    expect(q.answer).toBe("13分钟；75米/分，60米/分；50米/分，50米/分；两次；8点12分");
+  });
+
+  it("题干里正常的 $ 数学（如 $1500$ 米）不会被当成编号", () => {
+    // $1500$ 不带括号，不匹配；只有括号包着的 $n$ 才算
+    const raw = line(`${HEAD}求两地距离。`, "1500");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(1);
+  });
+})

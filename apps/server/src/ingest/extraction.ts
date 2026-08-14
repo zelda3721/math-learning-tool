@@ -199,8 +199,12 @@ function lineObjects(text: string): string[] {
   return out;
 }
 
-/** 小问编号（不锚定开头）：「（1）」「(2)」「①」 */
-const SUB_MARKER = /[(（]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/;
+/**
+ * 小问编号（不锚定开头）：「（1）」「(2)」「①」，**也认「（$1$）」**——
+ * 提示词要求数字用 $ 包起来，模型把小问编号也一并包了，
+ * 实机上练习13 的三条碎片就是靠 `（$1$）` 躲过合并的。
+ */
+const SUB_MARKER = /[(（]\s*\$?\s*\d+\s*\$?\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/;
 
 /** 按第一个小问编号把题干拆成「头 + 尾」；没有编号返回 null */
 function splitAtMarker(stem: string): { head: string; tail: string } | null {

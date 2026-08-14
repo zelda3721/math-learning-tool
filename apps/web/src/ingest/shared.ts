@@ -244,8 +244,8 @@ export function carryableText(preview: string, label: string): string | undefine
     return text
 }
 
-/** 小问编号（不锚定开头）：「（1）」「(2)」「①」 */
-const SUB_MARKER = /[(（]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/
+/** 小问编号（不锚定开头）：「（1）」「(2)」「①」，也认「（$1$）」（LaTeX 包裹的数字） */
+const SUB_MARKER = /[(（]\s*\$?\s*\d+\s*\$?\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/
 
 const splitAtMarker = (stem: string): { head: string; tail: string } | null => {
     const m = SUB_MARKER.exec(stem)
