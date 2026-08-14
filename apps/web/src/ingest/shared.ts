@@ -3,6 +3,9 @@
  * 供单发流程（IngestPage）、批量流程（BatchPanel）与抽检（ReviewTab）复用。
  */
 
+/** 版面框：[左, 上, 右, 下]，均为 0~1 的相对比例 */
+export type Box = [number, number, number, number]
+
 export type AnswerType = 'numeric' | 'expression' | 'steps'
 export type Level = 'elementary_lower' | 'elementary_upper' | 'middle' | 'high' | 'advanced'
 
@@ -274,6 +277,36 @@ export function mergeSubQuestionDrafts(drafts: Draft[]): Draft[] {
         }
     }
     return out
+}
+
+/**
+ * 答案续块里、答案线之上的那张图，是不是**上一题流落过来的题干配图**。
+ *
+ * 两个真实案例版面结构完全一样、真相相反：
+ * - 第14讲练习4：题干「如图，是牛牛五次数学测验成绩的统计图…」写完翻页，
+ *   折线图和【答案】一起落到下一页——图在答案线之上，是题干配图
+ * - 第5讲三个和尚：续页开头是解析的推演表，"答案线"其实指着【标注】——
+ *   图同样在线之上，却是答案内容
+ * 位置分不出它们。能分的是**上一题自己**：前者题干说了「如图」却还没有图
+ * （它在等这张图）；后者题干不提图。
+ *
+ * 判据从严：上一题缺图 + 题干明说有图 + 这块里确有一张在答案线之上的图，
+ * 三条都满足才认领。认错的方向有讲究——漏认只是那道题没图（看得见，可补），
+ * 错认会把一张答案表当成题干图递给孩子（看不见）。
+ */
+const STEM_MENTIONS_FIGURE = /如图|下图|右图|左图|上图|统计图|条形图|折线图|扇形图/
+
+export function strayFigureBox(
+    item: { figureBox?: Box; answerTop?: number },
+    previous: { stem: string; figureImage?: string },
+): Box | undefined {
+    if (previous.figureImage) return undefined
+    if (!STEM_MENTIONS_FIGURE.test(previous.stem)) return undefined
+    const fb = item.figureBox
+    if (!fb || typeof item.answerTop !== 'number' || item.answerTop < 0.08) return undefined
+    if (fb[1] >= item.answerTop) return undefined
+    const bottom = Math.min(fb[3], item.answerTop)
+    return bottom - fb[1] >= 0.03 ? [fb[0], fb[1], fb[2], bottom] : undefined
 }
 
 export function todayString(): string {

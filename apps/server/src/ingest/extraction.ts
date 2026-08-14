@@ -9,6 +9,7 @@ import {
   parseFirstObject,
   parseLayout,
   repairJsonEscapes,
+  SUB_QUESTION_HEAD,
   tailUserPrompt,
   FIGURE_PROMPT,
   LAYOUT_PROMPT,
@@ -198,9 +199,6 @@ function lineObjects(text: string): string[] {
   }
   return out;
 }
-
-/** 小问编号开头：「(1) …」「（2）…」「① …」 */
-const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/;
 
 /**
  * 把被拆散的小问并回它的主题干。

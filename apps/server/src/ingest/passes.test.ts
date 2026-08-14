@@ -582,3 +582,43 @@ describe("题干图不许越过答案线", () => {
     expect(out.stemFigureBox).toEqual([0.5, 0.1, 0.92, 0.55]);
   });
 })
+
+describe("版面条目级的小问合并", () => {
+  /**
+   * 实机（第14讲练习6）：版面把 (1)(2)(3) 切成独立条目，各走一次内容抽取，
+   * 抽成三道题、只有第一道有图。草稿层按题干开头兜底不可靠——
+   * 内容模型重写题干时常把「（2）」抹掉。条目层的 preview 是页面原文，
+   * 编号还在，在这里并最稳。
+   */
+  const jsonl = [
+    '{"index":1,"label":"练习6","preview":"根据某小学一至六年级喜欢看科普读物的人数绘制如下统计图","box":[0.08,0.23,0.92,0.5],"hasFigure":true,"figureBox":[0.58,0.29,0.88,0.44]}',
+    '{"index":2,"label":"","preview":"（1）四年级喜欢看科普读物的学生人数是多少？","box":[0.08,0.5,0.92,0.55]}',
+    '{"index":3,"label":"","preview":"（2）丁丁所在年级喜欢看科普读物的人数排第2位","box":[0.08,0.55,0.92,0.6],"answerTop":0.62}',
+  ].join("\n");
+
+  it("小问条目并回主题干，框取并集", () => {
+    const items = parseLayout(jsonl);
+    expect(items).toHaveLength(1);
+    // snapBoxes 会把最后一条的框补到页底（收进答案块），所以下边是 1
+    expect(items[0]!.box).toEqual([0.08, 0.23, 0.92, 1]);
+    expect(items[0]!.figureBox).toEqual([0.58, 0.29, 0.88, 0.44]);
+    expect(items[0]!.answerTop).toBe(0.62);
+  });
+
+  it("页首第一条就是小问时不并——那可能是跨页续文，归别的机制管", () => {
+    const items = parseLayout(
+      '{"index":1,"label":"","preview":"（2）丁丁所在年级排第2位","box":[0.08,0.05,0.92,0.2],"continued":true}',
+    );
+    expect(items).toHaveLength(1);
+  });
+
+  it("正常的两道题不受影响", () => {
+    const items = parseLayout(
+      [
+        '{"index":1,"label":"练习7","preview":"乐乐老师让同学们做调查","box":[0.08,0.1,0.92,0.5]}',
+        '{"index":2,"label":"练习8","preview":"牛牛来到工厂","box":[0.08,0.55,0.92,0.9]}',
+      ].join("\n"),
+    );
+    expect(items).toHaveLength(2);
+  });
+});

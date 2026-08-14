@@ -137,6 +137,15 @@ export function classifyFigures(item: LayoutItem): FigureSplit {
    * 【答案】标签留在了上一页，模型只能指着【标注】之类的东西作答）。
    */
   if (item.continued && item.continuedKind !== "stem") {
+    /**
+     * 这里**不判**「答案线之上的图算不算上一题的题干图」。
+     * 两个真实案例结构完全一样、真相相反：第5讲的推演表（答案内容）与
+     * 第14讲练习4 的折线图（题干配图）都在各自的"答案线"之上——
+     * 前者的线指着【标注】，后者才是真【答案】。位置分不出它们；
+     * 能分的是**上一题自己**（题干说没说「如图」、缺不缺图），
+     * 那只有客户端知道（见 shared.ts 的 strayFigureBox）。
+     * 这里维持保守判：答案续块里的图先算解析图，客户端再按上一题的情况认领。
+     */
     const box = figureBox ?? analysisFigureBox;
     return box ? { analysisFigureBox: box } : {};
   }
@@ -460,6 +469,49 @@ export function snapBoxes(items: LayoutItem[]): LayoutItem[] {
   });
 }
 
+/** 小问编号开头：「(1) …」「（2）…」「① …」 */
+export const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/;
+
+/**
+ * 版面把 (1)(2)(3) 切成独立条目时，在**条目层**并回主题干。
+ *
+ * 提示词已经写了"小问不是独立的题"，但挡不住每一次；而客户端在草稿层
+ * 按题干开头兜底也不可靠——内容模型重写题干时常把「（2）」抹掉，
+ * 兜底就认不出来了。条目层的 preview 是页面原文，编号还在，
+ * 在这里并（框取并集）最稳：一次裁图就covers 题干+全部小问，
+ * 内容模型看见整道题，自然给一份完整草稿。
+ */
+export function mergeSubQuestionItems(items: LayoutItem[]): LayoutItem[] {
+  const out: LayoutItem[] = [];
+  for (const item of items) {
+    const prev = out[out.length - 1];
+    // 页首第一条、或跨页续文不并——那是别的机制在管
+    if (!prev || item.continued || !SUB_QUESTION_HEAD.test(item.preview.trim())) {
+      out.push(item);
+      continue;
+    }
+    const box: LayoutItem["box"] =
+      prev.box && item.box
+        ? [
+            Math.min(prev.box[0], item.box[0]),
+            Math.min(prev.box[1], item.box[1]),
+            Math.max(prev.box[2], item.box[2]),
+            Math.max(prev.box[3], item.box[3]),
+          ]
+        : (prev.box ?? item.box);
+    out[out.length - 1] = {
+      ...prev,
+      box,
+      hasFigure: prev.hasFigure || item.hasFigure,
+      figureBox: prev.figureBox ?? item.figureBox,
+      analysisFigureBox: prev.analysisFigureBox ?? item.analysisFigureBox,
+      // 答案块跟在最后一个小问后面，用靠后的那条
+      answerTop: item.answerTop ?? prev.answerTop,
+    };
+  }
+  return out;
+}
+
 export function parseLayout(raw: string): LayoutItem[] {
   let items: LayoutItem[] = [];
   for (const obj of parseJsonObjects(raw)) {
@@ -514,7 +566,7 @@ export function parseLayout(raw: string): LayoutItem[] {
     return { item, key: item.box ? item.box[1] : lastTop + 1e-6 * (i + 1) };
   });
   keyed.sort((a, b) => a.key - b.key || a.item.index - b.item.index);
-  items = keyed.map((k) => k.item);
+  items = mergeSubQuestionItems(keyed.map((k) => k.item));
   // 先排序再补边界：补的依据就是"下一道题在哪"，顺序错了就补错了
   return snapBoxes(items);
 }
