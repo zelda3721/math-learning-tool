@@ -300,6 +300,47 @@ function sameTokenSet(a: string, b: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// 带名字的多值答案：名字说了算，位置靠边
+// ---------------------------------------------------------------------------
+
+/**
+ * 「田田27kg」→ { label: "田田", value: 27 }。
+ * 名字 = 数字前面的那段非数字文字（去掉冒号等连接符）；没有名字返回 null。
+ */
+export function labeledPart(part: string): { label: string; value: number } | null {
+  const m = /^([^\d]+?)[:：=\s]*(-?\d+(?:\.\d+)?)/.exec(part.trim());
+  if (!m) return null;
+  const label = m[1]!.trim().replace(/[的是为]$/, "");
+  const value = parseNumeric(part);
+  if (!label || value === null) return null;
+  return { label, value };
+}
+
+/**
+ * 从题干的**填空**推出各空归谁：每个「______」前面十来个字里出现的那个名字。
+ *
+ * 为什么看填空而不是名字在题干里的先后：叙事顺序和填空顺序经常不一致——
+ * 实机那道题开头是「丁丁、牛牛、田田要开始…」，填空却是
+ * 「田田的体重是____，丁丁的体重是____，牛牛的体重是____」。
+ * 按叙事顺序对应会把每个数都配错人。
+ * 任何一空对不出唯一的名字就返回 null——判不准就别判。
+ */
+export function blankLabelOrder(stem: string, labels: string[]): string[] | null {
+  const blanks = [...stem.matchAll(/_{2,}/g)];
+  if (blanks.length !== labels.length) return null;
+  const order: string[] = [];
+  for (const b of blanks) {
+    const before = stem.slice(Math.max(0, b.index! - 12), b.index!);
+    const found = labels.filter((l) => before.includes(l));
+    if (found.length !== 1) return null;
+    order.push(found[0]!);
+  }
+  return new Set(order).size === labels.length ? order : null;
+}
+
+const sortedValues = (vals: number[]) => [...vals].sort((a, b) => a - b).join(",");
+
+// ---------------------------------------------------------------------------
 // 表达式
 // ---------------------------------------------------------------------------
 
@@ -529,7 +570,7 @@ export function deriveAnswerType(answer: string): Question["answerType"] {
  * 策略由答案本身推导。
  */
 export function grade(
-  question: Pick<Question, "answer" | "answerType"> & { answerUnique?: boolean },
+  question: Pick<Question, "answer" | "answerType"> & { answerUnique?: boolean; stem?: string },
   studentAnswer: string,
 ): GradeResult {
   const student = studentAnswer.trim();
@@ -551,7 +592,41 @@ export function grade(
     // 每段递归判：段内的「或」、等式、数值比对都在递归里处理
     const results = refParts.map((r, i) => grade({ ...question, answer: r }, stuParts[i]!));
     if (results.some((r) => r.method === "pending")) return PENDING;
-    return results.every((r) => r.correct) ? CORRECT("numeric") : WRONG("numeric");
+    if (results.every((r) => r.correct)) return CORRECT("numeric");
+
+    /**
+     * 位置对不上，但孩子**每个数都带了名字**——名字说了算。
+     *
+     * 实机：参考答案「27;13;26」按填空顺序（田田、丁丁、牛牛），
+     * 孩子填「田田27kg,牛牛26kg,丁丁13kg」——三个值全对、只是顺序不同，
+     * 按位置比被连判两次错，孩子对着正确答案只能靠调换文字顺序过关。
+     * 名字已经把对应关系说清楚了：从题干的填空推出各空归谁，
+     * 按名字重排后再比。推不出对应关系、而数值集合又一致的，
+     * 转家长确认——判不准就别判，别让做对的孩子吃"错"。
+     */
+    const labeled = stuParts.map(labeledPart);
+    const refVals = refParts.map(parseNumeric);
+    if (labeled.every((l) => l !== null) && refVals.every((v) => v !== null)) {
+      const stuLabeled = labeled as { label: string; value: number }[];
+      const order = question.stem
+        ? blankLabelOrder(
+            question.stem,
+            stuLabeled.map((l) => l.label),
+          )
+        : null;
+      if (order) {
+        // 名字能对到填空上：按填空顺序重排，逐位判——对错都判得确凿
+        const byLabel = new Map(stuLabeled.map((l) => [l.label, l.value]));
+        const ok = order.every((label, i) => numbersClose(byLabel.get(label)!, refVals[i] as number));
+        return ok ? CORRECT("numeric") : WRONG("numeric");
+      }
+      // 名字对不到填空上（题干没空、或空前认不出名字）：
+      // 数值集合一致时只说明"可能只是顺序不同"，交给家长
+      if (sortedValues(stuLabeled.map((l) => l.value)) === sortedValues(refVals as number[])) {
+        return PENDING;
+      }
+    }
+    return WRONG("numeric");
   }
 
   /**
