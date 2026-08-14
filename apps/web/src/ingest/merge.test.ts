@@ -237,3 +237,28 @@ describe('strayFigureBox：认领流落到续页的题干配图', () => {
         ])
     })
 })
+
+describe('重复题干式的拆散（分层路径）', () => {
+    const HEAD = '根据某小学一至六年级喜欢看科普读物的人数绘制如下统计图，根据统计图回答下列问题．'
+
+    it('三条重复题干的碎片并成一道，图用带图那条的', () => {
+        const merged = mergeSubQuestionDrafts([
+            draft({ stem: `${HEAD}（1）四年级喜欢看科普读物的学生人数是多少？`, answer: '57', figureImage: 'CHART' }),
+            draft({ key: 'k2', stem: `${HEAD}（2）丁丁是哪个年级的？`, answer: '五年级' }),
+            draft({ key: 'k3', stem: `${HEAD}（3）你还能提出什么数学问题？`, answer: '合理即可' }),
+        ])
+        expect(merged).toHaveLength(1)
+        expect(merged[0]!.stem.match(/根据某小学/g)).toHaveLength(1)
+        expect(merged[0]!.answer).toBe('57；五年级；合理即可')
+        expect(merged[0]!.figureImage).toBe('CHART')
+    })
+
+    it('题干不同的两道不并', () => {
+        expect(
+            mergeSubQuestionDrafts([
+                draft({ stem: '甲店的统计图如下所示（1）多少人？', answer: '10' }),
+                draft({ key: 'k2', stem: '乙店的统计图如下所示（1）多少人？', answer: '20' }),
+            ]),
+        ).toHaveLength(2)
+    })
+})

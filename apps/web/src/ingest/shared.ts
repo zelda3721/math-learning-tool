@@ -244,30 +244,42 @@ export function carryableText(preview: string, label: string): string | undefine
     return text
 }
 
-/** 小问编号开头：「(1) …」「（2）…」「① …」 */
-const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/
+/** 小问编号（不锚定开头）：「（1）」「(2)」「①」 */
+const SUB_MARKER = /[(（]\s*\d+\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩]/
+
+const splitAtMarker = (stem: string): { head: string; tail: string } | null => {
+    const m = SUB_MARKER.exec(stem)
+    if (!m) return null
+    return { head: stem.slice(0, m.index).trim(), tail: stem.slice(m.index).trim() }
+}
+const squash = (t: string) => t.replace(/\s+/g, '')
 
 /**
- * 把被拆散的小问并回它的主题干（分层路径版）。
+ * 把被拆散的小问并回它的主题干（分层路径版；判据与服务端 coalesceSubQuestions 一致）。
  *
- * 服务端的 coalesceSubQuestions 管的是整页抽取；分层路径的拆散发生得更早——
- * **版面那趟**就把 (1)(2)(3) 切成了独立条目，每条各走一次内容抽取，
- * 到这里已经是三份独立草稿了。同一页里相邻的小问草稿并回前面那道：
- * 题干接上、答案用分号接、图用先有的那张（小问是从主题干拆出去的，图在主干上）。
- * 整页第一份就以 (1) 开头的不动——那道题本来就长那样。
+ * 拆散有两种花样：光杆小问（「(2) 绘制统计图」）和**重复题干**——
+ * 每条都是「完整题干＋一个小问」，开头不是编号，按"开头是小问"的判据
+ * 完全看不见，第14讲练习6 连着两轮就是这么漏掉的。
+ * 统一按第一个小问编号拆出「头」比对：头是空串、或与上一条的开头一致，
+ * 就是同一道题。
  */
 export function mergeSubQuestionDrafts(drafts: Draft[]): Draft[] {
     const out: Draft[] = []
     for (const d of drafts) {
         const prev = out[out.length - 1]
-        if (!prev || !SUB_QUESTION_HEAD.test(d.stem.trim())) {
+        const cur = splitAtMarker(d.stem.trim())
+        const mergeable =
+            prev !== undefined &&
+            cur !== null &&
+            (cur.head === '' || (squash(cur.head).length >= 8 && squash(prev.stem).startsWith(squash(cur.head))))
+        if (!mergeable) {
             out.push(d)
             continue
         }
         const answers = [prev.answer, d.answer].map((a) => a.trim()).filter(Boolean)
         out[out.length - 1] = {
             ...prev,
-            stem: `${prev.stem.trimEnd()}\n${d.stem.trim()}`,
+            stem: `${prev.stem.trimEnd()}\n${cur.tail}`,
             answer: [...new Set(answers)].join('；'),
             figureImage: prev.figureImage ?? d.figureImage,
             analysisImage: prev.analysisImage ?? d.analysisImage,

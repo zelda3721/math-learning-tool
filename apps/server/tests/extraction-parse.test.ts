@@ -154,3 +154,44 @@ describe("被拆散的小问并回主题干", () => {
     expect(parseExtractionOutcome(raw, "elementary_upper").drafts[0]!.answer).toBe("42");
   });
 })
+
+/**
+ * 拆散的第二种花样：**重复题干**。
+ *
+ * 每条都是「完整题干＋一个小问」——开头不是编号，按"开头是小问"的判据
+ * 完全看不见。第14讲练习6 连着两轮就是这么漏掉的（题干原文取自实机题库）。
+ */
+describe("重复题干式的拆散", () => {
+  const line = (stem: string, answer: string) =>
+    JSON.stringify({ stem, answer, answerType: "numeric", difficulty: 2, level: "elementary_upper" });
+  const HEAD = "根据某小学一至六年级喜欢看科普读物的人数绘制如下统计图，根据统计图回答下列问题．";
+
+  it("三条重复题干的碎片并成一道", () => {
+    const raw = [
+      line(`${HEAD}（1）四年级喜欢看科普读物的学生人数是多少？`, "57"),
+      line(`${HEAD}（2）丁丁所在年级喜欢看科普读物的人数排第2位，丁丁是哪个年级的？`, "五年级"),
+      line(`${HEAD}（3）你还能提出什么数学问题？`, "合理即可"),
+    ].join("\n");
+    const r = parseExtractionOutcome(raw, "elementary_upper");
+    expect(r.drafts).toHaveLength(1);
+    const q = r.drafts[0]!;
+    // 题干只留一份，小问接排
+    expect(q.stem.match(/根据某小学/g)).toHaveLength(1);
+    expect(q.stem).toContain("（1）四年级");
+    expect(q.stem).toContain("（3）你还能");
+    expect(q.answer).toBe("57；五年级；合理即可");
+  });
+
+  it("题干不同的两道题不会被并——头对不上", () => {
+    const raw = [
+      line("甲店的统计图如下（1）多少人？", "10"),
+      line("乙店的统计图如下（1）多少人？", "20"),
+    ].join("\n");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(2);
+  });
+
+  it("头太短时不并——短前缀撞车太容易", () => {
+    const raw = [line("如图（1）求角度", "30"), line("如图（2）求边长", "5")].join("\n");
+    expect(parseExtractionOutcome(raw, "elementary_upper").drafts).toHaveLength(2);
+  });
+})
