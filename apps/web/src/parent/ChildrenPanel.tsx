@@ -104,6 +104,40 @@ export function ChildrenPanel() {
         }
     }
 
+    /**
+     * 清空学习记录，回到初始状态。
+     *
+     * 场景：题库推倒重建（删掉 demo 题、换成真材料）之后，掌握度、复习卡、
+     * 错题全指着不存在的旧题——星图亮着不该亮的星，复习队列在等一道已删除的题。
+     * 账号与登录不动，只清学习痕迹。危险操作，要求把孩子的名字原样再输一遍。
+     */
+    const resetLearning = async (child: ChildAccount) => {
+        if (busyId || !child.learner) return
+        const typed = window.prompt(
+            `把「${child.learner.name}」的学习记录清回初始状态？\n` +
+                '做题记录、掌握度、复习计划、错题本会全部清空（账号和密码不动）。\n' +
+                `确认请输入孩子的名字：`,
+        )
+        if (typed === null) return
+        setBusyId(child.id)
+        setNotice(null)
+        try {
+            const res = await fetch('/api/v1/parent/reset-learner', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ learnerId: child.learner.id, confirm: typed.trim() }),
+            })
+            if (!res.ok) throw new Error(await readError(res, '重置失败'))
+            const body = (await res.json()) as { cleared: { table: string; removed: number }[] }
+            const total = body.cleared.reduce((n, c) => n + c.removed, 0)
+            setNotice({ ok: true, text: `已清空「${child.learner.name}」的 ${total} 条学习记录，从头开始。` })
+        } catch (err) {
+            setNotice({ ok: false, text: err instanceof Error ? err.message : String(err) })
+        } finally {
+            setBusyId(null)
+        }
+    }
+
     const removeChild = async (child: ChildAccount) => {
         if (busyId) return
         const confirmed = window.confirm(
@@ -181,6 +215,14 @@ export function ChildrenPanel() {
                                     onClick={() => void resetPassword(child)}
                                 >
                                     重置密码
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={busyId === child.id || !child.learner}
+                                    onClick={() => void resetLearning(child)}
+                                >
+                                    清空学习记录
                                 </Button>
                                 <Button
                                     size="sm"

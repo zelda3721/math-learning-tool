@@ -98,6 +98,29 @@ export class Repo {
     return new Set(rows.map((r) => String(r.question_id)));
   }
 
+  /**
+   * 把一个孩子的学习状态清回初始。
+   *
+   * 场景很实在：题库推倒重建（比如删掉 demo 题、换成真材料）之后，
+   * 掌握度、复习卡、错题全都指着不存在的旧题——星图亮着不该亮的星，
+   * 复习队列永远在等一道已删除的题。账号本身与登录绑定不动，
+   * 只清学习痕迹，孩子重新登录就是一张白纸。
+   */
+  resetLearnerState(learnerId: string): { table: string; removed: number }[] {
+    const tables = [
+      "attempts",
+      "mastery",
+      "learner_events",
+      "queue_items",
+      "review_cards",
+      "mistakes",
+    ];
+    return tables.map((table) => {
+      const r = this.db.prepare(`DELETE FROM ${table} WHERE learner_id = ?`).run(learnerId);
+      return { table, removed: Number(r.changes) };
+    });
+  }
+
   attemptedQuestionIds(learnerId: string): Set<string> {
     const rows = this.db
       .prepare("SELECT DISTINCT question_id FROM attempts WHERE learner_id = ?")

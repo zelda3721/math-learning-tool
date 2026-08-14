@@ -227,3 +227,64 @@ describe("GET /api/v1/parent/pending-count", () => {
     expect(((await res.json()) as { count: number }).count).toBe(0);
   });
 });
+
+/**
+ * 清空学习记录：题库推倒重建后，掌握度、复习卡、错题全指着不存在的旧题，
+ * 星图亮着不该亮的星。账号不动，只清学习痕迹。
+ */
+describe("POST /api/v1/parent/reset-learner", () => {
+  it("清空六张表，账号与题库不动", async () => {
+    const env = makeApp([makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "题", answer: "1" })]);
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+    env.repo.insertAttempt({
+      learnerId: learner.id,
+      questionId: "q1",
+      answer: "1",
+      correct: true,
+      hintLevelUsed: 0,
+      source: "daily",
+      needsReview: false,
+    });
+    env.repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_A,
+      p: 0.6,
+      evidenceN: 1,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+
+    const res = await env.app.request("/api/v1/parent/reset-learner", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learnerId: learner.id, confirm: "小明" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { cleared: { table: string; removed: number }[] };
+    expect(body.cleared.reduce((n, c) => n + c.removed, 0)).toBe(2);
+
+    // 学习痕迹清空，账号还在，题库不动
+    expect(env.repo.allMastery(learner.id)).toEqual([]);
+    expect(env.repo.attemptedQuestionIds(learner.id).size).toBe(0);
+    expect(env.repo.getLearner(learner.id)?.name).toBe("小明");
+    expect(env.state.questions.all).toHaveLength(1);
+  });
+
+  it("名字输错不清——防手滑的最后一道闸", async () => {
+    const env = makeApp([]);
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+    env.repo.upsertMastery({
+      learnerId: learner.id,
+      nodeId: NODE_A,
+      p: 0.6,
+      evidenceN: 1,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    const res = await env.app.request("/api/v1/parent/reset-learner", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learnerId: learner.id, confirm: "小名" }),
+    });
+    expect(res.status).toBe(400);
+    expect(env.repo.allMastery(learner.id)).toHaveLength(1);
+  });
+})
