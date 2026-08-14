@@ -52,9 +52,69 @@ export function parentRoutes(state: AppState): Hono {
     const bands = { lit: 0, glow: 0, dim: 0 };
     for (const m of mastery) bands[masteryBand(effectiveP(m), m.evidenceN) as keyof typeof bands]++;
 
+    /**
+     * 卡住的题：直接从作答记录汇总，**不经错题本**。
+     *
+     * 错题本只收录走完归因流程的题（用完三级提示仍错、点了"先跳过"）。
+     * 孩子连错三次、第四次自己做对的题不会进错题本——趋势里错误占比涨了、
+     * 错题本却空着，家长就看不见孩子到底卡在哪道题（实机上 Pokemon 就是这样）。
+     * 这里按题聚合错误作答：错了几次、最后解没解出来、孩子都填了什么。
+     */
+    const byQuestion = new Map<
+      string,
+      { wrong: number; solved: boolean; answers: string[]; lastAt: string }
+    >();
+    for (const a of state.repo.recentAttempts(learnerId)) {
+      const entry = byQuestion.get(a.questionId) ?? { wrong: 0, solved: false, answers: [], lastAt: a.at };
+      if (a.correct) entry.solved = true;
+      else {
+        entry.wrong += 1;
+        if (entry.answers.length < 3 && a.answer) entry.answers.push(a.answer);
+      }
+      if (a.at > entry.lastAt) entry.lastAt = a.at;
+      byQuestion.set(a.questionId, entry);
+    }
+    const struggles = [...byQuestion.entries()]
+      .filter(([, v]) => v.wrong > 0)
+      .map(([questionId, v]) => {
+        const q = state.questions.byId.get(questionId);
+        const pt = q?.problemTypeId
+          ? state.knowledge.problemTypes.find((t) => t.id === q.problemTypeId)
+          : undefined;
+        return {
+          questionId,
+          stem: q?.stem.slice(0, 60) ?? questionId,
+          answer: q?.answer,
+          wrongCount: v.wrong,
+          solved: v.solved,
+          childAnswers: v.answers,
+          nodeNames: (q?.nodeIds ?? []).map((n) => state.knowledge.index.getNode(n)?.name ?? n),
+          problemTypeName: pt?.name,
+          lastAt: v.lastAt,
+        };
+      })
+      .sort((a, b) => b.wrongCount - a.wrongCount || (a.lastAt < b.lastAt ? 1 : -1))
+      .slice(0, 20);
+
+    /** 薄弱知识点：按有效掌握度从低到高，带名字——只给 dim/glow 的计数看不出是哪里弱 */
+    const weakNodes = mastery
+      .map((m) => ({ nodeId: m.nodeId, p: effectiveP(m), evidenceN: m.evidenceN }))
+      .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN) !== "lit")
+      .sort((a, b) => a.p - b.p)
+      .slice(0, 10)
+      .map((m) => ({
+        nodeId: m.nodeId,
+        nodeName: state.knowledge.index.getNode(m.nodeId)?.name ?? m.nodeId,
+        p: Math.round(m.p * 100) / 100,
+        evidenceN: m.evidenceN,
+        band: masteryBand(m.p, m.evidenceN),
+      }));
+
     return c.json({
       trend: state.repo.dailyStats(learnerId, 14),
       mistakePatterns,
+      struggles,
+      weakNodes,
       pendingVerdicts,
       mastery: { ...bands, tracked: mastery.length },
       dueReviews: state.repo.countDueReviews(learnerId),

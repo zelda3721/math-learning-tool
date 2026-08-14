@@ -57,9 +57,34 @@ export interface ExplanationSource {
     confusing_votes: number
 }
 
+/** 卡住的题：从作答记录直接汇总（错题本只收归因过的，覆盖不了这类挣扎） */
+export interface Struggle {
+    questionId: string
+    stem: string
+    answer?: string
+    wrongCount: number
+    /** 最后自己解出来了没有 */
+    solved: boolean
+    /** 孩子填过的错误答案（最多 3 个） */
+    childAnswers: string[]
+    nodeNames: string[]
+    problemTypeName?: string
+    lastAt: string
+}
+
+export interface WeakNode {
+    nodeId: string
+    nodeName: string
+    p: number
+    evidenceN: number
+    band: 'dim' | 'glow'
+}
+
 export interface ParentSummary {
     trend: TrendDay[]
     mistakePatterns: MistakePattern[]
+    struggles?: Struggle[]
+    weakNodes?: WeakNode[]
     pendingVerdicts: PendingVerdict[]
     mastery: MasterySummary
     dueReviews: number

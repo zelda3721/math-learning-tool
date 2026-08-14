@@ -132,13 +132,98 @@ function ExplanationSources({ rows }: { rows: ExplanationSource[] }) {
     )
 }
 
+/**
+ * 卡住的题：哪道题、错了几次、孩子都填了什么、最后解出来没有。
+ *
+ * 错题本只收归因过的题（用完提示仍错并跳过），孩子连错三次、
+ * 第四次自己做对的挣扎不会进错题本——但那正是家长最想看的。
+ */
+function Struggles({ summary }: { summary: ParentSummary }) {
+    const items = summary.struggles ?? []
+    return (
+        <section className="plate p-6 space-y-4">
+            <h3 className="text-section">卡住的题</h3>
+            {items.length === 0 ? (
+                <p className="text-sm text-ink-faint">最近没有反复出错的题</p>
+            ) : (
+                <ul className="space-y-4">
+                    {items.map((it) => (
+                        <li key={it.questionId} className="space-y-1.5 border-b border-rule pb-3 last:border-0">
+                            <p className="text-sm text-ink">{it.stem}…</p>
+                            <p className="text-xs">
+                                <span className={it.solved ? 'text-[color:var(--color-correct)]' : 'text-wrong'}>
+                                    {it.solved ? `错了 ${it.wrongCount} 次后自己做对了` : `错了 ${it.wrongCount} 次，还没做对`}
+                                </span>
+                                {it.childAnswers.length > 0 && (
+                                    <span className="text-ink-faint">
+                                        {' '}
+                                        · 孩子填过：{it.childAnswers.join(' / ')}
+                                        {it.answer ? `（正确：${it.answer.slice(0, 20)}）` : ''}
+                                    </span>
+                                )}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {it.nodeNames.map((n) => (
+                                    <span key={n} className="rounded-md border border-beam/20 bg-beam-wash px-2 py-0.5 text-xs text-beam">
+                                        {n}
+                                    </span>
+                                ))}
+                                {it.problemTypeName && (
+                                    <span className="rounded-md border border-rule bg-plate px-2 py-0.5 text-xs text-ink-soft">
+                                        题型 · {it.problemTypeName}
+                                    </span>
+                                )}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    )
+}
+
+/** 薄弱知识点：按有效掌握度从低到高，直接点名 */
+function WeakNodes({ summary }: { summary: ParentSummary }) {
+    const items = summary.weakNodes ?? []
+    return (
+        <section className="plate p-6 space-y-4">
+            <h3 className="text-section">薄弱知识点</h3>
+            {items.length === 0 ? (
+                <p className="text-sm text-ink-faint">还没有足够数据</p>
+            ) : (
+                <ul className="space-y-3">
+                    {items.map((n) => (
+                        <li key={n.nodeId} className="space-y-1.5">
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-sm font-semibold text-ink">{n.nodeName}</span>
+                                <span className="numeric text-xs text-ink-faint shrink-0">
+                                    掌握 {Math.round(n.p * 100)}% · 练过 {n.evidenceN} 次
+                                </span>
+                            </div>
+                            <div className="h-2 rounded-full bg-rule overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full ${n.band === 'dim' ? 'bg-wrong' : 'bg-beam'}`}
+                                    style={{ width: `${Math.max(4, Math.round(n.p * 100))}%` }}
+                                />
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    )
+}
+
 /** 错因模式卡：nodeName + 条形（share% 宽度）+ 平均置信度 */
 function MistakePatterns({ summary }: { summary: ParentSummary }) {
     return (
         <section className="plate p-6 space-y-4">
             <h3 className="text-section">错因模式</h3>
             {summary.mistakePatterns.length === 0 ? (
-                <p className="text-sm text-ink-faint">还没有足够数据</p>
+                <p className="text-sm text-ink-faint">
+                    还没有归因记录——错题本只收录「用完三级提示仍错、选择跳过」并走完归因的题；
+                    普通做错的题在上面「卡住的题」里
+                </p>
             ) : (
                 <ul className="space-y-3">
                     {summary.mistakePatterns.map((p) => (
@@ -514,6 +599,8 @@ export function ParentPage() {
                     </div>
                 )}
                 <VerdictQueue items={summary.pendingVerdicts} onResolved={handleVerdictResolved} />
+                <Struggles summary={summary} />
+                <WeakNodes summary={summary} />
                 <MistakePatterns summary={summary} />
                 <RecentMistakes items={summary.recentMistakes} onCorrected={handleMistakeCorrected} />
                 <TrendChart trend={summary.trend} />
