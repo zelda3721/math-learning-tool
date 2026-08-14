@@ -17,13 +17,21 @@ const LEVEL_ORDER: EducationLevel[] = [
 export interface ComposedQuestion {
   question: Question;
   /**
-   * weak 与 consolidate 的分界是**掌握度档位**，不是"点没点亮"。
+   * 槽位标签描述的是**孩子和这道题的关系**，规则梳理如下：
    *
-   * 曾把"有证据且未点亮"一律标成 weak：点亮要 p≥0.7 且 ≥3 次作答，
-   * 孩子第一次做对后 p≈0.55、证据 1 次——不亮，于是被标「弱点」。
-   * 第一次练习之后几乎每道题都顶着红色的弱点徽章，做对了反而挨标，
-   * 既不诚实也伤士气。真弱（dim，p<0.4）才叫弱点；
-   * 摸过但还没点亮的叫「巩固」——那本来就是学习的正常阶段。
+   *   复习     到期复习卡（错过的知识点按 SM-2 回来，换题再练）
+   *   探针     诊断流程排进来的确认题
+   *   新题     **这道题没做过**——哪怕它的知识点摸过。选题仍按"最弱的
+   *            知识点先练"排序，但一道没见过的题不该顶着弱点/巩固的帽子
+   *   弱点     做过、错过，且知识点掌握度低（dim，p<0.4）——真补弱
+   *   巩固     做过这道题，知识点摸过但还没点亮——再练一遍加固
+   *   挑战     难度拔高（难度≥4 或下一学段）
+   *
+   * 走过的弯路都在"把知识点的状态贴到题上"：
+   * 第一版把"有证据且未点亮"一律标弱点（孩子做对一次反而挨红标）；
+   * 第二版分了弱点/巩固，但一道**从没做过**的题还是会因为知识点摸过
+   * 而顶着巩固——对孩子来说那就是道新题。
+   * 现在弱点/巩固只出现在**重做过的题**上。
    */
   slot: "review" | "queue" | "weak" | "consolidate" | "new" | "challenge";
   queueItemId?: string;
@@ -87,13 +95,16 @@ export function composeToday(
   // 难度 ≥4 的题保留为挑战池，不进核心槽（否则挑战题会被弱点/新题槽提前吃掉）
   const isChallengePool = (q: Question) => q.difficulty >= 4;
 
+  const attempted = repo.attemptedQuestionIds(learnerId);
   for (const weak of weakNodes) {
     if (picked.length >= target) break;
-    // 选题顺序不变（最弱的先练），只有标签按档位如实分
-    const slot = masteryBand(weak.p, weak.evidenceN) === "dim" ? "weak" : "consolidate";
+    // 选题顺序不变（最弱的知识点先练）；标签看孩子和这道题的关系：
+    // 没做过的题就是新题，弱点/巩固只贴在重做的题上
+    const band = masteryBand(weak.p, weak.evidenceN) === "dim" ? "weak" : "consolidate";
     for (const q of store.byNode.get(weak.nodeId) ?? []) {
       if (picked.length >= target) break;
       if (isChallengePool(q)) continue;
+      const slot = attempted.has(q.id) ? band : "new";
       if (q.level === learner.level || sameStage(q.level, learner.level)) take(q, slot);
     }
   }

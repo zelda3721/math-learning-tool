@@ -70,36 +70,55 @@ describe("composeToday minimal composer", () => {
  * 孩子第一次做对后 p≈0.55、证据 1 次——不亮，于是被标弱点。
  * 第一次练习之后几乎每道题都顶着红色的弱点徽章，做对了反而挨标。
  */
-describe("弱点与巩固分开标", () => {
-  it("做对过一次（p 高但没点亮）→ 巩固，不是弱点", () => {
+describe("槽位标签描述孩子和这道题的关系", () => {
+  /**
+   * 规则：新题=这道题没做过（哪怕知识点摸过）；
+   * 弱点/巩固只贴在**重做过的题**上，按知识点档位分。
+   * 走过两版弯路：先是"未点亮一律弱点"（做对一次反而挨红标），
+   * 后是"知识点摸过就巩固"（一道没见过的题顶着巩固的帽子）。
+   */
+  function seed(p: number, withAttempt: boolean) {
     const { store, repo } = tempFixtureEnv([
-      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "巩固题", answer: "1" }),
+      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "题一", answer: "1" }),
     ]);
     const learner = repo.createLearner("小明", "elementary_upper");
     repo.upsertMastery({
       learnerId: learner.id,
       nodeId: NODE_A,
-      p: 0.55, // 一次做对后的典型值
-      evidenceN: 1,
-      lastEvidenceAt: new Date().toISOString(),
-    });
-    const composed = composeToday(store, knowledge.index, repo, learner.id, { count: 3, challenge: false });
-    expect(composed[0]!.slot).toBe("consolidate");
-  });
-
-  it("真弱（p 低于 0.4）→ 弱点", () => {
-    const { store, repo } = tempFixtureEnv([
-      makeQuestion({ id: "q1", nodeIds: [NODE_A], stem: "弱点题", answer: "1" }),
-    ]);
-    const learner = repo.createLearner("小明", "elementary_upper");
-    repo.upsertMastery({
-      learnerId: learner.id,
-      nodeId: NODE_A,
-      p: 0.25,
+      p,
       evidenceN: 2,
       lastEvidenceAt: new Date().toISOString(),
     });
-    const composed = composeToday(store, knowledge.index, repo, learner.id, { count: 3, challenge: false });
-    expect(composed[0]!.slot).toBe("weak");
+    if (withAttempt) {
+      // 一周前做错过这道题（近三天做对的会被排除，做错的不会）
+      repo.insertAttempt({
+        learnerId: learner.id,
+        questionId: "q1",
+        answer: "9",
+        correct: false,
+        hintLevelUsed: 0,
+        source: "daily",
+        needsReview: false,
+      });
+    }
+    return { store, repo, learner };
+  }
+  const slotOf = (env: ReturnType<typeof seed>) =>
+    composeToday(env.store, knowledge.index, env.repo, env.learner.id, { count: 3, challenge: false })[0]!.slot;
+
+  it("没做过的题就是新题——哪怕知识点很弱", () => {
+    expect(slotOf(seed(0.25, false))).toBe("new");
   });
-})
+
+  it("没做过的题也不是巩固——哪怕知识点摸过", () => {
+    expect(slotOf(seed(0.55, false))).toBe("new");
+  });
+
+  it("重做过且知识点真弱 → 弱点", () => {
+    expect(slotOf(seed(0.25, true))).toBe("weak");
+  });
+
+  it("重做过且知识点摸过没点亮 → 巩固", () => {
+    expect(slotOf(seed(0.55, true))).toBe("consolidate");
+  });
+});
