@@ -21,6 +21,7 @@ import {
     looksLikeQuestion,
     mergeContinued,
     mergeSubQuestionDrafts,
+    strayFigureBox,
     normalizeDraft,
     readFileAsDataUrl,
     todayString,
@@ -66,10 +67,12 @@ interface LayoutItem {
     box?: [number, number, number, number]
     hasFigure: boolean
     /** 服务端 classifyFigures 判好的：题干图 / 解析图 */
+    figureBox?: [number, number, number, number]
     stemFigureBox?: [number, number, number, number]
     analysisFigureBox?: [number, number, number, number]
     continued: boolean
-    continuedKind?: 'stem' | 'answer' 
+    continuedKind?: 'stem' | 'answer'
+    answerTop?: number 
     /** 这一条只有题号、没有题干——下一页那道题的头 */
     dangling?: boolean
 }
@@ -337,13 +340,39 @@ export function IngestPage() {
              */
             if (i === 0 && item.continued && item.continuedKind !== 'stem' && previous && !mergedFirst && !pending) {
                 try {
+                    /**
+                     * 答案续块里可能混着**上一题流落过来的题干配图**——
+                     * 第14讲练习4：题干「如图…统计图」写完翻页，折线图和【答案】
+                     * 一起落到这一页。此前整块裁成一张"解析图"，图和答案切在了一起。
+                     *
+                     * 认领判据在 strayFigureBox（上一题缺图 + 题干明说有图 +
+                     * 图在答案线之上，三条都满足才认）；认领走了的图不再进解析图，
+                     * 解析图只裁答案线以下。
+                     */
+                    const stray = strayFigureBox(item, previous)
+                    const strayStemFig = stray
+                        ? await cropPage(pageDataUrl, stray, FIGURE_PAD).catch(() => null)
+                        : null
                     const tail = cropped ? await fetchTail({ content: cropped, carryOver: previous.stem }) : null
-                    if (tail && (tail.answer || tail.analysis || tail.hasFigure)) {
-                        const analysisImage = tail.hasFigure
-                            ? ((await cropPage(pageDataUrl, item.box, FIGURE_PAD).catch(() => null)) ??
+                    if ((tail && (tail.answer || tail.analysis || tail.hasFigure)) || strayStemFig) {
+                        const split = figureCropBox(item)
+                        const belowAnswer =
+                            item.box && typeof item.answerTop === 'number' && item.answerTop > item.box[1]
+                                ? ([item.box[0], item.answerTop, item.box[2], item.box[3]] as [number, number, number, number])
+                                : item.box
+                        // 被认领的那张不能再当解析图裁一遍
+                        const sameAsStray =
+                            stray && split.analysisFigureBox && split.analysisFigureBox[1] === stray[1]
+                        const analysisBox = sameAsStray ? belowAnswer : (split.analysisFigureBox ?? belowAnswer)
+                        const analysisImage = tail?.hasFigure
+                            ? ((await cropPage(pageDataUrl, analysisBox, FIGURE_PAD).catch(() => null)) ??
                               previous.analysisImage)
                             : previous.analysisImage
-                        drafts.push({ ...applyTail(previous, tail), analysisImage })
+                        drafts.push({
+                            ...(tail ? applyTail(previous, tail) : previous),
+                            figureImage: previous.figureImage ?? strayStemFig ?? undefined,
+                            analysisImage,
+                        })
                         mergedFirst = true
                     }
                 } catch {

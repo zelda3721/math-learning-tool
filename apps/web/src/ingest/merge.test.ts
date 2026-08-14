@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTail, carryableText, looksLikeQuestion, mergeContinued, mergeSubQuestionDrafts } from './shared'
+import { applyTail, carryableText, looksLikeQuestion, mergeContinued, mergeSubQuestionDrafts, strayFigureBox, type Box } from './shared'
 import type { Draft } from './shared'
 
 /**
@@ -199,5 +199,41 @@ describe('mergeSubQuestionDrafts', () => {
         expect(
             mergeSubQuestionDrafts([draft({ stem: '甲题', answer: '1' }), draft({ key: 'k2', stem: '乙题', answer: '2' })]),
         ).toHaveLength(2)
+    })
+})
+
+describe('strayFigureBox：认领流落到续页的题干配图', () => {
+    /**
+     * 两个真实案例版面结构完全一样、真相相反（图都在"答案线"之上）：
+     * 练习4 的折线图是题干配图（题干说了「如图」、还没有图），
+     * 三个和尚的推演表是答案内容（题干不提图）。位置分不出，上一题的状态能。
+     */
+    const item = { figureBox: [0.64, 0.05, 0.9, 0.23] as Box, answerTop: 0.26 }
+
+    it('上一题缺图且题干明说有图 → 认领', () => {
+        const prev = { stem: '如图，是牛牛五次数学测验成绩的统计图．平均分是 ______ 分．' }
+        expect(strayFigureBox(item, prev)).toEqual([0.64, 0.05, 0.9, 0.23])
+    })
+
+    it('题干不提图 → 不认领（三个和尚的推演表就是这样进的解析图）', () => {
+        const prev = { stem: '口渴的三个和尚分别捧着一个水罐，最初老和尚的水最多' }
+        expect(strayFigureBox(item, prev)).toBeUndefined()
+    })
+
+    it('上一题已经有图 → 不认领', () => {
+        const prev = { stem: '如图，统计图如下', figureImage: 'HAS.jpg' }
+        expect(strayFigureBox(item, prev)).toBeUndefined()
+    })
+
+    it('answerTop 是 0（整块都是答案）→ 不认领', () => {
+        const prev = { stem: '如图，统计图如下' }
+        expect(strayFigureBox({ ...item, answerTop: 0 }, prev)).toBeUndefined()
+    })
+
+    it('图的下边越过答案线时裁到线为止', () => {
+        const prev = { stem: '如图，统计图如下' }
+        expect(strayFigureBox({ figureBox: [0.6, 0.05, 0.9, 0.4] as Box, answerTop: 0.26 }, prev)).toEqual([
+            0.6, 0.05, 0.9, 0.26,
+        ])
     })
 })
