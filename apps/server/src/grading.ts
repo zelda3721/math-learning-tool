@@ -536,6 +536,25 @@ export function grade(
   if (!student) return WRONG("string");
 
   /**
+   * **先分段，段内再认「或」**。
+   *
+   * 顺序反了会出真事故：答案「544或456；816；184」是三问
+   * （第一问 544 或 456 皆可），先按「或」劈会把整串劈成
+   * 「544」和「456；816；184」两个"备选"——孩子只答第一问的 544
+   * 就命中备选一，被判全对。全量自检抓出来的。
+   */
+  const refParts = splitAnswerParts(question.answer);
+  if (refParts.length >= 2) {
+    const stuParts = splitLoose(student, refParts.length);
+    // 段数对不上 = 少答了或多答了
+    if (stuParts.length !== refParts.length) return WRONG("string");
+    // 每段递归判：段内的「或」、等式、数值比对都在递归里处理
+    const results = refParts.map((r, i) => grade({ ...question, answer: r }, stuParts[i]!));
+    if (results.some((r) => r.method === "pending")) return PENDING;
+    return results.every((r) => r.correct) ? CORRECT("numeric") : WRONG("numeric");
+  }
+
+  /**
    * 答案不唯一的题：参考答案只是**其中一种**解法。
    * 逐个分支试，命中任一即对；一个都没命中也不判错——
    * 孩子完全可能写出参考答案没列的那一种。
@@ -563,18 +582,6 @@ export function grade(
     return equationSatisfiesCondition(question.answer, student)
       ? CORRECT("expression")
       : WRONG("expression");
-  }
-
-  const refParts = splitAnswerParts(question.answer);
-  if (refParts.length >= 2) {
-    // 参考答案已经告诉我们该有几段，学生那边就按同样的分隔符切开，
-    // 不再要求每段都含数字（孩子写答案时常常省掉序号）
-    const stuParts = splitLoose(student, refParts.length);
-    // 段数对不上 = 少答了或多答了。这一条修掉了"参考答案 44，20 而孩子只写 44 判成对"
-    if (stuParts.length !== refParts.length) return WRONG("string");
-    const results = refParts.map((r, i) => gradeSingle(r, stuParts[i]!));
-    if (results.some((r) => r.method === "pending")) return PENDING;
-    return results.every((r) => r.correct) ? CORRECT("numeric") : WRONG("numeric");
   }
 
   const result = gradeSingle(question.answer, student);
