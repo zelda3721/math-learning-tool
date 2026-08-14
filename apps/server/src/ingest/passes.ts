@@ -470,7 +470,7 @@ export function snapBoxes(items: LayoutItem[]): LayoutItem[] {
 }
 
 /** 小问编号开头：「(1) …」「（2）…」「① …」 */
-export const SUB_QUESTION_HEAD = /^[(（]\s*\d+\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/;
+export const SUB_QUESTION_HEAD = /^[(（]\s*\$?\s*\d+\s*\$?\s*[)）]|^[①②③④⑤⑥⑦⑧⑨⑩]/;
 
 /**
  * 版面把 (1)(2)(3) 切成独立条目时，在**条目层**并回主题干。
