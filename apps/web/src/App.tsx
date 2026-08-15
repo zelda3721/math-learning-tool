@@ -120,7 +120,12 @@ function AuthedApp() {
     const [selectedGrade, setSelectedGrade] = useState<string>('elementary_upper')
     // 讲解 tab 的双模式：⚡ 动画（web 默认，秒级）/ 🎬 视频（Manim 高级成片）
     const [explainMode, setExplainMode] = useState<'anim' | 'video'>('anim')
-    const [animRequest, setAnimRequest] = useState<{ problem: string; grade: string } | null>(null)
+    const [animRequest, setAnimRequest] = useState<{
+        problem: string
+        grade: string
+        /** 拍题识别裁出的题干配图（data URL）；讲解拿它当底图 */
+        figureImage?: string
+    } | null>(null)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
     const [historicalSession, setHistoricalSession] = useState<SessionDetail | null>(null)
@@ -142,12 +147,14 @@ function AuthedApp() {
     const isViewingHistory = historicalSession !== null
 
     const handleSubmit = useCallback(
-        async (problem: string) => {
+        async (problem: string, figureImage?: string) => {
             setHistoricalSession(null)
             if (explainMode === 'anim') {
-                setAnimRequest({ problem, grade: selectedGrade })
+                setAnimRequest({ problem, grade: selectedGrade, figureImage })
                 return
             }
+            // 视频（agent/chat）那条路暂不吃图——引擎 /chat 契约里没有图片入参；
+            // 拍照识别出的题干文本照常生效，配图只在动画讲解里用
             setAnimRequest(null)
             await startAgent({ problem, grade: selectedGrade })
             setHistoryRefreshKey((k) => k + 1)
@@ -359,7 +366,7 @@ function AuthedApp() {
                             </div>
 
                             <ProblemInput
-                                onSubmit={(problem) => handleSubmit(problem)}
+                                onSubmit={(problem, figureImage) => handleSubmit(problem, figureImage)}
                                 isLoading={isRunning}
                                 selectedGrade={selectedGrade}
                                 onGradeChange={setSelectedGrade}
@@ -369,9 +376,11 @@ function AuthedApp() {
 
                         {explainMode === 'anim' && animRequest && (
                             <FreeExplainPanel
-                                key={`${animRequest.problem}-${animRequest.grade}`}
+                                // 同题不同图也要重挂：图变了讲解底图就得跟着变
+                                key={`${animRequest.problem}-${animRequest.grade}-${animRequest.figureImage?.length ?? 0}`}
                                 problem={animRequest.problem}
                                 grade={animRequest.grade}
+                                figureImage={animRequest.figureImage}
                             />
                         )}
 

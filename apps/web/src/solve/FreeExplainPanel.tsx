@@ -24,14 +24,23 @@ type Phase =
     | { kind: 'ready'; explanation: Explanation; alternatives: Explanation[] }
     | { kind: 'failed'; message: string }
 
-export function FreeExplainPanel({ problem, grade }: { problem: string; grade: string }) {
+export function FreeExplainPanel({
+    problem,
+    grade,
+    figureImage,
+}: {
+    problem: string
+    grade: string
+    /** 拍题识别裁出的题干配图（data URL）；讲解拿它当底图 */
+    figureImage?: string
+}) {
     const [phase, setPhase] = useState<Phase>({ kind: 'generating' })
 
-    // 发起请求（problem/grade 变化即重来）
+    // 发起请求（problem/grade/figureImage 变化即重来）
     useEffect(() => {
         let cancelled = false
         setPhase({ kind: 'generating' })
-        requestExplain({ problem, grade })
+        requestExplain({ problem, grade, figureImage })
             .then((res) => {
                 if (cancelled) return
                 if (res.status === 'ready')
@@ -47,7 +56,7 @@ export function FreeExplainPanel({ problem, grade }: { problem: string; grade: s
         return () => {
             cancelled = true
         }
-    }, [problem, grade])
+    }, [problem, grade, figureImage])
 
     // 轮询任务
     useEffect(() => {
