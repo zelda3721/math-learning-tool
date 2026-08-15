@@ -120,6 +120,8 @@ _FALLBACK_IR_PRIMITIVES = {
     "polygon",
     "relation_node",
     "balance",
+    # 讲义原图的转写重画（引擎注入的确定性坐标：点+字母+线段+阴影）
+    "figure",
 }
 _FALLBACK_IR_ACTIONS = {
     "create",
@@ -156,7 +158,9 @@ _FALLBACK_IR_ACTION_FIELDS = (
 
 def _safe_ir_value(value: Any, depth: int = 0) -> Any:
     """Keep fallback IR bounded and JSON-only; it is never executed as code."""
-    if depth > 3:
+    # 4 层：figure 的参数是 params→points→{id,at}→[x,y]，坐标在第 4 层。
+    # 上限 3 时坐标会被砍成 None——图整个画不出来，而且没有任何报错。
+    if depth > 4:
         return None
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -545,6 +549,14 @@ class SolutionScene(Scene):
                     for point in (params.get("start"), params.get("end"))
                     if isinstance(point, list) and len(point) >= 2
                 )
+            if primitive == "figure":
+                coordinate_points.extend(
+                    item["at"]
+                    for item in params.get("points") or []
+                    if isinstance(item, dict)
+                    and isinstance(item.get("at"), list)
+                    and len(item["at"]) >= 2
+                )
         if self.geometry_plane_spec is not None:
             plane_params = self.geometry_plane_spec.get("params") or {}
             x_range = plane_params.get("x_range") or [-3, 3]
@@ -591,7 +603,12 @@ class SolutionScene(Scene):
                     and isinstance(params.get("start"), list)
                     and isinstance(params.get("end"), list)
                 )
-                if has_vertices or has_segment:
+                has_figure = (
+                    primitive == "figure"
+                    and isinstance(params.get("points"), list)
+                    and len(params.get("points")) >= 3
+                )
+                if has_vertices or has_segment or has_figure:
                     self.coordinate_ids.add(spec["id"])
             if self.geometry_plane_spec is not None:
                 self.coordinate_ids.add(self.geometry_plane_spec["id"])
@@ -1057,6 +1074,49 @@ class SolutionScene(Scene):
                     for i in range(sides)
                 ]
             body = Polygon(*vertices, color=color, fill_color=color, fill_opacity=0.18)
+        elif primitive == "figure":
+            # 讲义原图的转写重画：点(带字母)+线段+阴影区域。坐标由引擎按原图量出，
+            # 这里只负责忠实地画；字母沿"顶点远离重心"的方向外推，别盖住图形本身
+            figure_points = {
+                str(item.get("id")): self.geometry_point(item["at"])
+                for item in params.get("points") or []
+                if isinstance(item, dict)
+                and isinstance(item.get("at"), list)
+                and len(item["at"]) >= 2
+            }
+            body = VGroup()
+            if figure_points:
+                fig_cx = sum(p[0] for p in figure_points.values()) / len(figure_points)
+                fig_cy = sum(p[1] for p in figure_points.values()) / len(figure_points)
+                for cycle in params.get("polygons") or []:
+                    names = [str(n) for n in (cycle.get("points") or [])]
+                    if len(names) >= 3 and all(n in figure_points for n in names):
+                        body.add(Polygon(
+                            *[figure_points[n] for n in names],
+                            color=WHITE,
+                            fill_color=GREY_B,
+                            fill_opacity=0.5 if cycle.get("shaded") else 0.0,
+                            stroke_width=2.4,
+                        ))
+                for seg in params.get("segments") or []:
+                    seg_a, seg_b = str(seg.get("from")), str(seg.get("to"))
+                    if seg_a in figure_points and seg_b in figure_points:
+                        body.add(Line(
+                            figure_points[seg_a], figure_points[seg_b],
+                            color=WHITE, stroke_width=2.4,
+                        ))
+                for name, p in figure_points.items():
+                    dx, dy = p[0] - fig_cx, p[1] - fig_cy
+                    norm = max((dx * dx + dy * dy) ** 0.5, 1e-6)
+                    letter = Text(name, font_size=24, color=YELLOW)
+                    letter.move_to([
+                        p[0] + dx / norm * 0.32,
+                        p[1] + dy / norm * 0.32,
+                        0,
+                    ])
+                    body.add(letter)
+            if len(body) == 0:
+                body = VGroup(Dot([0, 0, 0], radius=0.001))
         else:
             node_label = Text(str(spec.get("label") or spec.get("meaning") or "关系"), font_size=23)
             self.fit(node_label, 2.7, 1.0)

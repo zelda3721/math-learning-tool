@@ -390,3 +390,71 @@ def test_同一拍拆成几层不会被当成拍数够了():
     )
     errors = verify_web_explanation(_doc(body), figure_required=True).errors
     assert any("只有 1 拍" in e for e in errors), errors
+
+
+# ── 重画路线（有原图转写时）：SVG 重画 + 顶点字母一个不少，不许贴照片 ──
+
+LABELS = ["A", "B", "C", "D", "E", "F"]
+
+
+def _svg_figure(letters: list[str]) -> str:
+    texts = "".join(f'<text x="1" y="1">{ch}</text>' for ch in letters)
+    return (
+        '<article data-explain="1">'
+        '<section data-beat="0" data-teach="看这个四边形">'
+        '<svg viewBox="0 0 640 320"><polygon points="1,1 6,1 9,9" fill="#888" fill-opacity="0.5"/>'
+        f"{texts}</svg>"
+        '<div data-claim="heads=35">' + '<i data-unit="head"></i>' * 35 + "</div>"
+        "</section>"
+        '<section data-beat="1" data-teach="答案 12"><div data-claim="rabbits=12">'
+        + '<i data-unit="rabbit"></i>' * 12
+        + "</div></section></article>"
+    )
+
+
+def test_重画路线_字母齐全的SVG通过():
+    report = verify_web_explanation(
+        _svg_figure(LABELS), EVIDENCE, REQUEST, figure_required=True, figure_labels=LABELS
+    )
+    assert report.ok, report.errors
+
+
+def test_重画路线_缺顶点字母被抓():
+    findings = verify_web_explanation(
+        _svg_figure(["A", "B", "C"]), EVIDENCE, REQUEST, figure_required=True, figure_labels=LABELS
+    ).errors
+    assert any("缺顶点字母" in f and "D" in f for f in findings)
+
+
+def test_重画路线_贴照片被拒():
+    pasted = _svg_figure(LABELS).replace(
+        "<svg ",
+        '<img data-figure="original" src="__ORIGINAL_FIGURE__"><svg ',
+    )
+    findings = verify_web_explanation(
+        pasted, EVIDENCE, REQUEST, figure_required=True, figure_labels=LABELS
+    ).errors
+    assert any("不要把原题的照片贴进页面" in f for f in findings)
+
+
+def test_重画路线_没有SVG等于没画图():
+    no_svg = (
+        '<article data-explain="1">'
+        '<section data-beat="0" data-teach="看"><div data-claim="heads=35">'
+        + '<i data-unit="head"></i>' * 35
+        + "</div></section>"
+        '<section data-beat="1" data-teach="答案"><div data-claim="rabbits=12">'
+        + '<i data-unit="rabbit"></i>' * 12
+        + "</div></section></article>"
+    )
+    findings = verify_web_explanation(
+        no_svg, EVIDENCE, REQUEST, figure_required=True, figure_labels=LABELS
+    ).errors
+    assert any("必须画图" in f for f in findings)
+
+
+def test_没给转写时维持老的嵌图要求():
+    findings = verify_web_explanation(
+        _svg_figure(LABELS), EVIDENCE, REQUEST, figure_required=True
+    ).errors
+    assert any("没有把原题的图放进来" in f for f in findings)

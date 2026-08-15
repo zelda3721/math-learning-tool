@@ -23,6 +23,7 @@ from ....application.interfaces import (
     ToolContext,
     ToolResult,
 )
+from ..figure_transcription import transcribe_figure
 from ..prompt_library import PromptLibrary
 from ..web_explanation_contract import (
     ATTR_FIGURE,
@@ -38,6 +39,14 @@ logger = logging.getLogger(__name__)
 
 #: 契约不过时最多重写几次（含首稿共 1 + MAX_REWRITES 次生成）
 MAX_REWRITES = 2
+
+# 这个工具写的是全引擎最长的产物：自足 HTML 页（样式 + SVG + 分拍注解 + 脚本），
+# 思考型模型（Qwen3.5+）的推理 token 还要从同一份预算里扣 2000-3500。
+# 此前没传 max_tokens、掉进 .env 的全局 4096：每一稿都在 </article> 之前被截断，
+# extract_html 抠不出完整片段 → 门禁数出 0 拍 → 打回重写又撞同一面墙，
+# 一次讲解白烧三稿共 7 分钟。其它重活工具（solve 6144、Manim codegen 5120）
+# 都自带预算，这里同理。
+WEB_EXPLANATION_MAX_TOKENS = 8192
 
 _FENCE = re.compile(r"```(?:html)?\s*(.*?)```", re.S | re.I)
 _ARTICLE = re.compile(r"<article\b.*?</article\s*>", re.S | re.I)
@@ -196,6 +205,40 @@ TEACHER_NOTE = f"""
 """
 
 
+def figure_redraw_note(transcription: dict[str, Any], width: int, height: int) -> str:
+    """有转写时的作图指令：按转写重画 SVG，不贴照片。
+
+    产品定案（2026-08-15）：截图配不上讲解的画风——原图只做**基准**，
+    页面用 SVG 原生重画。坐标由转写换算成像素直接给到模型，照抄即可；
+    门禁会核对顶点字母一个不少、并拒绝任何贴进来的照片。
+    """
+    w = max(width, 1)
+    h = max(height, 1)
+    # 转写坐标是 0~1（左上原点、y 向下）——SVG 同向，直接乘画布尺寸
+    coords = "、".join(
+        f"{p['id']}({round(p['x'] * w)},{round(p['y'] * h)})" for p in transcription["points"]
+    )
+    segments = "、".join("-".join(s) for s in transcription["segments"]) or "（无）"
+    shaded = "、".join("-".join(s) for s in transcription["shaded"]) or "（无）"
+    return f"""
+# 这道题有讲义上的原图（已随本次请求发给你，作为重画的基准）
+
+**不要把照片贴进页面**——用 SVG 把这个图形**重画**出来（viewBox 0 0 {w} {h}）。
+图形已经替你量好了，坐标照抄，不要自己改：
+
+- 顶点（像素坐标）：{coords}
+- 线段：{segments}
+- 阴影区域：{shaded}
+
+硬规则：
+- 线段用 <line> 或 <path>，阴影区域用 <polygon fill="#888" fill-opacity="0.5">；
+- **每个顶点旁边放一个 <text> 写它的字母**——上面列的字母一个都不能少，
+  位置放在顶点向图形外侧偏移 12~18px 处，别压在线上；字号 {max(12, h // 28)} 左右；
+- 分拍注解（高亮、度量、辅助线）作为 data-beat 的 <g> 层叠加在同一个 SVG 里；
+- 台词里点名的字母，以上面这份转写为准。
+"""
+
+
 def _user_message(prompt: str, figure_image: str, teacher_image: str = "") -> ChatMessage:
     """有原图时发多模态消息——模型得看见图，才知道注解该标在哪条边上。"""
     images = [img for img in (figure_image, teacher_image) if img]
@@ -276,6 +319,22 @@ class GenerateWebExplanationTool(ITool):
 
         figure_image = str(state.get("figure_image") or "")
         teacher_image = str(state.get("analysis_image") or "")
+
+        # 原图转写：有图先转写（可能已由视觉导演转过，state 里现成）。
+        # 转写成功走重画路线；失败退回"原图当底图"的老路——绝不空手
+        transcription = state.get("figure_transcription")
+        if not transcription and figure_image.startswith("data:image/"):
+            transcription = await transcribe_figure(self._llm, figure_image)
+            if transcription:
+                state["figure_transcription"] = transcription
+        figure_labels = [p["id"] for p in transcription["points"]] if transcription else None
+
+        if figure_image and transcription:
+            fig_note = figure_redraw_note(transcription, *figure_size(figure_image))
+        elif figure_image:
+            fig_note = figure_note(*figure_size(figure_image))
+        else:
+            fig_note = ""
         base_prompt = self._prompts.render(
             "web_explanation",
             problem=ctx.problem,
@@ -283,8 +342,7 @@ class GenerateWebExplanationTool(ITool):
             solution_steps=_steps_text(steps),
             answer=str(answer),
             math_evidence=_evidence_text(evidence),
-            figure_note=(figure_note(*figure_size(figure_image)) if figure_image else "")
-            + (TEACHER_NOTE if teacher_image else ""),
+            figure_note=fig_note + (TEACHER_NOTE if teacher_image else ""),
             extra_directives=str(args.get("extra_directives") or ""),
         )
 
@@ -297,7 +355,17 @@ class GenerateWebExplanationTool(ITool):
         best: tuple[str, GateReport] | None = None
 
         for attempt in range(1, limit + 2):
-            reply = await self._llm.chat_complete(messages=messages)
+            reply = await self._llm.chat_complete(
+                messages=messages, max_tokens=WEB_EXPLANATION_MAX_TOKENS
+            )
+            if getattr(reply, "finish_reason", "") == "length":
+                # 截断必须留痕：0 拍/缺 article 的真因是"没写完"，
+                # 不记这一笔，排查的人只会盯着门禁和提示词打转（实机上就转了一回）
+                logger.warning(
+                    "web 讲解第 %d 稿被 max_tokens=%d 截断（finish_reason=length）",
+                    attempt,
+                    WEB_EXPLANATION_MAX_TOKENS,
+                )
             markup = extract_html(getattr(reply, "text", "") or "")
             report = verify_web_explanation(
                 markup,
@@ -305,6 +373,7 @@ class GenerateWebExplanationTool(ITool):
                 request,
                 figure_required=bool(figure_image),
                 teacher_figure_available=bool(teacher_image),
+                figure_labels=figure_labels,
             )
             attempts.append(
                 {

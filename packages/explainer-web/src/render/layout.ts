@@ -18,7 +18,14 @@
  *    绝不压在内容上，也绝不画出画布。
  * 6. **画面不许自相矛盾**：内容区不侵占顶部教学句和底部事实条留出的空间。
  */
-import type { Scene, UnitsShape, MagnitudeShape, ExtentShape, LabelShape } from "./scene.js";
+import type {
+  Scene,
+  UnitsShape,
+  MagnitudeShape,
+  ExtentShape,
+  LabelShape,
+  FigureShape,
+} from "./scene.js";
 
 export interface Box {
   x: number;
@@ -99,7 +106,16 @@ export interface PlacedLabel {
   placeholder?: boolean;
 }
 
-export type Placed = PlacedUnits | PlacedBar | PlacedExtent | PlacedLabel;
+/** 讲义原图（转写重画）：布局只给框，绘制交给 figure/render 的保形投影 */
+export interface PlacedFigure {
+  kind: "figure";
+  id: string;
+  box: Box;
+  shape: FigureShape;
+  emphasis?: boolean;
+}
+
+export type Placed = PlacedUnits | PlacedBar | PlacedExtent | PlacedLabel | PlacedFigure;
 
 export interface LayoutResult {
   items: Placed[];
@@ -189,11 +205,13 @@ export function layoutFlowed(
   const unitGroups: UnitsShape[] = [];
   const extents: ExtentShape[] = [];
   const labels: LabelShape[] = [];
+  const figures: FigureShape[] = [];
   for (const s of shapes) {
     if (s.kind === "magnitude") bars.push(s);
     else if (s.kind === "units") unitGroups.push(s);
     else if (s.kind === "extent") extents.push(s);
     else if (s.kind === "label") labels.push(s);
+    else if (s.kind === "figure") figures.push(s);
   }
 
   // 通道分配：spec 有色名用色名，其余按出场顺序，保证跨拍稳定
@@ -228,6 +246,32 @@ export function layoutFlowed(
 
   const items: Placed[] = [];
   let cursorY = top;
+
+  // ── 讲义原图（转写重画）：主体内容，置顶居中；其余注解排它下面 ──
+  if (figures.length > 0) {
+    // 有别的内容要排时给图留 62% 高度，独占一拍时可以吃满
+    const others = bars.length + unitGroups.length + extents.length + labels.length;
+    const availH = Math.max(120, usableH * (others > 0 ? 0.62 : 0.94));
+    for (const f of figures) {
+      const xs = f.points.map((p) => p.at[0]);
+      const ys = f.points.map((p) => p.at[1]);
+      const spanW = Math.max(Math.max(...xs) - Math.min(...xs), 1e-6);
+      const spanH = Math.max(Math.max(...ys) - Math.min(...ys), 1e-6);
+      // 等比缩放（保形是底线），并给顶点字母留边
+      const scale = Math.min((usableW - 48) / spanW, (availH - 40) / spanH);
+      const w = Math.min(usableW, spanW * scale + 48);
+      const h = Math.min(availH, spanH * scale + 40);
+      const box: Box = { x: PAD_X + (usableW - w) / 2, y: cursorY, w, h };
+      items.push({
+        kind: "figure",
+        id: f.id,
+        box,
+        shape: f,
+        ...(f.emphasis ? { emphasis: true as const } : {}),
+      });
+      cursorY = box.y + h + GAP_Y;
+    }
+  }
 
   // ── 条：共享一把尺、左边缘对齐、差额高亮（规则 2 + 4）──
   if (bars.length > 0) {

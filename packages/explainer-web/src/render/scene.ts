@@ -130,6 +130,20 @@ export interface LabelShape {
   placeholder?: boolean;
 }
 
+/**
+ * 讲义原图的转写重画：点（带字母）+ 线段 + 阴影区域。
+ * 坐标由引擎按原图量出并注入（figure_transcription），数学坐标 y 向上；
+ * 渲染走 figure/render 的保形投影——SceneSpec 坐标系不保形，画几何图会被拉伸。
+ */
+export interface FigureShape {
+  kind: "figure";
+  id: string;
+  points: { id: string; at: [number, number] }[];
+  segments: { from: string; to: string }[];
+  polygons: { points: string[]; shaded: boolean }[];
+  emphasis?: boolean;
+}
+
 export type Shape =
   | CurveShape
   | SegmentShape
@@ -139,7 +153,8 @@ export type Shape =
   | UnitsShape
   | MagnitudeShape
   | ExtentShape
-  | LabelShape;
+  | LabelShape
+  | FigureShape;
 
 export interface Scene {
   /** 需要坐标系的图元（数学图） */
@@ -160,6 +175,48 @@ export interface Scene {
 
 const num = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
+
+/** figure 图元的参数校验：点不够或引用了不存在的字母就整体不画（宁缺毋错） */
+function figureShapeOf(g: GroupState): FigureShape | null {
+  const params = g.params as Record<string, unknown>;
+  const points: { id: string; at: [number, number] }[] = [];
+  const seen = new Set<string>();
+  for (const raw of Array.isArray(params.points) ? params.points : []) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const p = raw as Record<string, unknown>;
+    const id = String(p.id ?? "").trim();
+    const at = pair(p.at);
+    if (!id || seen.has(id) || !at) continue;
+    seen.add(id);
+    points.push({ id, at });
+  }
+  if (points.length < 3) return null;
+  const segments: { from: string; to: string }[] = [];
+  for (const raw of Array.isArray(params.segments) ? params.segments : []) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const s = raw as Record<string, unknown>;
+    const from = String(s.from ?? "");
+    const to = String(s.to ?? "");
+    if (seen.has(from) && seen.has(to)) segments.push({ from, to });
+  }
+  const polygons: { points: string[]; shaded: boolean }[] = [];
+  for (const raw of Array.isArray(params.polygons) ? params.polygons : []) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const poly = raw as Record<string, unknown>;
+    const names = (Array.isArray(poly.points) ? poly.points : []).map((n) => String(n));
+    if (names.length >= 3 && names.every((n) => seen.has(n))) {
+      polygons.push({ points: names, shaded: poly.shaded === true });
+    }
+  }
+  return {
+    kind: "figure",
+    id: g.id,
+    points,
+    segments,
+    polygons,
+    ...(g.emphasis ? { emphasis: true as const } : {}),
+  };
+}
 
 const pair = (v: unknown): [number, number] | null =>
   Array.isArray(v) && v.length >= 2 && typeof v[0] === "number" && typeof v[1] === "number"
@@ -200,6 +257,13 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
 
   for (const g of beat.groups) {
     if (g.attachPerUnit !== undefined) continue; // 已经变成宿主身上的结构
+    if (g.primitive === "figure") {
+      const fig = figureShapeOf(g);
+      if (fig) flowed.push(fig);
+      else
+        flowed.push({ kind: "label", id: g.id, text: g.label ?? "讲义原图", placeholder: true });
+      continue;
+    }
     if (!PLOTTED_PRIMITIVES.has(g.primitive)) {
       // 数量型：展开成可数记号
       if (g.units.length > 0 || g.quantity !== undefined) {
