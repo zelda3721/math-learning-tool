@@ -241,6 +241,7 @@ class AgentLoop:
         session_id: str | None = None,
         extra_directives: str | None = None,
         learner_id: str | None = None,
+        figure_image: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
         if session_id is None:
             session_id = await self._store.create_session(
@@ -274,6 +275,8 @@ class AgentLoop:
         state: dict[str, Any] = {
             "use_latex": self._use_latex,
             "extra_directives": extra_directives or "",
+            # 原题原图（data URL）：视觉导演按它的转写重画，不许凭题干想象图形
+            "figure_image": figure_image or "",
         }
 
         all_tool_definitions = (

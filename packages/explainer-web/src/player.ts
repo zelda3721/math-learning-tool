@@ -24,9 +24,12 @@ import {
   layoutFlowed,
   type PlacedBar,
   type PlacedExtent,
+  type PlacedFigure,
   type PlacedLabel,
   type PlacedUnits,
 } from "./render/layout.js";
+import { renderSolved } from "./figure/render.js";
+import type { FigureSpec } from "@mathtutor/schema";
 import type { CoordSystem } from "./math/coords.js";
 
 export interface PlayerOptions {
@@ -447,6 +450,7 @@ export class ExplainerPlayer {
       if (item.kind === "bar") this.paintBar(item);
       else if (item.kind === "extent") this.paintExtent(item);
       else if (item.kind === "label") this.paintLabel(item);
+      else if (item.kind === "figure") this.paintFigure(item);
       else this.paintUnits(item, nextPos);
     }
 
@@ -520,6 +524,38 @@ export class ExplainerPlayer {
         fill: tone, "fill-opacity": 0.14, stroke: tone, "stroke-width": 1.5,
       }),
     );
+  }
+
+  /**
+   * 讲义原图（转写重画）：走 figure/render 的保形投影，嵌套 <svg> 放进布局框。
+   * 不用 SceneSpec 的坐标系画它——那套 x/y 独立缩放，几何图会被拉伸说谎。
+   */
+  private paintFigure(item: PlacedFigure): void {
+    const spec: FigureSpec = {
+      points: item.shape.points.map((p) => ({ id: p.id })),
+      segments: item.shape.segments.map((s) => ({ from: s.from, to: s.to, style: "solid" as const })),
+      polygons: item.shape.polygons.map((p) => ({ points: p.points, shaded: p.shaded })),
+      circles: [],
+      angles: [],
+      constraints: [],
+    };
+    const coords = Object.fromEntries(
+      item.shape.points.map((p) => [p.id, { x: p.at[0], y: p.at[1] }]),
+    );
+    // 内部宽度取布局框宽：字号/线宽按这个尺度出，再由嵌套 svg 等比适配
+    const rendered = renderSolved(spec, coords, { width: Math.max(160, Math.round(item.box.w)) });
+    const holder = el("g");
+    holder.innerHTML = rendered.svg;
+    const inner = holder.firstElementChild;
+    if (!(inner instanceof SVGElement)) return;
+    inner.setAttribute("x", String(item.box.x));
+    inner.setAttribute("y", String(item.box.y));
+    inner.setAttribute("width", String(item.box.w));
+    inner.setAttribute("height", String(item.box.h));
+    inner.setAttribute("viewBox", `0 0 ${rendered.width} ${rendered.height}`);
+    inner.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    if (item.emphasis) inner.setAttribute("opacity", "1");
+    this.svg.appendChild(inner);
   }
 
   private paintLabel(l: PlacedLabel): void {

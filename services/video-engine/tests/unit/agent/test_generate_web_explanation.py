@@ -160,6 +160,16 @@ GEOMETRY = (
 )
 
 
+# 有图的用例都会先经过一趟原图转写；这里统一给它一条"读不出"的答复，
+# 让这些用例继续锁定**转写失败时的兜底**（原图当底图的老路线）。
+NO_TRANSCRIPTION = "这张图看不清，转写不出来"
+
+
+def _figure_tool(replies):
+    tool, llm = _tool([NO_TRANSCRIPTION, *replies])
+    return tool, llm
+
+
 def _figure_ctx() -> ToolContext:
     ctx = _ctx()
     ctx.state["figure_image"] = TINY
@@ -169,9 +179,9 @@ def _figure_ctx() -> ToolContext:
 @pytest.mark.asyncio
 async def test_原图随提示词一起发给模型():
     """模型得看见图，才知道注解该标在哪条边上。"""
-    tool, llm = _tool([GEOMETRY])
+    tool, llm = _figure_tool([GEOMETRY])
     await tool.execute({}, _figure_ctx())
-    content = llm.calls[0][0].content
+    content = llm.calls[1][0].content
     assert isinstance(content, list)
     assert [part["type"] for part in content] == ["text", "image_url"]
     assert content[1]["image_url"]["url"] == TINY
@@ -181,7 +191,7 @@ async def test_原图随提示词一起发给模型():
 
 @pytest.mark.asyncio
 async def test_交付前把占位符换成真正的图():
-    tool, _ = _tool([GEOMETRY])
+    tool, _ = _figure_tool([GEOMETRY])
     ctx = _figure_ctx()
     result = await tool.execute({}, ctx)
     assert result.success, result.summary
@@ -195,13 +205,13 @@ async def test_自己重画不放原图会被打回重写():
         '<img data-figure="original" src="__ORIGINAL_FIGURE__">',
         '<svg viewBox="0 0 10 10"><polygon points="1,1 6,1 9,9 1,9"/></svg>',
     )
-    tool, llm = _tool([redrawn, GEOMETRY])
+    tool, llm = _figure_tool([redrawn, GEOMETRY])
     result = await tool.execute({}, _figure_ctx())
     assert result.success, result.summary
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
     # 打回时第一条消息仍要带着图，否则模型改第二稿时就成了瞎写
-    assert isinstance(llm.calls[1][0].content, list)
-    assert "没有把原题的图放进来" in llm.calls[1][2].content
+    assert isinstance(llm.calls[2][0].content, list)
+    assert "没有把原题的图放进来" in llm.calls[2][2].content
 
 
 @pytest.mark.asyncio
@@ -235,9 +245,9 @@ def _teacher_ctx() -> ToolContext:
 @pytest.mark.asyncio
 async def test_两张图都发给模型():
     """老师那张图是真人画的数形结合，模型得看见才能参考它的思路。"""
-    tool, llm = _tool([WITH_TEACHER])
+    tool, llm = _figure_tool([WITH_TEACHER])
     await tool.execute({}, _teacher_ctx())
-    content = llm.calls[0][0].content
+    content = llm.calls[1][0].content
     assert [p["type"] for p in content] == ["text", "image_url", "image_url"]
     assert content[1]["image_url"]["url"] == TINY
     assert content[2]["image_url"]["url"] == TEACHER_IMG
@@ -247,7 +257,7 @@ async def test_两张图都发给模型():
 
 @pytest.mark.asyncio
 async def test_两个占位符都换成真图():
-    tool, _ = _tool([WITH_TEACHER])
+    tool, _ = _figure_tool([WITH_TEACHER])
     result = await tool.execute({}, _teacher_ctx())
     assert result.success, result.summary
     html = result.data["html"]
@@ -258,16 +268,16 @@ async def test_两个占位符都换成真图():
 @pytest.mark.asyncio
 async def test_没展示老师那张图只记警告不打回():
     """少一张参考图不算画了假话，讲解本身仍然成立——为它反复重写不值。"""
-    tool, llm = _tool([GEOMETRY])
+    tool, llm = _figure_tool([GEOMETRY])
     result = await tool.execute({}, _teacher_ctx())
     assert result.success, result.summary
-    assert len(llm.calls) == 1
+    assert len(llm.calls) == 2
     assert any("老师画的那张解法图" in w for w in result.data["gate"]["warnings"])
 
 
 @pytest.mark.asyncio
 async def test_没有解析图时占位符不残留():
     """模型写了 teacher 占位符但这道题没有解法图——去掉，别留一张裂图。"""
-    tool, _ = _tool([WITH_TEACHER])
+    tool, _ = _figure_tool([WITH_TEACHER])
     result = await tool.execute({}, _figure_ctx())
     assert "__TEACHER_FIGURE__" not in result.data["html"]

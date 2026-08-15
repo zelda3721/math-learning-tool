@@ -46,6 +46,8 @@ class ChatRequest(BaseModel):
     # Optional stable learner identity (passed through by the TS gateway);
     # persisted on the session row for per-learner history filtering.
     learner_id: str | None = None
+    #: 原题原图（data URL）。视觉导演按它的转写重画（不贴截图、不凭空想象）
+    figure_image: str | None = None
 
 
 def _event_to_sse(event_type: str, payload: dict) -> str:
@@ -62,6 +64,7 @@ async def _stream_events(loop: AgentLoop, req: ChatRequest) -> AsyncIterator[str
             session_id=req.session_id,
             extra_directives=req.extra_directives,
             learner_id=req.learner_id,
+            figure_image=req.figure_image,
         ):
             if isinstance(evt, SessionCreated):
                 yield _event_to_sse("session", {"session_id": evt.session_id})

@@ -139,6 +139,10 @@ class ParsedExplanation:
     original_figures: int = 0
     #: 讲义解析里那张老师画的图出现了几次
     teacher_figures: int = 0
+    #: 页面里有几个 <svg>（重画路线：图必须是画出来的）
+    svg_count: int = 0
+    #: SVG 里 <text> 元素的文字内容（重画路线核对顶点字母用）
+    svg_texts: list[str] = field(default_factory=list)
 
 
 class _Parser(html.parser.HTMLParser):
@@ -164,6 +168,9 @@ class _Parser(html.parser.HTMLParser):
         a = {k.lower(): (v or "") for k, v in attrs}
         opened: list[int] = []
         beat: int | None = None
+
+        if tag == "svg":
+            self.out.svg_count += 1
 
         if ATTR_ROOT in a:
             self.out.has_root = True
@@ -240,6 +247,13 @@ class _Parser(html.parser.HTMLParser):
             if self._stack[i][0] == tag:
                 del self._stack[i:]
                 return
+
+    def handle_data(self, data: str) -> None:
+        # 只收 SVG <text> 里的内容：重画路线靠它核对"顶点字母一个不少"
+        if any(tag == "text" for tag, _, _ in self._stack):
+            chunk = data.strip()
+            if chunk:
+                self.out.svg_texts.append(chunk)
 
 
 def parse_web_explanation(markup: str) -> ParsedExplanation:
@@ -329,11 +343,15 @@ def verify_web_explanation(
     min_beats: int = 2,
     figure_required: bool = False,
     teacher_figure_available: bool = False,
+    figure_labels: list[str] | None = None,
 ) -> GateReport:
     """把画面上宣称的每个数跟已验证的数学对账。
 
-    `figure_required` 为真时，这道题有讲义上的原图，讲解必须把它放进页面
-    并在其上作注——不许自己重画一张（见 ATTR_FIGURE 的说明）。
+    `figure_required` 为真时，这道题有讲义上的原图。两种履约方式：
+    - 给了 `figure_labels`（原图转写成功）：**按转写重画**——页面必须有 SVG，
+      转写里的每个顶点字母都要以 <text> 出现；不许把原题照片贴进页面
+      （产品定案 2026-08-15：截图配不上讲解的画风，各形式用自己的语言重画）。
+    - 没有转写（转写失败的兜底）：退回老规矩——原图占位符嵌入，注解叠其上。
     """
     report = GateReport()
     findings = report.errors
@@ -362,8 +380,22 @@ def verify_web_explanation(
     if parsed.units_total == 0 and not parsed.measures:
         findings.append("没有任何可数个体或量：这是纯文字，不是图形讲解")
 
-    # ── 有原图的题：原图必须在页面上，且只放一次 ──
-    if figure_required:
+    # ── 有原图的题：重画路线（有转写）或嵌图路线（转写失败的兜底）──
+    if figure_required and figure_labels:
+        if parsed.original_figures > 0:
+            findings.append("不要把原题的照片贴进页面——按转写用 SVG 重画（产品定案）")
+        if parsed.svg_count == 0:
+            findings.append("有原图的题必须画图：按转写用 SVG 把图形重画出来")
+        else:
+            svg_text = {t for chunk in parsed.svg_texts for t in chunk.split()}
+            missing = [l for l in figure_labels if l not in svg_text]
+            if missing:
+                findings.append(
+                    "重画的图缺顶点字母："
+                    + "、".join(missing)
+                    + "——台词点名的每个字母，图上必须有对应的 <text> 标注"
+                )
+    elif figure_required:
         if parsed.original_figures == 0:
             findings.append(
                 f'没有把原题的图放进来：需要一个 <img {ATTR_FIGURE}="{FIGURE_ORIGINAL}" '

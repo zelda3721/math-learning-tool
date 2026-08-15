@@ -23,6 +23,11 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..figure_transcription import (
+    inject_figure_object,
+    transcribe_figure,
+    transcription_summary,
+)
 from ..math_runtime import (
     evaluate_real_expression_at,
     execute_math_request,
@@ -67,6 +72,10 @@ _VISUAL_PRIMITIVES = {
     "limit_approach",
     # params: outer/inner/variable/x_range (x →(inner)→ u →(outer)→ y).
     "composition_chain",
+    # 讲义原图的转写重画（点线+字母+阴影）。模型只声明空参数占位，
+    # 真实坐标由引擎按原图转写注入（figure_transcription.inject_figure_object）——
+    # 坐标不经模型的手，一致性是构造出来的。
+    "figure",
 }
 # Calculus constructs are continuous relationships, not unit collections:
 # they never carry a unit count and must not be pulled into the quantity
@@ -7353,6 +7362,25 @@ class VisualPlanTool(ITool):
         if extra_directives:
             feedback += "\n\n## 用户对本次成片的额外要求\n" + extra_directives[:1000]
 
+        # 讲义原图：先转写（视觉→结构），导演照它注解，图形本身由引擎注入
+        transcription = ctx.state.get("figure_transcription")
+        figure_image = str(ctx.state.get("figure_image") or "")
+        if not transcription and figure_image.startswith("data:image/"):
+            transcription = await transcribe_figure(self._llm, figure_image)
+            if transcription:
+                ctx.state["figure_transcription"] = transcription
+        if transcription:
+            feedback += (
+                "\n\n## 讲义原图（已转写，系统会按它自动重画在舞台上）\n"
+                f"{transcription_summary(transcription)}\n"
+                "硬规则：\n"
+                '- 声明一个对象 {"id":"original_figure","primitive":"figure","params":{},'
+                '"meaning":"讲义原图"}——params 留空，系统会注入按原图量出的真实坐标；\n'
+                "- **不要**再用 polygon/line/dot 把这个图形重画一遍——画重了孩子会看到两张对不上的图；\n"
+                "- 你的职责是围绕这张图做注解：每一拍讲哪一步、看哪几个字母，"
+                "teaching_line 里点名的字母必须是上面转写里存在的。"
+            )
+
         prompt = self._prompts.render(
             "visual_plan",
             grade=grade,
@@ -7528,6 +7556,11 @@ class VisualPlanTool(ITool):
             plan["audit_checked_claims"] = checked_claims
         if audit_warning:
             plan["audit_warning"] = audit_warning
+
+        # 有转写时把真实图形对象注进计划（覆盖模型的占位）。放在全部校验/审计之后：
+        # 注入的对象是确定性构造的测量结果，不该被 LLM 审计的意见改动
+        if transcription:
+            plan = inject_figure_object(plan, transcription)
 
         # Keep the session-level attempt history. Resetting it here used to
         # make a later visual replan look like another cold start.

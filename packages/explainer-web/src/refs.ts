@@ -15,6 +15,8 @@ export const KNOWN_PRIMITIVES = new Set([
   "polygon",
   "relation_node",
   "balance",
+  // 讲义原图的转写重画（引擎注入坐标；播放器走保形的 figure 渲染器）
+  "figure",
 ]);
 
 /** 引擎常见动作 op（未知 op → warning，折叠时忽略但保持可见性） */

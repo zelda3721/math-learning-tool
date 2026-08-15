@@ -19,6 +19,8 @@ export interface EngineChatPayload {
   grade: string;
   learner_id?: string;
   extra_directives?: string;
+  /** 原题原图（data URL）。视频链路同样要接原图：导演照它的转写重画，不许凭空想象 */
+  figure_image?: string;
 }
 
 /** 组合导演指令：essence（题型本质）+ 误概念（针对性视觉论证） */
