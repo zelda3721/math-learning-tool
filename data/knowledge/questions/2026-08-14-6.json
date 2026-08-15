@@ -1,0 +1,225 @@
+[
+  {
+    "id": "95bb3f72-080e-4df5-b32e-b824a0bac326",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁爸爸开车2小时可以行驶150千米，骑摩托车每小时可以行驶57千米．丁丁爸爸开车比骑摩托车每小时快多少千米？开车5小时比骑摩托车5小时能多行多少千米？",
+    "answer": "18,90",
+    "answerType": "numeric",
+    "analysis": "先求开车速度150÷2=75千米/时，再求速度差75-57=18千米，最后求路程差18×5=90千米．",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c5fffd0a2ea6b3ee",
+    "status": "verified"
+  },
+  {
+    "id": "8a2d3c21-77e6-4e9f-946e-f1c6739292e2",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "从家到学校，东东每分钟走50米，走完全程要18分钟．有一天东东起床起晚了，出门时比平时晚了6分钟那么，如果东东希望和平时相同的时间到学校，他每分钟要多走多少米？",
+    "answer": "25",
+    "answerType": "numeric",
+    "analysis": "先求出总路程为900米，再算出实际可用时间为12分钟，求出实际速度为75米/分，最后减去原速度即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6a925d7ef73202f0",
+    "status": "verified"
+  },
+  {
+    "id": "53a552ae-6169-4933-9b71-d4e929c5330b",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "老王和老黄两家相距500米，老王每分钟行34米，老黄每分钟行45米：\n（1）两人同时从家中出发在同一条路上同向而行，4分钟后两人相距多少米？\n（2）两人同时从家中出发在同一条路上背向而行，4分钟后两人相距多少米？\n（3）两人同时从家中出发在同一条路上相向而行，4分钟后两人相距多少米？",
+    "answer": "544或456；816；184",
+    "answerType": "numeric",
+    "analysis": "两人相向而行，用总距离减去两人4分钟行走的路程之和，即500-34×4-45×4=184米。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "eab52887f463b9f6",
+    "status": "verified"
+  },
+  {
+    "id": "4367aaa6-f833-426d-972f-e40af4cd22ef",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一天，萌萌和洋洋约好在他们之间的某点见面，萌萌每分走68米，洋洋每分走35米，他们同时出发8分后还相距342米，则萌萌和洋洋之间的距离是多少米？",
+    "answer": "1166",
+    "answerType": "numeric",
+    "analysis": "总距离等于两人8分钟行走的路程之和加上剩余的342米，即 (68+35)×8+342=1166。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d1d5431b8ffc894a",
+    "status": "verified"
+  },
+  {
+    "id": "211d7789-cd50-46bc-b099-05dde16a6f83",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "甲乙两地相距300米，萌萌去时的速度是10米/分，回来的速度是15米/分，求她往返的平均速度．",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "根据平均速度公式：总路程÷总时间=平均速度，进行求解。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "040f4730ef49f896",
+    "status": "verified"
+  },
+  {
+    "id": "5a767c48-355c-4b52-83ed-3c682d797cef",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐进行爬山训练．从$A$地出发，山路长$30$千米，上山每小时行$3$千米．爬到山顶后，沿原路下山，下山每小时行$6$千米．求他上山、下山的平均速度．",
+    "answer": "4",
+    "answerType": "numeric",
+    "analysis": "平均速度等于总路程除以总时间，即$60 \\div (30 \\div 3 + 30 \\div 6) = 4$千米/时。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c4332e6ee709e6fc",
+    "status": "verified"
+  },
+  {
+    "id": "4f8027f3-5608-4c59-8d29-68fa90b4eff4",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "旅游季到了，小朋友们都开始了自己期待已久的游玩计划．牛牛喜欢骑自行车，已知骑自行车每小时行15千米．\n(1) 2小时，牛牛能骑多少千米？\n(2) 为了打破三年级的小学生骑车记录牛牛又连续骑行了3小时，但速度降低到10千米/时，请问这次骑车他一共骑了多少千米，用了多少时间？",
+    "answer": "30,60,5",
+    "answerType": "numeric",
+    "analysis": "(1) 路程=速度×时间=15×2=30千米；(2) 总路程=30+10×3=60千米，总时间=2+3=5小时。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c043ddc257015398",
+    "status": "verified"
+  },
+  {
+    "id": "b78e1a79-79dc-4d56-867a-203497946050",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛骑车回来休息了一段时间后，打算乘坐火车去邯郸玩一趟．牛牛家住秦皇岛，已知这列火车以前平均每小时行驶71千米，从秦皇岛到邯郸用12小时．火车提速后平均每小时行驶95千米，问：火车提速后从秦皇岛开往邯郸大约需要几小时？(结果取整数)",
+    "answer": "9",
+    "answerType": "numeric",
+    "analysis": "先根据原速度和时间求出路程，再用路程除以提速后的速度求出新时间。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2f7515ace8f297d4",
+    "status": "verified"
+  },
+  {
+    "id": "5b15c5f6-f463-4338-ba07-c7064536f49f",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一周后，牛牛乘坐一列快车从邯郸去石家庄，快车每小时行$65$千米．同时，田田乘坐另一列路线相同，方向相反的快车从石家庄去往邯郸，快车每小时行驶$60$千米．两人乘坐的列车同时出发，行驶了$4$小时后，还相距$10$千米，求邯郸到石家庄的距离是多少？",
+    "answer": "510",
+    "answerType": "numeric",
+    "analysis": "总路程等于两车$4$小时行驶的路程之和加上剩余的$10$千米，即$(65+60)\\times 4+10=510$（千米）。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0b649279e8d8eb0c",
+    "status": "verified"
+  },
+  {
+    "id": "5f3d0ccb-f3f5-43a1-9a3c-2e9b64c1c16e",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁没有去外地游玩的想法，就在附近规划了一条从 $A$ 到 $B$，再到 $C$，最后到达 $D$ 的路线．已知 $A$ 到 $B$ 是长为 12 千米的下坡路，$B$ 到 $C$ 是 8 千米的平路，$C$ 到 $D$ 是 4 千米的上坡路．丁丁骑车走下坡路速度为 6 千米/时，平路速度为 4 千米/时，上坡路为 2 千米/时．问：丁丁从 $A$ 到 $D$ 的平均速度为多少？",
+    "answer": "4",
+    "answerType": "numeric",
+    "analysis": "平均速度等于总路程除以总时间，即 $(12+8+4) \\div (12\\div6+8\\div4+4\\div2) = 4$ 千米/时．",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "3637236f3468b9d5",
+    "status": "verified"
+  },
+  {
+    "id": "8914ecce-5a87-422e-8e2c-e1cdcda136af",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "旅游假期结束了，田田收拾书包开开心心地步行去上学，田田每分钟走75米．当田田离家12分钟后，爸爸发现她忘了带文具盒，马上骑自行车去追，爸爸每分钟行375米，爸爸出门时两人已相距多远？2分钟后能否追上？5分钟呢？",
+    "answer": "900,不能,能",
+    "answerType": "numeric",
+    "analysis": "先算出田田先走的距离即为初始间距，再分别计算2分钟和5分钟时两人的路程进行比较。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e08649b4301c3308",
+    "status": "verified"
+  },
+  {
+    "id": "43cf84f9-b420-45eb-805c-767ccdb753fe",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "听完同学们分享旅行趣事，乐乐老师为大家准备了一道旅行路程的应用题．同学们快来试试：\n$A$、$B$两地相距$38$千米，甲从$A$地去$B$地，乙从$B$地去$A$地，中途甲、乙两人见面后一同休息了片刻便继续赶路．已知甲每小时行$8$千米，乙每小时行$11$千米，甲到达$B$地后立即返回$A$地，乙到达$A$地后立即返回$B$地，第$1$次相遇分开后过了几小时两人在途中能相遇？",
+    "answer": "4",
+    "answerType": "numeric",
+    "analysis": "从第一次相遇到第二次相遇，两人合走了$2$个全程，即$38 \\times 2 = 76$千米，除以速度和即可求得时间。",
+    "analysisImage": "e7245abc00688c24c4e5c02a95291a24.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9647ff84e8f197b9",
+    "status": "verified"
+  },
+  {
+    "id": "91d24724-126f-40ed-84bd-0a685bf7c794",
+    "nodeIds": [
+      "journey-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛从 $A$ 地向 $B$ 地行驶，田田从 $B$ 地向 $A$ 地行驶，两人同时出发，田田每分钟行 30 米，牛牛每分钟行 50 米．已知出发 10 分钟后两人之间相距 300 米．问：$A$ 地和 $B$ 地相距多少米？",
+    "answer": "1100或500",
+    "answerType": "numeric",
+    "answerUnique": false,
+    "analysis": "两人相向而行，10 分钟共行 800 米；若未相遇，总路程为 800+300=1100 米；若相遇后错开，总路程为 800-300=500 米。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1aa59d28d6147022",
+    "status": "verified"
+  }
+]

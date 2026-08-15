@@ -1,0 +1,226 @@
+[
+  {
+    "id": "c609d4a3-9d50-45a6-8ec2-6accac8248ef",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "有两包面粉，第一包重60千克，如果从第二包取出10千克放入第一包，那么两包面粉一样重．问：第二包面粉重多少千克？",
+    "answer": "80",
+    "answerType": "numeric",
+    "analysis": "设第二包面粉重x千克，根据题意列出方程x-10=60+10，解得x=80。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "fb8e21e7962bbfcf",
+    "status": "verified"
+  },
+  {
+    "id": "56141f52-63b6-41b2-a40a-85c5f6c4446d",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "一堆煤重40吨，一辆货车运了4次,还剩一半没有运，这辆货车平均每次运多少吨？",
+    "answer": "5",
+    "answerType": "numeric",
+    "analysis": "已运重量为总重量的一半即20吨，除以4次得每次5吨。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "77e73bc59beae788",
+    "status": "verified"
+  },
+  {
+    "id": "b384ad19-7a62-4685-8392-1ae0273fc787",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "妈妈买了3千克葡萄，付出20元，找回5元，每千克葡萄多少元？",
+    "answer": "5",
+    "answerType": "numeric",
+    "analysis": "设每千克葡萄x元，根据等量关系列出方程3x+5=20，解得x=5。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "97e92dfa192fdf87",
+    "status": "verified"
+  },
+  {
+    "id": "9ba5f08f-1cbc-4040-8924-cbc2fc99c770",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "新学期开始，有一批新的教科书要分发到各位学生手中，这批教科书必须由一个小组的学生来搬，这批教科书如果由小组中的男生来搬，每人搬25本，那么还有15本没人搬，如果由小组中的女生来搬，每人搬20本，那么最后一名女生只需要搬10本．已知这个小组的学生一共有8人，求这批教科书一共有多少本？",
+    "answer": "90",
+    "answerType": "numeric",
+    "analysis": "设男生人数为x，根据两种搬书方式总数相等列方程求解。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "131fc3bcead28395",
+    "status": "verified"
+  },
+  {
+    "id": "f189d2c0-5d91-4d20-a02d-75c7a1d8856c",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁和牛牛共有25元钱，已知牛牛的钱比丁丁的2倍还少8元，请问丁丁、牛牛各有多少元？",
+    "answer": "11,14",
+    "answerType": "numeric",
+    "analysis": "设丁丁有x元，则牛牛有(2x-8)元，根据两人共有25元列方程求解。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "1794c57f581ba144",
+    "status": "verified"
+  },
+  {
+    "id": "94a5e96c-632e-4dfc-acfd-7cb742421c1d",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁、牛牛、田田共有100本课外书丁丁的本数除以牛牛的本数，田田的本数除以丁丁的本数，商都是5，而且余数也都是1．丁丁有多少本书？",
+    "answer": "16",
+    "answerType": "numeric",
+    "analysis": "设牛牛有$x$本书，则丁丁有$(5x+1)$本，田田有$5(5x+1)+1$本，根据三人共有100本列方程求解。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "949ce9eeffd050d7",
+    "status": "verified"
+  },
+  {
+    "id": "faaa67b5-bda8-447f-8750-18295b329f3c",
+    "nodeIds": [
+      "linear-equation",
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师带领同学们进行课外实践活动，丰富生活经验．牛牛的哥哥知道这个活动后也想参加．牛牛今年10岁，哥哥3年前的年龄是牛牛当时年龄的2倍，哥哥今年多少岁？",
+    "answer": "17",
+    "answerType": "numeric",
+    "analysis": "设哥哥今年x岁，根据“哥哥3年前的年龄是牛牛当时年龄的2倍”列方程求解。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "76e30772ce52264f",
+    "status": "verified"
+  },
+  {
+    "id": "d1a91049-09d4-4c1a-a6de-20780ddeec8c",
+    "nodeIds": [
+      "area-units",
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁首先发现了一块梯形的草地，想在草地上种一些花．这个梯形的面积是120平方米，上底是13米，下底是17米，这个梯形的高是多少米？",
+    "answer": "8",
+    "answerType": "numeric",
+    "analysis": "设梯形的高为x米，根据梯形面积公式列出方程(13+17)×x÷2=120，解得x=8。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a4dfc4085f4458d6",
+    "status": "verified"
+  },
+  {
+    "id": "d5e593de-a4a7-4feb-8e8a-4ae9ba57444b",
+    "nodeIds": [
+      "linear-equation",
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田的课外实践场地选在了图书馆，图书馆要修补图书820本，已经修补了400本，要求在剩下的6小时里将图书全部修补完，平均每小时修补多少本？",
+    "answer": "70",
+    "answerType": "numeric",
+    "analysis": "先求出剩余未修补的图书数量，再除以剩余的时间即可。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a89841d653c6ef42",
+    "status": "verified"
+  },
+  {
+    "id": "1c8e4e2d-7c66-4ae9-b78a-0d175a532f7e",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "然后乐乐老师带领同学们参加植树活动，派男、女生共12人去取树苗，男生每人拿3棵，女生每人拿2棵，正好全部取完；如果男、女生人数调换一下，则还差2棵不能取回．问：原来男、女生各有多少人？",
+    "answer": "7，5",
+    "answerType": "numeric",
+    "analysis": "设男生x人，女生(12-x)人，根据树苗总数不变列方程：3x+2(12-x)=3(12-x)+2x+2，解得x=7。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "66fa200877071cbf",
+    "status": "verified"
+  },
+  {
+    "id": "66915458-dff8-4e03-832f-cf01feedba04",
+    "nodeIds": [
+      "linear-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普也没闲着，他发现一口枯井，想量一下井深．用绳子测井深，绳子两折时余$60$厘米，绳子三折时差$40$厘米，求绳子的长度是多少厘米？",
+    "answer": "600",
+    "answerType": "numeric",
+    "analysis": "设井深为$x$厘米，根据绳子长度不变列方程$2x + 60 \\times 2 = 3x - 40 \\times 3$，解得$x=240$，绳长为$2 \\times 240 + 60 \\times 2 = 600$厘米。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "549bae3e71f85c65",
+    "status": "verified"
+  },
+  {
+    "id": "db75a8d4-2a4e-4ad5-ac97-04f14fe75204",
+    "nodeIds": [
+      "linear-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "实践结束后，牛牛、丁丁、阿普看到旁边有射击气球的游戏，游戏有两关，两关的气球数量相同．若牛牛第一关射中的气球数比没射中的气球数的4倍多2个；第二关射中的气球数比第一关射中的气球数增加了8个，第二关射中的气球数正好是没射中的气球数的6倍．问游戏中每一关有气球多少个？",
+    "answer": "147",
+    "answerType": "numeric",
+    "analysis": "设第一关没射中的气球数为 $x$ 个，根据两关气球总数相等列出方程 $4x+2+8=6(x-8)$，解得 $x=29$，进而求得总数为 $29+118=147$ 个。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8889cab547fd7995",
+    "status": "verified"
+  },
+  {
+    "id": "b868cb24-7fcc-4078-b053-31b431d68e4e",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "有甲、乙、丙三个人．当甲的年龄是乙的2倍时，丙22岁；当乙的年龄是丙的2倍时，甲31岁．那么当甲60岁时，丙是多少岁？",
+    "answer": "32",
+    "answerType": "numeric",
+    "analysis": "设丙22岁时乙为$x$岁，则甲为$2x$岁，甲乙年龄差为$x$岁；利用年龄差不变建立方程$31-x=2(53-2x)$解得$x=25$，进而推算出当甲60岁时丙的年龄。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "47ce3a0a069441cb",
+    "status": "verified"
+  }
+]

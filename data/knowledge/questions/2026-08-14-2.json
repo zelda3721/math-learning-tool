@@ -1,0 +1,249 @@
+[
+  {
+    "id": "75042a3a-72a4-4069-b289-79d7f3493ae0",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田在下面的路线图中，从$A$点到$B$点，共有多少种不同的最短路线？",
+    "answer": "20",
+    "answerType": "numeric",
+    "analysis": "利用标数法（加法原理）计算，到达终点的路径数为20种。",
+    "figureImage": "4032f8eed0dc6c9ff512c38e12c5f573.jpg",
+    "analysisImage": "e4bcf09a429ae6c71d75263f275f92a9.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "bfb84c4fcc4b28b2",
+    "status": "verified"
+  },
+  {
+    "id": "8cfb62f5-2a0e-4b88-bf86-2a8da7c07294",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛站在街道的$A$点，准备从$A$出发经过十字路口$B$，但不经过$C$走到$D$，那么不同的最短路线有多少条？",
+    "answer": "12",
+    "answerType": "numeric",
+    "analysis": "利用标数法计算从A到D的最短路线，通过路径分析可知共有12条不同的最短路线。",
+    "analysisImage": "bebddc1899b256f90de47dd8a3ddbcd7.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "5f86acf6a18593d3",
+    "status": "verified"
+  },
+  {
+    "id": "62d53f93-8a49-4911-a8d9-bcd8e94bc45c",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁从$A$点到$B$点，规定只能往上或往右走，但必须经过一座独木桥$MN$，共有多少种不同的走法？",
+    "answer": "60",
+    "answerType": "numeric",
+    "analysis": "利用标数法，从A点出发，只能向上或向右走，到达M点有10种走法，到达N点有10种走法，最终到达B点共有60种走法。",
+    "figureImage": "7f8e6ac4d6b7ce825245249ce0e8ff6c.jpg",
+    "analysisImage": "5898b67bd9e7d1282dadfadfc559275f.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6a7afee45d4a4ac3",
+    "status": "verified"
+  },
+  {
+    "id": "4d16778c-b66d-4831-9fe5-d4dac09804a9",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "图中是$A,B,C$的路线网，阿普从$A$出发经过$B$到$C$可以选择不绕远路的不同路线共有多少种？",
+    "answer": "70",
+    "answerType": "numeric",
+    "analysis": "利用标数法（加法原理），分别计算从$A$到$B$和从$B$到$C$的最短路径数，最后将两段路径数相乘即可。",
+    "figureImage": "69ce707744355fce87e07de42794c726.jpg",
+    "analysisImage": "88bfaf55c16a1f33c25245620849119e.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d3a12c2edaa62f43",
+    "status": "verified"
+  },
+  {
+    "id": "a2170850-d919-4777-91e2-2dae77dccfd5",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "图中有8个编好号码的房间，可以从小号码房间走到相邻的大号码房间，但不能从大号码房间走到小号码房间．丁丁从1号房间走到8号房间，有多少种不同的走法？",
+    "answer": "15",
+    "answerType": "numeric",
+    "analysis": "利用标数法，将到达每个房间的路径数相加，最终到达8号房间的路径数为15种。",
+    "figureImage": "ee164c6d9700aac6722ae77cd5be3ebb.jpg",
+    "analysisImage": "c15ad71ecbd9fe1b3faa782e5872ef7d.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "195eac00a3e5a121",
+    "status": "verified"
+  },
+  {
+    "id": "10d3aec7-5d69-4204-8568-ad71767f0d94",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "如图，沿着水平或竖直方向走，走过的汉字依次组成“北京欢迎你”，一共有多少种走法？",
+    "answer": "11",
+    "answerType": "numeric",
+    "analysis": "利用标数法（加法原理），将到达前一个节点的路径数相加，最终求得终点的路径总数为11种。",
+    "figureImage": "c3ae9c033a0bd7e7a8f3dabc1561621a.jpg",
+    "analysisImage": "e2281fe2270e0239632e709fef2aec92.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "a90c416dea3d0aac",
+    "status": "verified"
+  },
+  {
+    "id": "64e95e41-230f-4532-9db3-af7dacb1a16a",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "几位小朋友要出去探险，首先他们要在下面的地图中从$A$点沿着格线走到$B$点，而且要求走最短路线，共有多少种不同的走法？",
+    "answer": "15",
+    "answerType": "numeric",
+    "analysis": "从$A$到$B$只能向上或向右，根据“标数法”可知，共有15种走法。",
+    "figureImage": "a97644cca1d99ece5688df46c40474bb.jpg",
+    "analysisImage": "1ebca7dff78006c2c0f83f8fbb0e9ab5.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b29bfe5bb0aba531",
+    "status": "verified"
+  },
+  {
+    "id": "e2708b19-2131-4050-88a1-49258c00258d",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "练习8\n然后他们又需要在下面的地图中从$A$沿网格线不经过线段$CD$和$EF$到$B$，那么最短路线共有多少条？",
+    "answer": "78",
+    "answerType": "numeric",
+    "analysis": "由于不能经过线段CD和EF，需在网格图中拆除CD和EF，然后在拆除后的网格图中标数，D点和F点只能由前一个相邻点到达，最终得出满足条件的最短路线共有78条。",
+    "analysisImage": "e10dac243339d60b7b64e01511989181.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "afe413ca4c695855",
+    "status": "verified"
+  },
+  {
+    "id": "cbd38946-82be-4878-8615-c0da08b9c7b7",
+    "nodeIds": [
+      "simple-counting",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "他们又来到下面一个陌生地方的$A$点，这是一个街区道路示意图，只能沿街道从$A$到$B$走最短路线，一部分人先到达$C$点然后到了$B$点，另一部分人先到达$D$点，然后到了$B$点，哪一部分人的走法路线比较多？两部分人的走法相差多少种？",
+    "answer": "经过C点的走法多，相差15种",
+    "answerType": "steps",
+    "analysis": "利用标数法分别计算经过C点和D点的走法，前者为60种，后者为45种，两者相差15种。",
+    "figureImage": "2be40e1613ef0c58d8fb064def5fce25.jpg",
+    "analysisImage": "4b52456c055ab8ab5d26ab9c47a8cba1.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4b332ea8e93cbc2a",
+    "status": "verified"
+  },
+  {
+    "id": "803bd8e7-c9f4-4bc9-8e23-29ea3e152bb7",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "他们到了图中的 $A$ 所在的格子中，需要走到 $B$ 处的格子，每次只能从小号码的格子走向相邻大号码的格子，共有多少种到达 $B$ 的方法？",
+    "answer": "286",
+    "answerType": "numeric",
+    "analysis": "运用标数法，从起点 $A$ 开始，每个格子的走法数等于所有相邻且号码较小的格子走法数之和，最终累加至 $B$ 点。",
+    "figureImage": "1ca3bf2046c050ed101e1e2bcd2ff784.jpg",
+    "analysisImage": "26a9af4fe556116b3eeb628308f69d72.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2ac6237daed50c44",
+    "status": "verified"
+  },
+  {
+    "id": "bf820c66-04ae-4311-bdc2-ced558b6eed1",
+    "nodeIds": [
+      "solid-plane-shapes",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "这时候牛牛被困在了$P$点，下图是一个实心立方体房子可见的三个面，每个面都分成了四个部分，如图所示，从顶点$P$出发，可找到沿图中相连的线段一步步到达点$Q$的各种路径．若要求每步只能在图中可见的三面格线上运动，大家帮他想一下，从$P$到$Q$的最短路线共有多少条？",
+    "answer": "24",
+    "answerType": "numeric",
+    "analysis": "按题目要求求从$P$到$Q$的最短路径，方向只能向后、向右或向下，只能在看见的三个面上标数，用标数法可得从$P$到$Q$有24条路径。",
+    "figureImage": "0978037945b4e514d984d154ff6689d3.jpg",
+    "analysisImage": "6756c55cbfdb18ddeab6f63f08d38a8b.jpg",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b83ab81e54f892ee",
+    "status": "verified"
+  },
+  {
+    "id": "45ec8b78-1ca8-4acd-ace7-5ebf4babc191",
+    "nodeIds": [
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "在下面的图中，只能沿着图中的线段走，走过的字母恰好依次组成 \"ABCDE\" ，一共有多少种不同的走法？",
+    "answer": "16",
+    "answerType": "numeric",
+    "analysis": "利用标数法，从A出发，每步向右或向右下方走，计算到达E的路径总数。",
+    "figureImage": "f01fc033a7ca9e3d95af4c1bbadff0dc.jpg",
+    "analysisImage": "86f7b8c30cf600aa40123727cce70406.jpg",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "457f9540d2528b68",
+    "status": "verified"
+  },
+  {
+    "id": "3f52365f-323c-444d-9a2b-a96f6740d6be",
+    "nodeIds": [
+      "simple-counting",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁遇到了一道难题：有一个五位数，每位上的数字都是2，3，4，5，6中的一个，并且相邻两个数字差是1，那么这样的五位数共有多少个？(数字可以重复)",
+    "answer": "42",
+    "answerType": "numeric",
+    "analysis": "利用标数法，从个位开始，依次计算每一位上每个数字对应的路径数，最后将万位上所有数字对应的路径数相加即可。",
+    "analysisImage": "b704187dadb77dd0550fa7d0d7e40a3c.jpg",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "11b56bda50fa4a6d",
+    "status": "verified"
+  }
+]
