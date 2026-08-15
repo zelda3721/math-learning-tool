@@ -16,7 +16,7 @@
       "role": "upload"
     },
     "contentHash": "053c811cd15342f4",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "4efd15a8-915f-4c8e-9ba2-bfc4d294bb47",
@@ -26,7 +26,7 @@
     ],
     "level": "elementary_upper",
     "stem": "根据下面实验小学今年上半年各年级学生人数，完成下面统计表。\n一年级258人 二年级234人 三年级280人\n四年级207人 五年级305人 六年级268人\n\n| 年级 | 一 | 二 | 三 | 四 | 五 | 六 | 总计 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| 人数 | | | | | | | |",
-    "answer": "258,234,280,207,305,268,1552；1552",
+    "answer": "258,234,280,207,305,268,1552",
     "answerType": "numeric",
     "analysis": "将一至六年级人数相加（258+234+280+207+305+268）得出总计1552人。",
     "figureImage": "5084436d05a3a3dcb24d7fa99bf42016.jpg",
@@ -35,7 +35,7 @@
       "role": "upload"
     },
     "contentHash": "d090605696f7808b",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "8d1b1f70-78aa-4a41-a54a-8591bc42e207",
@@ -53,7 +53,7 @@
       "role": "upload"
     },
     "contentHash": "bfbef13d684d0f86",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "06a40395-308c-4a3c-a350-b0419da72fa9",
@@ -72,7 +72,7 @@
       "role": "upload"
     },
     "contentHash": "dca4980015652249",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "3c99a50a-d3d7-47cd-b4d4-d8764d1576ed",
@@ -83,7 +83,7 @@
     ],
     "level": "elementary_upper",
     "stem": "观察统计图，回答问题。\n某城市2016年月平均气温统计图\n（1）哪个月的平均气温最低？\n（2）哪两个相邻月份之间平均气温升高最快？\n（3）哪两个相邻月份之间平均气温下降最快？",
-    "answer": "1月份, 3月到4月, 11月到12月；1月;3月到4月;11月到12月",
+    "answer": "1月份, 3月到4月, 11月到12月",
     "answerType": "numeric",
     "analysis": "通过观察折线统计图，1月份拐点最低，3月到4月折线上升最陡峭，11月到12月折线下降最陡峭。",
     "figureImage": "7d0208053a77bf6814471e9b88659256.jpg",
@@ -92,7 +92,7 @@
       "role": "upload"
     },
     "contentHash": "8720c02f1aa84370",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "9ba7e0f2-0424-49c7-a4d0-3f90a1e3255e",
@@ -110,7 +110,7 @@
       "role": "upload"
     },
     "contentHash": "6c6e0a1aee2d5157",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "45ee2729-fc5b-45c5-bd2c-216993e219de",
@@ -132,7 +132,7 @@
       "role": "upload"
     },
     "contentHash": "825ff0dfd1ceca35",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "1379b762-e692-44b7-bf8d-292f9b59ae8e",
@@ -141,7 +141,7 @@
     ],
     "level": "elementary_upper",
     "stem": "牛牛来到一家生产机器零件的工厂，将生产情况绘成条形统计图(如图所示)，求平均每个工人生产了几件产品．",
-    "answer": "5；12",
+    "answer": "12",
     "answerType": "numeric",
     "analysis": "根据条形统计图，利用加权平均数公式计算得出平均每个工人生产了12件产品。",
     "figureImage": "dc7c7f86d685a15699b94519fdd60f28.jpg",
@@ -151,7 +151,7 @@
       "role": "upload"
     },
     "contentHash": "53de07d681d7a5bb",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "6dcf4b10-e5dd-4f52-8b72-d7b7bbacd6b6",
@@ -171,7 +171,7 @@
       "role": "upload"
     },
     "contentHash": "7c52eb1d059c2b56",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "2f0863a6-0f28-408e-bb9d-04f940f07d6d",
@@ -191,7 +191,7 @@
       "role": "upload"
     },
     "contentHash": "2b233f261d95611c",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "c106235b-f679-4673-a130-87f35531f179",
@@ -201,7 +201,7 @@
     ],
     "level": "elementary_upper",
     "stem": "田田为了了解希望小学学生体能的情况，随意抽取了30名学生，测试了他们1分钟做仰卧起坐的次数，并将结果绘制成右侧统计图．\n\n(1) 根据统计图，填写下面的统计表．\n| 次数$x$ | $15 \\leqslant x < 20$ | $20 \\leqslant x < 25$ | $25 \\leqslant x < 30$ | $30 \\leqslant x \\leqslant 35$ |\n| :--- | :--- | :--- | :--- | :--- |\n| 人数 | | | | |\n\n(2) 1分钟仰卧起坐少于20次的有几人？\n(3) 1分钟仰卧起坐不少于30次的有几人？\n(4) 多数人的次数在哪个范围内？",
-    "answer": "3,10,12,5; 3; 5; 25≤x<30；(1) 3, 10, 12, 5; (2) 3; (3) 5; (4) 20至30次",
+    "answer": "3, 10, 12, 5; 3; 5; 20至30次",
     "answerType": "numeric",
     "analysis": "根据统计图读取各区间人数填表，直接读取少于20次和不少于30次的人数，通过计算20至30次区间人数之和判断集中范围。",
     "figureImage": "28d5226db99c5c963dd9f03ff1950a52.jpg",
@@ -210,7 +210,7 @@
       "role": "upload"
     },
     "contentHash": "0304f5ffc195c70f",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "daee052f-7d19-4142-99cf-9d215dd1397f",
@@ -230,7 +230,7 @@
       "role": "upload"
     },
     "contentHash": "e22e28b930af2a9a",
-    "status": "extracted"
+    "status": "verified"
   },
   {
     "id": "34f5eea7-4ef4-449e-900b-e09f216621c9",
@@ -249,6 +249,6 @@
       "role": "upload"
     },
     "contentHash": "9cc5fde5df4c2b02",
-    "status": "extracted"
+    "status": "verified"
   }
 ]

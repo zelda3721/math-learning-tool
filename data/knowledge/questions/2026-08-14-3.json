@@ -1,0 +1,244 @@
+[
+  {
+    "id": "453c82bd-6ada-4d31-8565-c45e0f15727a",
+    "nodeIds": [
+      "counting-20",
+      "numbers-100",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "一本书共有80页，1~80页的页码一共有多少个数字？",
+    "answer": "151",
+    "answerType": "numeric",
+    "analysis": "1~9页每页1个数字共9个，10~80页每页2个数字共142个，合计151个。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "e4a0c66b5400297b",
+    "status": "verified"
+  },
+  {
+    "id": "edeee929-78ed-4471-900d-37d62d8e3623",
+    "nodeIds": [
+      "numbers-100",
+      "problem-solving-primary"
+    ],
+    "level": "elementary_upper",
+    "stem": "一本小说的页码，共用127个数字．这本书共有多少页？",
+    "answer": "68",
+    "answerType": "numeric",
+    "analysis": "1~9页用9个数字，剩余118个数字用于两位数页码，118÷2=59页，9+59=68页。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6d02a09b029f043a",
+    "status": "verified"
+  },
+  {
+    "id": "9ad9101c-d0a4-4a2b-a36b-7d10cdf64f77",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "一本书共有500页，1 ~ 500页的页码中，一共用了多少个数字“1”？",
+    "answer": "200",
+    "answerType": "numeric",
+    "analysis": "分别计算个位、十位和百位上数字“1”出现的次数，其中百位上1~500有100个百位是1的数，最后将各数位出现次数相加得出总数。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "68a181696aea7a06",
+    "status": "verified"
+  },
+  {
+    "id": "005b7ad0-036b-44f3-9cb3-c859dc6df8da",
+    "nodeIds": [
+      "numbers-100",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "给一本书编页码时，一共用了15个数字“8”，请问这本书有多少页？",
+    "answer": "86",
+    "answerType": "numeric",
+    "analysis": "1~79页中个位上的8出现了8次，十位上的8在80~86页出现了7次，共15个，故为86页。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "cd3a67a56a68cc2a",
+    "status": "verified"
+  },
+  {
+    "id": "b38f99f8-617b-4b63-a233-dec4ac46790a",
+    "nodeIds": [
+      "counting-20",
+      "numbers-100",
+      "numbers-10000",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "编一本书的页码共用了492个数字，请问这本书有多少页，在这些页码中共用了多少个数字“5”？",
+    "answer": "200,40",
+    "answerType": "numeric",
+    "analysis": "先根据数字位数分段计算总页数（1~9页9个，10~99页180个，剩余303个数字对应101页，共200页），再统计1~200中数字5出现的次数（1~100有20个，101~200有20个，共40个）。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "9583393a6dd553d2",
+    "status": "verified"
+  },
+  {
+    "id": "7f23c365-563f-4c6e-87a0-c9a23d5e92d3",
+    "nodeIds": [
+      "add-sub-20",
+      "counting-20",
+      "numbers-100"
+    ],
+    "level": "elementary_upper",
+    "stem": "一本书的页码从1至62，在把这本书的各页页码累加起来时，有一个页码被错误地多加了一次．结果得到的和为2000．问：这个被多加了一次的页码是几？",
+    "answer": "47",
+    "answerType": "numeric",
+    "analysis": "先计算1至62页码的正确和为1953，再用错误和2000减去正确和1953，差值即为多加的页码。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "26eb6017f53a3951",
+    "status": "verified"
+  },
+  {
+    "id": "c91876fb-c164-49c2-b129-151806641fb3",
+    "nodeIds": [
+      "numbers-100",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "班里举行读书大赛，调皮的牛牛为了快速读完只选奇数页读，他从1页开始读到第99页时，牛牛看过的书的页码共有多少个数字？",
+    "answer": "95",
+    "answerType": "numeric",
+    "analysis": "一位数奇数有5个，两位数奇数有45个，共5+45×2=95个数字。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4caf0b4b4e834728",
+    "status": "verified"
+  },
+  {
+    "id": "ed16eca5-cc23-49cf-99c2-59a9d378a61c",
+    "nodeIds": [
+      "counting-20",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师发现牛牛只读奇数页，批评了他．于是牛牛又从第一页开始重新按照$1,2,3,\\cdots$的顺序一页一页地读书，当页码出现了$11$个“$1$”时牛牛去休息了一下．你能知道牛牛从第一页至少读到了第几页吗？",
+    "answer": "18",
+    "answerType": "numeric",
+    "analysis": "页码$0\\sim 19$中个位出现$2$个$1$，十位出现$10$个$1$，共$12$个$1$；牛牛读到$18$时就出现了$11$个$1$．所以，牛牛读到了第$18$页．",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b58bb324e37ef762",
+    "status": "verified"
+  },
+  {
+    "id": "1d0d8674-e507-4e77-aab2-a43f82cefede",
+    "nodeIds": [
+      "counting-20",
+      "numbers-100",
+      "numbers-10000",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师使出了一本1000页厚的小说，其中1出现了多少次呢？",
+    "answer": "301",
+    "answerType": "numeric",
+    "analysis": "分别计算个位、十位、百位上“1”出现的次数均为100次，加上千位上的1次，共301次。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "7101e2cecb03c466",
+    "status": "verified"
+  },
+  {
+    "id": "0677492a-759a-4274-936b-97cc9d034e11",
+    "nodeIds": [
+      "patterns-rules",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "田田带来的书很厚，足足有199页，乐乐老师问田田，你知道你这本书的页码上，数字“1”共出现了多少次吗？",
+    "answer": "140",
+    "answerType": "numeric",
+    "analysis": "分别统计个位、十位、百位上数字“1”出现的次数，最后求和。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "22500b293b92d26e",
+    "status": "verified"
+  },
+  {
+    "id": "a77c3ee1-dfff-460a-805c-09fbd182f829",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "阿普拿来自己的一本科幻书，这本书在排版时，页码一共用了1989个数码，共需要多少个数码1？",
+    "answer": "240",
+    "answerType": "numeric",
+    "analysis": "先根据数码总数1989推算出书的总页数为699页，再分别计算个位、十位和百位上数字1出现的次数并求和。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "60923e7516803932",
+    "status": "verified"
+  },
+  {
+    "id": "181a604c-a597-4a6c-ad6d-2b8e11e2398c",
+    "nodeIds": [
+      "add-sub-20",
+      "counting-20"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁喜欢读漫画书，他拿的一本书有64页，他把这本书各页的页码累加起来时，加的过程中不小心少加了一个页码，结果得到的和是2030。你能求出这个被少加的页码是多少吗？",
+    "answer": "50",
+    "answerType": "numeric",
+    "analysis": "先利用等差数列求和公式算出1到64页的总和，再减去实际得到的和2030，差值即为少加的页码。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "20f24ab5b33c89e8",
+    "status": "verified"
+  },
+  {
+    "id": "9a8f81ba-8ef7-4afa-ac9a-cfd9add4c23b",
+    "nodeIds": [
+      "numbers-10000",
+      "patterns-rules",
+      "simple-counting"
+    ],
+    "level": "elementary_upper",
+    "stem": "从1开始，依自然数的顺序写1, 2, 3, 4, 5, 6, \\cdots，一直写到2222，共写了多少个2?",
+    "answer": "892",
+    "answerType": "numeric",
+    "analysis": "分别计算个位、十位、百位、千位上出现数字2的次数，最后求和。",
+    "difficulty": 4,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "35d731e313a85225",
+    "status": "verified"
+  }
+]

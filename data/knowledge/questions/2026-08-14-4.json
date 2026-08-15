@@ -1,0 +1,226 @@
+[
+  {
+    "id": "c19a81bf-4622-453e-b875-b5cf09b808fc",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：\n(1) $4-2x=0$．\n(2) $5+x\\div 3=12$．",
+    "answer": "2, 21",
+    "answerType": "numeric",
+    "analysis": "(1) 移项得 $2x=4$，解得 $x=2$；(2) 移项得 $x\\div 3=7$，解得 $x=21$．",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "b66b744539d27812",
+    "status": "verified"
+  },
+  {
+    "id": "7ce4d03d-8687-4c61-b555-60fd8368a2f6",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：\n(1) $5x+4=3x+8$.\n(2) $4x-6=14-x$.",
+    "answer": "2，4",
+    "answerType": "expression",
+    "analysis": "通过移项将含x项合并为5x，常数项合并为20，最后系数化为1得出x=4。",
+    "difficulty": 1,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0811259b6d232ee3",
+    "status": "verified"
+  },
+  {
+    "id": "34a52d3c-7819-407b-b32d-596531d98edb",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：$6(4x+12)=120$",
+    "answer": "2",
+    "answerType": "numeric",
+    "analysis": "方程两边同时除以6，再移项求解。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "515feb2871252df8",
+    "status": "verified"
+  },
+  {
+    "id": "2de951d6-d6bb-43f2-b57b-d1dc53a1f8a5",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：$4x-(21-2x)=15$",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "去括号得 $4x-21+2x=15$，合并同类项得 $6x-21=15$，移项得 $6x=36$，解得 $x=6$。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "0e1a200b3a3f92de",
+    "status": "verified"
+  },
+  {
+    "id": "b64919da-aaa7-4c1c-83c6-3e3a0e81c070",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：$92-3(3x-5)=x-3$",
+    "answer": "11",
+    "answerType": "numeric",
+    "analysis": "去括号得$92-9x+15=x-3$，移项合并得$110=10x$，解得$x=11$。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "c390eb7b8e38500c",
+    "status": "verified"
+  },
+  {
+    "id": "ff600d02-8b4e-446f-b698-1d383b011564",
+    "nodeIds": [
+      "simple-equation",
+      "letter-for-number"
+    ],
+    "level": "elementary_upper",
+    "stem": "m \\star n 表示 m+2mn-3n，当 x \\star 6=47 时，x 是多少？",
+    "answer": "5",
+    "answerType": "numeric",
+    "analysis": "根据新定义运算列出方程 x+12x-18=47，解得 x=5。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "33a660d215fe4933",
+    "status": "verified"
+  },
+  {
+    "id": "88fc8bde-25f1-48c7-9f73-448a1e89d82e",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁和牛牛一起去乐乐老师家球，正好看到乐乐老师在出练习题，他们决定比试一下身手，看看谁最牛！小朋友们也来试一试．\n解方程：\n( 1 ) $6 \\times 12 - 5x = 17$．\n( 2 ) $12 - 5x - 4x = 3$．",
+    "answer": "11; 1",
+    "answerType": "numeric",
+    "analysis": "通过移项、合并同类项及等式性质求解方程。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "6af98633dd7d165b",
+    "status": "verified"
+  },
+  {
+    "id": "de9b45a1-05da-409f-bd11-ffc400755661",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "丁丁率先完成试题，学霸就是学霸．牛牛不服气，继续比拼．解方程：\n( 1 ) $(2x+7)\\div 9=5$．\n( 2 ) $(5x-5)\\div 7=15$．",
+    "answer": "19, 22",
+    "answerType": "numeric",
+    "analysis": "利用等式的性质，先通过乘法消去分母，再通过加减法移项，最后求出x的值。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "2a0c9ba173488411",
+    "status": "verified"
+  },
+  {
+    "id": "e4217a5b-faa0-4c95-b5c4-07ea5007181a",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "解方程：$292-(509-x)=241-x$",
+    "answer": "229",
+    "answerType": "numeric",
+    "analysis": "去括号得 $292-509+x=241-x$，移项合并得 $2x=458$，解得 $x=229$。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "4c676d4e63ea4c99",
+    "status": "verified"
+  },
+  {
+    "id": "e4646d6a-dfee-4c9b-a16b-683b5657895c",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "牛牛很给力，解决了丁丁出的问题．丁丁兑现承若，决定给牛牛讲一个笑话，“今天天气真好，你看那片云，像不像上周我借你的那一百块钱？你什么时候还？”牛牛哭晕在厕所．下面这个题我们一起帮帮牛牛吧．\n解方程：$2x+50(50-x)=148$．",
+    "answer": "49",
+    "answerType": "numeric",
+    "analysis": "去括号得 $2x+2500-50x=148$，移项合并得 $-48x=-2352$，解得 $x=49$．",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d58541d76924d3ec",
+    "status": "verified"
+  },
+  {
+    "id": "0f65e3fb-2da6-4f08-8740-48632abc738f",
+    "nodeIds": [
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师决定给丁丁几个小难题，下面是第一个小难题．同学们，我们也一起来试试吧．\n解方程：$3x-2(40-x)=30$．",
+    "answer": "22",
+    "answerType": "numeric",
+    "analysis": "通过去括号、移项、合并同类项解一元一次方程。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "11d0d009e74f685b",
+    "status": "verified"
+  },
+  {
+    "id": "ea13bc73-695e-42a2-a60a-7be7b72aafda",
+    "nodeIds": [
+      "letter-for-number",
+      "simple-equation"
+    ],
+    "level": "elementary_upper",
+    "stem": "下面这是第二个小难题，乐乐老师提醒大家，要注意哦，别看错数，看错位置．如果对于 $a$、$b$、$c$、$d$ 这 $4$ 个数，我们规定：$\\langle a、b、c、d \\rangle = 2ab - c + d$．已知 $\\langle 1、3、5、x \\rangle = 7$，求 $x$ 的值．",
+    "answer": "6",
+    "answerType": "numeric",
+    "analysis": "根据新定义运算列出方程 $2 \\times 1 \\times 3 - 5 + x = 7$，解得 $x=6$。",
+    "difficulty": 2,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "8db43ad938bb2ce2",
+    "status": "verified"
+  },
+  {
+    "id": "22ad1a72-2304-4c6a-bc32-88fd36b28aad",
+    "nodeIds": [
+      "simple-equation",
+      "patterns-rules"
+    ],
+    "level": "elementary_upper",
+    "stem": "乐乐老师出完第三个难题后，牛牛拍拍胸脯，对着丁丁说：“吓死宝宝了，这题也太难了。”丁丁说：“看我的．”小朋友们，你们说丁丁能做出来吗？大家也一起来挑战一下吧！\n规定新运算※：$a※b=3a-2b$．若$x※(10※6)=6$，则$x$是多少？",
+    "answer": "14",
+    "answerType": "numeric",
+    "analysis": "根据新运算定义，先计算括号内的10※6得到18，再列方程3x-2×18=6求解x。",
+    "difficulty": 3,
+    "source": {
+      "role": "upload"
+    },
+    "contentHash": "d2cafab8a03b4431",
+    "status": "verified"
+  }
+]
