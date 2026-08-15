@@ -10,7 +10,8 @@ import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { QuestionCard, type QuestionRecord } from '../practice/QuestionCard'
 import { askQuestion, fetchAskJob, type PracticeQuestion, type TodayItem } from '../practice/api'
-import { Badge, Button, ErrorState, PageHeader } from '../ui'
+import { PhotoProblemButton } from '../components/PhotoProblemButton'
+import { Badge, Button, ErrorState, MathText, PageHeader } from '../ui'
 
 type Phase =
     | { kind: 'input' }
@@ -31,6 +32,9 @@ function toItem(question: PracticeQuestion): TodayItem {
 export function AskPage() {
     const { learner } = useLearner()
     const [problem, setProblem] = useState('')
+    // 拍照识别出的题干配图（data URL），随题目一起提交
+    const [figureImage, setFigureImage] = useState<string | undefined>()
+    const [photoError, setPhotoError] = useState<string | null>(null)
     const [phase, setPhase] = useState<Phase>({ kind: 'input' })
     const [submitting, setSubmitting] = useState(false)
     // 等待计时只靠这个时钟推进：等几分钟时，看得见秒数在走才不慌
@@ -41,6 +45,8 @@ export function AskPage() {
     useEffect(() => {
         setPhase({ kind: 'input' })
         setProblem('')
+        setFigureImage(undefined)
+        setPhotoError(null)
     }, [learnerId])
 
     const jobId = phase.kind === 'preparing' ? phase.jobId : undefined
@@ -91,7 +97,7 @@ export function AskPage() {
         if (!trimmed || submitting) return
         setSubmitting(true)
         try {
-            const res = await askQuestion({ learnerId: learner.id, problem: trimmed, grade: learner.level })
+            const res = await askQuestion({ learnerId: learner.id, problem: trimmed, grade: learner.level, figureImage })
             if (res.status === 'ready') {
                 setPhase({ kind: 'ready', item: toItem(res.question), isNew: res.isNew })
             } else {
@@ -106,6 +112,8 @@ export function AskPage() {
 
     const askAnother = () => {
         setProblem('')
+        setFigureImage(undefined)
+        setPhotoError(null)
         setPhase({ kind: 'input' })
     }
 
@@ -146,12 +154,39 @@ export function AskPage() {
                             placeholder={'例：一辆汽车 3 小时行驶 180 千米，照这样计算，5 小时行驶多少千米？'}
                             className="input-hero resize-y leading-relaxed"
                         />
+                        {figureImage && (
+                            <div className="flex items-start gap-3">
+                                <img
+                                    src={figureImage}
+                                    alt="题干配图"
+                                    className="max-h-40 max-w-full rounded border border-rule"
+                                />
+                                <div className="space-y-1.5">
+                                    <p className="text-xs text-ink-faint">照片里裁出的配图，会跟题目一起提交。</p>
+                                    <Button variant="ghost" size="sm" onClick={() => setFigureImage(undefined)}>
+                                        去掉这张图
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                        {photoError && <p className="text-sm text-wrong">{photoError}</p>}
                         <div className="flex flex-wrap items-center gap-3">
                             <Button size="lg" onClick={() => void submit()} disabled={!problem.trim() || submitting}>
                                 {submitting ? '收题中……' : '就问这道'}
                             </Button>
+                            <PhotoProblemButton
+                                level={learner.level}
+                                disabled={submitting}
+                                onExtracted={({ problem: extracted, figureImage: figure }) => {
+                                    // 识别结果只回填，不直接提交——读错一个数字，判卷讲解全跟着错
+                                    setProblem(extracted)
+                                    setFigureImage(figure)
+                                    setPhotoError(null)
+                                }}
+                                onError={setPhotoError}
+                            />
                             <span className="text-xs text-ink-faint">
-                                抄全一点，条件别漏；有图的部分可以用文字描述。
+                                可以直接拍题；识别完检查一遍数字对不对再提交。
                             </span>
                         </div>
                     </div>
@@ -164,7 +199,12 @@ export function AskPage() {
                         <span className="w-1.5 h-1.5 rounded-full bg-beam animate-pulse" />
                         正在把这道题读懂……（解题 → 验算 → 准备讲解）
                     </div>
-                    <p className="stem whitespace-pre-wrap text-left max-w-xl mx-auto">{problem}</p>
+                    <MathText className="stem whitespace-pre-wrap text-left max-w-xl mx-auto block">
+                        {problem}
+                    </MathText>
+                    {figureImage && (
+                        <img src={figureImage} alt="题干配图" className="max-h-40 mx-auto rounded border border-rule" />
+                    )}
                     <p className="text-sm text-ink-soft leading-relaxed">
                         要先把答案算准并验算一遍，才敢拿来给你判卷——这一步可能要几分钟。
                     </p>

@@ -77,14 +77,20 @@ export interface ExtractionProvider {
    * 路由检测到没有就退回整页一次抽取。
    */
   layoutFromImage?(base64: string, mime: string): Promise<LayoutItem[]>;
-  /** 一道题的内容（图应当是裁好的单题）；读不出来返回 null */
+  /** 一道题的内容（图应当是裁好的单题）；读不出来返回 null。photo=随手拍的照片（忽略手写） */
   questionFromImage?(
     base64: string,
     mime: string,
-    hint?: ExtractionHint & { carryOver?: string },
+    hint?: ExtractionHint & { carryOver?: string; photo?: boolean },
   ): Promise<ExtractedDraft | null>;
   /** 只要配图规格，原样返回（合法性与真实性由 checkFigure 把关） */
   figureFromImage?(base64: string, mime: string): Promise<unknown>;
+  /**
+   * 照片方向：**顺时针**转多少度文字才是正的。
+   * 手机拍题经常侧着拍，而微信传图会把 EXIF 方向信息剥掉（实机验证过），
+   * 浏览器的自动转正因此失效——只能看内容判。判不出按 0 处理。
+   */
+  orientationFromImage?(base64: string, mime: string): Promise<Orientation>;
   /** 跨页的后半截（整块是【答案】【解析】）：只补答案与解析，不抽题干 */
   tailFromImage?(base64: string, mime: string, carryOver?: string): Promise<QuestionTail | null>;
 }
@@ -441,6 +447,19 @@ const IMAGE_PROMPT = "请从这张图片中抽取全部数学题（按系统提�
  * 4096 tokens 时实机上直接被截断，整页解析失败；这里放宽，
  * 并且解析端按对象逐个抠（见 parseExtractionOutcome），双保险。
  */
+export type Orientation = 0 | 90 | 180 | 270;
+
+/**
+ * 从模型输出里抠方向。取**最后**一个合法数字：提示词要求只输出一个数，
+ * 但模型偶尔会先复述选项或推理一句（"不是 90……应该是 270"），
+ * 最终答案总在最后；取第一个反而会抓到推理过程里的干扰项。
+ */
+export function parseOrientation(raw: string): Orientation {
+  const matches = raw.match(/\b(270|180|90|0)\b/g);
+  const last = matches?.[matches.length - 1];
+  return last ? (Number(last) as Orientation) : 0;
+}
+
 async function collectText(
   client: LlmClient,
   messages: ChatMessage[],
@@ -512,6 +531,21 @@ export function createLlmExtractionProvider(
 
     // ---- 分层抽取的三趟。每趟只干一件事，输出都短，因此都不容易被截断 ----
 
+    async orientationFromImage(base64, mime) {
+      // 输出就一个数字，但给足 token 余量：模型可能先说半句再给数
+      const raw = await collectText(
+        visionClient,
+        imageAsk(
+          "你在校正照片方向。",
+          "这张照片里的印刷文字现在朝哪个方向？把图片**顺时针**旋转多少度后，文字才是正的（水平、从左往右读）？只输出一个数字：0、90、180 或 270。",
+          base64,
+          mime,
+        ),
+        512,
+      );
+      return parseOrientation(raw);
+    },
+
     async layoutFromImage(base64, mime) {
       // 一页十几道题、每道一行短 JSON，1024 已经绰绰有余
       const raw = await collectText(
@@ -536,7 +570,7 @@ export function createLlmExtractionProvider(
        */
       const messages = imageAsk(
         contentSystem(hint),
-        contentUserPrompt(hint?.level, hint?.carryOver),
+        contentUserPrompt(hint?.level, hint?.carryOver, hint?.photo),
         base64,
         mime,
       );

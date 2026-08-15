@@ -132,6 +132,8 @@ export interface ExplainRequest {
     mistakeId?: string
     /** 自由题目文本（讲解 tab 直接输入，不经题库） */
     problem?: string
+    /** 自由题目的题干配图（data URL，拍照识题裁出） */
+    figureImage?: string
     grade?: string
 }
 
@@ -383,6 +385,8 @@ export async function askQuestion(payload: {
     learnerId: string
     problem: string
     grade?: string
+    /** 拍照识别裁出的题干配图（data URL） */
+    figureImage?: string
 }): Promise<AskResponse> {
     const res = await fetch('/api/v1/ask', {
         method: 'POST',

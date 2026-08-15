@@ -114,7 +114,7 @@ function locateDraft(state: AppState, draft: ExtractedDraft): LocatedDraft {
   };
 }
 
-function stripDataUrl(content: string): { base64: string; mime: string | null } {
+export function stripDataUrl(content: string): { base64: string; mime: string | null } {
   const m = /^data:([\w/+.-]+);base64,/.exec(content);
   if (!m) return { base64: content, mime: null };
   return { base64: content.slice(m[0].length), mime: m[1]! };

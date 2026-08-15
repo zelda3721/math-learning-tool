@@ -289,13 +289,27 @@ export const TAIL_PROMPT = `这张图是**上一页那道题的后半截**，通
 - hasFigure：这一块里有没有画图形（解析里的示意图、分解图、数阵）。
 **不要把解析里举的例子当成新题目**，也不要输出题干。`;
 
-export function contentUserPrompt(level?: EducationLevel, carryOver?: string): string {
+export function contentUserPrompt(
+  level?: EducationLevel,
+  carryOver?: string,
+  photo?: boolean,
+): string {
   const lv = level ? `材料年级：${level}。` : "";
   // 跨页题：把上一页残缺的开头交给模型，让它把两半拼成一道完整的题
   const carry = carryOver
     ? `\n注意：这道题的开头在上一页，内容是「${carryOver}」，请把它与本图的内容拼成完整题干。`
     : "";
-  return `${lv}${CONTENT_PROMPT}${carry}`;
+  /**
+   * 拍照识题：孩子拍的作业本上有自己的手写笔迹。实机上模型把手写的
+   * 「AE=ED、BF=FC」当成了题目条件，还挤掉了印刷题干里的关键数字——
+   * 抽出来的题缺条件、没法做。题目只认印刷体，这条必须写死。
+   */
+  const hand = photo
+    ? "\n注意：这是随手拍的照片，上面可能既有印刷的题目、又有**手写**的作答、笔记或涂改。" +
+      "有印刷题干时，题干只抄印刷体，手写内容一律忽略——不要把它当成题目条件，也不要把它当成答案。" +
+      "整张都是手写（手抄题、板书）时，才把手写的题目当题干，但解题过程、算式草稿仍要忽略。"
+    : "";
+  return `${lv}${CONTENT_PROMPT}${carry}${hand}`;
 }
 
 export function tailUserPrompt(carryOver?: string): string {

@@ -1,13 +1,15 @@
 /**
- * ProblemInput — 工作台的题目输入区：大输入框 + 提交按钮 + 各年级例题快捷条。
+ * ProblemInput — 工作台的题目输入区：大输入框 + 拍题识别 + 提交按钮 + 各年级例题快捷条。
  */
 import { useState, useRef, useEffect } from 'react'
 import type { Grade } from '../services/api'
 
 import { Button } from '../ui'
+import { PhotoProblemButton } from './PhotoProblemButton'
 
 interface ProblemInputProps {
-    onSubmit: (problem: string) => void
+    /** figureImage：拍照识别裁出的题干配图（data URL）；手动输入时为 undefined */
+    onSubmit: (problem: string, figureImage?: string) => void
     isLoading: boolean
     selectedGrade?: string
     onGradeChange?: (grade: string) => void
@@ -16,6 +18,9 @@ interface ProblemInputProps {
 
 export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange, grades }: ProblemInputProps) {
     const [problem, setProblem] = useState('')
+    // 拍照识别出的题干配图，随题目一起交给讲解
+    const [figureImage, setFigureImage] = useState<string | undefined>()
+    const [photoError, setPhotoError] = useState<string | null>(null)
     const exampleRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({})
 
     // 年级切换时把对应例题滚到可见位置
@@ -32,7 +37,7 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         if (problem.trim() && !isLoading) {
-            onSubmit(problem)
+            onSubmit(problem, figureImage)
         }
     }
 
@@ -65,11 +70,37 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
                 />
             </label>
 
+            {figureImage && (
+                <div className="flex items-start gap-3">
+                    <img src={figureImage} alt="题干配图" className="max-h-36 max-w-full rounded border border-rule" />
+                    <div className="space-y-1.5">
+                        <p className="text-xs text-ink-faint">照片里裁出的配图，讲解会以它为底图。</p>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setFigureImage(undefined)}>
+                            去掉这张图
+                        </Button>
+                    </div>
+                </div>
+            )}
+            {photoError && <p className="text-sm text-wrong">{photoError}</p>}
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs text-ink-faint">Enter 提交 · Shift + Enter 换行</span>
-                <Button type="submit" disabled={!problem.trim() || isLoading}>
-                    {isLoading ? '生成中……' : '开始讲解'}
-                </Button>
+                <div className="flex items-center gap-2">
+                    <PhotoProblemButton
+                        level={selectedGrade}
+                        size="md"
+                        disabled={isLoading}
+                        onExtracted={({ problem: extracted, figureImage: figure }) => {
+                            // 只回填不提交：识别错一个数字，讲解就整个跑偏，先让人过目
+                            setProblem(extracted)
+                            setFigureImage(figure)
+                            setPhotoError(null)
+                        }}
+                        onError={setPhotoError}
+                    />
+                    <Button type="submit" disabled={!problem.trim() || isLoading}>
+                        {isLoading ? '生成中……' : '开始讲解'}
+                    </Button>
+                </div>
             </div>
 
             {grades && grades.length > 0 && (

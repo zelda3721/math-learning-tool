@@ -9,7 +9,8 @@ import { contentHashOf } from "../questions.js";
 import { composeDirectives, generateViaEngine } from "./engine.js";
 import { groundingSourceOf } from "./grounding.js";
 import { engineJsonFetch } from "../engineHttp.js";
-import { figureDataUrl } from "../figures.js";
+import { figureDataUrl, storeFigure } from "../figures.js";
+import { latexToPlainText } from "../latexText.js";
 
 /**
  * P2 讲解管线（模式 B · Manim）：缓存命中直接返回；未命中建生成任务，
@@ -25,6 +26,8 @@ const ExplainSchema = z
     mistakeId: z.string().optional(),
     /** 自由题目文本（讲解 tab 直接输入，不经题库）；与 questionId/focusNodeId 三选一 */
     problem: z.string().min(4).max(500).optional(),
+    /** 自由题目的题干配图（data URL，拍照识题裁出）；只与 problem 搭配有意义。上限对齐 storeFigure 4MB */
+    figureImage: z.string().max(6_000_000).optional(),
     grade: EducationLevelSchema.optional(),
     /** 模式 A（web，默认）：plan-only 秒级动画；模式 B（video）：Manim 高级成片 */
     // web=SceneSpec 交给固定播放器（画不出假话，受图元词表限制）
@@ -99,6 +102,8 @@ interface WebJobBody {
   focusNodeId?: string;
   misconceptionId?: string;
   mistakeId?: string;
+  /** 自由题目随请求带来的配图（已存盘的文件名）；题库题的图从题目上取，轮不到它 */
+  figureImageName?: string;
 }
 
 /**
@@ -139,7 +144,11 @@ async function runWebJob(
    * 不是检查出来的。模型仍然要看见这张图——它得知道往哪儿标。
    */
   const question = body.questionId ? state.questions.byId.get(body.questionId) : undefined;
-  const figureImage = figureDataUrl(state.config.figuresDir, question?.figureImage);
+  // 题库题的图从题目上取；自由文本（拍照讲解）没有题目实体，图随请求带来
+  const figureImage = figureDataUrl(
+    state.config.figuresDir,
+    question?.figureImage ?? body.figureImageName,
+  );
   /**
    * 老师画在【解析】里的那张图（割补怎么割、阴影怎么挪、辅助线画在哪）。
    *
@@ -312,12 +321,25 @@ export function explainRoutes(state: AppState): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     // 自由文本按内容哈希生成伪题目 id：缓存/去重/登记与题库题走同一套机制
     const raw = parsed.data;
+
+    // 拍照讲解的配图先落盘：图有问题当场报错，别等生成任务跑几分钟才失败。
+    // 只对自由文本生效——题库题的图在题目上，请求里带图属于用错了参数，忽略即可。
+    let figureImageName: string | undefined;
+    if (raw.problem && !raw.questionId && raw.figureImage) {
+      try {
+        figureImageName = storeFigure(state.config.figuresDir, raw.figureImage).name;
+      } catch (err) {
+        return c.json({ error: `配图存不下来：${err instanceof Error ? err.message : String(err)}` }, 400);
+      }
+    }
+
     const body = {
       ...raw,
       // 不传 mode 时用整机默认（EXPLAIN_WEB_MODE），前端不必知道当前跑哪条路
       mode: raw.mode ?? state.config.defaultWebExplainMode,
       learnerId: effectiveLearnerId(c, state, raw.learnerId) ?? raw.learnerId,
       questionId: raw.questionId ?? (raw.problem ? `free-${contentHashOf(raw.problem, "")}` : undefined),
+      figureImageName,
     };
     const fallback = buildFallback(state, body);
 
@@ -369,10 +391,14 @@ export function explainRoutes(state: AppState): Hono {
       mode: body.mode,
     });
     const payload = {
-      problem: question
-        ? question.stem
-        : (body.problem ??
-          `请讲解知识点：${focusNode!.name}——${focusNode!.whatIsIt ?? focusNode!.summary}`),
+      // 送引擎前把 LaTeX 落成普通文字：讲解页跑在 sandbox iframe 里（没有 KaTeX）、
+      // SceneSpec 台词画在 canvas 上，$...$ 原样过去孩子看到的就是美元符号
+      problem: latexToPlainText(
+        question
+          ? question.stem
+          : (body.problem ??
+            `请讲解知识点：${focusNode!.name}——${focusNode!.whatIsIt ?? focusNode!.summary}`),
+      ),
       grade: body.grade ?? learner?.level ?? question?.level ?? "elementary_upper",
       learner_id: body.learnerId,
       extra_directives: composeDirectives({
@@ -389,10 +415,19 @@ export function explainRoutes(state: AppState): Hono {
       return c.json({ status: "generating", jobId, mode: body.mode, fallback }, 202);
     }
 
-    // 模式 B（video 高级）：Manim 完整五阶段
+    // 模式 B（video 高级）：Manim 完整五阶段。原图同样要带上——
+    // 导演按原图的转写重画（Manim 自己的画法），不带图它只能凭题干想象一个假图形
+    const videoFigure = figureDataUrl(
+      state.config.figuresDir,
+      question?.figureImage ?? (body.problem ? body.figureImageName : undefined),
+    );
     const repo = state.repo;
     const contractVersion = state.contract.contract_version;
-    void generateViaEngine(state.config.engineUrl, payload, state.engineFetch ?? fetch)
+    void generateViaEngine(
+      state.config.engineUrl,
+      { ...payload, ...(videoFigure ? { figure_image: videoFigure } : {}) },
+      state.engineFetch ?? fetch,
+    )
       .then((result) => {
         if (result.status === "ok" && result.videoUrl) {
           const explanationId = randomUUID();

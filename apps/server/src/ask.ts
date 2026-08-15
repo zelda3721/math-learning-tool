@@ -7,6 +7,10 @@ import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } 
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { effectiveLearnerId, type AppState } from "./app.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
+import { figureDataUrl, storeFigure } from "./figures.js";
+import { latexToPlainText } from "./latexText.js";
+import { classifyFigures, isDanglingLabel } from "./ingest/passes.js";
+import { stripDataUrl } from "./ingest/routes.js";
 import { expressionsEquivalent, normalizeText, parseNumeric } from "./grading.js";
 import { composeDirectives } from "./explain/engine.js";
 import { groundingSourceOf } from "./explain/grounding.js";
@@ -30,6 +34,12 @@ const AskSchema = z.object({
   learnerId: z.string().optional(),
   problem: z.string().min(4).max(500),
   grade: EducationLevelSchema.optional(),
+  /**
+   * 拍照识别出来的题干配图（data URL，前端从照片上裁下）。
+   * 几何/统计题没这张图就读不懂——它是题面的一部分，跟着题目入库。
+   * 上限与 storeFigure 的 4MB 对齐（base64 膨胀后约 6M 字符），先拦住再解码。
+   */
+  figureImage: z.string().max(6_000_000).optional(),
 });
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（与 practice 的 sanitize 同口径，独立实现避免跨模块耦合） */
@@ -45,6 +55,7 @@ function sanitize(q: Question) {
     problemTypeId: q.problemTypeId,
     // 配图是题面的一部分（几何题没图就读不懂），与答案解析不同，必须下发
     figure: q.figure,
+    figureImage: q.figureImage,
     status: q.status,
   };
 }
@@ -121,7 +132,14 @@ interface PlanResult {
 /** 引擎 plan-only：几分钟量级，所以整段跑在任务里 */
 async function callPlan(
   state: AppState,
-  payload: { problem: string; grade: string; learner_id?: string; extra_directives?: string },
+  payload: {
+    problem: string;
+    grade: string;
+    learner_id?: string;
+    extra_directives?: string;
+    /** 题干配图（data URL）：几何/统计题不看图解不出正确答案 */
+    figure_image?: string;
+  },
 ): Promise<PlanResult> {
   // 同样绕开内置 fetch 的 300 秒 headersTimeout（见 engineHttp.ts）
   const fetchImpl = state.engineFetch ?? engineJsonFetch;
@@ -137,7 +155,13 @@ async function callPlan(
 export async function runAskJob(
   state: AppState,
   jobId: string,
-  args: { learnerId?: string; problem: string; level: Question["level"] },
+  args: {
+    learnerId?: string;
+    problem: string;
+    level: Question["level"];
+    /** 已存盘的题干配图文件名（路由层 storeFigure 的产物） */
+    figureImageName?: string;
+  },
 ): Promise<void> {
   const repo = state.repo;
   const questionId = askQuestionId(args.problem);
@@ -147,11 +171,14 @@ export async function runAskJob(
     .filter((id) => state.knowledge.index.nodeById.has(id));
   const problemTypeId = matchProblemTypesOffline(state.knowledge.problemTypes, args.problem, 1)[0]?.id;
   try {
+    const figureImage = figureDataUrl(state.config.figuresDir, args.figureImageName);
     const result = await callPlan(state, {
-      problem: args.problem,
+      // 引擎载荷里 LaTeX 落成普通文字（讲解产物不认 $...$）；题库存的原文不动，练习页有 KaTeX
+      problem: latexToPlainText(args.problem),
       grade: args.level,
       learner_id: args.learnerId,
       extra_directives: composeDirectives({ knowledge: state.knowledge, focusNodeId: nodeIds[0] }),
+      ...(figureImage ? { figure_image: figureImage } : {}),
     });
     if (result.status !== "ok") {
       repo.failAskJob(jobId, result.error ?? `引擎 plan 返回 ${result.status}`);
@@ -171,6 +198,8 @@ export async function runAskJob(
       nodeIds,
       level: args.level,
       stem: args.problem,
+      // 拍照题的原图跟着题目走：练习卡展示、讲解当底图（explain 按 questionId 自己会取）
+      figureImage: args.figureImageName,
       answer,
       answerType: classifyAnswer(answer),
       analysis: steps.length ? steps.join("\n") : undefined,
@@ -241,7 +270,18 @@ export function askRoutes(state: AppState): Hono {
     const problem = parsed.data.problem.trim();
     if (problem.length < 4) return c.json({ error: "题目太短了，把题目完整写下来" }, 400);
 
-    // ① 缓存：问过的题（或题库里已有的题）直接给回，不重复调引擎
+    // 配图先落盘（同步、快）：图有问题当场报错，别等几分钟解题后才失败
+    let figureImageName: string | undefined;
+    if (parsed.data.figureImage) {
+      try {
+        figureImageName = storeFigure(state.config.figuresDir, parsed.data.figureImage).name;
+      } catch (err) {
+        return c.json({ error: `配图存不下来：${err instanceof Error ? err.message : String(err)}` }, 400);
+      }
+    }
+
+    // ① 缓存：问过的题（或题库里已有的题）直接给回，不重复调引擎。
+    // 缓存题维持原样——即使这次带了图也不改它：改题库是家长的事，孩子的请求不动存量。
     const cached = findAskedQuestion(state, problem);
     if (cached) return c.json({ status: "ready", isNew: false, question: sanitize(cached) });
 
@@ -258,8 +298,88 @@ export function askRoutes(state: AppState): Hono {
     const learner = learnerId ? state.repo.getLearner(learnerId) : undefined;
     const level = parsed.data.grade ?? learner?.level ?? "elementary_upper";
     const jobId = state.repo.createAskJob({ learnerId, questionId, problem });
-    void runAskJob(state, jobId, { learnerId, problem, level });
+    void runAskJob(state, jobId, { learnerId, problem, level, figureImageName });
     return c.json({ status: "generating", isNew: true, jobId, questionId }, 202);
+  });
+
+  /**
+   * photo 端点共用的请求体：与 storeFigure 的 4MB 二进制上限对齐
+   * （base64 膨胀约 4/3，再留 data URL 前缀余量 → 6M 字符）。
+   * 前端本来就把照片缩到最长边 1600，正常一张不到 1M 字符；超限一定是用错了。
+   */
+  const PhotoContentSchema = z.object({ content: z.string().min(1).max(6_000_000) });
+
+  /**
+   * 拍照识题（问一道题 / 讲解共用）。与家长录题管线用同一套分层抽取，
+   * 但走 ask 面（孩子可用）：孩子拍的是自己不会的那道题，不是整本讲义。
+   *
+   * 两趟仍然分开——服务端没有画布，裁图只能在前端做：
+   * ① photo/layout：整张照片切题 + 判配图框（题干图/解析图的判据与录题一致）；
+   * ② 前端按框裁出单题图与配图；
+   * ③ photo/question：裁好的单题图 → 题干文本。
+   */
+  /**
+   * 第 0 趟（可选）：照片方向。手机侧着拍 + 微信剥 EXIF 是常态，
+   * 版面/裁图全按"文字水平"来判，图不转正后面整条链路都是乱的。
+   * 返回的是**前端应把照片顺时针旋转的度数**；判不出/不支持时前端按 0 继续。
+   */
+  app.post("/photo/orientation", async (c) => {
+    const parsed = PhotoContentSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {content}（照片 data URL，最大 4MB）" }, 400);
+    const provider = state.extraction;
+    if (!provider?.orientationFromImage) return c.json({ error: "当前抽取端点不支持方向判定" }, 501);
+    const { base64, mime } = stripDataUrl(parsed.data.content);
+    try {
+      return c.json({ rotate: await provider.orientationFromImage(base64, mime ?? "image/jpeg") });
+    } catch (err) {
+      return c.json({ error: `方向判定失败: ${String(err)}` }, 502);
+    }
+  });
+
+  app.post("/photo/layout", async (c) => {
+    const parsed = PhotoContentSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {content}（照片 data URL，最大 4MB）" }, 400);
+    const provider = state.extraction;
+    if (!provider?.layoutFromImage) return c.json({ error: "当前抽取端点不支持拍照识题" }, 501);
+    const { base64, mime } = stripDataUrl(parsed.data.content);
+    try {
+      const items = await provider.layoutFromImage(base64, mime ?? "image/jpeg");
+      // 题干图/解析图与光杆题号都在这里判完再下发（判据与录题管线同一条，不写两遍）。
+      // dangling 对照片同样有意义：取景框边缘完全可能带进下一题的题号条，
+      // 前端靠它决定"这是不是多题照片"——判错会让单题照片走按框裁的高危路径。
+      return c.json({
+        items: items.map((item) => ({
+          ...item,
+          ...classifyFigures(item),
+          dangling: isDanglingLabel(item),
+        })),
+      });
+    } catch (err) {
+      return c.json({ error: `照片识别失败: ${String(err)}` }, 502);
+    }
+  });
+
+  app.post("/photo/question", async (c) => {
+    const parsed = PhotoContentSchema.extend({ level: EducationLevelSchema.optional() }).safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return c.json({ error: "需要 {content}（单题图 data URL，最大 4MB）" }, 400);
+    const provider = state.extraction;
+    if (!provider?.questionFromImage) return c.json({ error: "当前抽取端点不支持拍照识题" }, 501);
+    const { base64, mime } = stripDataUrl(parsed.data.content);
+    try {
+      const draft = await provider.questionFromImage(base64, mime ?? "image/jpeg", {
+        level: parsed.data.level,
+        // 拍的是作业本：上面有孩子的手写笔迹，识题只认印刷体
+        photo: true,
+      });
+      // 只回题干：答案由 ask 的 Solve→Verify 链路自己算（照片上就算印着答案也不能信——
+      // 孩子拍的可能是教师版，也可能是同学写的错答案；判卷依据必须是验证过的）。
+      if (!draft?.stem) return c.json({ stem: null, warnings: ["照片里没读出题目"] });
+      return c.json({ stem: draft.stem, warnings: [] });
+    } catch (err) {
+      return c.json({ error: `题目识别失败: ${String(err)}` }, 502);
+    }
   });
 
   app.get("/jobs/:id", (c) => {
