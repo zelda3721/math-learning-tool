@@ -561,6 +561,8 @@ class SolutionScene(Scene):
         # 各拍 overlay 轮流在场（上一拍退场再出下一拍），共用一本账会让第 3 拍的
         # 数值为躲第 1 拍早已退场的数值而漂到图外（实机：16 挂在图左边）
         self.figure_letter_spots = []
+        # 各 overlay 里成对（compare_equal）的区域 mobject：出场后一起脉冲一次
+        self.paired_polygons = {}
         coordinate_points = []
         figure_coordinate_points = []
         for spec in VISUAL_OBJECTS:
@@ -1141,35 +1143,25 @@ class SolutionScene(Scene):
                     "gold": YELLOW, "blue": BLUE_C, "orange": ORANGE,
                     "green": GREEN_C, "purple": PURPLE_A,
                 }
-                # 等号先占位：区域数值给等号让路，而不是等号压在数值上
-                equal_spots = []
-                for mark in params.get("equal_marks") or []:
-                    if not isinstance(mark, dict):
-                        continue
-                    side_a = [str(n) for n in (mark.get("a") or [])]
-                    side_b = [str(n) for n in (mark.get("b") or [])]
-                    if not (
-                        len(side_a) >= 3 and len(side_b) >= 3
-                        and all(n in figure_points for n in side_a + side_b)
-                    ):
-                        continue
-                    ca = [sum(figure_points[n][i] for n in side_a) / len(side_a) for i in range(2)]
-                    cb = [sum(figure_points[n][i] for n in side_b) / len(side_b) for i in range(2)]
-                    equal_spots.append((mark, ca, cb))
-                    self.placed_figure_labels.append(((ca[0] + cb[0]) / 2, (ca[1] + cb[1]) / 2))
+                # 配对（compare_equal）的两块登记下来：出场时一起脉冲一次——
+                # "这两块是一对"靠同色 + 同步呼吸表达，图上不写等号
+                paired_polys = self.paired_polygons.setdefault(spec["id"], [])
                 for cycle in params.get("polygons") or []:
                     names = [str(n) for n in (cycle.get("points") or [])]
                     if len(names) >= 3 and all(n in figure_points for n in names):
                         fill = tone_map.get(str(cycle.get("tone") or ""), GREY_B)
                         # 配对区域（compare_equal）描边也用同色加粗：两块"是一对"要一眼看出
                         paired = bool(cycle.get("pair"))
-                        body.add(Polygon(
+                        region = Polygon(
                             *[figure_points[n] for n in names],
                             color=fill if paired else WHITE,
                             fill_color=fill,
                             fill_opacity=0.5 if cycle.get("shaded") else 0.0,
                             stroke_width=3.2 if paired else 2.4,
-                        ))
+                        )
+                        body.add(region)
+                        if paired:
+                            paired_polys.append(region)
                         # 区域标签写在重心：面积数值属于那块区域，不该漂在图外
                         cycle_label = str(cycle.get("label") or "").strip()
                         if cycle_label:
@@ -1205,19 +1197,6 @@ class SolutionScene(Scene):
                             mid = seg_line.get_center()
                             self.place_figure_label(tag, mid[0] + 0.35, mid[1] + 0.3)
                             body.add(tag)
-                # 等量配对的中缝等号：两块重心连线的中点写"="，相邻两块时正好骑在
-                # 公共边上；离得远就补一条虚线把两块牵起来，孩子知道等号在说谁和谁
-                for mark, ca, cb in equal_spots:
-                    tone_color = tone_map.get(str(mark.get("tone") or ""), WHITE)
-                    gap = ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5
-                    if gap > 1.2:
-                        body.add(DashedLine(
-                            [ca[0], ca[1], 0], [cb[0], cb[1], 0],
-                            color=tone_color, stroke_width=2.0, dash_length=0.12,
-                        ))
-                    equal_sign = Text("=", font_size=34, color=tone_color, weight=BOLD)
-                    equal_sign.move_to([(ca[0] + cb[0]) / 2, (ca[1] + cb[1]) / 2, 0])
-                    body.add(equal_sign)
                 # 顶点字母只由底图画；overlay 的点是底图点的子集，再画一遍就是重影
                 if not is_overlay:
                     for name, p in figure_points.items():
@@ -1600,6 +1579,20 @@ class SolutionScene(Scene):
             animations.extend(self.animate_create(item) for item in regular_ids)
             if animations:
                 self.play(*animations)
+            # 等量配对出场后同步呼吸一次：两块同色又同时动，"一样大"不用符号也看得见
+            pairs = [
+                poly
+                for item in regular_ids
+                for poly in self.paired_polygons.get(item, [])
+            ]
+            if pairs:
+                self.play(
+                    *[
+                        Indicate(poly, color=poly.get_fill_color(), scale_factor=1.06)
+                        for poly in pairs
+                    ],
+                    run_time=0.9,
+                )
             attachment_animations = [
                 animation for item in attachment_ids
                 if (animation := self.attach_per_unit_marks(item, visible, new_ids)) is not None

@@ -504,3 +504,26 @@ def test_自declare的自由几何_漏meaning_长rationale_消毒后都不再打
     assert all(a.get("meaning") for a in plan["scenes"][0]["actions"])
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "出现前" in e or "meaning" in e or "400" in e], errors
+
+
+def test_关系靠颜色_同拍配对同色_其余各块不同色_算式标签不上图():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(
+        _pair_plan([
+            {"op": "compare_equal", "regions": [["A", "B", "D"], ["B", "C", "D"]], "label": "12"},
+            {"op": "highlight_region", "points": ["A", "B", "C"], "label": "28 = 12 + 16"},
+            {"op": "highlight_region", "points": ["A", "C", "D"], "label": "16"},
+        ]),
+        t,
+    )
+    overlay = next(o for o in plan["visual_objects"] if o["id"] == "figure_overlay_0")
+    polys = overlay["params"]["polygons"]
+    pair_tones = {p["tone"] for p in polys if p.get("pair") == 1}
+    assert len(pair_tones) == 1  # 一对共用一色——颜色就是等号
+    others = [p["tone"] for p in polys if not p.get("pair")]
+    assert len(set(others)) == 2 and not (set(others) & pair_tones)  # 其余各块各一色
+    # 算式是符号，不上图；数值照写
+    labels = [p.get("label") for p in polys]
+    assert "28 = 12 + 16" not in labels and "16" in labels
+    # 配对语义保留给渲染端做同步脉冲，但不再要求画等号
+    assert overlay["params"]["equal_marks"][0]["tone"] in pair_tones

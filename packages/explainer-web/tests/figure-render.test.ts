@@ -100,7 +100,7 @@ describe("分步着色与等量配对渲染", () => {
     equal_marks: [{ a: ["A", "B", "C"], b: ["A", "C", "D"], label: "6", tone: "gold" }],
   });
 
-  it("配对的两块同色填充、同色加粗描边，中缝写等号", async () => {
+  it("配对的两块同色填充、同色加粗描边；相等靠颜色说，图上不出现等号", async () => {
     const { renderSolved } = await import("../src/figure/render.js");
     const r = renderSolved(paired, coords, { width: 320 });
     const polys = r.svg.match(/<polygon [^>]+>/g) ?? [];
@@ -110,12 +110,8 @@ describe("分步着色与等量配对渲染", () => {
       expect(p).toContain('stroke="#b8860b"');
       expect(p).toContain('stroke-width="2.4"');
     }
-    expect(r.svg).toMatch(/<text [^>]*fill="#b8860b"[^>]*>=<\/text>/);
-    // 等号在两块重心连线的中点：对角线 AC 的中点 (2,1.5) → 画布中心附近
-    const eq = r.svg.match(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>=<\/text>/)!;
-    expect(Math.abs(Number(eq[1]) - 160)).toBeLessThan(2);
-    expect(Math.abs(Number(eq[2]) - r.height / 2)).toBeLessThan(2);
-    // 两块各自的数值仍在，且没有压在等号上
+    expect(r.svg).not.toContain(">=</text>");
+    // 两块各自的数值仍在
     expect((r.svg.match(/>6<\/text>/g) ?? []).length).toBe(2);
   });
 
