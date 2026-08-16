@@ -417,3 +417,60 @@ def test_compare_equal_两块都指错整条丢弃():
         t,
     )
     assert not any(o["id"].startswith("figure_overlay_") for o in plan["visual_objects"])
+
+
+def test_模型没在首拍create底图_消毒后补上_不再报出现前执行():
+    """实机第 2 轮：导演每拍只写 highlight original_figure，没有 create，
+    结构校验以"对象出现前执行"打回整份带图好计划。底图首拍出场是入库硬保证，校验前就补齐。"""
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "E、F 是中点，等底同高使面积逐段传递，28=12+DFC 因此成立",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [],  # 连占位都忘了声明
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "highlight", "targets": ["original_figure"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "验证", "invariant": "面积守恒", "attention_target": "DFC",
+             "exit_condition": "得出16", "teaching_line": "28-12=16，DFC 是 16",
+             "duration_s": 5,
+             "actions": [{"op": "highlight", "targets": ["original_figure"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["B", "C", "D"], "label": "16"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert plan["visual_objects"][0]["id"] == "original_figure"
+    assert plan["scenes"][0]["actions"][0] == {
+        "op": "create", "targets": ["original_figure"], "target": "original_figure"
+    }
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "出现前" in e], errors
+
+
+def test_分步表达_下一拍先退上一拍的高亮再出新的():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(
+        {
+            "visual_objects": [
+                {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "讲义原图"},
+            ],
+            "scenes": [
+                {"role": "setup", "actions": [], "figure_ops": [
+                    {"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+                {"role": "transform", "actions": [], "figure_ops": [
+                    {"op": "highlight_region", "points": ["B", "C", "D"], "label": "16"}]},
+            ],
+        },
+        t,
+    )
+    ops = [(a["op"], a["targets"]) for a in plan["scenes"][1]["actions"]]
+    assert ops[:2] == [("remove", ["figure_overlay_0"]), ("create", ["figure_overlay_1"])]
+    tones = [
+        o["params"]["polygons"][0]["tone"]
+        for o in plan["visual_objects"] if o["id"].startswith("figure_overlay_")
+    ]
+    assert tones == ["gold", "blue"]  # 每拍专属色
