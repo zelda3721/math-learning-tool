@@ -294,3 +294,46 @@ def test_剥空的计划补齐下限后IR仍可用():
     assert all(s["actions"] for s in plan["scenes"])
     assert len(plan["visual_objects"]) >= 2
     assert _fallback_visual_ir(plan) is not None
+
+
+# ── actions 消毒：幽灵引用（region_ABE 等未声明 id）不再让整份好计划陪葬 ──
+
+from math_tutor.infrastructure.agent.tools.visual_plan import (
+    _sanitize_figure_plan_actions,
+    _validate_plan,
+)
+
+
+def test_幽灵目标被清掉_计划过结构校验():
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "E、F 是中点，等底同高使面积逐段传递，28=12+DFC 因此成立",
+        "symbol_ledger": ["原图 = 底图", "阴影 = 灰色"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure"]},
+                         {"op": "highlight", "targets": ["region_ABE"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "验证", "invariant": "面积守恒", "attention_target": "DFC",
+             "exit_condition": "得出16", "teaching_line": "28-12=16，DFC 是 16",
+             "duration_s": 5,
+             "actions": [{"op": "verify", "targets": ["region_DFC", "line_BD"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["B", "C", "D"], "label": "16"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    # 幽灵目标没了；空拍补了高亮底图
+    assert plan["scenes"][0]["actions"] == [
+        {"op": "create", "targets": ["original_figure"]}
+    ]
+    assert plan["scenes"][1]["actions"][0]["targets"] == ["original_figure"]
+    # 玩具计划不满足拍数/锚点等其它契约——本测试只关心：幽灵引用类错误清零
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "声明" in e or "引用" in e], errors

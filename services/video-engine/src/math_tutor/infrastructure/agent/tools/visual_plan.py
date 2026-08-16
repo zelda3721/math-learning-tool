@@ -26,6 +26,7 @@ from .. import markdown_extract as md
 from ..figure_transcription import (
     choreograph_figure,
     figure_ops_violations,
+    filter_figure_plan_errors,
     inject_figure_object,
     transcribe_figure,
     transcription_summary,
@@ -288,6 +289,33 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                                     "additionalProperties": False,
                                 },
                             },
+                            # 有原图时的「指字母」编排。必须进约束语法：实机上模型
+                            # 明明领会了（意图写在 meaning 里），却因为 schema 没有
+                            # 这个词而**发不出来**——约束解码只允许说语法里有的话。
+                            # 必填数组、不许 null：可选时模型在约束解码下惯性填 null
+                            # （实机连续两轮全 null）。语法强制 key 出现后，
+                            # 无图的题填 [] 即可，有图的题填内容成了最省力路径
+                            "figure_ops": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "op": {
+                                            "type": "string",
+                                            "enum": ["highlight_region", "draw_segment"],
+                                        },
+                                        "points": {
+                                            "type": ["array", "null"],
+                                            "items": {"type": "string"},
+                                        },
+                                        "from": {"type": ["string", "null"]},
+                                        "to": {"type": ["string", "null"]},
+                                        "label": {"type": ["string", "null"]},
+                                    },
+                                    "required": ["op"],
+                                    "additionalProperties": False,
+                                },
+                            },
                         },
                         "required": [
                             "role",
@@ -300,6 +328,7 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                             "teaching_line",
                             "duration_s",
                             "actions",
+                            "figure_ops",
                         ],
                         "additionalProperties": False,
                     },
@@ -5911,6 +5940,47 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     return plan if not _validate_plan(plan, ctx.grade) else None
 
 
+def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
+    """带图计划的 actions 消毒：删掉引用未声明对象的幽灵目标。
+
+    实机模式：导演把视觉意图写进 figure_ops 之后，actions 里仍习惯性地引用
+    region_ABE/line_BD 这类**没声明**的意象 id——结构校验因此把整份好计划打回，
+    一路降级到保底。这些幽灵引用本来就没有画面（画面在 figure_ops 里），
+    删目标、空了的动作丢掉、空了的拍补一个高亮底图，计划就能带着编排活下来。
+    """
+    declared = {
+        str(o.get("id"))
+        for o in plan.get("visual_objects") or []
+        if isinstance(o, dict) and o.get("id")
+    }
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        kept: list[dict[str, Any]] = []
+        for action in scene.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            targets = [t for t in (action.get("targets") or []) if str(t) in declared]
+            single = action.get("target")
+            if targets or (single and str(single) in declared):
+                action["targets"] = targets or [str(single)]
+                # 带结构要求的 op（map 要 result、partition 要 parts…）在图上没有对应
+                # 画面——真编排在 figure_ops。降级成 highlight，别让一份好计划因
+                # 一个仪式性动作的缺参被整体打回（实机第 4 轮就卡在 map 缺 result）
+                # remove 也不许——实机上模型中途把底图 remove 掉，末拍只剩算式框
+                if str(action.get("op")) not in {"create", "highlight", "verify", "measure"}:
+                    action["op"] = "highlight"
+                for field in ("source", "destination", "result"):
+                    if action.get(field) and str(action[field]) not in declared:
+                        action[field] = None if field != "result" else ""
+                kept.append(action)
+        if not kept:
+            kept = [
+                {"op": "highlight", "targets": ["original_figure"], "target": "original_figure"}
+            ]
+        scene["actions"] = kept
+
+
 def _ensure_figure_plan_compilable(ctx: ToolContext, plan: dict[str, Any]) -> None:
     """剥离之后计划必须仍然能确定性编译。
 
@@ -7505,9 +7575,12 @@ class VisualPlanTool(ITool):
                 error="parse_failed",
             )
         plan = ground_visual_plan_from_math_execution(plan, ctx)
+        if transcription:
+            _sanitize_figure_plan_actions(plan)
         errors = _validate_plan(plan, grade)
         if transcription:
             errors.extend(figure_ops_violations(plan))
+            errors = filter_figure_plan_errors(errors, plan)
         if errors:
             # Near-miss plans deserve one evidence-directed retry: feed the
             # exact violations back before falling to deterministic salvage.
@@ -7525,9 +7598,12 @@ class VisualPlanTool(ITool):
                 retry_plan = _parse_plan(retry_done)
                 if retry_plan is not None:
                     retry_plan = ground_visual_plan_from_math_execution(retry_plan, ctx)
+                    if transcription:
+                        _sanitize_figure_plan_actions(retry_plan)
                     retry_errors = _validate_plan(retry_plan, grade)
                     if transcription:
                         retry_errors.extend(figure_ops_violations(retry_plan))
+                        retry_errors = filter_figure_plan_errors(retry_errors, retry_plan)
                     if not retry_errors:
                         done = retry_done
                         plan = retry_plan
