@@ -527,3 +527,70 @@ def test_关系靠颜色_同拍配对同色_其余各块不同色_算式标签�
     assert "28 = 12 + 16" not in labels and "16" in labels
     # 配对语义保留给渲染端做同步脉冲，但不再要求画等号
     assert overlay["params"]["equal_marks"][0]["tone"] in pair_tones
+
+
+def test_模型自declare的region_figure对象_校验前删掉并改指底图():
+    """实机第 5 轮：region_abe/region_ebd 被声明成 figure 对象、只 highlight 不 create，
+    校验报"对象出现前执行"把好计划打回。入库时 inject 会删它们并改指底图，校验前也照做。"""
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "E、F 是中点，等底同高使面积逐段传递，28=12+DFC 因此成立",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            {"id": "region_abe", "primitive": "figure", "params": {}, "meaning": "ABE"},
+            {"id": "note", "primitive": "relation_node", "label": "28-12=16", "meaning": "算式"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure", "note"], "meaning": "出场"},
+                         {"op": "highlight", "targets": ["region_abe"], "meaning": "看 ABE"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert [o["id"] for o in plan["visual_objects"]] == ["original_figure", "note"]
+    assert plan["scenes"][0]["actions"][1]["targets"] == ["original_figure"]
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "出现前" in e], errors
+
+
+def test_只点名不create的幻影对象_校验前删掉并改指底图():
+    """实机第 5 轮：region_abe/line_bd 被声明成 relation_node、全片没有 create，
+    只在 highlight/compare 里被点名——画面本来就在 figure_ops 里，幻影不该毁掉计划。"""
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "E、F 是中点，等底同高使面积逐段传递，28=12+DFC 因此成立",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            {"id": "region_abe", "primitive": "relation_node", "label": "ABE", "meaning": "ABE"},
+            {"id": "line_bd", "primitive": "relation_node", "label": "BD", "meaning": "辅助线"},
+            {"id": "note", "primitive": "relation_node", "label": "28-12=16", "meaning": "算式"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure"], "meaning": "出场"},
+                         {"op": "highlight", "targets": ["region_abe"], "meaning": "看 ABE"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "验证", "invariant": "面积守恒", "attention_target": "DFC",
+             "exit_condition": "得出16", "teaching_line": "28-12=16",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["note"], "meaning": "算式"},
+                         {"op": "compare", "targets": ["region_abe", "line_bd"], "meaning": "比较"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["B", "C", "D"], "label": "16"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert [o["id"] for o in plan["visual_objects"]] == ["original_figure", "note"]
+    assert plan["scenes"][0]["actions"][1]["targets"] == ["original_figure"]
+    assert plan["scenes"][1]["actions"][1]["targets"] == ["original_figure"]
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "出现前" in e or "声明" in e], errors
