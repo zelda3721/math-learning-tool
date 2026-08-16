@@ -239,3 +239,29 @@ def test_编排后底图注入不误删overlay():
     plan = inject_figure_object(choreograph_figure(_choreo_plan(), t), t)
     ids = [o["id"] for o in plan["visual_objects"] if o["primitive"] == "figure"]
     assert "original_figure" in ids and "figure_overlay_0" in ids
+
+
+# ── 数量表达必须在图上：图外方块阵剥掉；无 figure_ops 的计划要打回 ──
+
+from math_tutor.infrastructure.agent.figure_transcription import figure_ops_violations
+
+
+def test_图外数量图标被剥掉():
+    t = parse_transcription(RAW)
+    plan = _choreo_plan()
+    plan["visual_objects"].append(
+        {"id": "grid16", "primitive": "unit_grid", "params": {"count": 16}, "meaning": "面积16"}
+    )
+    plan["scenes"][0]["actions"].append({"op": "create", "targets": ["grid16"]})
+    out = choreograph_figure(plan, t)
+    assert all(o["id"] != "grid16" for o in out["visual_objects"])
+    assert all(
+        "grid16" not in (a.get("targets") or []) for s in out["scenes"] for a in s["actions"]
+    )
+
+
+def test_没有figure_ops的计划报违规打回():
+    plan = {"scenes": [{"actions": []}, {"actions": []}]}
+    assert any("figure_ops" in v for v in figure_ops_violations(plan))
+    plan["scenes"][0]["figure_ops"] = [{"op": "highlight_region", "points": ["A", "B", "D"]}]
+    assert figure_ops_violations(plan) == []
