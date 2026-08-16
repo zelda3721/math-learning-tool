@@ -302,11 +302,23 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                                     "properties": {
                                         "op": {
                                             "type": "string",
-                                            "enum": ["highlight_region", "draw_segment"],
+                                            "enum": [
+                                                "highlight_region",
+                                                "compare_equal",
+                                                "draw_segment",
+                                            ],
                                         },
                                         "points": {
                                             "type": ["array", "null"],
                                             "items": {"type": "string"},
+                                        },
+                                        # compare_equal：相等的两块（各一串字母）
+                                        "regions": {
+                                            "type": ["array", "null"],
+                                            "items": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
                                         },
                                         "from": {"type": ["string", "null"]},
                                         "to": {"type": ["string", "null"]},
@@ -7495,8 +7507,14 @@ class VisualPlanTool(ITool):
                 "因为你手里没有真坐标，画出来必然和原图打架；\n"
                 "- 每一拍用 figure_ops 在**原图上**做注解（只写字母，坐标系统来解）：\n"
                 '  {"figure_ops":[{"op":"highlight_region","points":["E","B","D"],"label":"12"},\n'
+                '                 {"op":"compare_equal","regions":[["A","B","E"],["E","B","D"]],"label":"12"},\n'
                 '                 {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}]}\n'
                 "  字母必须出自上面的转写清单，指错即被丢弃；\n"
+                "- **相等的量要成对突出**：凡是这一步在说「这两块一样大」（等底等高、"
+                "中点分半、全等…），就用 compare_equal 把两块**同一拍**一起亮出来"
+                "（系统会给它们同一种颜色并在中间标等号），label 写共同的数值；"
+                "只亮其中一块讲不出\"相等\"。每一拍只回答一个问题：**哪两块相等、为什么**——"
+                "与这一步无关的区域不要高亮（上一拍的高亮会自动退场，当前拍才是焦点）；\n"
                 "- **数量表达在图上，不在图外**：面积/长度属于图上的区域，"
                 "数值用 highlight_region 的 label 写进那块区域——"
                 "**禁止**用 unit_grid/quantity_bar 把面积摆成图外的方块阵"

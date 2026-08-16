@@ -543,9 +543,17 @@ export class ExplainerPlayer {
         points: p.points,
         shaded: p.shaded,
         ...(p.label !== undefined ? { label: p.label } : {}),
+        ...(p.tone !== undefined ? { tone: p.tone } : {}),
+        ...(p.pair !== undefined ? { pair: p.pair } : {}),
       })),
       circles: [],
       angles: [],
+      equal_marks: item.shape.equalMarks.map((m) => ({
+        a: m.a,
+        b: m.b,
+        ...(m.label !== undefined ? { label: m.label } : {}),
+        ...(m.tone !== undefined ? { tone: m.tone } : {}),
+      })),
       constraints: [],
     };
     const coords = Object.fromEntries(

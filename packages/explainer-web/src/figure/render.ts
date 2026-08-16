@@ -23,6 +23,22 @@ export interface FigureRender {
   height: number;
 }
 
+/** 分步着色：与 Manim 端同一套色名（gold/blue/orange/green/purple），各自映射到本媒介的颜色 */
+const TONE_FILL: Record<string, string> = {
+  gold: "rgba(232,180,40,.42)",
+  blue: "rgba(43,92,230,.36)",
+  orange: "rgba(240,120,40,.40)",
+  green: "rgba(46,160,90,.38)",
+  purple: "rgba(150,90,220,.36)",
+};
+const TONE_STROKE: Record<string, string> = {
+  gold: "#b8860b",
+  blue: "#2b5ce6",
+  orange: "#d2691e",
+  green: "#2e8b57",
+  purple: "#7b4fd6",
+};
+
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -82,13 +98,30 @@ export function renderSolved(
   // 图内标签占位登记（顶点字母 + 区域数值共享），新标签太近就阶梯避让
   const placedLabels: [number, number][] = [];
 
+  // 等量配对的等号：两块重心连线的中点。先占位——区域数值给等号让路
+  const equalMarks: { x: number; y: number; tone?: string; far: boolean; ca: {x:number;y:number}; cb: {x:number;y:number} }[] = [];
+  for (const mark of spec.equal_marks ?? []) {
+    const pa = mark.a.map((id) => coords[id]).filter(Boolean).map((p) => to(p!));
+    const pb = mark.b.map((id) => coords[id]).filter(Boolean).map((p) => to(p!));
+    if (pa.length < 3 || pb.length < 3) continue;
+    const ca = { x: pa.reduce((s2, p2) => s2 + p2.x, 0) / pa.length, y: pa.reduce((s2, p2) => s2 + p2.y, 0) / pa.length };
+    const cb = { x: pb.reduce((s2, p2) => s2 + p2.x, 0) / pb.length, y: pb.reduce((s2, p2) => s2 + p2.y, 0) / pb.length };
+    const x = (ca.x + cb.x) / 2, y = (ca.y + cb.y) / 2;
+    placedLabels.push([x, y]);
+    equalMarks.push({ x, y, ...(mark.tone !== undefined ? { tone: mark.tone } : {}), far: Math.hypot(ca.x - cb.x, ca.y - cb.y) > 60, ca, cb });
+  }
+
   // 阴影多边形先画，压在线下面
   for (const poly of spec.polygons) {
     const pts = poly.points.map((id) => coords[id]).filter(Boolean).map((p) => to(p!));
     if (pts.length < 3) continue;
+    const toneFill = poly.tone !== undefined ? TONE_FILL[poly.tone] : undefined;
+    const fill = poly.shaded ? (toneFill ?? shade) : "none";
+    // 配对区域（compare_equal）描边同色加粗：两块"是一对"要一眼看出
+    const paired = poly.pair !== undefined && poly.tone !== undefined;
     parts.push(
       `<polygon points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" ` +
-        `fill="${poly.shaded ? shade : "none"}" stroke="${stroke}" stroke-width="1.5"/>`,
+        `fill="${fill}" stroke="${paired ? TONE_STROKE[poly.tone!] : stroke}" stroke-width="${paired ? 2.4 : 1.5}"/>`,
     );
     // 区域标签写在重心：面积数值属于那块区域，不该漂在图外。
     // 阶梯避让：多个区域的重心可能挤在图形窄处（实机：12/28/16 叠成一摞）
@@ -113,6 +146,20 @@ export function renderSolved(
           `fill="${stroke}" text-anchor="middle" dominant-baseline="middle">${esc(poly.label)}</text>`,
       );
     }
+  }
+
+  for (const mark of equalMarks) {
+    const color = mark.tone !== undefined ? TONE_STROKE[mark.tone] : stroke;
+    if (mark.far) {
+      parts.push(
+        `<line x1="${mark.ca.x.toFixed(1)}" y1="${mark.ca.y.toFixed(1)}" x2="${mark.cb.x.toFixed(1)}" y2="${mark.cb.y.toFixed(1)}" ` +
+          `stroke="${color}" stroke-width="1.2" stroke-dasharray="4 3"/>`,
+      );
+    }
+    parts.push(
+      `<text x="${mark.x.toFixed(1)}" y="${mark.y.toFixed(1)}" font-size="20" font-weight="700" ` +
+        `fill="${color}" text-anchor="middle" dominant-baseline="middle">=</text>`,
+    );
   }
 
   for (const c of spec.circles) {

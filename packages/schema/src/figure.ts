@@ -33,11 +33,26 @@ export const FigureSegmentSchema = z.object({
   style: z.enum(["solid", "dashed"]).default("solid"),
 });
 
+/** 讲解分步着色的色名（引擎编排按拍分配；渲染端各自映射到具体颜色） */
+export const FigureToneSchema = z.enum(["gold", "blue", "orange", "green", "purple"]);
+
 export const FigurePolygonSchema = z.object({
   points: z.array(z.string()).min(3),
   label: z.string().optional(),
   /** 阴影部分（求面积题常用） */
   shaded: z.boolean().default(false),
+  /** 讲解某一拍的专属色；不写用默认阴影色 */
+  tone: FigureToneSchema.optional(),
+  /** 等量配对编号：同一编号的两块是"一样大"的一对（描边同色加粗） */
+  pair: z.number().int().positive().optional(),
+});
+
+/** 等量配对的中缝等号：a、b 两块重心连线中点写"="（相邻两块时正好骑在公共边上） */
+export const FigureEqualMarkSchema = z.object({
+  a: z.array(z.string()).min(3),
+  b: z.array(z.string()).min(3),
+  label: z.string().optional(),
+  tone: FigureToneSchema.optional(),
 });
 
 export const FigureCircleSchema = z.object({
@@ -78,6 +93,8 @@ export const FigureSpecSchema = z.object({
   polygons: z.array(FigurePolygonSchema).default([]),
   circles: z.array(FigureCircleSchema).default([]),
   angles: z.array(FigureAngleSchema).default([]),
+  /** 讲解用：等量配对的等号标注（题库配图不用） */
+  equal_marks: z.array(FigureEqualMarkSchema).default([]),
   constraints: z.array(FigureConstraintSchema).default([]),
   /** 给读者的一句话（如"图中阴影部分为所求"）；不参与作图 */
   note: z.string().optional(),

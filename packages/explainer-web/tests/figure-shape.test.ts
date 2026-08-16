@@ -91,3 +91,31 @@ describe("figure 图元（转写重画）", () => {
     if (label && "at" in label) expect(box.y).toBeLessThan(label.at.y);
   });
 });
+
+describe("分步着色与等量配对（compare_equal）", () => {
+  it("tone/pair/equal_marks 从 params 一路透传到 figure 形状", () => {
+    const scene = solved({
+      ...FIGURE_PARAMS,
+      polygons: [
+        { points: ["A", "B", "D"], shaded: true, tone: "blue", pair: 1, label: "12" },
+        { points: ["B", "C", "D"], shaded: true, tone: "blue", pair: 1, label: "12" },
+      ],
+      equal_marks: [{ a: ["A", "B", "D"], b: ["B", "C", "D"], label: "12", tone: "blue" }],
+    });
+    const fig = scene.flowed.find((s): s is FigureShape => s.kind === "figure")!;
+    expect(fig.polygons.map((p) => p.tone)).toEqual(["blue", "blue"]);
+    expect(fig.polygons.map((p) => p.pair)).toEqual([1, 1]);
+    expect(fig.equalMarks).toEqual([{ a: ["A", "B", "D"], b: ["B", "C", "D"], label: "12", tone: "blue" }]);
+  });
+
+  it("等号引用了不存在的字母就丢掉那一条；未知色名不透传", () => {
+    const scene = solved({
+      ...FIGURE_PARAMS,
+      polygons: [{ points: ["A", "B", "D"], shaded: true, tone: "neon" }],
+      equal_marks: [{ a: ["A", "B", "D"], b: ["B", "C", "Z"] }],
+    });
+    const fig = scene.flowed.find((s): s is FigureShape => s.kind === "figure")!;
+    expect(fig.polygons[0]!.tone).toBeUndefined();
+    expect(fig.equalMarks).toEqual([]);
+  });
+});

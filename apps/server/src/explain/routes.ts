@@ -313,6 +313,35 @@ const FeedbackSchema = z.object({
   comparedWith: z.string().optional(),
 });
 
+/**
+ * 把引擎会话里的字幕产物（WebVTT）拉到本地，存成讲解自己的文件。
+ * 任何一步失败都只是"这份讲解没字幕"，不影响视频交付。
+ */
+async function fetchSubtitle(
+  state: AppState,
+  result: { sessionId?: string; subtitleArtifactId?: string },
+  explanationId: string,
+): Promise<string | undefined> {
+  if (!result.sessionId || !result.subtitleArtifactId) return undefined;
+  try {
+    const fetchImpl = state.engineFetch ?? fetch;
+    const resp = await fetchImpl(
+      `${state.config.engineUrl}/api/v1/sessions/${encodeURIComponent(result.sessionId)}` +
+        `/artifacts/${encodeURIComponent(result.subtitleArtifactId)}`,
+      { signal: AbortSignal.timeout(15_000) },
+    );
+    if (!resp.ok) return undefined;
+    const vtt = await resp.text();
+    if (!vtt.trimStart().startsWith("WEBVTT")) return undefined;
+    const dir = path.join(state.config.dataDir, "subtitles");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `${explanationId}.vtt`), vtt, "utf8");
+    return `/api/v1/explain/subtitles/${explanationId}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function explainRoutes(state: AppState): Hono {
   const app = new Hono();
 
@@ -428,9 +457,13 @@ export function explainRoutes(state: AppState): Hono {
       { ...payload, ...(videoFigure ? { figure_image: videoFigure } : {}) },
       state.engineFetch ?? fetch,
     )
-      .then((result) => {
+      .then(async (result) => {
         if (result.status === "ok" && result.videoUrl) {
           const explanationId = randomUUID();
+          // 字幕：引擎按拍生成的 WebVTT 归档在会话产物里；那条路由只对家长开放
+          // （/api/v1/sessions 是 parentOnly），孩子看讲解取不到——所以生成时就
+          // 拉下来存成讲解自己的产物，走 /api/v1/explain/subtitles/:id 发给播放器
+          const subtitleUrl = await fetchSubtitle(state, result, explanationId);
           repo.insertExplanation({
             id: explanationId,
             questionId: body.questionId,
@@ -438,6 +471,7 @@ export function explainRoutes(state: AppState): Hono {
             engineSessionId: result.sessionId ?? "unknown",
             mode: "video",
             videoUrl: result.videoUrl,
+            ...(subtitleUrl ? { subtitleUrl } : {}),
             // 分级交付：done 文案带「保底/质量提示」→ acceptable，否则 good
             quality: /保底|质量提示|质量警告/.test(result.doneText ?? "") ? "acceptable" : "good",
             contractVersion,
@@ -451,6 +485,14 @@ export function explainRoutes(state: AppState): Hono {
       .catch((err) => repo.failExplainJob(jobId, String(err)));
 
     return c.json({ status: "generating", jobId, fallback }, 202);
+  });
+
+  // 视频讲解的字幕轨（WebVTT，生成时从引擎会话产物拉下来存的）
+  app.get("/subtitles/:id", (c) => {
+    const id = c.req.param("id").replace(/[^\w-]/g, "");
+    const file = path.join(state.config.dataDir, "subtitles", `${id}.vtt`);
+    if (!existsSync(file)) return c.json({ error: "字幕不存在" }, 404);
+    return c.body(readFileSync(file, "utf8"), 200, { "content-type": "text/vtt; charset=utf-8" });
   });
 
   // SceneSpec 产物（web 模式讲解数据；播放器 fetch 后本地渲染）

@@ -12,12 +12,44 @@ const CONTRACT: EngineContract = {
 };
 
 /** mock 引擎：返回一段 SSE 流（session → done ok） */
-function mockEngineFetch(opts: { status?: string; videoUrl?: string | null; doneText?: string; delayMs?: number }): typeof fetch {
-  return (async (_url: unknown, _init?: unknown) => {
+function mockEngineFetch(opts: {
+  status?: string;
+  videoUrl?: string | null;
+  doneText?: string;
+  delayMs?: number;
+  /** 渲染阶段归档的字幕产物 id；给了就在 tool_result 里报出来，并能按产物路由取到 VTT */
+  subtitleArtifactId?: number;
+}): typeof fetch {
+  return (async (url: unknown, _init?: unknown) => {
+    if (String(url).includes("/artifacts/")) {
+      const wanted = `/api/v1/sessions/mock-session-1/artifacts/${opts.subtitleArtifactId}`;
+      if (opts.subtitleArtifactId !== undefined && String(url).endsWith(wanted)) {
+        return new Response("WEBVTT\n\n00:00:00.300 --> 00:00:04.700\n看图：这块是12\n", {
+          status: 200,
+          headers: { "content-type": "text/vtt" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }
     const lines = [
       "event: session",
       'data: {"session_id": "mock-session-1"}',
       "",
+      ...(opts.subtitleArtifactId !== undefined
+        ? [
+            "event: tool_result",
+            `data: ${JSON.stringify({
+              id: "call-1",
+              name: "run_manim",
+              success: true,
+              artifacts: [
+                { id: 7, kind: "video", path: "videos/x.mp4", meta: {} },
+                { id: opts.subtitleArtifactId, kind: "subtitle", path: "subs/x.vtt", meta: { format: "webvtt" } },
+              ],
+            })}`,
+            "",
+          ]
+        : []),
       "event: done",
       `data: ${JSON.stringify({
         status: opts.status ?? "ok",
@@ -89,6 +121,26 @@ describe("explain pipeline", () => {
     expect(second.body.status).toBe("ready");
     expect(second.body.explanation.videoUrl).toBe(job.explanation.videoUrl);
     expect(repo.findExplanation("eq1", undefined)?.engineSessionId).toBe("mock-session-1");
+  });
+
+  it("carries the engine's subtitle track into the explanation and serves it as WebVTT", async () => {
+    const { app } = makeExplainApp(mockEngineFetch({ subtitleArtifactId: 9 }));
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
+    const job = await waitJob(app, first.body.jobId);
+    expect(job.status).toBe("done");
+    expect(job.explanation.subtitleUrl).toMatch(/^\/api\/v1\/explain\/subtitles\//);
+    const vtt = await app.request(job.explanation.subtitleUrl);
+    expect(vtt.status).toBe(200);
+    expect(vtt.headers.get("content-type")).toContain("text/vtt");
+    expect(await vtt.text()).toContain("看图：这块是12");
+  });
+
+  it("no subtitle artifact → explanation still delivered, just without a track", async () => {
+    const { app } = makeExplainApp(mockEngineFetch({}));
+    const first = await post(app, "/api/v1/explain", { questionId: "eq1", mode: "video" });
+    const job = await waitJob(app, first.body.jobId);
+    expect(job.status).toBe("done");
+    expect(job.explanation.subtitleUrl ?? null).toBeNull();
   });
 
   it("degraded-delivery done text maps quality to acceptable", async () => {

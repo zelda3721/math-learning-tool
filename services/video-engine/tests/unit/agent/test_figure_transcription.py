@@ -364,3 +364,56 @@ def test_模型自declare的region对象被删后动作改指底图_IR仍可用(
             assert "region_ABD" not in (a.get("targets") or [])
             assert a.get("targets"), a
     assert _fallback_visual_ir(plan) is not None
+
+
+# ── 等量配对：相等的两块同一拍一起亮（同色 + 中缝等号）──
+
+
+def _pair_plan(ops):
+    return {
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "讲义原图"},
+            {"id": "note", "primitive": "relation_node", "label": "28-12=16", "meaning": "差额"},
+        ],
+        "scenes": [
+            {"role": "setup", "actions": [{"op": "create", "targets": ["note"]}], "figure_ops": ops},
+        ],
+    }
+
+
+def test_compare_equal_两块同色同拍并带等号标注():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(
+        _pair_plan([{"op": "compare_equal", "regions": [["A", "B", "D"], ["B", "C", "D"]], "label": "12"}]),
+        t,
+    )
+    overlay = next(o for o in plan["visual_objects"] if o["id"] == "figure_overlay_0")
+    polys = overlay["params"]["polygons"]
+    assert [p["points"] for p in polys] == [["A", "B", "D"], ["B", "C", "D"]]
+    assert {p["tone"] for p in polys} == {"gold"} and {p["pair"] for p in polys} == {1}
+    assert [p["label"] for p in polys] == ["12", "12"]
+    assert overlay["params"]["equal_marks"] == [
+        {"a": ["A", "B", "D"], "b": ["B", "C", "D"], "label": "12", "tone": "gold"}
+    ]
+    assert {p["id"] for p in overlay["params"]["points"]} == {"A", "B", "C", "D"}
+
+
+def test_compare_equal_只解析出一块退成普通高亮_不出等号():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(
+        _pair_plan([{"op": "compare_equal", "regions": [["A", "B", "D"], ["B", "C", "Z"]], "label": "12"}]),
+        t,
+    )
+    overlay = next(o for o in plan["visual_objects"] if o["id"] == "figure_overlay_0")
+    assert len(overlay["params"]["polygons"]) == 1
+    assert "pair" not in overlay["params"]["polygons"][0]
+    assert "equal_marks" not in overlay["params"]
+
+
+def test_compare_equal_两块都指错整条丢弃():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(
+        _pair_plan([{"op": "compare_equal", "regions": [["A", "B", "Z"], ["Q", "C", "Z"]]}]),
+        t,
+    )
+    assert not any(o["id"].startswith("figure_overlay_") for o in plan["visual_objects"])

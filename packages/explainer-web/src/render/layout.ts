@@ -257,6 +257,7 @@ export function layoutFlowed(
       points: [...figures[0]!.points],
       segments: figures.flatMap((f) => f.segments),
       polygons: figures.flatMap((f) => f.polygons),
+      equalMarks: figures.flatMap((f) => f.equalMarks),
       ...(figures.some((f) => f.emphasis) ? { emphasis: true as const } : {}),
     };
     const known = new Set(merged.points.map((p) => p.id));
