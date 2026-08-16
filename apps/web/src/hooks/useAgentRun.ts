@@ -24,6 +24,7 @@ type Action =
     | { type: 'RESET' }
     | { type: 'EVENT'; event: AgentEvent }
     | { type: 'STREAM_ERROR'; message: string }
+    | { type: 'STREAM_END' }
 
 const INITIAL_STATE: AgentRunState = {
     sessionId: null,
@@ -37,6 +38,14 @@ const INITIAL_STATE: AgentRunState = {
 
 function reducer(state: AgentRunState, action: Action): AgentRunState {
     if (action.type === 'RESET') return { ...INITIAL_STATE }
+    if (action.type === 'STREAM_END') {
+        if (state.status !== 'running') return state
+        return {
+            ...state,
+            status: 'failed',
+            error: '与生成服务的连接中断。生成可能仍在后台进行，稍后可在历史记录中查看结果。',
+        }
+    }
     if (action.type === 'STREAM_ERROR') {
         return { ...state, status: 'failed', error: action.message }
     }
@@ -243,6 +252,9 @@ export function useAgentRun(): UseAgentRun {
                 const evt = sseToAgentEvent(message.event, message.data)
                 if (evt) dispatch({ type: 'EVENT', event: evt })
             }
+            // 流结束但没收到终态事件（代理被掐/引擎断连）——必须报错，
+            // 否则界面永远停在"生成中"（实机：undici 掐断 SSE 后就是这个样子）
+            if (!controller.signal.aborted) dispatch({ type: 'STREAM_END' })
         } catch (err) {
             if (controller.signal.aborted) return
             const message = err instanceof Error ? err.message : String(err)
