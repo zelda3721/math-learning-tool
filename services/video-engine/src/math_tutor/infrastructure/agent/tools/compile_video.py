@@ -2976,11 +2976,19 @@ class CompileVideoTool(ITool):
             str(visual_plan.get("compile_strategy") or "") if isinstance(visual_plan, dict) else ""
         )
         deterministic_ir = _fallback_visual_ir(visual_plan)
+        plan_has_figure = isinstance(visual_plan, dict) and any(
+            isinstance(o, dict) and o.get("primitive") == "figure"
+            for o in visual_plan.get("visual_objects") or []
+        )
         if (
             visual_plan
             and deterministic_ir is not None
             and (
                 bool(args.get("deterministic_ir"))
+                # 带图计划的重修同样走确定性编译：重修产出的是**新计划**，
+                # 确定性地把它编出来就是修复本身。此前重修一律跳过 IR 去找模型写码，
+                # 带图计划撞上写码保险丝，首审不过就必然掉进静态保底（实机闭环验证）
+                or plan_has_figure
                 or (
                     not review_repair
                     and not args.get("model_codegen")
