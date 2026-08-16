@@ -142,7 +142,7 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
 
     scenes = [s for s in plan.get("scenes") or [] if isinstance(s, dict)]
     shown = any(
-        a.get("target") == "original_figure"
+        a.get("target") == "original_figure" or "original_figure" in (a.get("targets") or [])
         for s in scenes
         for a in (s.get("actions") or [])
         if isinstance(a, dict)
@@ -150,7 +150,12 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
     if scenes and not shown:
         first = scenes[0].setdefault("actions", [])
         if isinstance(first, list):
-            first.insert(0, {"op": "create", "target": "original_figure"})
+            # targets（复数）是导演/编译器的正式字段，target 单数是播放器的宽容写法。
+            # 两个都带：Manim 确定性编译器**只认 targets**，少了它注入的图会被静默丢掉
+            first.insert(
+                0,
+                {"op": "create", "targets": ["original_figure"], "target": "original_figure"},
+            )
     return plan
 
 
