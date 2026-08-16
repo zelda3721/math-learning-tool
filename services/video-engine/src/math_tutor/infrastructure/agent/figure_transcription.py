@@ -282,6 +282,7 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
     objects = [o for o in plan.get("visual_objects") or [] if isinstance(o, dict)]
     kept: list[dict[str, Any]] = []
     replaced = False
+    removed: set[str] = set()
     for obj in objects:
         # 编排产生的 overlay 是合法的第二类 figure 对象，不参与"只留一张底图"的去重
         if str(obj.get("id") or "").startswith("figure_overlay_"):
@@ -293,10 +294,30 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
         elif not replaced:
             kept.append({**obj, **injected})
             replaced = True
-        # 第二个及以后的 figure 对象：丢弃
+        else:
+            # 第二个及以后的 figure 对象（模型自declare的 region_* 之类）：丢弃并记名
+            removed.add(str(obj.get("id")))
     if not replaced:
         kept.insert(0, injected)
     plan["visual_objects"] = kept
+
+    # 引用被删对象的动作改指底图——留着空引用，编译时拍子会被整个丢掉，
+    # IR 判不可用后整段编排退成静态保底（实机：质检因此判 bad）
+    if removed:
+        for scene in plan.get("scenes") or []:
+            if not isinstance(scene, dict):
+                continue
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                targets = [str(t) for t in (action.get("targets") or [])]
+                if set(targets) & removed:
+                    fixed = [t for t in targets if t not in removed]
+                    if "original_figure" not in fixed:
+                        fixed.append("original_figure")
+                    action["targets"] = fixed
+                if str(action.get("target")) in removed:
+                    action["target"] = "original_figure"
 
     scenes = [s for s in plan.get("scenes") or [] if isinstance(s, dict)]
     shown = any(
