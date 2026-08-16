@@ -8,6 +8,7 @@ evidence-directed repair before the high-level stage returns.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import textwrap
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 from ....application.interfaces import ArtifactSpec, ITool, ToolContext, ToolResult
 from ..math_runtime import sample_real_expression
 from .generate_manim_code import GenerateManimCodeTool
+
+logger = logging.getLogger(__name__)
 from .run_manim import RunManimTool
 from .validate_manim_code import ValidateManimCodeTool
 
@@ -2962,6 +2965,29 @@ class CompileVideoTool(ITool):
             )
         ):
             return await self._compile_visual_ir(ctx, artifacts, steps)
+
+        # 带原图的计划**绝不**交给模型写码：模型手里没有真坐标，写出来必然是
+        # 另一张编造的图（实机事故：满屏乱点乱线）。IR 不可用宁可走已验证
+        # 关系图保底——图会缺席，但画面不撒谎
+        if isinstance(visual_plan, dict) and any(
+            isinstance(o, dict) and o.get("primitive") == "figure"
+            for o in visual_plan.get("visual_objects") or []
+        ):
+            logger.warning("figure 计划的 IR 不可用，拒绝模型写码，走确定性保底")
+            rejected = ToolResult(
+                success=False,
+                summary="figure 计划无法进入确定性 IR 编译",
+                error="figure_ir_unavailable",
+            )
+            return await self._fallback_or_failed(
+                "带原图的计划拒绝模型写码",
+                rejected,
+                steps,
+                artifacts,
+                repair_count,
+                ctx,
+                review_repair=False,
+            )
 
         generated = await self._writer.execute({}, ctx)
         artifacts.extend(generated.artifacts)

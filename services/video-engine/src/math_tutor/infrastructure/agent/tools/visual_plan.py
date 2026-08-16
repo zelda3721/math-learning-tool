@@ -5911,6 +5911,35 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     return plan if not _validate_plan(plan, ctx.grade) else None
 
 
+def _ensure_figure_plan_compilable(ctx: ToolContext, plan: dict[str, Any]) -> None:
+    """剥离之后计划必须仍然能确定性编译。
+
+    实机事故：编排剥掉自由几何/图外数量图标后，有的拍一个动作都不剩、
+    对象也可能只剩底图——IR 提取判定"不可用"，编译器**静默跌进模型写码**，
+    孩子看到的是一整屏编造的点线（比修之前更烂）。所以剥完必须补齐下限：
+    每拍至少一个动作（没有就高亮底图），对象至少两个（不够就补答案算式框）。
+    """
+    objects = plan.setdefault("visual_objects", [])
+    if len(objects) < 2:
+        answer = str(ctx.state.get("solution_answer") or "").strip()
+        objects.append(
+            {
+                "id": "figure_answer_note",
+                "primitive": "relation_node",
+                "label": f"答案：{answer}" if answer else "看图推理",
+                "meaning": "结论算式",
+            }
+        )
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        actions = scene.setdefault("actions", [])
+        if isinstance(actions, list) and not actions:
+            actions.append(
+                {"op": "highlight", "targets": ["original_figure"], "target": "original_figure"}
+            )
+
+
 def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
     """Install an accepted plan and invalidate artifacts derived from an older plan."""
     plan.setdefault("plan_version", 2)
@@ -5922,6 +5951,7 @@ def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
         # 先注底图，再解析导演的「指字母」编排（剥自由几何 + 生成每拍 overlay）
         plan = inject_figure_object(plan, transcription)
         plan = choreograph_figure(plan, transcription)
+        _ensure_figure_plan_compilable(ctx, plan)
     ctx.state["visual_plan_last_violations"] = []
     ctx.state["visual_plan"] = plan
     ctx.state["visual_thesis"] = plan["visual_thesis"]

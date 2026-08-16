@@ -265,3 +265,32 @@ def test_没有figure_ops的计划报违规打回():
     assert any("figure_ops" in v for v in figure_ops_violations(plan))
     plan["scenes"][0]["figure_ops"] = [{"op": "highlight_region", "points": ["A", "B", "D"]}]
     assert figure_ops_violations(plan) == []
+
+
+# ── 剥离后的计划必须仍可确定性编译（掏空 → 模型写码 → 满屏乱点线，实机踩过） ──
+
+from math_tutor.infrastructure.agent.tools.compile_video import _fallback_visual_ir
+from math_tutor.infrastructure.agent.tools.visual_plan import _ensure_figure_plan_compilable
+
+
+def test_剥空的计划补齐下限后IR仍可用():
+    t = parse_transcription(RAW)
+    # 极端情况：模型的对象全是会被剥掉的（自由几何 + 图外方块阵）
+    plan = {
+        "visual_thesis": "x" * 20,
+        "visual_objects": [
+            {"id": "tri", "primitive": "polygon", "params": {"vertices": [[0, 0], [1, 0], [0, 1]]}, "meaning": "野图"},
+            {"id": "grid", "primitive": "unit_grid", "params": {"count": 16}, "meaning": "方块阵"},
+        ],
+        "scenes": [
+            {"role": "setup", "actions": [{"op": "create", "targets": ["tri"]}], "teaching_line": "看"},
+            {"role": "verify", "actions": [{"op": "verify", "targets": ["grid"]}], "teaching_line": "验"},
+        ],
+    }
+    plan = inject_figure_object(choreograph_figure(plan, t), t)
+    ctx = _plan_ctx({"solution_answer": "16 平方厘米"})
+    _ensure_figure_plan_compilable(ctx, plan)
+    # 每拍都有动作、对象 ≥2，确定性 IR 必须提取成功——否则会跌进模型写码
+    assert all(s["actions"] for s in plan["scenes"])
+    assert len(plan["visual_objects"]) >= 2
+    assert _fallback_visual_ir(plan) is not None
