@@ -5960,11 +5960,42 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
     一路降级到保底。这些幽灵引用本来就没有画面（画面在 figure_ops 里），
     删目标、空了的动作丢掉、空了的拍补一个高亮底图，计划就能带着编排活下来。
     """
+    objects = plan.setdefault("visual_objects", [])
+    if isinstance(objects, list) and not any(
+        isinstance(o, dict) and o.get("id") == "original_figure" for o in objects
+    ):
+        # 模型忘了声明底图占位：入库时 inject 一定会补，这里先补上，
+        # 免得下面把指向底图的动作当幽灵删掉
+        objects.insert(
+            0,
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "讲义原图"},
+        )
     declared = {
         str(o.get("id"))
         for o in plan.get("visual_objects") or []
         if isinstance(o, dict) and o.get("id")
     }
+    scenes = [s for s in plan.get("scenes") or [] if isinstance(s, dict)]
+    figure_shown = any(
+        isinstance(a, dict)
+        and str(a.get("op")) == "create"
+        and (
+            a.get("target") == "original_figure"
+            or "original_figure" in (a.get("targets") or [])
+        )
+        for s in scenes
+        for a in (s.get("actions") or [])
+    )
+    if scenes and not figure_shown:
+        # 底图在第一拍出场是入库时的硬保证（inject_figure_object），校验也要照
+        # 同一事实判：否则"高亮底图"会因"对象出现前执行"被打回，整份好计划降级
+        # （实机第 2 轮就是这么丢的）
+        first = scenes[0].setdefault("actions", [])
+        if isinstance(first, list):
+            first.insert(
+                0,
+                {"op": "create", "targets": ["original_figure"], "target": "original_figure"},
+            )
     for scene in plan.get("scenes") or []:
         if not isinstance(scene, dict):
             continue
