@@ -151,6 +151,24 @@ def figure_ops_violations(plan: dict[str, Any]) -> list[str]:
     return []
 
 
+def filter_figure_plan_errors(errors: list[str], plan: dict[str, Any]) -> list[str]:
+    """带图计划的契约语境：部分通用规则不适用，逐条豁免并写明理由。
+
+    - 「至少 2 个对象」：只声明底图是合规形态，结论算式框入库时自动补齐；
+    - 「transform 场景必须有结构化动作」：带图计划的状态变化就是 figure_ops
+      （高亮/辅助线），actions 只是节拍器——transform 拍带 ops 即视为有变化。
+    """
+    out = [e for e in errors if "至少需要 2 个" not in e]
+    transforms = [
+        s
+        for s in plan.get("scenes") or []
+        if isinstance(s, dict) and str(s.get("role")) == "transform"
+    ]
+    if transforms and all(s.get("figure_ops") for s in transforms):
+        out = [e for e in out if "transform 场景" not in e]
+    return out
+
+
 def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
     """把导演的「指字母」编排解析成确定坐标的画面对象。
 

@@ -609,7 +609,9 @@ class SolutionScene(Scene):
                 has_figure = (
                     primitive == "figure"
                     and isinstance(params.get("points"), list)
-                    and len(params.get("points")) >= 3
+                    # 2 个点也算（纯辅助线的 overlay）：进不了坐标体系就会被
+                    # 当自由对象缩小挪位，画在图外（实机踩过）
+                    and len(params.get("points")) >= 2
                 )
                 if has_vertices or has_segment or has_figure:
                     self.coordinate_ids.add(spec["id"])
