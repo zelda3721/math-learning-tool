@@ -6103,7 +6103,9 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
                 # 画面——真编排在 figure_ops。降级成 highlight，别让一份好计划因
                 # 一个仪式性动作的缺参被整体打回（实机第 4 轮就卡在 map 缺 result）
                 # remove 也不许——实机上模型中途把底图 remove 掉，末拍只剩算式框
-                if str(action.get("op")) not in {"create", "highlight", "verify", "measure"}:
+                if str(action.get("op")) not in {
+                    "create", "highlight", "verify", "measure", "compare",
+                }:
                     action["op"] = "highlight"
                 for field in ("source", "destination", "result"):
                     if action.get(field) and str(action[field]) not in declared:
@@ -6125,6 +6127,13 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
                     )[:80],
                 }
             ]
+        # verify 拍的契约要一个核对动作（compare/measure/verify）：带图计划的核对
+        # 本来就在 figure_ops 里，节拍器动作被降级成 highlight 后不该因此打回——
+        # 把这一拍最后一个动作定为 verify（编译器给底图画绿框打勾，实机看过是合适的）
+        if str(scene.get("role")) == "verify" and not any(
+            str(a.get("op")) in {"compare", "measure", "verify"} for a in kept
+        ):
+            kept[-1]["op"] = "verify"
         scene["actions"] = kept
 
 
