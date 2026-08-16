@@ -225,7 +225,7 @@ def test_编排_字母解析成坐标_错字母丢弃不歪图():
     overlay = next(o for o in plan["visual_objects"] if o["id"] == "figure_overlay_0")
     names = {p["id"] for p in overlay["params"]["points"]}
     assert names == {"A", "B", "D"}  # X 那条整体被丢，图不会歪
-    assert overlay["params"]["polygons"][0] == {"points": ["A", "B", "D"], "shaded": True, "label": "12"}
+    assert overlay["params"]["polygons"][0] == {"points": ["A", "B", "D"], "shaded": True, "label": "12", "tone": "gold"}
     assert overlay["params"]["segments"][0]["label"] == "辅助线"
     # 该拍首个动作 create overlay（两种字段写法都带）
     first = plan["scenes"][0]["actions"][0]

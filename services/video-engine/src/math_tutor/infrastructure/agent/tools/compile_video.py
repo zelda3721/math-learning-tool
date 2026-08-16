@@ -1117,10 +1117,15 @@ class SolutionScene(Scene):
                 for cycle in params.get("polygons") or []:
                     names = [str(n) for n in (cycle.get("points") or [])]
                     if len(names) >= 3 and all(n in figure_points for n in names):
+                        tone_map = {
+                            "gold": YELLOW, "blue": BLUE_C, "orange": ORANGE,
+                            "green": GREEN_C, "purple": PURPLE_A,
+                        }
+                        fill = tone_map.get(str(cycle.get("tone") or ""), GREY_B)
                         body.add(Polygon(
                             *[figure_points[n] for n in names],
                             color=WHITE,
-                            fill_color=GREY_B,
+                            fill_color=fill,
                             fill_opacity=0.5 if cycle.get("shaded") else 0.0,
                             stroke_width=2.4,
                         ))
