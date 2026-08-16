@@ -87,6 +87,15 @@ export function renderSolved(
       `<polygon points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" ` +
         `fill="${poly.shaded ? shade : "none"}" stroke="${stroke}" stroke-width="1.5"/>`,
     );
+    // 区域标签写在重心：面积数值属于那块区域，不该漂在图外
+    if (poly.label) {
+      const cx = pts.reduce((s2, p2) => s2 + p2.x, 0) / pts.length;
+      const cy = pts.reduce((s2, p2) => s2 + p2.y, 0) / pts.length;
+      parts.push(
+        `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-size="15" font-weight="600" ` +
+          `fill="${stroke}" text-anchor="middle" dominant-baseline="middle">${esc(poly.label)}</text>`,
+      );
+    }
   }
 
   for (const c of spec.circles) {

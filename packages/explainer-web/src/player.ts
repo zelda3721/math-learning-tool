@@ -533,8 +533,17 @@ export class ExplainerPlayer {
   private paintFigure(item: PlacedFigure): void {
     const spec: FigureSpec = {
       points: item.shape.points.map((p) => ({ id: p.id })),
-      segments: item.shape.segments.map((s) => ({ from: s.from, to: s.to, style: "solid" as const })),
-      polygons: item.shape.polygons.map((p) => ({ points: p.points, shaded: p.shaded })),
+      segments: item.shape.segments.map((s) => ({
+        from: s.from,
+        to: s.to,
+        style: "solid" as const,
+        ...(s.label !== undefined ? { label: s.label } : {}),
+      })),
+      polygons: item.shape.polygons.map((p) => ({
+        points: p.points,
+        shaded: p.shaded,
+        ...(p.label !== undefined ? { label: p.label } : {}),
+      })),
       circles: [],
       angles: [],
       constraints: [],

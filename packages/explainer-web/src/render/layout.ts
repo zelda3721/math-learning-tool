@@ -248,6 +248,27 @@ export function layoutFlowed(
   let cursorY = top;
 
   // ── 讲义原图（转写重画）：主体内容，置顶居中；其余注解排它下面 ──
+  // 底图 + 各拍的图上注解（figure_overlay_*）是**同一张图**：合并后一次画出，
+  // 分开排会变成上下两张对不上的图
+  if (figures.length > 1) {
+    const merged: FigureShape = {
+      kind: "figure",
+      id: figures[0]!.id,
+      points: [...figures[0]!.points],
+      segments: figures.flatMap((f) => f.segments),
+      polygons: figures.flatMap((f) => f.polygons),
+      ...(figures.some((f) => f.emphasis) ? { emphasis: true as const } : {}),
+    };
+    const known = new Set(merged.points.map((p) => p.id));
+    for (const f of figures.slice(1))
+      for (const p of f.points)
+        if (!known.has(p.id)) {
+          known.add(p.id);
+          merged.points.push(p);
+        }
+    figures.length = 0;
+    figures.push(merged);
+  }
   if (figures.length > 0) {
     // 有别的内容要排时给图留 62% 高度，独占一拍时可以吃满
     const others = bars.length + unitGroups.length + extents.length + labels.length;

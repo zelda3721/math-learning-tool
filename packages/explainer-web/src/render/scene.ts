@@ -139,8 +139,8 @@ export interface FigureShape {
   kind: "figure";
   id: string;
   points: { id: string; at: [number, number] }[];
-  segments: { from: string; to: string }[];
-  polygons: { points: string[]; shaded: boolean }[];
+  segments: { from: string; to: string; label?: string }[];
+  polygons: { points: string[]; shaded: boolean; label?: string }[];
   emphasis?: boolean;
 }
 
@@ -191,21 +191,31 @@ function figureShapeOf(g: GroupState): FigureShape | null {
     points.push({ id, at });
   }
   if (points.length < 3) return null;
-  const segments: { from: string; to: string }[] = [];
+  const segments: { from: string; to: string; label?: string }[] = [];
   for (const raw of Array.isArray(params.segments) ? params.segments : []) {
     if (typeof raw !== "object" || raw === null) continue;
     const s = raw as Record<string, unknown>;
     const from = String(s.from ?? "");
     const to = String(s.to ?? "");
-    if (seen.has(from) && seen.has(to)) segments.push({ from, to });
+    if (seen.has(from) && seen.has(to)) {
+      segments.push({
+        from,
+        to,
+        ...(typeof s.label === "string" && s.label ? { label: s.label } : {}),
+      });
+    }
   }
-  const polygons: { points: string[]; shaded: boolean }[] = [];
+  const polygons: { points: string[]; shaded: boolean; label?: string }[] = [];
   for (const raw of Array.isArray(params.polygons) ? params.polygons : []) {
     if (typeof raw !== "object" || raw === null) continue;
     const poly = raw as Record<string, unknown>;
     const names = (Array.isArray(poly.points) ? poly.points : []).map((n) => String(n));
     if (names.length >= 3 && names.every((n) => seen.has(n))) {
-      polygons.push({ points: names, shaded: poly.shaded === true });
+      polygons.push({
+        points: names,
+        shaded: poly.shaded === true,
+        ...(typeof poly.label === "string" && poly.label ? { label: poly.label } : {}),
+      });
     }
   }
   return {

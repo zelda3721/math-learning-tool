@@ -1098,23 +1098,42 @@ class SolutionScene(Scene):
                             fill_opacity=0.5 if cycle.get("shaded") else 0.0,
                             stroke_width=2.4,
                         ))
+                        # 区域标签写在重心：面积数值属于那块区域，不该漂在图外
+                        cycle_label = str(cycle.get("label") or "").strip()
+                        if cycle_label:
+                            cpts = [figure_points[n] for n in names]
+                            mark = Text(cycle_label, font_size=22, color=WHITE)
+                            mark.move_to([
+                                sum(p[0] for p in cpts) / len(cpts),
+                                sum(p[1] for p in cpts) / len(cpts),
+                                0,
+                            ])
+                            body.add(mark)
                 for seg in params.get("segments") or []:
                     seg_a, seg_b = str(seg.get("from")), str(seg.get("to"))
                     if seg_a in figure_points and seg_b in figure_points:
-                        body.add(Line(
+                        seg_line = Line(
                             figure_points[seg_a], figure_points[seg_b],
                             color=WHITE, stroke_width=2.4,
-                        ))
-                for name, p in figure_points.items():
-                    dx, dy = p[0] - fig_cx, p[1] - fig_cy
-                    norm = max((dx * dx + dy * dy) ** 0.5, 1e-6)
-                    letter = Text(name, font_size=24, color=YELLOW)
-                    letter.move_to([
-                        p[0] + dx / norm * 0.32,
-                        p[1] + dy / norm * 0.32,
-                        0,
-                    ])
-                    body.add(letter)
+                        )
+                        body.add(seg_line)
+                        seg_label = str(seg.get("label") or "").strip()
+                        if seg_label:
+                            tag = Text(seg_label, font_size=18, color=GREY_B)
+                            tag.next_to(seg_line.get_center(), UR, buff=0.12)
+                            body.add(tag)
+                # 顶点字母只由底图画；overlay 的点是底图点的子集，再画一遍就是重影
+                if not str(spec.get("id") or "").startswith("figure_overlay_"):
+                    for name, p in figure_points.items():
+                        dx, dy = p[0] - fig_cx, p[1] - fig_cy
+                        norm = max((dx * dx + dy * dy) ** 0.5, 1e-6)
+                        letter = Text(name, font_size=24, color=YELLOW)
+                        letter.move_to([
+                            p[0] + dx / norm * 0.32,
+                            p[1] + dy / norm * 0.32,
+                            0,
+                        ])
+                        body.add(letter)
             if len(body) == 0:
                 body = VGroup(Dot([0, 0, 0], radius=0.001))
         else:
@@ -1158,6 +1177,15 @@ class SolutionScene(Scene):
     def slots(self, count):
         columns = min(3, max(count, 1))
         rows = math.ceil(count / columns)
+        if self.coordinate_ids:
+            # 几何图形以原点为中心占据画面中部（geometry_point 的映射）；
+            # 关系框等自由对象沉到底部一条带——压在图上就是"框糊脸"（实机踩过）
+            x_gap = 3.9 if columns > 1 else 0
+            return [
+                RIGHT * ((index % columns) - (columns - 1) / 2) * x_gap
+                + DOWN * (2.95 - (index // columns) * 1.0)
+                for index in range(count)
+            ]
         x_gap = 3.7 if columns > 1 else 0
         y_gap = 2.45 if rows > 1 else 0
         return [
