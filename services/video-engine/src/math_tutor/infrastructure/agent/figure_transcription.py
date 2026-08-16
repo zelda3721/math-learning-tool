@@ -122,11 +122,33 @@ def figure_object(t: dict[str, Any]) -> dict[str, Any]:
 #: 注解必须用 figure_ops 指着字母说话，坐标由转写解析，模型无权持有坐标。
 _FREE_GEOMETRY = {"polygon", "line", "arrow", "dot"}
 
+#: 有图的题里同样要剥掉的"图外数量图标"。实机教训：面积 12/16 被画成
+#: 两堆小方块摆在图旁边——面积属于图上的区域，数值该写在区域重心里；
+#: 一堆方块既不是那块面积，也让孩子的视线离开真正要看的图。
+_OFF_FIGURE_QUANTITY = {"unit_grid", "quantity_bar"}
+
 
 def _centroid(names: list[str], pts: dict[str, list[float]]) -> list[float]:
     xs = [pts[n][0] for n in names]
     ys = [pts[n][1] for n in names]
     return [round(sum(xs) / len(xs), 4), round(sum(ys) / len(ys), 4)]
+
+
+def figure_ops_violations(plan: dict[str, Any]) -> list[str]:
+    """有原图的计划必须在图上表达——一条 figure_ops 都没有就打回。
+
+    这是给结构契约重试用的判据：模型的数量本能（方块阵、数量条）会把
+    面积搬到图外去，这里逼它回到图上。剥图元是兜底，教会模型才是目的。
+    """
+    scenes = [s for s in plan.get("scenes") or [] if isinstance(s, dict)]
+    if not scenes:
+        return []
+    if not any(s.get("figure_ops") for s in scenes):
+        return [
+            "有原图的题必须用 figure_ops 在图上表达：面积/长度这类属于图上区域的数量，"
+            "用 highlight_region 把数值写进区域重心——不要在图外摆方块阵，面积不是一堆小方块"
+        ]
+    return []
 
 
 def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
@@ -141,17 +163,18 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
     """
     pts = {p["id"]: [p["x"], round(1 - p["y"], 4)] for p in t["points"]}
 
+    banned = _FREE_GEOMETRY | _OFF_FIGURE_QUANTITY
     stripped = [
         str(o.get("id"))
         for o in plan.get("visual_objects") or []
-        if isinstance(o, dict) and o.get("primitive") in _FREE_GEOMETRY
+        if isinstance(o, dict) and o.get("primitive") in banned
     ]
     if stripped:
         logger.info("figure choreography: 剥掉模型自由画的几何对象 %s", stripped)
         plan["visual_objects"] = [
             o
             for o in plan.get("visual_objects") or []
-            if not (isinstance(o, dict) and o.get("primitive") in _FREE_GEOMETRY)
+            if not (isinstance(o, dict) and o.get("primitive") in banned)
         ]
         # 引用被剥对象的动作一并清掉，别让空指针传到渲染端
         gone = set(stripped)

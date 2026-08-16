@@ -25,6 +25,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..figure_transcription import (
     choreograph_figure,
+    figure_ops_violations,
     inject_figure_object,
     transcribe_figure,
     transcription_summary,
@@ -7396,6 +7397,11 @@ class VisualPlanTool(ITool):
                 '  {"figure_ops":[{"op":"highlight_region","points":["E","B","D"],"label":"12"},\n'
                 '                 {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}]}\n'
                 "  字母必须出自上面的转写清单，指错即被丢弃；\n"
+                "- **数量表达在图上，不在图外**：面积/长度属于图上的区域，"
+                "数值用 highlight_region 的 label 写进那块区域——"
+                "**禁止**用 unit_grid/quantity_bar 把面积摆成图外的方块阵"
+                "（面积不是一堆小方块，写了也会被剥掉）；"
+                "relation_node 只用于算式（如 28-12=16），会沉到画面底部；\n"
                 "- 教学弧线按**发现规律**来编：先带孩子观察（这一拍高亮谁、问什么），"
                 "再做一步操作（连辅助线/换个区域高亮），让等量关系自己显形，"
                 "最后一拍数值验证。teaching_line 是引导语，不是答案播报。"
@@ -7470,6 +7476,8 @@ class VisualPlanTool(ITool):
             )
         plan = ground_visual_plan_from_math_execution(plan, ctx)
         errors = _validate_plan(plan, grade)
+        if transcription:
+            errors.extend(figure_ops_violations(plan))
         if errors:
             # Near-miss plans deserve one evidence-directed retry: feed the
             # exact violations back before falling to deterministic salvage.
@@ -7488,6 +7496,8 @@ class VisualPlanTool(ITool):
                 if retry_plan is not None:
                     retry_plan = ground_visual_plan_from_math_execution(retry_plan, ctx)
                     retry_errors = _validate_plan(retry_plan, grade)
+                    if transcription:
+                        retry_errors.extend(figure_ops_violations(retry_plan))
                     if not retry_errors:
                         done = retry_done
                         plan = retry_plan
