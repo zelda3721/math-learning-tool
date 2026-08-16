@@ -24,6 +24,8 @@ from ....application.interfaces import (
 )
 from .. import markdown_extract as md
 from ..figure_transcription import (
+    _FREE_GEOMETRY,
+    _OFF_FIGURE_QUANTITY,
     choreograph_figure,
     figure_ops_violations,
     filter_figure_plan_errors,
@@ -5952,6 +5954,10 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
     return plan if not _validate_plan(plan, ctx.grade) else None
 
 
+#: 带图计划里注定被编排剥掉的图元（就是编排用的那两张黑名单）
+_STRIPPED_FIGURE_PRIMITIVES = _FREE_GEOMETRY | _OFF_FIGURE_QUANTITY
+
+
 def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
     """带图计划的 actions 消毒：删掉引用未声明对象的幽灵目标。
 
@@ -5961,6 +5967,24 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
     删目标、空了的动作丢掉、空了的拍补一个高亮底图，计划就能带着编排活下来。
     """
     objects = plan.setdefault("visual_objects", [])
+    # 自由几何/图外数量图标入库时一定会被编排剥掉（坐标只此一家）——校验前先剥，
+    # 免得"highlight region_ABE 在对象出现前执行"这类注定要消失的对象把计划打回
+    # （实机第 3 轮：模型自 declare 了 polygon region_ABE 又只 highlight 不 create）
+    if isinstance(objects, list):
+        doomed = {
+            str(o.get("id"))
+            for o in objects
+            if isinstance(o, dict) and o.get("primitive") in _STRIPPED_FIGURE_PRIMITIVES
+        }
+        if doomed:
+            plan["visual_objects"] = objects = [
+                o for o in objects
+                if not (isinstance(o, dict) and str(o.get("id")) in doomed)
+            ]
+    rationale = str(plan.get("essence_rationale") or "")
+    if len(rationale.strip()) > 400:
+        # 说理写长了不是画面问题：截到 400 字，别为一段元文本丢掉整份带图计划
+        plan["essence_rationale"] = rationale.strip()[:400]
     if isinstance(objects, list) and not any(
         isinstance(o, dict) and o.get("id") == "original_figure" for o in objects
     ):
@@ -6016,10 +6040,22 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
                 for field in ("source", "destination", "result"):
                     if action.get(field) and str(action[field]) not in declared:
                         action[field] = None if field != "result" else ""
+                if not str(action.get("meaning") or "").strip():
+                    # 节拍器动作漏写 meaning：拿这一拍的 action/teaching_line 顶上
+                    action["meaning"] = str(
+                        scene.get("action") or scene.get("teaching_line") or "图上注解"
+                    )[:80]
                 kept.append(action)
         if not kept:
             kept = [
-                {"op": "highlight", "targets": ["original_figure"], "target": "original_figure"}
+                {
+                    "op": "highlight",
+                    "targets": ["original_figure"],
+                    "target": "original_figure",
+                    "meaning": str(
+                        scene.get("action") or scene.get("teaching_line") or "图上注解"
+                    )[:80],
+                }
             ]
         scene["actions"] = kept
 
