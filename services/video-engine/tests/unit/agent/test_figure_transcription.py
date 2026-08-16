@@ -138,3 +138,43 @@ def test_不是dataURL直接返回None():
     llm = _FakeLLM(RAW)
     assert asyncio.run(transcribe_figure(llm, "http://example.com/x.jpg")) is None
     assert llm.calls == []
+
+
+# ── 注入的必经之路：store_visual_plan——降级兜底计划也必须带图（实机踩过：
+#    导演降级成"数量链"计划后，几何题的画面变成了纯数点点，转写好的图没人用） ──
+
+from math_tutor.application.interfaces import ToolContext
+from math_tutor.infrastructure.agent.tools.visual_plan import store_visual_plan
+
+
+def _plan_ctx(state: dict) -> ToolContext:
+    return ToolContext(session_id="s1", turn_index=0, grade="elementary_upper", problem="题", state=state)
+
+
+def test_store_visual_plan_对降级计划同样注入图形():
+    t = parse_transcription(RAW)
+    state = {"figure_transcription": t}
+    # 模拟 build_safe_visual_plan 的产物：只有数量对象，没有 figure
+    plan = {
+        "visual_thesis": "让已验证运算链中的每个数量状态连续变化并最终落到答案",
+        "visual_objects": [
+            {"id": "verified_value_0", "primitive": "quantity_bar", "params": {"value": 40}, "meaning": "40"},
+        ],
+        "scenes": [{"role": "setup", "actions": [{"op": "create", "target": "verified_value_0"}]}],
+    }
+    store_visual_plan(_plan_ctx(state), plan)
+    stored = state["visual_plan"]
+    figures = [o for o in stored["visual_objects"] if o.get("primitive") == "figure"]
+    assert len(figures) == 1 and figures[0]["params"]["points"]
+    assert stored["scenes"][0]["actions"][0] == {"op": "create", "target": "original_figure"}
+
+
+def test_store_visual_plan_没有转写时不动计划():
+    state = {}
+    plan = {
+        "visual_thesis": "x",
+        "visual_objects": [{"id": "a", "primitive": "quantity_bar", "params": {}, "meaning": "a"}],
+        "scenes": [{"actions": []}],
+    }
+    store_visual_plan(_plan_ctx(state), plan)
+    assert all(o.get("primitive") != "figure" for o in state["visual_plan"]["visual_objects"])
