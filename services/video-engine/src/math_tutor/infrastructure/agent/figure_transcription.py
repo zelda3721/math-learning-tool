@@ -128,6 +128,24 @@ _FREE_GEOMETRY = {"polygon", "line", "arrow", "dot"}
 _OFF_FIGURE_QUANTITY = {"unit_grid", "quantity_bar"}
 
 
+#: 分步/分组着色的色名表（Manim 与 Web 各自映射到具体颜色）
+_TONES = ["gold", "blue", "orange", "green", "purple"]
+
+#: 图上的区域标签只许写"量"（数字/问号/带单位的短文本）。算式是符号，不上图——
+#: 关系靠色块表达，算式放 relation_node 沉底。带这些字符的标签整条丢弃并留痕
+_FORMULA_CHARS = set("=+×÷*/≠≈<>")
+
+
+def _figure_label(raw: Any, dropped: list[str], index: int) -> str:
+    label = str(raw or "").strip()
+    if not label:
+        return ""
+    if any(ch in _FORMULA_CHARS for ch in label):
+        dropped.append(f"beat{index}:label 是算式不上图:{label[:20]}")
+        return ""
+    return label
+
+
 def _centroid(names: list[str], pts: dict[str, list[float]]) -> list[float]:
     xs = [pts[n][0] for n in names]
     ys = [pts[n][1] for n in names]
@@ -177,7 +195,8 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
       {"op":"compare_equal","regions":[["A","B","E"],["E","B","D"]],"label":"12"}
       {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}
     这里逐条解析：字母 → 转写坐标 → 该拍的 overlay figure 对象 + create 动作。
-    compare_equal 解析成同拍两块同色区域 + params.equal_marks（渲染端画中缝等号）。
+    compare_equal 解析成同拍两块**同色**区域 + params.equal_marks（配对语义，渲染端
+    用来同步脉冲，不画等号——相等靠颜色说，图上不写符号）。
     指了不存在的字母就丢那一条并留痕——图不会歪，只会少一个注解。
     同时**剥掉**模型自由画的几何图元：坐标只此一家。
     """
@@ -230,7 +249,7 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                 names = [str(n) for n in op.get("points") or []]
                 if len(names) >= 3 and all(n in pts for n in names):
                     poly: dict[str, Any] = {"points": names, "shaded": True}
-                    label = str(op.get("label") or "").strip()
+                    label = _figure_label(op.get("label"), dropped_ops, index)
                     if label:
                         poly["label"] = label
                     polygons.append(poly)
@@ -239,8 +258,9 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                 else:
                     dropped_ops.append(f"beat{index}:{kind}:{','.join(names)}")
             elif kind == "compare_equal":
-                # 等量配对：同一拍把相等的两块**一起**亮出来（同色 + 中缝等号），
-                # "看见相等"是这类题的灵魂——单块轮流高亮讲不出"这两块一样大"。
+                # 等量配对：同一拍把相等的两块**一起**亮出来，用同一种颜色——
+                # 颜色本身就是等号，图上不写符号（用户定案 2026-08-17：相等/有关系
+                # 一律靠色块，不靠 = + 这类符号）。"看见相等"是这类题的灵魂。
                 # 两块都要能解析；只解析出一块就退成普通高亮，配对语义丢弃并留痕
                 regions = [
                     [str(n) for n in r]
@@ -250,7 +270,7 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                 valid = [
                     r for r in regions if len(r) >= 3 and all(n in pts for n in r)
                 ]
-                label = str(op.get("label") or "").strip()
+                label = _figure_label(op.get("label"), dropped_ops, index)
                 if len(valid) >= 2:
                     a, b = valid[0], valid[1]
                     pair_id = len(equal_marks) + 1
@@ -291,12 +311,25 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         if not overlay_points:
             continue
         overlay_id = f"figure_overlay_{index}"
-        # 每拍一个专属色：孩子能看出"现在讲的是哪一块"；同色叠加只会糊成一片
-        tone = ["gold", "blue", "orange", "green", "purple"][index % 5]
+        # 颜色就是关系：同一拍里"一对相等的块"共用一色，其余每块各一色——
+        # 孩子看颜色就知道谁和谁一样大、整体由哪几块拼成，图上不出现符号。
+        # 起始色随拍号轮转，相邻两拍不会撞同一种颜色
+        groups: dict[int, int] = {}
+        next_group = 0
         for poly in polygons:
-            poly["tone"] = tone
+            pair_id = poly.get("pair")
+            if pair_id is not None and pair_id in groups:
+                slot = groups[pair_id]
+            else:
+                slot = next_group
+                next_group += 1
+                if pair_id is not None:
+                    groups[pair_id] = slot
+            poly["tone"] = _TONES[(index + slot) % len(_TONES)]
         for mark in equal_marks:
-            mark["tone"] = tone
+            pair_polys = [p for p in polygons if p.get("pair") == equal_marks.index(mark) + 1]
+            if pair_polys:
+                mark["tone"] = pair_polys[0]["tone"]
         overlay_params: dict[str, Any] = {
             "points": [{"id": n, "at": at} for n, at in overlay_points.items()],
             "segments": segments,
