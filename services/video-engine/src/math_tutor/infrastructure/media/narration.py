@@ -30,12 +30,37 @@ def _clean_line(value: Any) -> str:
     return " ".join(str(value or "").replace("-->", "→").split()).strip()
 
 
+def _manifest_windows(beat_manifest: Any, count: int) -> list[tuple[float, float]] | None:
+    """渲染时记下的各拍真实起止；数目对不上或缺起点就当没有。"""
+    beats = (beat_manifest or {}).get("beats") if isinstance(beat_manifest, dict) else None
+    if not isinstance(beats, list) or len(beats) != count:
+        return None
+    windows: list[tuple[float, float]] = []
+    for beat in beats:
+        if not isinstance(beat, dict):
+            return None
+        try:
+            start = float(beat.get("start_time"))
+            end = float(beat.get("end_time"))
+        except (TypeError, ValueError):
+            return None
+        if end <= start:
+            return None
+        windows.append((start, end))
+    return windows
+
+
 def build_narration_cues(
     visual_plan: dict[str, Any] | None,
     *,
     actual_duration_s: float | None = None,
+    beat_manifest: dict[str, Any] | None = None,
 ) -> list[NarrationCue]:
-    """Map open-world visual beats onto one deterministic narration timeline."""
+    """Map open-world visual beats onto one deterministic narration timeline.
+
+    有渲染清单（每拍真实起止）就按它对齐——字幕轨和画面里烤进去的讲解句
+    同一时刻出现；没有清单才退回"按计划时长等比摊到整段视频"的估算。
+    """
     scenes = (visual_plan or {}).get("scenes") or []
     timed: list[tuple[float, str]] = []
     for scene in scenes:
@@ -46,6 +71,21 @@ def build_narration_cues(
     planned_total = sum(duration for duration, _ in timed)
     if not timed or planned_total <= 0:
         return []
+
+    windows = _manifest_windows(beat_manifest, len(timed))
+    if windows is not None:
+        actual = float(actual_duration_s or 0)
+        cues: list[NarrationCue] = []
+        for (beat_start, beat_end), (_, line) in zip(windows, timed):
+            if not line:
+                continue
+            start = beat_start + 0.05
+            end = max(start + 0.8, beat_end - 0.05)
+            if actual > 0:
+                end = min(end, actual)
+            if end > start:
+                cues.append(NarrationCue(round(start, 3), round(end, 3), line[:180]))
+        return cues
 
     actual = float(actual_duration_s or 0)
     scale = actual / planned_total if actual > 0 else 1.0

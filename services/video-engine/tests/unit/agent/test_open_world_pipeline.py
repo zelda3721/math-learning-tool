@@ -2272,6 +2272,26 @@ def test_teaching_lines_become_a_content_agnostic_caption_timeline() -> None:
     assert plan["scenes"][1]["teaching_line"] in vtt
 
 
+def test_caption_timeline_follows_the_render_manifest_when_available() -> None:
+    """片头题卡占了前几秒：字幕必须对齐画面真正播到那一拍的时刻，而不是从 0 秒开摊。"""
+    plan = _open_world_plan()
+    manifest = {
+        "beats": [
+            {"beat_index": 0, "start_time": 5.2, "end_time": 11.0},
+            {"beat_index": 1, "start_time": 11.0, "end_time": 19.5},
+            {"beat_index": 2, "start_time": 19.5, "end_time": 25.0},
+        ]
+    }
+    cues = build_narration_cues(plan, actual_duration_s=28, beat_manifest=manifest)
+    assert len(cues) == 3
+    assert cues[0].start_s == 5.25 and cues[0].end_s == 10.95
+    assert cues[1].start_s == 11.05 and cues[2].end_s == 24.95
+    # 清单和计划拍数对不上 → 退回按计划时长等比估算，不崩
+    broken = {"beats": manifest["beats"][:2]}
+    fallback = build_narration_cues(plan, actual_duration_s=28, beat_manifest=broken)
+    assert len(fallback) == 3 and fallback[0].start_s < 1.0
+
+
 def test_static_gate_requires_most_planned_teaching_lines_in_code() -> None:
     plan = _open_world_plan()
     lines = [scene["teaching_line"] for scene in plan["scenes"]]

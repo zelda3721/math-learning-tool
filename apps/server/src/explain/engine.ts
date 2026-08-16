@@ -12,6 +12,11 @@ export interface EngineRunResult {
   sessionId?: string;
   videoUrl?: string;
   doneText?: string;
+  /**
+   * 引擎渲染阶段归档的字幕产物（WebVTT）id——取最后一次成功渲染的那份。
+   * 引擎只在 tool_result 事件里报产物，done 事件不带；不在这里抓，讲解视频就没字幕。
+   */
+  subtitleArtifactId?: string;
 }
 
 export interface EngineChatPayload {
@@ -67,6 +72,7 @@ export async function generateViaEngine(
   let buffer = "";
   let currentEvent = "";
   let sessionId: string | undefined;
+  let subtitleArtifactId: string | undefined;
 
   const reader = resp.body.getReader();
   try {
@@ -91,12 +97,22 @@ export async function generateViaEngine(
           }
           if (currentEvent === "session") {
             sessionId = String(parsed.session_id ?? "");
+          } else if (currentEvent === "tool_result") {
+            const artifacts = Array.isArray(parsed.artifacts) ? parsed.artifacts : [];
+            for (const art of artifacts) {
+              if (typeof art !== "object" || art === null) continue;
+              const rec = art as Record<string, unknown>;
+              if (rec.kind === "subtitle" && rec.id !== undefined && rec.id !== null) {
+                subtitleArtifactId = String(rec.id);
+              }
+            }
           } else if (currentEvent === "done") {
             return {
               status: (parsed.status as EngineRunResult["status"]) ?? "failed",
               sessionId,
               videoUrl: parsed.final_video_url ? String(parsed.final_video_url) : undefined,
               doneText: parsed.text ? String(parsed.text) : undefined,
+              ...(subtitleArtifactId !== undefined ? { subtitleArtifactId } : {}),
             };
           } else if (currentEvent === "error" && parsed.fatal) {
             return { status: "failed", sessionId, doneText: String(parsed.message ?? "engine error") };

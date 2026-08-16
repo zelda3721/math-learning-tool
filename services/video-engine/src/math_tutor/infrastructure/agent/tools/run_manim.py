@@ -103,7 +103,12 @@ class RunManimTool(ITool):
         video_path = result.video_path or ""
         source_video_path = video_path
         duration_s = probe_duration(Path(video_path)) if video_path else None
-        cues = build_narration_cues(ctx.state.get("visual_plan"), actual_duration_s=duration_s)
+        beat_manifest = getattr(result, "beat_manifest", None)
+        cues = build_narration_cues(
+            ctx.state.get("visual_plan"),
+            actual_duration_s=duration_s,
+            beat_manifest=beat_manifest if isinstance(beat_manifest, dict) else None,
+        )
         audio_attached = False
         narration_warning: str | None = None
         if video_path and self._narration is not None and cues:
@@ -121,7 +126,6 @@ class RunManimTool(ITool):
         ctx.state["latest_video_path"] = video_path
         ctx.state["latest_video_url"] = video_url
         ctx.state["last_run_error"] = None
-        beat_manifest = getattr(result, "beat_manifest", None)
         if isinstance(beat_manifest, dict) and beat_manifest.get("beats"):
             ctx.state["beat_manifest"] = beat_manifest
         else:

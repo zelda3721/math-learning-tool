@@ -140,9 +140,33 @@ export interface FigureShape {
   id: string;
   points: { id: string; at: [number, number] }[];
   segments: { from: string; to: string; label?: string }[];
-  polygons: { points: string[]; shaded: boolean; label?: string }[];
+  polygons: FigurePolygonShape[];
+  /** 等量配对的等号（compare_equal）：a、b 两块重心之间写"=" */
+  equalMarks: FigureEqualMarkShape[];
   emphasis?: boolean;
 }
+
+export interface FigurePolygonShape {
+  points: string[];
+  shaded: boolean;
+  label?: string;
+  /** 分步着色：这一拍的专属色名 */
+  tone?: FigureTone;
+  /** 等量配对编号（同号两块是一对） */
+  pair?: number;
+}
+
+export interface FigureEqualMarkShape {
+  a: string[];
+  b: string[];
+  label?: string;
+  tone?: FigureTone;
+}
+
+export type FigureTone = "gold" | "blue" | "orange" | "green" | "purple";
+const TONES = new Set<string>(["gold", "blue", "orange", "green", "purple"]);
+const toneOf = (v: unknown): FigureTone | undefined =>
+  typeof v === "string" && TONES.has(v) ? (v as FigureTone) : undefined;
 
 export type Shape =
   | CurveShape
@@ -205,16 +229,36 @@ function figureShapeOf(g: GroupState): FigureShape | null {
       });
     }
   }
-  const polygons: { points: string[]; shaded: boolean; label?: string }[] = [];
+  const polygons: FigurePolygonShape[] = [];
   for (const raw of Array.isArray(params.polygons) ? params.polygons : []) {
     if (typeof raw !== "object" || raw === null) continue;
     const poly = raw as Record<string, unknown>;
     const names = (Array.isArray(poly.points) ? poly.points : []).map((n) => String(n));
     if (names.length >= 3 && names.every((n) => seen.has(n))) {
+      const tone = toneOf(poly.tone);
+      const pair = typeof poly.pair === "number" && poly.pair > 0 ? poly.pair : undefined;
       polygons.push({
         points: names,
         shaded: poly.shaded === true,
         ...(typeof poly.label === "string" && poly.label ? { label: poly.label } : {}),
+        ...(tone !== undefined ? { tone } : {}),
+        ...(pair !== undefined ? { pair } : {}),
+      });
+    }
+  }
+  const equalMarks: FigureEqualMarkShape[] = [];
+  for (const raw of Array.isArray(params.equal_marks) ? params.equal_marks : []) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const mark = raw as Record<string, unknown>;
+    const a = (Array.isArray(mark.a) ? mark.a : []).map((n) => String(n));
+    const b = (Array.isArray(mark.b) ? mark.b : []).map((n) => String(n));
+    if (a.length >= 3 && b.length >= 3 && [...a, ...b].every((n) => seen.has(n))) {
+      const tone = toneOf(mark.tone);
+      equalMarks.push({
+        a,
+        b,
+        ...(typeof mark.label === "string" && mark.label ? { label: mark.label } : {}),
+        ...(tone !== undefined ? { tone } : {}),
       });
     }
   }
@@ -224,6 +268,7 @@ function figureShapeOf(g: GroupState): FigureShape | null {
     points,
     segments,
     polygons,
+    equalMarks,
     ...(g.emphasis ? { emphasis: true as const } : {}),
   };
 }

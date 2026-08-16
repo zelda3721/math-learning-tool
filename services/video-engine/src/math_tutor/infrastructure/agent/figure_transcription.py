@@ -174,8 +174,10 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
 
     导演在每拍写 figure_ops（只有字母，没有坐标）：
       {"op":"highlight_region","points":["E","B","D"],"label":"12"}
+      {"op":"compare_equal","regions":[["A","B","E"],["E","B","D"]],"label":"12"}
       {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}
     这里逐条解析：字母 → 转写坐标 → 该拍的 overlay figure 对象 + create 动作。
+    compare_equal 解析成同拍两块同色区域 + params.equal_marks（渲染端画中缝等号）。
     指了不存在的字母就丢那一条并留痕——图不会歪，只会少一个注解。
     同时**剥掉**模型自由画的几何图元：坐标只此一家。
     """
@@ -219,6 +221,7 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         overlay_points: dict[str, list[float]] = {}
         segments: list[dict[str, Any]] = []
         polygons: list[dict[str, Any]] = []
+        equal_marks: list[dict[str, Any]] = []
         for op in ops:
             if not isinstance(op, dict):
                 continue
@@ -235,6 +238,42 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                         overlay_points[n] = pts[n]
                 else:
                     dropped_ops.append(f"beat{index}:{kind}:{','.join(names)}")
+            elif kind == "compare_equal":
+                # 等量配对：同一拍把相等的两块**一起**亮出来（同色 + 中缝等号），
+                # "看见相等"是这类题的灵魂——单块轮流高亮讲不出"这两块一样大"。
+                # 两块都要能解析；只解析出一块就退成普通高亮，配对语义丢弃并留痕
+                regions = [
+                    [str(n) for n in r]
+                    for r in (op.get("regions") or [])
+                    if isinstance(r, (list, tuple))
+                ]
+                valid = [
+                    r for r in regions if len(r) >= 3 and all(n in pts for n in r)
+                ]
+                label = str(op.get("label") or "").strip()
+                if len(valid) >= 2:
+                    a, b = valid[0], valid[1]
+                    pair_id = len(equal_marks) + 1
+                    for names in (a, b):
+                        poly = {"points": names, "shaded": True, "pair": pair_id}
+                        if label:
+                            poly["label"] = label
+                        polygons.append(poly)
+                        for n in names:
+                            overlay_points[n] = pts[n]
+                    equal_marks.append({"a": a, "b": b, "label": label})
+                    if len(valid) > 2:
+                        dropped_ops.append(f"beat{index}:{kind}:多于两块只取前两块")
+                elif len(valid) == 1:
+                    poly = {"points": valid[0], "shaded": True}
+                    if label:
+                        poly["label"] = label
+                    polygons.append(poly)
+                    for n in valid[0]:
+                        overlay_points[n] = pts[n]
+                    dropped_ops.append(f"beat{index}:{kind}:只解析出一块，退成高亮")
+                else:
+                    dropped_ops.append(f"beat{index}:{kind}:{regions}")
             elif kind == "draw_segment":
                 a, b = str(op.get("from") or ""), str(op.get("to") or "")
                 if a in pts and b in pts:
@@ -256,15 +295,20 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         tone = ["gold", "blue", "orange", "green", "purple"][index % 5]
         for poly in polygons:
             poly["tone"] = tone
+        for mark in equal_marks:
+            mark["tone"] = tone
+        overlay_params: dict[str, Any] = {
+            "points": [{"id": n, "at": at} for n, at in overlay_points.items()],
+            "segments": segments,
+            "polygons": polygons,
+        }
+        if equal_marks:
+            overlay_params["equal_marks"] = equal_marks
         plan.setdefault("visual_objects", []).append(
             {
                 "id": overlay_id,
                 "primitive": "figure",
-                "params": {
-                    "points": [{"id": n, "at": at} for n, at in overlay_points.items()],
-                    "segments": segments,
-                    "polygons": polygons,
-                },
+                "params": overlay_params,
                 "meaning": f"第{index}拍的图上注解",
             }
         )
@@ -272,12 +316,13 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         if isinstance(actions, list):
             # 新拍高亮出场时，上一拍的高亮退场——按步骤表达，当前拍才是焦点。
             # 只退 overlay，底图永远在场
+            actions.insert(0, {"op": "create", "targets": [overlay_id], "target": overlay_id})
             if previous_overlay is not None:
+                # 先退旧再出新：两拍的数值同屏哪怕半秒也会读成一堆数
                 actions.insert(
                     0,
                     {"op": "remove", "targets": [previous_overlay], "target": previous_overlay},
                 )
-            actions.insert(0, {"op": "create", "targets": [overlay_id], "target": overlay_id})
         previous_overlay = overlay_id
     if dropped_ops:
         logger.warning("figure choreography: 指了不存在的字母，丢弃 %s", dropped_ops[:6])

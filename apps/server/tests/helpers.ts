@@ -56,7 +56,10 @@ export function tempFixtureEnv(questions: Question[]): {
   const db = openMemoryDb();
   const repo = new Repo(db);
   const state: AppState = {
-    config: { ...loadConfig({}), dataDir },
+    // figuresDir 必须跟着进临时目录：默认值指向仓库 media/figures，
+    // 题库删题会顺手 prune "没被引用"的原图——在测试里等于清空真实的图库
+    // （实机事故：跑一遍单测，讲义原图全没了）
+    config: { ...loadConfig({}), dataDir, figuresDir: path.join(dataDir, "figures") },
     contract: null,
     knowledge,
     questions: store,

@@ -557,7 +557,12 @@ class SolutionScene(Scene):
         # 图内标签的占位登记：区域数值/线段标签共享，太近就沿阶梯找空位。
         # 实机踩过：三块区域的重心挤在图形窄处，12/28/16 叠成一摞
         self.placed_figure_labels = []
+        # 底图顶点字母的占位：每个 overlay 只需避开字母和**自己这一拍**的标签。
+        # 各拍 overlay 轮流在场（上一拍退场再出下一拍），共用一本账会让第 3 拍的
+        # 数值为躲第 1 拍早已退场的数值而漂到图外（实机：16 挂在图左边）
+        self.figure_letter_spots = []
         coordinate_points = []
+        figure_coordinate_points = []
         for spec in VISUAL_OBJECTS:
             primitive = spec.get("primitive")
             params = spec.get("params") or {}
@@ -574,13 +579,15 @@ class SolutionScene(Scene):
                     if isinstance(point, list) and len(point) >= 2
                 )
             if primitive == "figure":
-                coordinate_points.extend(
+                figure_coordinate_points.extend(
                     item["at"]
                     for item in params.get("points") or []
                     if isinstance(item, dict)
                     and isinstance(item.get("at"), list)
                     and len(item["at"]) >= 2
                 )
+        figure_only = bool(figure_coordinate_points) and not coordinate_points
+        coordinate_points.extend(figure_coordinate_points)
         if self.geometry_plane_spec is not None:
             plane_params = self.geometry_plane_spec.get("params") or {}
             x_range = plane_params.get("x_range") or [-3, 3]
@@ -598,17 +605,28 @@ class SolutionScene(Scene):
             y_values = [self.number(point[1], 0) for point in coordinate_points]
             x_start, x_end = min(x_values), max(x_values)
             y_start, y_end = min(y_values), max(y_values)
-            x_span = max(x_end - x_start, 1.0)
-            y_span = max(y_end - y_start, 1.0)
-            x_margin = max(0.45, x_span * 0.08)
-            y_margin = max(0.45, y_span * 0.08)
+            if figure_only and self.geometry_plane_spec is None:
+                # 转写图的坐标是 0~1 归一化的：图本身可能只占 0.2 的跨度。
+                # 套用数学坐标那套「跨度至少 1、边距至少 0.45」会把图缩成一小撮
+                # （实机：整张图只占画面 1/4 高，字母和数值挤成一团）。
+                # 这里按图的真实包围盒放大，边距只留字母的位置
+                span = max(x_end - x_start, y_end - y_start, 0.05)
+                x_margin = max(span * 0.08, 0.02)
+                y_margin = max(span * 0.08, 0.02)
+            else:
+                x_span = max(x_end - x_start, 1.0)
+                y_span = max(y_end - y_start, 1.0)
+                x_margin = max(0.45, x_span * 0.08)
+                y_margin = max(0.45, y_span * 0.08)
             x_start -= x_margin
             x_end += x_margin
             y_start -= y_margin
             y_end += y_margin
+            # 转写图独占舞台时可以吃满字幕带以上的高度（字母外推 0.32 也算在内）
+            stage_height = 4.7 if figure_only and self.geometry_plane_spec is None else 4.25
             self.geometry_scale = min(
                 6.4 / (x_end - x_start),
-                4.25 / (y_end - y_start),
+                stage_height / (y_end - y_start),
             )
             self.geometry_center = (
                 (x_start + x_end) / 2,
@@ -1111,35 +1129,68 @@ class SolutionScene(Scene):
                 and len(item["at"]) >= 2
             }
             body = VGroup()
+            is_overlay = str(spec.get("id") or "").startswith("figure_overlay_")
+            # 每个 figure 对象一本占位账：底图从零开始（字母登记进 figure_letter_spots），
+            # overlay 从字母账起步——各拍轮流在场，不必给已退场的拍让位
+            self.placed_figure_labels = list(self.figure_letter_spots) if is_overlay else []
             if figure_points:
                 fig_cx = sum(p[0] for p in figure_points.values()) / len(figure_points)
                 fig_cy = sum(p[1] for p in figure_points.values()) / len(figure_points)
+                # 分步着色：色名由编排按拍分配（与 Web 播放器同一套名字）
+                tone_map = {
+                    "gold": YELLOW, "blue": BLUE_C, "orange": ORANGE,
+                    "green": GREEN_C, "purple": PURPLE_A,
+                }
+                # 等号先占位：区域数值给等号让路，而不是等号压在数值上
+                equal_spots = []
+                for mark in params.get("equal_marks") or []:
+                    if not isinstance(mark, dict):
+                        continue
+                    side_a = [str(n) for n in (mark.get("a") or [])]
+                    side_b = [str(n) for n in (mark.get("b") or [])]
+                    if not (
+                        len(side_a) >= 3 and len(side_b) >= 3
+                        and all(n in figure_points for n in side_a + side_b)
+                    ):
+                        continue
+                    ca = [sum(figure_points[n][i] for n in side_a) / len(side_a) for i in range(2)]
+                    cb = [sum(figure_points[n][i] for n in side_b) / len(side_b) for i in range(2)]
+                    equal_spots.append((mark, ca, cb))
+                    self.placed_figure_labels.append(((ca[0] + cb[0]) / 2, (ca[1] + cb[1]) / 2))
                 for cycle in params.get("polygons") or []:
                     names = [str(n) for n in (cycle.get("points") or [])]
                     if len(names) >= 3 and all(n in figure_points for n in names):
-                        tone_map = {
-                            "gold": YELLOW, "blue": BLUE_C, "orange": ORANGE,
-                            "green": GREEN_C, "purple": PURPLE_A,
-                        }
                         fill = tone_map.get(str(cycle.get("tone") or ""), GREY_B)
+                        # 配对区域（compare_equal）描边也用同色加粗：两块"是一对"要一眼看出
+                        paired = bool(cycle.get("pair"))
                         body.add(Polygon(
                             *[figure_points[n] for n in names],
-                            color=WHITE,
+                            color=fill if paired else WHITE,
                             fill_color=fill,
                             fill_opacity=0.5 if cycle.get("shaded") else 0.0,
-                            stroke_width=2.4,
+                            stroke_width=3.2 if paired else 2.4,
                         ))
                         # 区域标签写在重心：面积数值属于那块区域，不该漂在图外
                         cycle_label = str(cycle.get("label") or "").strip()
                         if cycle_label:
                             cpts = [figure_points[n] for n in names]
+                            centroid_x = sum(p[0] for p in cpts) / len(cpts)
+                            centroid_y = sum(p[1] for p in cpts) / len(cpts)
                             mark = Text(cycle_label, font_size=22, color=WHITE)
-                            self.place_figure_label(
-                                mark,
-                                sum(p[0] for p in cpts) / len(cpts),
-                                sum(p[1] for p in cpts) / len(cpts),
-                            )
+                            self.place_figure_label(mark, centroid_x, centroid_y)
                             body.add(mark)
+                            # 数值被挤出重心（窄条区域装不下）时补一条细引线指回去：
+                            # 漂在图外的数字不说明属于哪一块，引线替它说
+                            placed = mark.get_center()
+                            drift = ((placed[0] - centroid_x) ** 2 + (placed[1] - centroid_y) ** 2) ** 0.5
+                            if drift > 0.45:
+                                body.add(Line(
+                                    [centroid_x, centroid_y, 0],
+                                    mark.get_center() + (
+                                        [centroid_x, centroid_y, 0] - mark.get_center()
+                                    ) / drift * 0.28,
+                                    color=GREY_B, stroke_width=1.4,
+                                ))
                 for seg in params.get("segments") or []:
                     seg_a, seg_b = str(seg.get("from")), str(seg.get("to"))
                     if seg_a in figure_points and seg_b in figure_points:
@@ -1154,8 +1205,21 @@ class SolutionScene(Scene):
                             mid = seg_line.get_center()
                             self.place_figure_label(tag, mid[0] + 0.35, mid[1] + 0.3)
                             body.add(tag)
+                # 等量配对的中缝等号：两块重心连线的中点写"="，相邻两块时正好骑在
+                # 公共边上；离得远就补一条虚线把两块牵起来，孩子知道等号在说谁和谁
+                for mark, ca, cb in equal_spots:
+                    tone_color = tone_map.get(str(mark.get("tone") or ""), WHITE)
+                    gap = ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5
+                    if gap > 1.2:
+                        body.add(DashedLine(
+                            [ca[0], ca[1], 0], [cb[0], cb[1], 0],
+                            color=tone_color, stroke_width=2.0, dash_length=0.12,
+                        ))
+                    equal_sign = Text("=", font_size=34, color=tone_color, weight=BOLD)
+                    equal_sign.move_to([(ca[0] + cb[0]) / 2, (ca[1] + cb[1]) / 2, 0])
+                    body.add(equal_sign)
                 # 顶点字母只由底图画；overlay 的点是底图点的子集，再画一遍就是重影
-                if not str(spec.get("id") or "").startswith("figure_overlay_"):
+                if not is_overlay:
                     for name, p in figure_points.items():
                         dx, dy = p[0] - fig_cx, p[1] - fig_cy
                         norm = max((dx * dx + dy * dy) ** 0.5, 1e-6)
@@ -1165,6 +1229,7 @@ class SolutionScene(Scene):
                         letter.move_to([lx, ly, 0])
                         # 字母位置也登记占位：区域数值不许压到顶点字母上
                         self.placed_figure_labels.append((lx, ly))
+                        self.figure_letter_spots.append((lx, ly))
                         body.add(letter)
             if len(body) == 0:
                 body = VGroup(Dot([0, 0, 0], radius=0.001))
@@ -1244,7 +1309,7 @@ class SolutionScene(Scene):
                 item.move_to(position)
         return animations
 
-    def record_beat(self, beat_index, scene):
+    def record_beat(self, beat_index, scene, start_time=None):
         # Render-time beat manifest: actual timestamps and the per-group unit
         # state the frame SHOULD show at this moment. Consumed by the review
         # stage for deterministic count verification. Coordinates are scene
@@ -1281,6 +1346,9 @@ class SolutionScene(Scene):
         self.beat_manifest.append({
             "beat_index": beat_index,
             "role": str(scene.get("role") or ""),
+            # 起止都记：字幕轨（WebVTT）按它对齐到画面上真正播到这一拍的时刻，
+            # 而不是把计划时长等比摊到整段视频上（片头题卡那几秒会让字幕整体提前）
+            "start_time": round(float(start_time), 3) if start_time is not None else None,
             "end_time": round(float(self.renderer.time), 3),
             "groups": groups,
         })
@@ -2639,16 +2707,29 @@ class SolutionScene(Scene):
             if missing:
                 self.play(*[FadeIn(self.objects[item]) for item in missing])
                 visible.extend(missing)
-            selected = [self.objects[item] for item in targets if item in visible]
+            selected = [
+                self.objects[item] for item in targets
+                if item in visible and not self.is_figure(item)
+            ]
             if selected or mapped_units:
                 self.play(
                     *[Indicate(item, color=YELLOW) for item in selected],
                     *[Indicate(item, color=GREEN, scale_factor=1.35) for item in mapped_units],
                 )
         else:
-            selected = [self.objects[item] for item in targets if item in visible]
+            selected = [
+                self.objects[item] for item in targets
+                if item in visible and not self.is_figure(item)
+            ]
             if selected:
                 self.play(*[Indicate(item, color=YELLOW) for item in selected])
+
+    def is_figure(self, object_id):
+        # 转写重画的图（底图/各拍 overlay）不做 Indicate 脉冲：整张图放大变黄一下
+        # 只是噪音——图上的强调已经由该拍的 overlay 着色表达了。导演写的
+        # "highlight original_figure" 只是节拍器，留时长即可
+        spec = self.specs.get(object_id) or {}
+        return spec.get("primitive") == "figure"
 
     def construct(self):
         problem_card = self.fit(Text(PROBLEM_TEXT, font_size=39, color=WHITE), 11.0, 5.4)
@@ -2691,7 +2772,7 @@ class SolutionScene(Scene):
             elapsed = float(self.renderer.time) - beat_start_time
             planned = self.number(scene.get("duration_s"), 0.0, 0.0, 20.0)
             self.wait(min(8.0, max(0.7, planned - elapsed)))
-            self.record_beat(beat_index, scene)
+            self.record_beat(beat_index, scene, beat_start_time)
 
         if caption is not None:
             self.play(FadeOut(caption))
