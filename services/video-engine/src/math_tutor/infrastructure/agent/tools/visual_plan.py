@@ -5970,12 +5970,59 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
     # 自由几何/图外数量图标入库时一定会被编排剥掉（坐标只此一家）——校验前先剥，
     # 免得"highlight region_ABE 在对象出现前执行"这类注定要消失的对象把计划打回
     # （实机第 3 轮：模型自 declare 了 polygon region_ABE 又只 highlight 不 create）
+    extra_figures: set[str] = set()
     if isinstance(objects, list):
         doomed = {
             str(o.get("id"))
             for o in objects
             if isinstance(o, dict) and o.get("primitive") in _STRIPPED_FIGURE_PRIMITIVES
         }
+        # 模型自 declare 的第二个及以后的 figure 对象（region_abe 之类）：入库时 inject
+        # 只留一张底图、把它们删掉并把动作改指底图。校验前照做——否则它们"声明了
+        # 却从未 create"，一句 highlight 就触发"对象出现前执行"（实机第 5 轮）
+        seen_figure = False
+        for o in objects:
+            if not (isinstance(o, dict) and o.get("primitive") == "figure"):
+                continue
+            oid = str(o.get("id") or "")
+            if oid == "original_figure":
+                seen_figure = True
+                continue
+            if oid.startswith("figure_overlay_"):
+                continue
+            if seen_figure:
+                extra_figures.add(oid)
+            else:
+                seen_figure = True  # 第一张就是底图（inject 会用真坐标覆盖它）
+        # 只被"点名"、从未 create 的非图对象（region_abe 之类的 relation_node/占位）：
+        # 屏幕上永远不会出现，校验却会以"对象出现前执行"打回。视为幻影：删对象、
+        # 动作改指底图——真正的画面在 figure_ops 里（实机第 5 轮：四个 relation_node
+        # 幻影让一份两对 compare_equal 的好计划整份降级）
+        created: set[str] = set()
+        for scene in plan.get("scenes") or []:
+            if not isinstance(scene, dict):
+                continue
+            for action in scene.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                if str(action.get("op")) == "create":
+                    created.update(str(t) for t in (action.get("targets") or []))
+                    if action.get("target"):
+                        created.add(str(action["target"]))
+                if action.get("result"):
+                    created.add(str(action["result"]))
+        for o in objects:
+            if not isinstance(o, dict):
+                continue
+            oid = str(o.get("id") or "")
+            if (
+                oid
+                and o.get("primitive") != "figure"
+                and oid not in created
+                and oid not in doomed
+            ):
+                extra_figures.add(oid)
+        doomed |= extra_figures
         if doomed:
             plan["visual_objects"] = objects = [
                 o for o in objects
@@ -6027,6 +6074,15 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
         for action in scene.get("actions") or []:
             if not isinstance(action, dict):
                 continue
+            # 指向被删对象（多余 figure / 幻影）的动作改指底图（与 inject 的做法一致）
+            if extra_figures:
+                retargeted = [
+                    "original_figure" if str(t) in extra_figures else t
+                    for t in (action.get("targets") or [])
+                ]
+                action["targets"] = list(dict.fromkeys(retargeted))
+                if str(action.get("target")) in extra_figures:
+                    action["target"] = "original_figure"
             targets = [t for t in (action.get("targets") or []) if str(t) in declared]
             single = action.get("target")
             if targets or (single and str(single) in declared):
