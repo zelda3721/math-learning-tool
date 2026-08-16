@@ -594,3 +594,35 @@ def test_只点名不create的幻影对象_校验前删掉并改指底图():
     assert plan["scenes"][1]["actions"][1]["targets"] == ["original_figure"]
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "出现前" in e or "声明" in e], errors
+
+
+def test_verify拍被降级成highlight后仍补一个核对动作():
+    """实机第 7 轮：verify 拍只有一个 compare 幻影动作，消毒后成了 highlight，
+    契约以"verify 场景必须 compare/measure/verify"打回。核对在图上（figure_ops），动作只是节拍器。"""
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "E、F 是中点，等底同高使面积逐段传递，28=12+DFC 因此成立",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure"], "meaning": "出场"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "核对", "invariant": "面积守恒", "attention_target": "DFC",
+             "exit_condition": "得出16", "teaching_line": "所以 DFC 是 16",
+             "duration_s": 5,
+             "actions": [{"op": "map", "targets": ["region_dfc"], "meaning": "对比"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["B", "C", "D"], "label": "16"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    ops = [a["op"] for a in plan["scenes"][1]["actions"]]
+    assert "verify" in ops
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "verify 场景" in e or "出现前" in e], errors
