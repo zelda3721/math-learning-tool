@@ -211,6 +211,7 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                 ]
 
     dropped_ops: list[str] = []
+    previous_overlay: str | None = None
     for index, scene in enumerate(plan.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -251,6 +252,10 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         if not overlay_points:
             continue
         overlay_id = f"figure_overlay_{index}"
+        # 每拍一个专属色：孩子能看出"现在讲的是哪一块"；同色叠加只会糊成一片
+        tone = ["gold", "blue", "orange", "green", "purple"][index % 5]
+        for poly in polygons:
+            poly["tone"] = tone
         plan.setdefault("visual_objects", []).append(
             {
                 "id": overlay_id,
@@ -265,7 +270,15 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
         )
         actions = scene.setdefault("actions", [])
         if isinstance(actions, list):
+            # 新拍高亮出场时，上一拍的高亮退场——按步骤表达，当前拍才是焦点。
+            # 只退 overlay，底图永远在场
+            if previous_overlay is not None:
+                actions.insert(
+                    0,
+                    {"op": "remove", "targets": [previous_overlay], "target": previous_overlay},
+                )
             actions.insert(0, {"op": "create", "targets": [overlay_id], "target": overlay_id})
+        previous_overlay = overlay_id
     if dropped_ops:
         logger.warning("figure choreography: 指了不存在的字母，丢弃 %s", dropped_ops[:6])
     return plan
