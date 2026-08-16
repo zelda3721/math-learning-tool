@@ -79,6 +79,9 @@ export function renderSolved(
     y: Math.min(height - 8, Math.max(10, y)),
   });
 
+  // 图内标签占位登记（顶点字母 + 区域数值共享），新标签太近就阶梯避让
+  const placedLabels: [number, number][] = [];
+
   // 阴影多边形先画，压在线下面
   for (const poly of spec.polygons) {
     const pts = poly.points.map((id) => coords[id]).filter(Boolean).map((p) => to(p!));
@@ -87,10 +90,24 @@ export function renderSolved(
       `<polygon points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" ` +
         `fill="${poly.shaded ? shade : "none"}" stroke="${stroke}" stroke-width="1.5"/>`,
     );
-    // 区域标签写在重心：面积数值属于那块区域，不该漂在图外
+    // 区域标签写在重心：面积数值属于那块区域，不该漂在图外。
+    // 阶梯避让：多个区域的重心可能挤在图形窄处（实机：12/28/16 叠成一摞）
     if (poly.label) {
-      const cx = pts.reduce((s2, p2) => s2 + p2.x, 0) / pts.length;
-      const cy = pts.reduce((s2, p2) => s2 + p2.y, 0) / pts.length;
+      let cx = pts.reduce((s2, p2) => s2 + p2.x, 0) / pts.length;
+      let cy = pts.reduce((s2, p2) => s2 + p2.y, 0) / pts.length;
+      const spots: [number, number][] = [
+        [0, 0], [26, 0], [-26, 0], [0, -20], [0, 20], [26, -20], [-26, 20], [46, 0],
+      ];
+      for (const [dx, dy] of spots) {
+        const tx = cx + dx;
+        const ty = cy + dy;
+        if (placedLabels.every(([px, py]) => (tx - px) ** 2 + (ty - py) ** 2 > 400)) {
+          cx = tx;
+          cy = ty;
+          break;
+        }
+      }
+      placedLabels.push([cx, cy]);
       parts.push(
         `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-size="15" font-weight="600" ` +
           `fill="${stroke}" text-anchor="middle" dominant-baseline="middle">${esc(poly.label)}</text>`,

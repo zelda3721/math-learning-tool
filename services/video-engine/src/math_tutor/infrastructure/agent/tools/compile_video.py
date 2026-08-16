@@ -346,6 +346,24 @@ class SolutionScene(Scene):
     def color(self, value):
         return self.COLOR_MAP.get(str(value).lower(), BLUE)
 
+    def place_figure_label(self, mobj, x, y):
+        # 阶梯避让：首选原位，太近（<0.6）依次试右/左/下/上等空位
+        spots = [
+            (0, 0), (0.65, 0), (-0.65, 0), (0, -0.5), (0, 0.5),
+            (0.65, -0.5), (-0.65, 0.5), (1.15, 0), (-1.15, 0),
+        ]
+        cx, cy = x, y
+        for dx, dy in spots:
+            cx, cy = x + dx, y + dy
+            if all(
+                (cx - px) ** 2 + (cy - py) ** 2 > 0.36
+                for px, py in self.placed_figure_labels
+            ):
+                break
+        self.placed_figure_labels.append((cx, cy))
+        mobj.move_to([cx, cy, 0])
+        return mobj
+
     def geometry_point(self, point):
         center_x, center_y = self.geometry_center
         return [
@@ -536,6 +554,9 @@ class SolutionScene(Scene):
         self.geometry_scale = 1.0
         self.geometry_center = (0.0, 0.0)
         self.geometry_background = None
+        # 图内标签的占位登记：区域数值/线段标签共享，太近就沿阶梯找空位。
+        # 实机踩过：三块区域的重心挤在图形窄处，12/28/16 叠成一摞
+        self.placed_figure_labels = []
         coordinate_points = []
         for spec in VISUAL_OBJECTS:
             primitive = spec.get("primitive")
@@ -1108,11 +1129,11 @@ class SolutionScene(Scene):
                         if cycle_label:
                             cpts = [figure_points[n] for n in names]
                             mark = Text(cycle_label, font_size=22, color=WHITE)
-                            mark.move_to([
+                            self.place_figure_label(
+                                mark,
                                 sum(p[0] for p in cpts) / len(cpts),
                                 sum(p[1] for p in cpts) / len(cpts),
-                                0,
-                            ])
+                            )
                             body.add(mark)
                 for seg in params.get("segments") or []:
                     seg_a, seg_b = str(seg.get("from")), str(seg.get("to"))
@@ -1125,7 +1146,8 @@ class SolutionScene(Scene):
                         seg_label = str(seg.get("label") or "").strip()
                         if seg_label:
                             tag = Text(seg_label, font_size=18, color=GREY_B)
-                            tag.next_to(seg_line.get_center(), UR, buff=0.12)
+                            mid = seg_line.get_center()
+                            self.place_figure_label(tag, mid[0] + 0.35, mid[1] + 0.3)
                             body.add(tag)
                 # 顶点字母只由底图画；overlay 的点是底图点的子集，再画一遍就是重影
                 if not str(spec.get("id") or "").startswith("figure_overlay_"):
@@ -1133,11 +1155,11 @@ class SolutionScene(Scene):
                         dx, dy = p[0] - fig_cx, p[1] - fig_cy
                         norm = max((dx * dx + dy * dy) ** 0.5, 1e-6)
                         letter = Text(name, font_size=24, color=YELLOW)
-                        letter.move_to([
-                            p[0] + dx / norm * 0.32,
-                            p[1] + dy / norm * 0.32,
-                            0,
-                        ])
+                        lx = p[0] + dx / norm * 0.32
+                        ly = p[1] + dy / norm * 0.32
+                        letter.move_to([lx, ly, 0])
+                        # 字母位置也登记占位：区域数值不许压到顶点字母上
+                        self.placed_figure_labels.append((lx, ly))
                         body.add(letter)
             if len(body) == 0:
                 body = VGroup(Dot([0, 0, 0], radius=0.001))
