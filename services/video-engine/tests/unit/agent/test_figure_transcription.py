@@ -179,3 +179,63 @@ def test_store_visual_plan_没有转写时不动计划():
     }
     store_visual_plan(_plan_ctx(state), plan)
     assert all(o.get("primitive") != "figure" for o in state["visual_plan"]["visual_objects"])
+
+
+# ── 编排解析：模型只许指字母，坐标由转写解析；自由几何一律剥掉 ──
+
+from math_tutor.infrastructure.agent.figure_transcription import choreograph_figure
+
+
+def _choreo_plan() -> dict:
+    return {
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            # 模型自由画的三角形——实机上它和真图打架（"乱做题"），必须剥掉
+            {"id": "tri_free", "primitive": "polygon", "params": {"vertices": [[0, 0], [1, 0], [0, 1]]}, "meaning": "野图"},
+            {"id": "note", "primitive": "relation_node", "label": "28-12=16", "meaning": "差额"},
+        ],
+        "scenes": [
+            {
+                "role": "setup",
+                "actions": [{"op": "create", "targets": ["tri_free"]}, {"op": "create", "targets": ["note"]}],
+                "figure_ops": [
+                    {"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"},
+                    {"op": "draw_segment", "from": "B", "to": "D", "label": "辅助线"},
+                    {"op": "highlight_region", "points": ["A", "B", "X"]},  # X 不存在 → 丢
+                ],
+            },
+            {"role": "verify", "actions": [{"op": "verify", "targets": ["note"]}]},
+        ],
+    }
+
+
+def test_编排_自由几何被剥掉_引用动作一并清理():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(_choreo_plan(), t)
+    ids = [o["id"] for o in plan["visual_objects"]]
+    assert "tri_free" not in ids
+    assert all(
+        "tri_free" not in (a.get("targets") or []) for s in plan["scenes"] for a in s["actions"]
+    )
+
+
+def test_编排_字母解析成坐标_错字母丢弃不歪图():
+    t = parse_transcription(RAW)
+    plan = choreograph_figure(_choreo_plan(), t)
+    overlay = next(o for o in plan["visual_objects"] if o["id"] == "figure_overlay_0")
+    names = {p["id"] for p in overlay["params"]["points"]}
+    assert names == {"A", "B", "D"}  # X 那条整体被丢，图不会歪
+    assert overlay["params"]["polygons"][0] == {"points": ["A", "B", "D"], "shaded": True, "label": "12"}
+    assert overlay["params"]["segments"][0]["label"] == "辅助线"
+    # 该拍首个动作 create overlay（两种字段写法都带）
+    first = plan["scenes"][0]["actions"][0]
+    assert first["targets"] == ["figure_overlay_0"] and first["target"] == "figure_overlay_0"
+    # figure_ops 已消费，不残留给下游
+    assert "figure_ops" not in plan["scenes"][0]
+
+
+def test_编排后底图注入不误删overlay():
+    t = parse_transcription(RAW)
+    plan = inject_figure_object(choreograph_figure(_choreo_plan(), t), t)
+    ids = [o["id"] for o in plan["visual_objects"] if o["primitive"] == "figure"]
+    assert "original_figure" in ids and "figure_overlay_0" in ids

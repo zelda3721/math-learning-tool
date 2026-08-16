@@ -24,6 +24,7 @@ from ....application.interfaces import (
 )
 from .. import markdown_extract as md
 from ..figure_transcription import (
+    choreograph_figure,
     inject_figure_object,
     transcribe_figure,
     transcription_summary,
@@ -5917,7 +5918,9 @@ def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
     # 导演一降级，几何题就变成了纯数点点——原图明明转写好了却没人用。
     transcription = ctx.state.get("figure_transcription")
     if transcription:
+        # 先注底图，再解析导演的「指字母」编排（剥自由几何 + 生成每拍 overlay）
         plan = inject_figure_object(plan, transcription)
+        plan = choreograph_figure(plan, transcription)
     ctx.state["visual_plan_last_violations"] = []
     ctx.state["visual_plan"] = plan
     ctx.state["visual_thesis"] = plan["visual_thesis"]
@@ -7384,12 +7387,18 @@ class VisualPlanTool(ITool):
             feedback += (
                 "\n\n## 讲义原图（已转写，系统会按它自动重画在舞台上）\n"
                 f"{transcription_summary(transcription)}\n"
-                "硬规则：\n"
+                "这道题的画面语言是**指着图说话**——你没有画图的权力，只有点名的权力：\n"
                 '- 声明一个对象 {"id":"original_figure","primitive":"figure","params":{},'
-                '"meaning":"讲义原图"}——params 留空，系统会注入按原图量出的真实坐标；\n'
-                "- **不要**再用 polygon/line/dot 把这个图形重画一遍——画重了孩子会看到两张对不上的图；\n"
-                "- 你的职责是围绕这张图做注解：每一拍讲哪一步、看哪几个字母，"
-                "teaching_line 里点名的字母必须是上面转写里存在的。"
+                '"meaning":"讲义原图"}——params 留空，系统注入按原图量出的真实坐标；\n'
+                "- **禁止** polygon/line/arrow/dot 等自由几何对象——写了也会被系统剥掉，"
+                "因为你手里没有真坐标，画出来必然和原图打架；\n"
+                "- 每一拍用 figure_ops 在**原图上**做注解（只写字母，坐标系统来解）：\n"
+                '  {"figure_ops":[{"op":"highlight_region","points":["E","B","D"],"label":"12"},\n'
+                '                 {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}]}\n'
+                "  字母必须出自上面的转写清单，指错即被丢弃；\n"
+                "- 教学弧线按**发现规律**来编：先带孩子观察（这一拍高亮谁、问什么），"
+                "再做一步操作（连辅助线/换个区域高亮），让等量关系自己显形，"
+                "最后一拍数值验证。teaching_line 是引导语，不是答案播报。"
             )
 
         prompt = self._prompts.render(

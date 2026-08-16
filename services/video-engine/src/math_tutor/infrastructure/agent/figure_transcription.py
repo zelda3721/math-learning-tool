@@ -117,6 +117,119 @@ def figure_object(t: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: 有转写时**禁止**模型自由画几何——这些图元一律剥掉。
+#: 实机教训：导演给注解三角形编了自己的坐标，叠在真图上互相打架（"乱做题"）。
+#: 注解必须用 figure_ops 指着字母说话，坐标由转写解析，模型无权持有坐标。
+_FREE_GEOMETRY = {"polygon", "line", "arrow", "dot"}
+
+
+def _centroid(names: list[str], pts: dict[str, list[float]]) -> list[float]:
+    xs = [pts[n][0] for n in names]
+    ys = [pts[n][1] for n in names]
+    return [round(sum(xs) / len(xs), 4), round(sum(ys) / len(ys), 4)]
+
+
+def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
+    """把导演的「指字母」编排解析成确定坐标的画面对象。
+
+    导演在每拍写 figure_ops（只有字母，没有坐标）：
+      {"op":"highlight_region","points":["E","B","D"],"label":"12"}
+      {"op":"draw_segment","from":"B","to":"D","label":"辅助线"}
+    这里逐条解析：字母 → 转写坐标 → 该拍的 overlay figure 对象 + create 动作。
+    指了不存在的字母就丢那一条并留痕——图不会歪，只会少一个注解。
+    同时**剥掉**模型自由画的几何图元：坐标只此一家。
+    """
+    pts = {p["id"]: [p["x"], round(1 - p["y"], 4)] for p in t["points"]}
+
+    stripped = [
+        str(o.get("id"))
+        for o in plan.get("visual_objects") or []
+        if isinstance(o, dict) and o.get("primitive") in _FREE_GEOMETRY
+    ]
+    if stripped:
+        logger.info("figure choreography: 剥掉模型自由画的几何对象 %s", stripped)
+        plan["visual_objects"] = [
+            o
+            for o in plan.get("visual_objects") or []
+            if not (isinstance(o, dict) and o.get("primitive") in _FREE_GEOMETRY)
+        ]
+        # 引用被剥对象的动作一并清掉，别让空指针传到渲染端
+        gone = set(stripped)
+        for scene in plan.get("scenes") or []:
+            if isinstance(scene, dict):
+                scene["actions"] = [
+                    a
+                    for a in scene.get("actions") or []
+                    if not (
+                        isinstance(a, dict)
+                        and (
+                            a.get("target") in gone
+                            or set(a.get("targets") or []) & gone
+                        )
+                    )
+                ]
+
+    dropped_ops: list[str] = []
+    for index, scene in enumerate(plan.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        ops = scene.pop("figure_ops", None) or []
+        overlay_points: dict[str, list[float]] = {}
+        segments: list[dict[str, Any]] = []
+        polygons: list[dict[str, Any]] = []
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            kind = str(op.get("op") or "")
+            if kind == "highlight_region":
+                names = [str(n) for n in op.get("points") or []]
+                if len(names) >= 3 and all(n in pts for n in names):
+                    poly: dict[str, Any] = {"points": names, "shaded": True}
+                    label = str(op.get("label") or "").strip()
+                    if label:
+                        poly["label"] = label
+                    polygons.append(poly)
+                    for n in names:
+                        overlay_points[n] = pts[n]
+                else:
+                    dropped_ops.append(f"beat{index}:{kind}:{','.join(names)}")
+            elif kind == "draw_segment":
+                a, b = str(op.get("from") or ""), str(op.get("to") or "")
+                if a in pts and b in pts:
+                    seg: dict[str, Any] = {"from": a, "to": b}
+                    label = str(op.get("label") or "").strip()
+                    if label:
+                        seg["label"] = label
+                    segments.append(seg)
+                    overlay_points[a] = pts[a]
+                    overlay_points[b] = pts[b]
+                else:
+                    dropped_ops.append(f"beat{index}:{kind}:{a}-{b}")
+            else:
+                dropped_ops.append(f"beat{index}:{kind or '?'}")
+        if not overlay_points:
+            continue
+        overlay_id = f"figure_overlay_{index}"
+        plan.setdefault("visual_objects", []).append(
+            {
+                "id": overlay_id,
+                "primitive": "figure",
+                "params": {
+                    "points": [{"id": n, "at": at} for n, at in overlay_points.items()],
+                    "segments": segments,
+                    "polygons": polygons,
+                },
+                "meaning": f"第{index}拍的图上注解",
+            }
+        )
+        actions = scene.setdefault("actions", [])
+        if isinstance(actions, list):
+            actions.insert(0, {"op": "create", "targets": [overlay_id], "target": overlay_id})
+    if dropped_ops:
+        logger.warning("figure choreography: 指了不存在的字母，丢弃 %s", dropped_ops[:6])
+    return plan
+
+
 def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
     """把按转写构造的图形对象**确定性**写进画面计划。
 
@@ -129,6 +242,10 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
     kept: list[dict[str, Any]] = []
     replaced = False
     for obj in objects:
+        # 编排产生的 overlay 是合法的第二类 figure 对象，不参与"只留一张底图"的去重
+        if str(obj.get("id") or "").startswith("figure_overlay_"):
+            kept.append(obj)
+            continue
         is_figure = obj.get("primitive") == "figure" or obj.get("id") == "original_figure"
         if not is_figure:
             kept.append(obj)
