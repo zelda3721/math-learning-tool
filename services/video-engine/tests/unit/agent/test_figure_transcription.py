@@ -337,3 +337,30 @@ def test_幽灵目标被清掉_计划过结构校验():
     # 玩具计划不满足拍数/锚点等其它契约——本测试只关心：幽灵引用类错误清零
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "声明" in e or "引用" in e], errors
+
+
+def test_模型自declare的region对象被删后动作改指底图_IR仍可用():
+    t = parse_transcription(RAW)
+    plan = {
+        "visual_thesis": "x" * 20,
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            {"id": "region_ABD", "primitive": "figure", "params": {}, "meaning": "区域"},
+        ],
+        "scenes": [
+            {"role": "setup", "actions": [{"op": "create", "targets": ["region_ABD"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}],
+             "teaching_line": "看"},
+            {"role": "verify", "actions": [{"op": "verify", "targets": ["region_ABD"]}],
+             "figure_ops": [], "teaching_line": "验"},
+        ],
+    }
+    plan = choreograph_figure(inject_figure_object(plan, t), t)
+    ids = {o["id"] for o in plan["visual_objects"]}
+    assert "region_ABD" not in ids
+    # 动作没有留空引用，而是改指底图——IR 提取必须仍然成功
+    for s in plan["scenes"]:
+        for a in s["actions"]:
+            assert "region_ABD" not in (a.get("targets") or [])
+            assert a.get("targets"), a
+    assert _fallback_visual_ir(plan) is not None
