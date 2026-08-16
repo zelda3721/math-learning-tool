@@ -330,8 +330,8 @@ def test_幽灵目标被清掉_计划过结构校验():
     }
     _sanitize_figure_plan_actions(plan)
     # 幽灵目标没了；空拍补了高亮底图
-    assert plan["scenes"][0]["actions"] == [
-        {"op": "create", "targets": ["original_figure"]}
+    assert [(a["op"], a["targets"]) for a in plan["scenes"][0]["actions"]] == [
+        ("create", ["original_figure"])
     ]
     assert plan["scenes"][1]["actions"][0]["targets"] == ["original_figure"]
     # 玩具计划不满足拍数/锚点等其它契约——本测试只关心：幽灵引用类错误清零
@@ -444,9 +444,10 @@ def test_模型没在首拍create底图_消毒后补上_不再报出现前执行
     }
     _sanitize_figure_plan_actions(plan)
     assert plan["visual_objects"][0]["id"] == "original_figure"
-    assert plan["scenes"][0]["actions"][0] == {
-        "op": "create", "targets": ["original_figure"], "target": "original_figure"
-    }
+    first = plan["scenes"][0]["actions"][0]
+    assert (first["op"], first["targets"], first["target"]) == (
+        "create", ["original_figure"], "original_figure"
+    )
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "出现前" in e], errors
 
@@ -474,3 +475,32 @@ def test_分步表达_下一拍先退上一拍的高亮再出新的():
         for o in plan["visual_objects"] if o["id"].startswith("figure_overlay_")
     ]
     assert tones == ["gold", "blue"]  # 每拍专属色
+
+
+def test_自declare的自由几何_漏meaning_长rationale_消毒后都不再打回():
+    """实机第 3 轮首稿：region_ABE 是模型自 declare 的 polygon 只 highlight 不 create、
+    动作漏 meaning、essence_rationale 超 400 字——三条都不是画面问题，不该让带图计划降级。"""
+    plan = {
+        "visual_thesis": "指着图发现等底同高的接力传递关系",
+        "essence_rationale": "等底同高，" * 120,
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            {"id": "region_ABE", "primitive": "polygon", "params": {"vertices": [[0, 0], [1, 0], [0, 1]]}, "meaning": "ABE"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "看图：ABE 是 12，阴影是 28",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure"]},
+                         {"op": "highlight", "targets": ["region_ABE"]}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert [o["id"] for o in plan["visual_objects"]] == ["original_figure"]
+    assert len(plan["essence_rationale"]) <= 400
+    assert all(a.get("meaning") for a in plan["scenes"][0]["actions"])
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "出现前" in e or "meaning" in e or "400" in e], errors
