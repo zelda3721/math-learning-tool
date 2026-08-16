@@ -5912,6 +5912,12 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
 def store_visual_plan(ctx: ToolContext, plan: dict[str, Any]) -> None:
     """Install an accepted plan and invalidate artifacts derived from an older plan."""
     plan.setdefault("plan_version", 2)
+    # 图形注入放在**所有计划的必经之路**：LLM 计划、确定性构造器、降级兜底
+    # （safe/minimal plan）都从这里入库。实机教训：注入只挂在 LLM 成功路径时，
+    # 导演一降级，几何题就变成了纯数点点——原图明明转写好了却没人用。
+    transcription = ctx.state.get("figure_transcription")
+    if transcription:
+        plan = inject_figure_object(plan, transcription)
     ctx.state["visual_plan_last_violations"] = []
     ctx.state["visual_plan"] = plan
     ctx.state["visual_thesis"] = plan["visual_thesis"]
@@ -7265,6 +7271,11 @@ class VisualPlanTool(ITool):
         self._prompts = prompts
 
     @property
+    def llm(self) -> Any:
+        """direct_video 的转写趟要用同一个模型句柄（导演入口先转写，降级也有图）"""
+        return self._llm
+
+    @property
     def name(self) -> str:
         return "visual_plan"
 
@@ -7557,10 +7568,7 @@ class VisualPlanTool(ITool):
         if audit_warning:
             plan["audit_warning"] = audit_warning
 
-        # 有转写时把真实图形对象注进计划（覆盖模型的占位）。放在全部校验/审计之后：
-        # 注入的对象是确定性构造的测量结果，不该被 LLM 审计的意见改动
-        if transcription:
-            plan = inject_figure_object(plan, transcription)
+        # 图形注入统一发生在 store_visual_plan（所有路径的必经之路），这里不再单独注
 
         # Keep the session-level attempt history. Resetting it here used to
         # make a later visual replan look like another cold start.

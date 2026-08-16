@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....application.interfaces import ITool, ToolContext, ToolResult
+from ..figure_transcription import transcribe_figure
 from .visual_plan import (
     VisualPlanTool,
     build_composition_visual_plan,
@@ -76,6 +77,15 @@ class DirectVideoTool(ITool):
         return self._planner.parameters
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        # 原图转写放在导演的最前面：确定性构造器、LLM 规划、降级兜底
+        # 全都在它之后，谁最终产出计划，store_visual_plan 都能把图注进去。
+        # （此前转写在 LLM 规划里，导演一降级图就丢了——实机上几何题变成了纯数点点）
+        figure_image = str(ctx.state.get("figure_image") or "")
+        if not ctx.state.get("figure_transcription") and figure_image.startswith("data:image/"):
+            transcription = await transcribe_figure(self._planner.llm, figure_image)
+            if transcription:
+                ctx.state["figure_transcription"] = transcription
+
         # A rendered semantic failure is evidence that the current contract
         # needs revision.  Do not immediately reconstruct the same deterministic
         # baseline; let the open-world planner consume the frame feedback once.
