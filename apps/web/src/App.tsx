@@ -153,10 +153,10 @@ function AuthedApp() {
                 setAnimRequest({ problem, grade: selectedGrade, figureImage })
                 return
             }
-            // 视频（agent/chat）那条路暂不吃图——引擎 /chat 契约里没有图片入参；
-            // 拍照识别出的题干文本照常生效，配图只在动画讲解里用
+            // 视频（agent/chat）路也带上原图：引擎 /chat 已接收 figure_image，
+            // 导演按转写重画——不带图它只能凭题干想象一个假图形（实机抽帧抓过）
             setAnimRequest(null)
-            await startAgent({ problem, grade: selectedGrade })
+            await startAgent({ problem, grade: selectedGrade, figureImage })
             setHistoryRefreshKey((k) => k + 1)
         },
         [explainMode, selectedGrade, startAgent]

@@ -80,7 +80,8 @@ def test_模型忘了声明也要补上对象和第一拍的create():
     out = inject_figure_object(plan, t)
     assert out["visual_objects"][0]["id"] == "original_figure"
     first_actions = out["scenes"][0]["actions"]
-    assert first_actions[0] == {"op": "create", "target": "original_figure"}
+    assert first_actions[0]["op"] == "create"
+    assert first_actions[0]["targets"] == ["original_figure"]  # Manim 编译器只认 targets
 
 
 def test_figure_object形状与编译器约定一致():
@@ -166,7 +167,7 @@ def test_store_visual_plan_对降级计划同样注入图形():
     stored = state["visual_plan"]
     figures = [o for o in stored["visual_objects"] if o.get("primitive") == "figure"]
     assert len(figures) == 1 and figures[0]["params"]["points"]
-    assert stored["scenes"][0]["actions"][0] == {"op": "create", "target": "original_figure"}
+    assert stored["scenes"][0]["actions"][0]["targets"] == ["original_figure"]
 
 
 def test_store_visual_plan_没有转写时不动计划():
