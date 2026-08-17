@@ -36,6 +36,7 @@ ENV/
 /data/*
 !/data/knowledge/
 !/data/bench/
+!/data/figure_bench/
 /services/video-engine/data/
 *.sqlite
 *.sqlite-shm
