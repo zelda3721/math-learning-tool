@@ -380,15 +380,17 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
-def _raw_plan_artifact(done: Any, ctx: ToolContext) -> ArtifactSpec:
+def _raw_plan_artifact(done: Any, ctx: ToolContext, attempt: int = 1) -> ArtifactSpec:
     text = getattr(done, "text", "") or ""
     reasoning = getattr(done, "reasoning", "") or ""
     content = text
     if reasoning and reasoning != text:
         content = f"## visible\n{text}\n\n## reasoning\n{reasoning}"
+    # 首稿与契约重试各存各的：同名会互相覆盖，事后只剩一份，查不出哪一稿错在哪
+    suffix = "" if attempt <= 1 else f"-retry{attempt - 1}"
     return ArtifactSpec(
         kind="planner_raw",
-        filename=f"visual-plan-raw-turn{ctx.turn_index:02d}.txt",
+        filename=f"visual-plan-raw-turn{ctx.turn_index:02d}{suffix}.txt",
         content=content,
         meta={
             "finish_reason": getattr(done, "finish_reason", ""),
@@ -7741,7 +7743,7 @@ class VisualPlanTool(ITool):
             try:
                 done = await author_plan(compact_prompt)
                 plan = _parse_plan(done)
-                raw_artifacts.append(_raw_plan_artifact(done, ctx))
+                raw_artifacts.append(_raw_plan_artifact(done, ctx, attempt=2))
             except Exception:
                 logger.exception("visual_plan compact retry failed")
                 plan = None
@@ -7764,6 +7766,7 @@ class VisualPlanTool(ITool):
             errors.extend(figure_ops_violations(plan))
             errors = filter_figure_plan_errors(errors, plan)
         if errors:
+            logger.info("visual_plan draft 1 contract errors: %s", errors[:6])
             # Near-miss plans deserve one evidence-directed retry: feed the
             # exact violations back before falling to deterministic salvage.
             contract_feedback = (
@@ -7776,7 +7779,7 @@ class VisualPlanTool(ITool):
             )
             try:
                 retry_done = await author_plan(prompt + contract_feedback)
-                raw_artifacts.append(_raw_plan_artifact(retry_done, ctx))
+                raw_artifacts.append(_raw_plan_artifact(retry_done, ctx, attempt=2))
                 retry_plan = _parse_plan(retry_done)
                 if retry_plan is not None:
                     retry_plan = ground_visual_plan_from_math_execution(retry_plan, ctx)
@@ -7786,6 +7789,7 @@ class VisualPlanTool(ITool):
                     if transcription:
                         retry_errors.extend(figure_ops_violations(retry_plan))
                         retry_errors = filter_figure_plan_errors(retry_errors, retry_plan)
+                    logger.info("visual_plan draft 2 contract errors: %s", retry_errors[:6])
                     if not retry_errors:
                         done = retry_done
                         plan = retry_plan
