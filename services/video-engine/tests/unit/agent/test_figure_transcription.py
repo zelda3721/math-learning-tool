@@ -626,3 +626,51 @@ def test_verify拍被降级成highlight后仍补一个核对动作():
     assert "verify" in ops
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "verify 场景" in e or "出现前" in e], errors
+
+
+# ── 转写纠偏：视觉模型会多量出线；题干和已验证解答说了算 ──
+
+from math_tutor.infrastructure.agent.figure_transcription import reconcile_transcription
+
+_USER_PROBLEM = (
+    "如图，已知四边形$ABCD$中，$E$为$AD$边的中点，$F$为$BC$边的中点，三角形$ABE$的面积为$12$平方厘米，"
+    "阴影四边形$EDFB$的面积为$28$平方厘米，则三角形$DFC$的面积为______平方厘米．"
+)
+
+
+def _user_transcription():
+    return {
+        "points": [{"id": c, "x": 0.1 * i, "y": 0.1 * i} for i, c in enumerate("ABCDEF")],
+        "segments": [["A", "B"], ["A", "E"], ["B", "C"], ["B", "D"], ["B", "F"],
+                     ["C", "D"], ["D", "E"], ["D", "F"], ["E", "F"]],
+        "shaded": [["B", "D", "F"]],
+    }
+
+
+def test_纠偏_解答里才连接的辅助线从原图去掉_阴影以题干为准():
+    """实机 2026-08-17 用户实拍：转写把 BD 量成原图自带的线，第一拍就画着辅助线。"""
+    t = reconcile_transcription(
+        _user_transcription(),
+        _USER_PROBLEM,
+        {"approach": "利用中点性质，通过连接对角线 $BD$ 将四边形 $EDFB$ 分割为两个三角形"},
+        [{"description": "连接BD，得到两个三角形"}],
+    )
+    pairs = {frozenset(sg) for sg in t["segments"]}
+    assert frozenset("BD") not in pairs          # 辅助线留给导演 draw_segment
+    assert frozenset("EF") not in pairs          # 被点名为"四边形"的阴影内部不该有对角线
+    assert frozenset("DF") in pairs and frozenset("AB") in pairs
+    assert t["shaded"] == [["E", "D", "F", "B"]]
+    assert any("辅助线 B-D" in n for n in t["reconciled"])
+
+
+def test_纠偏_没有线索时原样不动():
+    t = _user_transcription()
+    out = reconcile_transcription(dict(t), "求阴影部分的面积。", None, None)
+    assert out["segments"] == t["segments"] and out["shaded"] == t["shaded"]
+    assert "reconciled" not in out
+
+
+def test_纠偏_题干点名的字母转写里没有就不改阴影():
+    t = _user_transcription()
+    out = reconcile_transcription(dict(t), "阴影四边形EDGB的面积为28", None, None)  # G 不存在
+    assert out["shaded"] == [["B", "D", "F"]]
