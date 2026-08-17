@@ -192,7 +192,9 @@ def figure_structure_text(t: dict[str, Any] | None) -> str:
     return "；".join(parts)
 
 
-def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> str:
+def problem_with_figure_conditions(
+    problem: str, t: dict[str, Any] | None, include_structure: bool = True
+) -> str:
     """题干 + 图上标注条件（一句"图中标注：…"），给解题/验证/导演**同一份**题面。
 
     只写在图上的条件（边长、角度、面积）不进题面，解题看不见、验证也看不见——
@@ -214,7 +216,7 @@ def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> st
             shape = {3: "三角形", 4: "四边形"}.get(len(cycle), "多边形")
             conditions.append(f"阴影部分为{shape}{''.join(cycle)}")
     tail = "。以上按原图像素几何核对" if grounded else "。以上是读图所得，以图为准"
-    structure = figure_structure_text(t) if grounded else ""
+    structure = figure_structure_text(t) if grounded and include_structure else ""
     structure_line = f"\n（图形结构：{structure}）" if structure else ""
     return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}{tail}）{structure_line}"
 
