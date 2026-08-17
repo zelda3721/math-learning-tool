@@ -553,7 +553,9 @@ def test_模型自declare的region_figure对象_校验前删掉并改指底图()
     }
     _sanitize_figure_plan_actions(plan)
     assert [o["id"] for o in plan["visual_objects"]] == ["original_figure", "note"]
-    assert plan["scenes"][0]["actions"][1]["targets"] == ["original_figure"]
+    ops = [(a["op"], a["targets"]) for a in plan["scenes"][0]["actions"]]
+    assert ops[0] == ("create", ["original_figure"])          # 底图永远第一个出场
+    assert ("highlight", ["original_figure"]) in ops           # region_abe 改指底图
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "出现前" in e], errors
 
@@ -846,3 +848,34 @@ def test_题面拼图上标注_三处同一份_已有则不重复():
     assert problem_with_figure_conditions(out, t) == out               # 幂等
     assert problem_with_figure_conditions("题干里已有 图中标注：AB=6cm", t) == "题干里已有 图中标注：AB=6cm"
     assert problem_with_figure_conditions("无图", None) == "无图"
+
+
+def test_底图create写在末拍_消毒后挪到首拍开头():
+    """实机第 15 轮：模型把 create original_figure 写在最后一拍，前三拍的 highlight 全被
+    "对象出现前执行"打回。底图必须在第一拍第一个动作出场。"""
+    plan = {
+        "visual_thesis": "指着图看阴影三角形的底和高",
+        "essence_rationale": "E 是中点，所以 BE 是 BC 的一半，面积因此可算",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "图不变", "attention_target": "阴影",
+             "exit_condition": "看清", "teaching_line": "看图", "duration_s": 4,
+             "actions": [{"op": "highlight", "targets": ["original_figure"], "meaning": "看"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "?"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "核对", "invariant": "图不变", "attention_target": "阴影",
+             "exit_condition": "得出", "teaching_line": "所以是 12", "duration_s": 4,
+             "actions": [{"op": "create", "targets": ["original_figure"], "meaning": "出场"},
+                         {"op": "verify", "targets": ["original_figure"], "meaning": "核对"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "12"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert plan["scenes"][0]["actions"][0]["op"] == "create"
+    assert [a["op"] for a in plan["scenes"][1]["actions"]] == ["verify"]
+    errors = _validate_plan(plan, "elementary_upper")
+    assert not [e for e in errors if "出现前" in e], errors
