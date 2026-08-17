@@ -782,3 +782,56 @@ def test_像素核对_换一种图形同样成立_矩形加对角线():
     for real in ("PQ", "QR", "RS", "SP", "PR"):
         assert frozenset(real) in pairs, real
     assert frozenset("QS") not in pairs and frozenset("MS") not in pairs
+
+
+# ── 图上标注：照片题的条件常只写在图上 ──
+
+
+def test_转写labels_解析_挂错字母整条丢_并转成条件与重画标注():
+    raw = (
+        '{"points":[{"id":"A","x":0.1,"y":0.1},{"id":"B","x":0.9,"y":0.1},{"id":"C","x":0.9,"y":0.9}],'
+        '"segments":[["A","B"],["B","C"]],"shaded":[["A","B","C"]],'
+        '"labels":[{"text":"8cm","on":["A","B"]},{"text":"90°","on":["B"]},'
+        '{"text":"S=12","on":["A","B","C"]},{"text":"5cm","on":["A","Z"]},{"text":"","on":["A"]}]}'
+    )
+    t = parse_transcription(raw)
+    assert [(l["text"], l["on"]) for l in t["labels"]] == [
+        ("8cm", ["A", "B"]), ("90°", ["B"]), ("S=12", ["A", "B", "C"])
+    ]
+    from math_tutor.infrastructure.agent.figure_transcription import transcription_conditions
+    assert transcription_conditions(t) == ["边AB标注「8cm」", "点B处标注「90°」", "区域ABC标注「S=12」"]
+    params = to_figure_params(t)
+    assert params["segments"][0] == {"from": "A", "to": "B", "label": "8cm"}
+    assert "label" not in params["segments"][1]
+    assert params["polygons"][0]["label"] == "S=12"
+    assert "图上标注：AB:8cm" in transcription_summary(t)
+
+
+def test_老转写没有labels字段也照常():
+    t = parse_transcription(RAW)
+    assert t["labels"] == []
+    from math_tutor.infrastructure.agent.figure_transcription import transcription_conditions
+    assert transcription_conditions(t) == [] and transcription_conditions(None) == []
+
+
+def test_小图进视觉模型前等比放大_大图不动():
+    import base64
+    import io
+
+    from PIL import Image
+
+    from math_tutor.infrastructure.agent.figure_transcription import upscale_for_vision
+
+    def data_url(w, h):
+        buf = io.BytesIO()
+        Image.new("RGB", (w, h), "white").save(buf, "PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    def size_of(url):
+        return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).size
+
+    assert size_of(upscale_for_vision(data_url(300, 200))) == (1200, 800)   # 短边 200 → 800
+    big = data_url(1600, 1200)
+    assert upscale_for_vision(big) is big                                    # 够大原样返回
+    assert size_of(upscale_for_vision(data_url(120, 100))) == (480, 400)     # 最多放大 4 倍
+    assert upscale_for_vision("not-a-data-url") == "not-a-data-url"

@@ -7527,14 +7527,21 @@ def _validate_plan(
 
 
 class VisualPlanTool(ITool):
-    def __init__(self, llm: ILLMProvider, prompts: PromptLibrary) -> None:
+    def __init__(
+        self, llm: ILLMProvider, prompts: PromptLibrary, vision_llm: ILLMProvider | None = None
+    ) -> None:
         self._llm = llm
+        self._vision_llm = vision_llm or llm
         self._prompts = prompts
 
     @property
     def llm(self) -> Any:
         """direct_video 的转写趟要用同一个模型句柄（导演入口先转写，降级也有图）"""
         return self._llm
+
+    @property
+    def vision_llm(self) -> Any:
+        return self._vision_llm
 
     @property
     def name(self) -> str:
@@ -7638,7 +7645,7 @@ class VisualPlanTool(ITool):
         transcription = ctx.state.get("figure_transcription")
         figure_image = str(ctx.state.get("figure_image") or "")
         if not transcription and figure_image.startswith("data:image/"):
-            transcription = await transcribe_figure(self._llm, figure_image)
+            transcription = await transcribe_figure(self._vision_llm, figure_image)
             if transcription:
                 refine_transcription(
                     transcription,

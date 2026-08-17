@@ -10,7 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from ....application.interfaces import ITool, ToolContext, ToolResult
-from ..figure_transcription import refine_transcription, transcribe_figure
+from ..figure_transcription import (
+    reconcile_transcription,
+    refine_transcription,
+    transcribe_figure,
+)
 from .visual_plan import (
     VisualPlanTool,
     build_composition_visual_plan,
@@ -82,7 +86,7 @@ class DirectVideoTool(ITool):
         # （此前转写在 LLM 规划里，导演一降级图就丢了——实机上几何题变成了纯数点点）
         figure_image = str(ctx.state.get("figure_image") or "")
         if not ctx.state.get("figure_transcription") and figure_image.startswith("data:image/"):
-            transcription = await transcribe_figure(self._planner.llm, figure_image)
+            transcription = await transcribe_figure(self._planner.vision_llm, figure_image)
             if transcription:
                 # 用题干 + 已验证解答纠偏：解答里才"连接"的辅助线不该出现在原图上
                 refine_transcription(
@@ -93,6 +97,15 @@ class DirectVideoTool(ITool):
                     ctx.state.get("solution_steps"),
                 )
                 ctx.state["figure_transcription"] = transcription
+        elif ctx.state.get("figure_transcription"):
+            # 解题阶段已经转写过（那时还没有解答）：现在有解答了，再按"连接 XY"纠一次偏——
+            # 只删不补、幂等，重复跑无害
+            reconcile_transcription(
+                ctx.state["figure_transcription"],
+                str(ctx.problem or ""),
+                ctx.state.get("solution"),
+                ctx.state.get("solution_steps"),
+            )
 
         # A rendered semantic failure is evidence that the current contract
         # needs revision.  Do not immediately reconstruct the same deterministic

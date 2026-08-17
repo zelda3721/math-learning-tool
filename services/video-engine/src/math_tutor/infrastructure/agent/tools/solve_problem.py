@@ -22,6 +22,11 @@ from ....application.interfaces import (
 )
 from .. import markdown_extract as md
 from ..math_runtime import MathExecutionResult, execute_math_request
+from ..figure_transcription import (
+    refine_transcription,
+    transcribe_figure,
+    transcription_conditions,
+)
 from ..prompt_library import PromptLibrary
 from .analyze_problem import _parse_analysis
 
@@ -433,8 +438,11 @@ def _invalid_literal_equalities(value: Any) -> list[str]:
 
 
 class SolveProblemTool(ITool):
-    def __init__(self, llm: ILLMProvider, prompts: PromptLibrary) -> None:
+    def __init__(
+        self, llm: ILLMProvider, prompts: PromptLibrary, vision_llm: ILLMProvider | None = None
+    ) -> None:
         self._llm = llm
+        self._vision_llm = vision_llm or llm
         self._prompts = prompts
 
     @property
@@ -489,6 +497,24 @@ class SolveProblemTool(ITool):
                 "必须修正导致该证据的推理或答案，不要原样重复上一版。\n"
             )
         guidance = _GRADE_GUIDANCE.get(grade, _GRADE_GUIDANCE["elementary_upper"])
+
+        # 有原图先转写：照片题的条件常常只写在图上（边长、角度、面积），题干抄不到，
+        # 解题就缺条件。转写把图上标注量下来，当作条件写进提示词——只转述，不推理。
+        # 这里还没有解答，先按题干纠偏 + 像素核对；导演阶段拿到解答后再纠一次辅助线
+        figure_image = str(ctx.state.get("figure_image") or "")
+        if not ctx.state.get("figure_transcription") and figure_image.startswith("data:image/"):
+            transcription = await transcribe_figure(self._vision_llm, figure_image)
+            if transcription:
+                refine_transcription(transcription, figure_image, problem)
+                ctx.state["figure_transcription"] = transcription
+        conditions = transcription_conditions(ctx.state.get("figure_transcription"))
+        if conditions:
+            analysis_section += (
+                "\n## 图上标注的条件（从配图转写，原文照抄）\n"
+                + "\n".join(f"- {c}" for c in conditions)
+                + "\n这些是题目条件的一部分（题干里可能没写），解题时一并使用；"
+                "图上没标的量不要自己量。\n"
+            )
 
         prompt = self._prompts.render(
             "solve",

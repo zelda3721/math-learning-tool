@@ -96,6 +96,37 @@ export async function rotateDataUrl(dataUrl: string, cwDegrees: number): Promise
     return out
 }
 
+/**
+ * 裁出来的配图太小就等比放大（短边到 MIN_FIGURE_SHORT_SIDE，最多 4 倍）。
+ * 放大不添信息，但服务端的配图规格抽取、引擎的转写与像素核对都靠像素说话——
+ * 一张 300px 的小图上字母都糊成一团。引擎侧也有同样的兜底，这里先做一遍省得来回。
+ */
+const MIN_FIGURE_SHORT_SIDE = 800
+export async function upscaleDataUrl(dataUrl: string, minShortSide = MIN_FIGURE_SHORT_SIDE): Promise<string> {
+    try {
+        const img = await loadImage(dataUrl)
+        const short = Math.min(img.naturalWidth, img.naturalHeight)
+        if (short <= 0 || short >= minShortSide) return dataUrl
+        const factor = Math.min(4, minShortSide / short)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.naturalWidth * factor)
+        canvas.height = Math.round(img.naturalHeight * factor)
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return dataUrl
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const out = canvas.toDataURL('image/jpeg', 0.92)
+        canvas.width = 0
+        canvas.height = 0
+        return out
+    } catch {
+        return dataUrl
+    }
+}
+
 const boxArea = (box?: Box): number => (box ? Math.max(0, box[2] - box[0]) * Math.max(0, box[3] - box[1]) : 0)
 
 /**
@@ -151,6 +182,75 @@ export function figurePadBox(box: Box, answerTop?: number): Box {
 const ORIENTATION_TIMEOUT_MS = 15_000
 
 /**
+ * 文字行的走向（纯像素、不认字）：印刷文字横排时，逐行的墨迹量呈"一行字、一行空"的
+ * 强周期起伏，逐列则平缓；竖排（照片侧着）正相反。用行/列投影的相对方差之比判断。
+ * 返回 'horizontal' | 'vertical' | 'unknown'（两者差不多——多半是以图为主的照片，不下结论）。
+ * 这是给模型的方向判定做**校验**用的：模型说要转 90°，而像素说文字已经是横的，就不转。
+ */
+export function textLineAxis(gray: ArrayLike<number>, width: number, height: number): 'horizontal' | 'vertical' | 'unknown' {
+    if (width < 16 || height < 16) return 'unknown'
+    // 墨迹阈值：相对纸色（中位数）暗一截
+    const sorted = Array.from(gray as ArrayLike<number>).sort((a, b) => a - b)
+    const paper = sorted[Math.floor(sorted.length / 2)] ?? 255
+    const threshold = paper - Math.max(40, paper * 0.3)
+    const rows = new Float64Array(height)
+    const cols = new Float64Array(width)
+    let total = 0
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            if ((gray[y * width + x] ?? 255) < threshold) {
+                rows[y] += 1
+                cols[x] += 1
+                total += 1
+            }
+        }
+    }
+    if (total < width * height * 0.005) return 'unknown' // 几乎没墨迹
+    const relVar = (arr: Float64Array): number => {
+        let mean = 0
+        for (const v of arr) mean += v
+        mean /= arr.length
+        if (mean <= 0) return 0
+        let v2 = 0
+        for (const v of arr) v2 += (v - mean) * (v - mean)
+        return v2 / arr.length / (mean * mean)
+    }
+    const rowScore = relVar(rows)
+    const colScore = relVar(cols)
+    if (rowScore > colScore * 1.4) return 'horizontal'
+    if (colScore > rowScore * 1.4) return 'vertical'
+    return 'unknown'
+}
+
+/** 把图缩到 ~256 宽取灰度，交给 textLineAxis；画布不可用时返回 'unknown' */
+async function textLineAxisOf(dataUrl: string): Promise<'horizontal' | 'vertical' | 'unknown'> {
+    try {
+        const img = await loadImage(dataUrl)
+        const scale = 256 / Math.max(img.naturalWidth, img.naturalHeight)
+        const w = Math.max(16, Math.round(img.naturalWidth * scale))
+        const h = Math.max(16, Math.round(img.naturalHeight * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return 'unknown'
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, w, h)
+        ctx.drawImage(img, 0, 0, w, h)
+        const { data } = ctx.getImageData(0, 0, w, h)
+        const gray = new Uint8Array(w * h)
+        for (let i = 0; i < w * h; i += 1) {
+            gray[i] = Math.round(0.299 * data[i * 4]! + 0.587 * data[i * 4 + 1]! + 0.114 * data[i * 4 + 2]!)
+        }
+        canvas.width = 0
+        canvas.height = 0
+        return textLineAxis(gray, w, h)
+    } catch {
+        return 'unknown'
+    }
+}
+
+/**
  * 第 0 步：问服务端「这张照片顺时针转多少度文字才正」，需要就本地转正。
  * 这一步是锦上添花——判定失败/超时/端点不支持时按原样继续，绝不拦整条链路。
  */
@@ -165,6 +265,13 @@ async function uprightPhoto(photoDataUrl: string): Promise<string> {
         if (!res.ok) return photoDataUrl
         const { rotate } = (await res.json()) as { rotate?: number }
         if (!rotate) return photoDataUrl
+        const norm = ((Math.round(rotate / 90) * 90) % 360 + 360) % 360
+        // 像素校验：模型说要转 90/270，可文字明明已经横排——那是模型判反了，不转。
+        // 实机：本地视觉模型在 0/90 之间摇摆，转错一次整条链路（版面框、裁图、转写）都是侧的
+        if ((norm === 90 || norm === 270) && (await textLineAxisOf(photoDataUrl)) === 'horizontal') {
+            console.warn(`[photo] 方向判定给出 ${norm}°，但像素上文字已是横排——忽略旋转`)
+            return photoDataUrl
+        }
         return await rotateDataUrl(photoDataUrl, rotate)
     } catch {
         return photoDataUrl
@@ -215,10 +322,11 @@ export async function extractPhotoProblem(
     // 只取题干图；解析图（教师版灰框里的解法图）绝不跟着题走。
     // 余量在 figurePadBox 里算好（下边被答案线封顶），这里不再叠 pad
     const { stemFigureBox } = figureCropBox(item)
-    const figureImage = stemFigureBox
+    const cropped_figure = stemFigureBox
         ? ((await cropPage(photoDataUrl, figurePadBox(stemFigureBox, item.answerTop)).catch(() => null)) ??
           undefined)
         : undefined
+    const figureImage = cropped_figure ? await upscaleDataUrl(cropped_figure) : undefined
 
     return { problem: stem.trim(), figureImage }
 }

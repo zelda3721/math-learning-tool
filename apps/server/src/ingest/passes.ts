@@ -232,6 +232,9 @@ export const CONTENT_PROMPT = `这张图是**一道**数学题（可能带图）
 {"stem":"完整题干","answer":"答案","answerFrom":"material|solved","answerUnique":true,"answerType":"numeric|expression|steps","options":["A",...],"analysis":"一句话解析","difficulty":1,"level":"elementary_lower|elementary_upper|middle|high|advanced"}
 规则：
 - stem 保留原题完整信息（数字、单位、条件），不要改写；图里的数字务必看准；
+- **图形上写着的条件也是题目条件**：边长（8cm）、角度（90°）、面积（S=12）、比例、"阴影"这类
+  标在图形上的字，题干里往往没有——照抄到 stem 末尾，格式「图中标注：AB=8cm，∠B=90°」；
+  只抄图上印着的字，不要量长度、不要算；
 - 题干里的**表格用 markdown 竖线格式**写（| 月份 | 1月 | 2月 |，每行一排），
   不要用 LaTeX 的 tabular；待填的空格留空即可；
 - **一题多问是一道题**：把 (1)(2)(3) 连同共用的题干写进同一个 stem，

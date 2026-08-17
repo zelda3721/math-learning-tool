@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { figurePadBox, pickPhotoItem, type PhotoLayoutItem } from './photoProblem'
+import { figurePadBox, pickPhotoItem, textLineAxis, type PhotoLayoutItem } from './photoProblem'
 
 const item = (partial: Partial<PhotoLayoutItem> & { index: number }): PhotoLayoutItem => ({
     label: `练习${partial.index}`,
@@ -74,5 +74,37 @@ describe('figurePadBox：配图裁框的余量与答案线', () => {
 
     it('出界一律钳回 0~1', () => {
         expect(figurePadBox([0.01, 0.02, 0.99, 0.98], undefined)).toEqual([0, 0, 1, 1])
+    })
+})
+
+
+describe('textLineAxis：像素判文字走向（校验模型的方向判定）', () => {
+    // 合成"一页字"：横排 = 每 8 行里 4 行有墨迹（整行随机点），列向均匀
+    function page(w: number, h: number, horizontal: boolean): Uint8Array {
+        const gray = new Uint8Array(w * h).fill(240)
+        let seed = 7
+        const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280)
+        for (let y = 0; y < h; y += 1) {
+            for (let x = 0; x < w; x += 1) {
+                const inLine = horizontal ? y % 8 < 4 : x % 8 < 4
+                if (inLine && rnd() < 0.35) gray[y * w + x] = 30
+            }
+        }
+        return gray
+    }
+    it('横排文字 → horizontal；竖排（侧拍） → vertical', () => {
+        expect(textLineAxis(page(200, 160, true), 200, 160)).toBe('horizontal')
+        expect(textLineAxis(page(200, 160, false), 200, 160)).toBe('vertical')
+    })
+    it('几乎没墨迹或不成行（纯图形/噪点）→ unknown，不下结论', () => {
+        const blank = new Uint8Array(200 * 160).fill(240)
+        expect(textLineAxis(blank, 200, 160)).toBe('unknown')
+        const noise = new Uint8Array(200 * 160)
+        let seed = 3
+        for (let i = 0; i < noise.length; i += 1) {
+            seed = (seed * 9301 + 49297) % 233280
+            noise[i] = seed / 233280 < 0.2 ? 30 : 240
+        }
+        expect(textLineAxis(noise, 200, 160)).toBe('unknown')
     })
 })

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } from "@mathtutor/schema";
@@ -258,6 +258,44 @@ export async function runAskJob(
   }
 }
 
+/**
+ * 拍照链路的样本留存（本地开发诊断用）：每一步收到的图 + 结果摘要，
+ * 环形只留最近 40 张。实机上"图被压得很小 / 横竖不对"这类问题，事后没有原图
+ * 根本查不了——用户的照片只在浏览器内存里走一遭。
+ */
+const PHOTO_SAMPLE_KEEP = 40;
+export function keepPhotoSample(
+  dataDir: string,
+  stage: string,
+  base64: string,
+  mime: string | null | undefined,
+  note: string,
+): void {
+  try {
+    const dir = path.join(dataDir, "photo_samples");
+    mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ext = mime === "image/png" ? "png" : "jpg";
+    const base = `${stamp}-${stage}`;
+    writeFileSync(path.join(dir, `${base}.${ext}`), Buffer.from(base64, "base64"));
+    writeFileSync(path.join(dir, `${base}.txt`), note, "utf8");
+    // 环形清理：按名字（时间戳开头）排序，超出就删最老的
+    const files = readdirSync(dir).filter((f) => /\.(jpg|png|txt)$/.test(f)).sort();
+    const stems = [...new Set(files.map((f) => f.replace(/\.(jpg|png|txt)$/, "")))];
+    for (const old of stems.slice(0, Math.max(0, stems.length - PHOTO_SAMPLE_KEEP))) {
+      for (const f of files.filter((x) => x.startsWith(old))) {
+        try {
+          unlinkSync(path.join(dir, f));
+        } catch {
+          /* 删不掉就留着 */
+        }
+      }
+    }
+  } catch {
+    /* 留样失败绝不影响正常链路 */
+  }
+}
+
 export function askRoutes(state: AppState): Hono {
   const app = new Hono();
 
@@ -330,7 +368,9 @@ export function askRoutes(state: AppState): Hono {
     if (!provider?.orientationFromImage) return c.json({ error: "当前抽取端点不支持方向判定" }, 501);
     const { base64, mime } = stripDataUrl(parsed.data.content);
     try {
-      return c.json({ rotate: await provider.orientationFromImage(base64, mime ?? "image/jpeg") });
+      const rotate = await provider.orientationFromImage(base64, mime ?? "image/jpeg");
+      keepPhotoSample(state.config.dataDir, "orientation", base64, mime, `rotate=${rotate}`);
+      return c.json({ rotate });
     } catch (err) {
       return c.json({ error: `方向判定失败: ${String(err)}` }, 502);
     }
@@ -344,6 +384,14 @@ export function askRoutes(state: AppState): Hono {
     const { base64, mime } = stripDataUrl(parsed.data.content);
     try {
       const items = await provider.layoutFromImage(base64, mime ?? "image/jpeg");
+      keepPhotoSample(
+        state.config.dataDir,
+        "layout",
+        base64,
+        mime,
+        `items=${items.length} ` +
+          items.map((it) => `${it.label}:box=${JSON.stringify(it.box)} fig=${JSON.stringify(it.figureBox ?? null)} afig=${JSON.stringify(it.analysisFigureBox ?? null)}`).join(" | "),
+      );
       // 题干图/解析图与光杆题号都在这里判完再下发（判据与录题管线同一条，不写两遍）。
       // dangling 对照片同样有意义：取景框边缘完全可能带进下一题的题号条，
       // 前端靠它决定"这是不是多题照片"——判错会让单题照片走按框裁的高危路径。
@@ -373,6 +421,13 @@ export function askRoutes(state: AppState): Hono {
         // 拍的是作业本：上面有孩子的手写笔迹，识题只认印刷体
         photo: true,
       });
+      keepPhotoSample(
+        state.config.dataDir,
+        "question",
+        base64,
+        mime,
+        draft?.stem ? `stem=${draft.stem.slice(0, 80)}` : "stem=null",
+      );
       // 只回题干：答案由 ask 的 Solve→Verify 链路自己算（照片上就算印着答案也不能信——
       // 孩子拍的可能是教师版，也可能是同学写的错答案；判卷依据必须是验证过的）。
       if (!draft?.stem) return c.json({ stem: null, warnings: ["照片里没读出题目"] });
