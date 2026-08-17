@@ -52,7 +52,7 @@ async def transcribe(
     refine_transcription(t, req.figure_image, req.problem)
     return {
         "transcription": t,
-        "conditions": transcription_conditions(t),
+        "conditions": transcription_conditions(t, req.problem),
         "structure": figure_structure_text(t),
         "problem_with_conditions": problem_with_figure_conditions(req.problem, t),
         # 给输入框/题库看的短版：只带"图中标注"，不带整段结构（结构由引擎解题时自己重算）

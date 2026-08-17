@@ -201,7 +201,7 @@ def problem_with_figure_conditions(
     实机：解题按图上的 6cm/8cm 算对了，验证却因为题干里没有这两个数判它"无据"，
     整条链路在这里停掉。三处都用这一份，谁也不会比谁多知道或少知道。
     """
-    conditions = transcription_conditions(t)
+    conditions = transcription_conditions(t, problem)
     if not conditions:
         return problem
     marker = "图中标注："
@@ -225,28 +225,47 @@ def problem_with_figure_conditions(
 _UNIT_RE = re.compile(r"(cm|mm|m|km|厘米|毫米|米|千米|分米|dm|°|度|平方|²|㎡)", re.I)
 
 
-def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
-    """图上标注 → 给解题/验证/导演的文字。
+_ANGLE_UNIT_RE = re.compile(r"(°|度)")
+_LENGTH_UNIT_RE = re.compile(r"(cm|mm|km|dm|m|厘米|毫米|米|千米|分米)\b", re.I)
+_AREA_HINT_RE = re.compile(r"(面积|平方|S\s*=|㎡|²)")
 
-    实机教训（2026-08-17 用户实拍）：本地视觉模型能读出图上的数（5、7、8），但
-    **说不准它写在哪个三角形里**——同一张图两次转写一次说"AE:5"、一次说"E:5"，
-    抽取器又猜成"S△AEF=5"。区域归属靠文字转述不可靠，所以这里分两档：
-    - 带单位、挂在两个字母上的（"边AB 6cm"）：当条件说；
-    - 其余（区域里的面积数、角上的数）：只说"图上写着「5」，在 E、F 附近"——
-      位置是量出来的、归属不下结论，交给**看着图**解题的模型自己核对。
+
+def transcription_conditions(t: dict[str, Any] | None, problem: str = "") -> list[str]:
+    """图上标注 → 给解题/验证/导演的条件句。
+
+    像素几何定下归属的标注，直接说成数学条件——写在区域里的数按题目语境解释：
+    题干说"面积"就是"三角形AEF的面积为5"，带 ° 是角，贴在边上带长度单位是"AB=8cm"。
+    语境判不出的写中性句"三角形AEF内标注「5」"（仍是事实，不是猜测）。
+    没有几何校准的（模型说的归属不可信）只给位置线索："「5」写在 E、F 附近"——
+    实机教训：本地视觉模型两次转写归属都不同，抽取器又是猜的，说成条件就是把错的当真。
     """
     out: list[str] = []
+    area_context = bool(_AREA_HINT_RE.search(problem or ""))
+    shape_name = {3: "三角形", 4: "四边形", 5: "五边形", 6: "六边形"}
     for label in (t or {}).get("labels") or []:
         on = list(label.get("on") or [])
         text = str(label.get("text") or "").strip()
         if not text or not on:
             continue
         resolved = label.get("resolved") == "geometry"
+        bare_number = re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", text) is not None
         if len(on) == 2 and (_UNIT_RE.search(text) or resolved):
-            out.append(f"边{on[0]}{on[1]}标注「{text}」")
+            edge = f"{on[0]}{on[1]}"
+            if _LENGTH_UNIT_RE.search(text) or (resolved and bare_number):
+                out.append(f"{edge}={text}")
+            else:
+                out.append(f"边{edge}标注「{text}」")
         elif resolved and len(on) >= 3:
-            shape = {3: "三角形", 4: "四边形", 5: "五边形", 6: "六边形"}.get(len(on), "多边形")
-            out.append(f"{shape}{''.join(on)}内标注「{text}」")
+            shape = shape_name.get(len(on), "多边形") + "".join(on)
+            if _AREA_HINT_RE.search(text) or (bare_number and area_context):
+                value = re.sub(r"^S\s*=\s*", "", text)
+                out.append(f"{shape}的面积为{value}")
+            elif _ANGLE_UNIT_RE.search(text):
+                out.append(f"{shape}内标注角度{text}")
+            else:
+                out.append(f"{shape}内标注「{text}」")
+        elif resolved and len(on) == 1 and _ANGLE_UNIT_RE.search(text):
+            out.append(f"∠{on[0]}={text}")
         else:
             out.append(f"「{text}」写在 {'、'.join(on)} 附近")
     return out
