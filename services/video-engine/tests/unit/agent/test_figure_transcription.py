@@ -674,3 +674,63 @@ def test_纠偏_题干点名的字母转写里没有就不改阴影():
     t = _user_transcription()
     out = reconcile_transcription(dict(t), "阴影四边形EDGB的面积为28", None, None)  # G 不存在
     assert out["shaded"] == [["B", "D", "F"]]
+
+
+# ── 像素核对：模型说有的线，像素里得真有墨迹 ──
+
+from math_tutor.infrastructure.agent.figure_transcription import verify_segments_by_ink
+
+
+def _synthetic_figure(lines, shade=True):
+    import base64
+    import io
+
+    from PIL import Image, ImageDraw
+
+    W, H = 640, 480
+    im = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(im)
+    P = {"A": (150, 150), "D": (430, 90), "C": (560, 400), "B": (120, 400)}
+    P["E"] = ((P["A"][0] + P["D"][0]) // 2, (P["A"][1] + P["D"][1]) // 2)
+    P["F"] = ((P["B"][0] + P["C"][0]) // 2, (P["B"][1] + P["C"][1]) // 2)
+    if shade:
+        d.polygon([P["E"], P["D"], P["F"], P["B"]], fill=(150, 150, 150))
+    for a, b in lines:
+        d.line([P[a], P[b]], fill="black", width=3)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    pts = [{"id": k, "x": x / W, "y": y / H} for k, (x, y) in P.items()]
+    return pts, "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_像素核对_脑补的线被去掉_真线全留():
+    """用户实拍：E-F 图上没画，模型照样量出来——一条多余的干扰线足以让孩子看错图。"""
+    pts, url = _synthetic_figure([("A", "D"), ("D", "C"), ("C", "B"), ("B", "A"), ("B", "E"), ("F", "D")])
+    # 转写坐标带 2% 误差也不该误杀真线
+    import random
+    random.seed(7)
+    for p in pts:
+        p["x"] += random.uniform(-0.02, 0.02)
+        p["y"] += random.uniform(-0.02, 0.02)
+    t = {"points": pts,
+         "segments": [["A", "D"], ["D", "C"], ["C", "B"], ["B", "A"], ["B", "E"], ["F", "D"],
+                      ["E", "F"], ["B", "D"], ["A", "E"]],
+         "shaded": [["E", "D", "F", "B"]]}
+    verify_segments_by_ink(t, url)
+    pairs = {frozenset(s) for s in t["segments"]}
+    assert frozenset("EF") not in pairs and frozenset("BD") not in pairs
+    for real in ("AD", "DC", "CB", "BA", "BE", "FD", "AE"):  # A-E 是 A-D 上的一段，同一条墨迹
+        assert frozenset(real) in pairs, real
+    assert any("E-F" in n for n in t["reconciled"])
+
+
+def test_像素核对_一半以上没墨迹判为校验失效_全留():
+    pts, url = _synthetic_figure([("A", "D")], shade=False)
+    t = {"points": pts, "segments": [["A", "D"], ["B", "C"], ["E", "F"], ["B", "D"]], "shaded": []}
+    verify_segments_by_ink(t, url)
+    assert len(t["segments"]) == 4 and "reconciled" not in t
+
+
+def test_像素核对_不是图片就原样返回():
+    t = {"points": [{"id": "A", "x": 0, "y": 0}], "segments": [["A", "A"]], "shaded": []}
+    assert verify_segments_by_ink(dict(t), "not-a-data-url") == t

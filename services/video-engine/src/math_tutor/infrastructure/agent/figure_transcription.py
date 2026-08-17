@@ -521,6 +521,107 @@ def reconcile_transcription(
     return t
 
 
+def _decode_gray(figure_image: str) -> Any:
+    """data URL → 灰度像素矩阵（numpy）。解不出来返回 None（校验就跳过）。"""
+    try:
+        import base64
+        import io
+
+        import numpy as np
+        from PIL import Image
+
+        head, _, payload = figure_image.partition(",")
+        if not head.startswith("data:image/") or not payload:
+            return None
+        img = Image.open(io.BytesIO(base64.b64decode(payload))).convert("L")
+        return np.asarray(img, dtype=np.uint8)
+    except Exception:  # noqa: BLE001 — 校验是加分项，解码失败不拦路
+        return None
+
+
+def verify_segments_by_ink(t: dict[str, Any], figure_image: str) -> dict[str, Any]:
+    """按**像素墨迹**核对每条转写线段——视觉模型会把"应该有的线"脑补进去。
+
+    实机（2026-08-17，用户实拍）：E-F 根本没画，模型照样量了出来；一条多余的
+    干扰线足以让孩子看错图。转写是测量，那就真的量一下：沿两端点连线取样，
+    每个样点在小邻域里找有没有比纸/阴影暗得多的墨迹；覆盖率不够的线段丢掉并留痕。
+    - 只删不补：图上有而模型没量的线，这里不负责补；
+    - 端点两头各让 8%（字母、端点坐标误差都在那里）；
+    - 阈值相对纸色自适应：线条最黑、阴影居中、纸最亮——阴影不算墨迹。
+    """
+    gray = _decode_gray(figure_image)
+    if gray is None or not t.get("segments"):
+        return t
+    import numpy as np
+
+    h, w = gray.shape
+    if h < 40 or w < 40:
+        return t
+    pts = {p["id"]: (p["x"] * (w - 1), p["y"] * (h - 1)) for p in t.get("points") or []}
+    paper = float(np.median(gray))
+    darkest = float(np.percentile(gray, 1))
+    # 墨迹 = 比**局部背景**暗得多的像素：线条画在纸上比纸黑得多，画在阴影里比阴影黑得多；
+    # 阴影本身相对纸只是"偏暗"，达不到这个反差。用局部中位数当背景，阴影里的假线才不会过关
+    ink_contrast = 0.35 * (paper - darkest)
+    radius = max(2, int(round(0.012 * min(w, h))))
+    local = 4 * radius
+    # 转写坐标有几个百分点的误差：沿法向在一条窄带里找墨迹，别把画歪一点的真线误杀
+    band = max(3 * radius, int(round(0.035 * min(w, h))))
+    kept: list[list[str]] = []
+    dropped: list[str] = []
+    for sg in t["segments"]:
+        if len(sg) != 2 or sg[0] not in pts or sg[1] not in pts:
+            continue
+        (x0, y0), (x1, y1) = pts[sg[0]], pts[sg[1]]
+        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        if length < 4 * radius:
+            kept.append(list(sg))  # 太短量不准，宁可保留
+            continue
+        nx, ny = -(y1 - y0) / length, (x1 - x0) / length
+        samples = max(12, int(length / (2 * radius)))
+        hits = 0
+        total = 0
+        for i in range(samples + 1):
+            f = i / samples
+            if f < 0.08 or f > 0.92:
+                continue
+            px, py = x0 + (x1 - x0) * f, y0 + (y1 - y0) * f
+            total += 1
+            found = False
+            for off in range(-band, band + 1, radius):
+                cx, cy = int(round(px + nx * off)), int(round(py + ny * off))
+                window = gray[
+                    max(0, cy - radius) : min(h, cy + radius + 1),
+                    max(0, cx - radius) : min(w, cx + radius + 1),
+                ]
+                if not window.size:
+                    continue
+                background = gray[
+                    max(0, cy - local) : min(h, cy + local + 1),
+                    max(0, cx - local) : min(w, cx + local + 1),
+                ]
+                if float(np.median(background)) - float(window.min()) >= ink_contrast:
+                    found = True
+                    break
+            if found:
+                hits += 1
+        coverage = hits / total if total else 0.0
+        if coverage >= 0.7:
+            kept.append(list(sg))
+        else:
+            dropped.append(f"{sg[0]}-{sg[1]}({coverage:.0%})")
+    if dropped and len(dropped) * 2 > len(kept) + len(dropped):
+        # 一半以上的线都"没墨迹"——多半是阈值对这张照片失效（浅铅笔线、深底纸），
+        # 这时候校验不可信：全留，别把真图删秃了
+        logger.warning("figure transcription ink check unreliable, keeping all: %s", dropped)
+        return t
+    if dropped:
+        t["segments"] = kept
+        t.setdefault("reconciled", []).append("像素核对去掉没有墨迹的线段：" + "、".join(dropped))
+        logger.info("figure transcription ink check dropped %s", dropped)
+    return t
+
+
 async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | None:
     """跑一趟视觉转写；任何失败返回 None（调用方按'没有转写'继续，绝不拦路）。"""
     if not figure_image.startswith("data:image/"):
@@ -545,5 +646,7 @@ async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | Non
     if parsed is None:
         logger.warning("figure transcription unparsable: %s", (getattr(done, "text", "") or "")[:120])
     else:
+        # 量完再核：模型说有的线，像素里得真有墨迹
+        verify_segments_by_ink(parsed, figure_image)
         logger.info("figure transcription: %s", transcription_summary(parsed))
     return parsed
