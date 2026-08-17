@@ -801,7 +801,8 @@ def test_转写labels_解析_挂错字母整条丢_并转成条件与重画标�
         ("8cm", ["A", "B"]), ("90°", ["B"]), ("S=12", ["A", "B", "C"])
     ]
     from math_tutor.infrastructure.agent.figure_transcription import transcription_conditions
-    assert transcription_conditions(t) == ["边AB标注「8cm」", "点B处标注「90°」", "区域ABC标注「S=12」"]
+    # 带单位挂在边上的当条件说；区域里/角上的数只给位置线索（归属交给看图的模型核对）
+    assert transcription_conditions(t) == ["边AB标注「8cm」", "「90°」写在 B 附近", "「S=12」写在 A、B、C 附近"]
     params = to_figure_params(t)
     assert params["segments"][0] == {"from": "A", "to": "B", "label": "8cm"}
     assert "label" not in params["segments"][1]
@@ -844,7 +845,7 @@ def test_题面拼图上标注_三处同一份_已有则不重复():
     t = {"points": [], "segments": [], "shaded": [],
          "labels": [{"text": "6cm", "on": ["A", "B"]}, {"text": "8cm", "on": ["B", "C"]}]}
     out = problem_with_figure_conditions("如图，长方形ABCD中，求阴影面积。", t)
-    assert out.endswith("（图中标注：边AB标注「6cm」；边BC标注「8cm」）")
+    assert out.endswith("（图中标注：边AB标注「6cm」；边BC标注「8cm」。以上是读图所得，以图为准）")
     assert problem_with_figure_conditions(out, t) == out               # 幂等
     assert problem_with_figure_conditions("题干里已有 图中标注：AB=6cm", t) == "题干里已有 图中标注：AB=6cm"
     assert problem_with_figure_conditions("无图", None) == "无图"

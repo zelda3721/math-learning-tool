@@ -452,8 +452,11 @@ def _parse_consistency_audit(text: str) -> tuple[bool, list[str], list[str]] | N
 
 
 class VerifySolutionTool(ITool):
-    def __init__(self, llm: ILLMProvider, prompts: PromptLibrary) -> None:
+    def __init__(
+        self, llm: ILLMProvider, prompts: PromptLibrary, vision_llm: ILLMProvider | None = None
+    ) -> None:
         self._llm = llm
+        self._vision_llm = vision_llm or llm
         self._prompts = prompts
 
     @property
@@ -576,9 +579,27 @@ class VerifySolutionTool(ITool):
             previous_failure_section=previous_failure_section,
         )
 
+        # 带图的题：验证也要看图——解答里"图上标的 6cm/面积 5"这类条件，纯文字验证无从核对
+        figure_image = str(ctx.state.get("figure_image") or "")
+        has_figure = figure_image.startswith("data:image/")
+        verify_llm = self._vision_llm if has_figure else self._llm
+
+        def as_messages(text: str) -> list[ChatMessage]:
+            if has_figure:
+                return [
+                    ChatMessage(
+                        role="user",
+                        content=[
+                            {"type": "text", "text": text + "\n\n（附原图：解答引用的图上条件以图为准核对。）"},
+                            {"type": "image_url", "image_url": {"url": figure_image}},
+                        ],
+                    )
+                ]
+            return [ChatMessage(role="user", content=text)]
+
         try:
-            done = await self._llm.chat_complete(
-                messages=[ChatMessage(role="user", content=prompt)],
+            done = await verify_llm.chat_complete(
+                messages=as_messages(prompt),
                 temperature=0.1,
                 # Verification is structured + small Python output. 3K
                 # plenty even with thinking on.
@@ -807,8 +828,8 @@ class VerifySolutionTool(ITool):
                 answer=answer,
             )
             try:
-                audit_done = await self._llm.chat_complete(
-                    messages=[ChatMessage(role="user", content=audit_prompt)],
+                audit_done = await verify_llm.chat_complete(
+                    messages=as_messages(audit_prompt),
                     temperature=0.0,
                     max_tokens=1536,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},

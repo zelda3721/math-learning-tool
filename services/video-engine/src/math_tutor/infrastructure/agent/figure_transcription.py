@@ -123,14 +123,22 @@ def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> st
     marker = "图中标注："
     if marker in (problem or ""):
         return problem  # 抽取层已经把标注抄进题干（同一格式），不重复
-    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}）"
+    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}。以上是读图所得，以图为准）"
+
+
+#: 带单位的量（长度/角度/面积单位）——这类标注贴着一条边或一个角写，模型挂对的把握大
+_UNIT_RE = re.compile(r"(cm|mm|m|km|厘米|毫米|米|千米|分米|dm|°|度|平方|²|㎡)", re.I)
 
 
 def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
-    """图上标注 → 一条条"题目条件"文字（给解题/导演的提示词用）。
+    """图上标注 → 给解题/验证/导演的文字。
 
-    照片题里常有条件只写在图上（边长 8cm、∠B=90°、S=12）：题干抄不到，解题就缺条件。
-    转写既然把它们量下来了，就把它们当条件说出来："边AB 标注 8cm"。只转述，不推理。
+    实机教训（2026-08-17 用户实拍）：本地视觉模型能读出图上的数（5、7、8），但
+    **说不准它写在哪个三角形里**——同一张图两次转写一次说"AE:5"、一次说"E:5"，
+    抽取器又猜成"S△AEF=5"。区域归属靠文字转述不可靠，所以这里分两档：
+    - 带单位、挂在两个字母上的（"边AB 6cm"）：当条件说；
+    - 其余（区域里的面积数、角上的数）：只说"图上写着「5」，在 E、F 附近"——
+      位置是量出来的、归属不下结论，交给**看着图**解题的模型自己核对。
     """
     out: list[str] = []
     for label in (t or {}).get("labels") or []:
@@ -138,12 +146,10 @@ def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
         text = str(label.get("text") or "").strip()
         if not text or not on:
             continue
-        if len(on) == 1:
-            out.append(f"点{on[0]}处标注「{text}」")
-        elif len(on) == 2:
+        if len(on) == 2 and _UNIT_RE.search(text):
             out.append(f"边{on[0]}{on[1]}标注「{text}」")
         else:
-            out.append(f"区域{''.join(on)}标注「{text}」")
+            out.append(f"「{text}」写在 {'、'.join(on)} 附近")
     return out
 
 
@@ -754,6 +760,30 @@ def verify_segments_by_ink(
             f"覆盖 {float(identity.mean()):.0%}→{score:.0%}）"
         )
     tight = coverage(ink_tight, *transform)
+
+    # 校验必须"说得出不"：在图形包围盒里随机抽几十条弦当诱饵，看它们是否也大多"有墨迹"。
+    # 线很密的图（对角线 + 多条中线，用户实拍就是）里，±2 格容差下任何一条弦都撞墨迹——
+    # 这时候覆盖率分不出真假，删线只会误杀，整段核对直接放弃。诱饵用固定种子，结果可复现
+    rng = np.random.default_rng(0)
+    bx = [p[0] for p in base.values()]
+    by = [p[1] for p in base.values()]
+    x0b, x1b, y0b, y1b = min(bx), max(bx), min(by), max(by)
+    if x1b - x0b > 0.05 and y1b - y0b > 0.05:
+        starts = np.stack([rng.uniform(x0b, x1b, 40), rng.uniform(y0b, y1b, 40)], axis=1)
+        ends = np.stack([rng.uniform(x0b, x1b, 40), rng.uniform(y0b, y1b, 40)], axis=1)
+        decoy_xy = starts[:, None, :] + (ends - starts)[:, None, :] * fs[None, :, None]
+        sx_, sy_, dx_, dy_ = transform
+        xs = np.clip(((decoy_xy[..., 0] * sx_ + dx_) * (w - 1) / cell).astype(int), 0, cols - 1)
+        ys = np.clip(((decoy_xy[..., 1] * sy_ + dy_) * (h - 1) / cell).astype(int), 0, rows - 1)
+        decoy_cov = ink_tight[ys, xs].mean(axis=1)
+        if float(np.median(decoy_cov)) >= 0.5:
+            logger.info(
+                "figure transcription ink check not discriminative (decoy median %.0f%%), keeping all",
+                float(np.median(decoy_cov)) * 100,
+            )
+            if notes:
+                t.setdefault("reconciled", []).extend(notes)
+            return t
 
     ink_narrow = _ink_cells(gray, cell, contrast, band_cells=1)
 

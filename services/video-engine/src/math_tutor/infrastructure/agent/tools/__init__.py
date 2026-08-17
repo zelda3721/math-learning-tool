@@ -61,7 +61,7 @@ def build_default_registry(
     registry = ToolRegistry()
     # 原图转写走视觉端点（没配就退回主模型）；解题/导演各自在需要时触发一次
     registry.register(SolveProblemTool(light_llm, prompts, vision_llm=vision_llm or llm))
-    registry.register(VerifySolutionTool(light_llm, prompts))
+    registry.register(VerifySolutionTool(light_llm, prompts, vision_llm=vision_llm or llm))
     director = DirectVideoTool(VisualPlanTool(light_llm, prompts, vision_llm=vision_llm or llm))
     registry.register(director)
     # The legacy match/search tools remain importable for offline analysis,
