@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { request as httpRequest } from "node:http";
+import { latexToPlainText } from "./latexText.js";
 
 /**
  * 引擎反向代理：透传请求体与 SSE 流。
@@ -17,7 +18,21 @@ export async function proxyToEngine(c: Context, engineUrl: string): Promise<Resp
   const method = c.req.method;
   const hasBody = method !== "GET" && method !== "HEAD";
   // 请求体整体读入：这里只有 JSON（含 data URL 配图，几 MB 级），不必流式
-  const body = hasBody ? Buffer.from(await c.req.raw.arrayBuffer()) : undefined;
+  let body = hasBody ? Buffer.from(await c.req.raw.arrayBuffer()) : undefined;
+  // 讲解 tab 的视频模式直连 /api/v1/chat：题干带 $...$ 时引擎的题卡（Manim Text）和
+  // 讲解句会原样画出美元符号——与 /api/v1/explain 一样，送引擎前把 LaTeX 落成普通文字。
+  // 只动 problem 一个字段，别的（配图 data URL 等）一个字节不碰
+  if (body && url.pathname === "/api/v1/chat" && method === "POST") {
+    try {
+      const parsed = JSON.parse(body.toString("utf8")) as Record<string, unknown>;
+      if (typeof parsed.problem === "string" && /[$\\]/.test(parsed.problem)) {
+        parsed.problem = latexToPlainText(parsed.problem);
+        body = Buffer.from(JSON.stringify(parsed), "utf8");
+      }
+    } catch {
+      /* 不是 JSON 就原样透传 */
+    }
+  }
 
   const headers: Record<string, string> = {};
   const contentType = c.req.header("content-type");

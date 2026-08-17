@@ -131,6 +131,16 @@ export function latexToPlainText(text: string): string {
     d === "2" ? "²" : d === "3" ? "³" : `^${d}`,
   );
   out = out.replace(/\^2\b/g, "²").replace(/\^3\b/g, "³");
+  // 下标：数字下标转 Unicode（x_1 → x₁、a_{12} → a₁₂）；字母/记号下标直接落成后缀
+  // （S_{△AEF} → S△AEF，与课本"S△AEF"的写法一致；S_{阴影} → S阴影）
+  const SUB_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
+  const subscript = (content: string): string =>
+    /^\d+$/.test(content)
+      ? content.replace(/\d/g, (d) => SUB_DIGITS[Number(d)]!)
+      : content;
+  out = out.replace(/_\{([^{}]*)\}/g, (_all, content: string) => subscript(content.trim()));
+  out = out.replace(/_(\d)/g, (_all, d: string) => SUB_DIGITS[Number(d)]!);
+  out = out.replace(/_([A-Za-z])(?![A-Za-z])/g, "$1");
   // 剥掉数学定界符：$...$、$$...$$、\( \)、\[ \]
   out = out.replace(/\\[()[\]]/g, "").replace(/\$+/g, "");
   // 转换会留下多余空格（间距命令、带分数垫的空格挨着标点等），收拢一下
