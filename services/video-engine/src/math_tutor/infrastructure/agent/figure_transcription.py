@@ -119,6 +119,58 @@ def transcription_summary(t: dict[str, Any]) -> str:
     return f"顶点（图像坐标，y 向下）：{pts}；线段：{segs}；阴影区域：{shade}；图上标注：{labels}"
 
 
+def figure_structure_text(t: dict[str, Any] | None) -> str:
+    """几何校准过的转写 → 一句"图形结构"事实（给解题模型）：画了哪些线、谁和谁共线。
+
+    实机：解题模型看图总把 A–F–M、B–F–E 这类线当成对角线 AC、BD，整套推理建在不存在的
+    线上。把像素量出的结构明说出来，它就不必猜。只在像素几何校准过（labels 有
+    resolved=geometry 或 reconciled 里有校准记录）时输出——没校准的转写不配当事实。
+    """
+    if not t:
+        return ""
+    grounded = any(l.get("resolved") == "geometry" for l in t.get("labels") or []) or any(
+        "像素" in str(n) for n in t.get("reconciled") or []
+    )
+    if not grounded:
+        return ""
+    pts = {p["id"]: (float(p["x"]), float(p["y"])) for p in t.get("points") or []}
+    segs = [tuple(sg) for sg in t.get("segments") or [] if len(sg) == 2 and sg[0] in pts and sg[1] in pts]
+    if not segs:
+        return ""
+    edges = {frozenset(sg) for sg in segs}
+    # 共线组：三点两两之间的连线都是画出来的、且几乎共线 → 一条直线上的点
+    groups: list[set[str]] = []
+    names = sorted(pts)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            if frozenset((a, b)) not in edges:
+                continue
+            for c in names:
+                if c in (a, b):
+                    continue
+                if frozenset((a, c)) not in edges and frozenset((b, c)) not in edges:
+                    continue
+                (ax, ay), (bx, by), (cx, cy) = pts[a], pts[b], pts[c]
+                cross = abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax))
+                span = max(abs(bx - ax), abs(by - ay), 1e-6)
+                if cross / span < 0.02:
+                    trio = {a, b, c}
+                    for g in groups:
+                        if len(g & trio) >= 2:
+                            g |= trio
+                            break
+                    else:
+                        groups.append(trio)
+    def order(g: set[str]) -> str:
+        xs = sorted(g, key=lambda n: (pts[n][0], pts[n][1]))
+        return "、".join(xs)
+    parts = ["画出的线段有 " + "、".join(f"{a}{b}" for a, b in segs)]
+    if groups:
+        parts.append("共线：" + "；".join(order(g) + " 在同一直线上" for g in groups))
+    parts.append("以上之外的连线（例如没列出的对角线）图上**没有**画，不要假设它存在")
+    return "；".join(parts)
+
+
 def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> str:
     """题干 + 图上标注条件（一句"图中标注：…"），给解题/验证/导演**同一份**题面。
 
@@ -136,8 +188,14 @@ def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> st
             return problem  # 抽取层已经把标注抄进题干（同一格式），不重复
         # 像素几何定下来的归属胜过抽取器的猜测：把抽取器那句换掉
         problem = re.sub(r"[（(]?图中标注：[^。．)）\n]*[。．)）]?", "", problem).rstrip()
+    if grounded and t.get("shaded_resolved") == "geometry":
+        for cycle in t.get("shaded") or []:
+            shape = {3: "三角形", 4: "四边形"}.get(len(cycle), "多边形")
+            conditions.append(f"阴影部分为{shape}{''.join(cycle)}")
     tail = "。以上按原图像素几何核对" if grounded else "。以上是读图所得，以图为准"
-    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}{tail}）"
+    structure = figure_structure_text(t) if grounded else ""
+    structure_line = f"\n（图形结构：{structure}）" if structure else ""
+    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}{tail}）{structure_line}"
 
 
 #: 带单位的量（长度/角度/面积单位）——这类标注贴着一条边或一个角写，模型挂对的把握大

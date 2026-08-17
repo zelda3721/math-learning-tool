@@ -586,6 +586,31 @@ def ground_transcription(
                     notes.append(f"标注「{text}」按位置落在 {''.join(region)}（原判 {''.join(label.get('on') or [])}）")
                 label["on"] = region
                 label["resolved"] = "geometry"
+        # 阴影核对：模型说的阴影环，内部像素得真的比纸暗（阴影是"偏暗的一片"，不是墨迹）
+        paper = float(np.median(gray))
+        confirmed: list[list[str]] = []
+        for cycle in t.get("shaded") or []:
+            names_c = [str(n) for n in cycle]
+            if len(names_c) < 3 or any(n not in snapped for n in names_c):
+                continue
+            poly = [snapped[n] for n in names_c]
+            cx = sum(p[0] for p in poly) / len(poly)
+            cy = sum(p[1] for p in poly) / len(poly)
+            samples = []
+            for fx, fy in ((0.5, 0.5), (0.35, 0.35), (0.65, 0.35), (0.35, 0.65), (0.65, 0.65)):
+                # 重心与顶点之间的插值点，都在多边形里
+                for v in poly:
+                    px_, py_ = cx + (v[0] - cx) * (fx - 0.5), cy + (v[1] - cy) * (fy - 0.5)
+                    if _point_in_polygon((px_, py_), poly):
+                        samples.append(gray[int(min(h - 1, max(0, py_))), int(min(w - 1, max(0, px_)))])
+            if samples and paper - float(np.median(samples)) >= 25:
+                confirmed.append(names_c)
+            else:
+                notes.append(f"阴影 {''.join(names_c)} 内部像素不比纸暗，不认")
+        if confirmed or (t.get("shaded") and not confirmed):
+            t["shaded"] = confirmed
+            if confirmed:
+                t["shaded_resolved"] = "geometry"
         if notes:
             t.setdefault("reconciled", []).extend(notes)
             logger.info("figure geometry grounding: %s", "；".join(notes))
