@@ -1208,8 +1208,9 @@ class SolutionScene(Scene):
                         letter.move_to([lx, ly, 0])
                         # 字母位置也登记占位：区域数值不许压到顶点字母上
                         self.placed_figure_labels.append((lx, ly))
-                        self.figure_letter_spots.append((lx, ly))
                         body.add(letter)
+                    # 底图上的一切标注（字母 + 原题写在边/区域上的量）都是各拍 overlay 要避开的
+                    self.figure_letter_spots = list(self.placed_figure_labels)
             if len(body) == 0:
                 body = VGroup(Dot([0, 0, 0], radius=0.001))
         else:

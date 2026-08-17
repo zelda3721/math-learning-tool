@@ -33,7 +33,8 @@ TRANSCRIBE_PROMPT = """这张图里有一个几何图形。把它**转写**成�
 输出一个 JSON 对象（不要围栏）：
 {"points":[{"id":"A","x":0.36,"y":0.23}, ...],
  "segments":[["A","B"],["B","C"], ...],
- "shaded":[["E","D","F","B"]]}
+ "shaded":[["E","D","F","B"]],
+ "labels":[{"text":"8cm","on":["A","B"]},{"text":"30°","on":["B"]},{"text":"S=12","on":["A","B","E"]}]}
 
 规则：
 - points：每个**标了字母**的点。x、y 是该字母所指的点在图中的位置，
@@ -41,6 +42,9 @@ TRANSCRIBE_PROMPT = """这张图里有一个几何图形。把它**转写**成�
 - segments：图中**实际画出**（有墨迹）的线段，端点用字母。只记录看得见的线：
   题目要"连接"的辅助线、你觉得"应该有"的对角线，图上没画就**不要写**；
 - shaded：阴影/深色区域，按顶点顺序列出字母环；没有阴影就给空数组 []；
+- labels：图上**写着的**文字标注（边长、角度、面积、比例、"阴影"等），原文照抄到 text；
+  on 写它标在谁上：一条边写两个字母，一个角/顶点写一个字母，一块区域写它的字母环。
+  只抄图上印着的字，不要量、不要算；没有就给空数组 []；
 - 没标字母的点不要编造字母；看不清的部分宁可省略。"""
 
 #: 转写里合法的点名：一两个字符（字母，可带撇号/下标数字）
@@ -85,7 +89,16 @@ def parse_transcription(raw: str) -> dict[str, Any] | None:
 
     segments = [c for c in (known_cycle(s, 2) for s in obj.get("segments") or []) if c]
     shaded = [c for c in (known_cycle(s, 3) for s in obj.get("shaded") or []) if c]
-    return {"points": points, "segments": segments, "shaded": shaded}
+    labels: list[dict[str, Any]] = []
+    for item in obj.get("labels") or []:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(item.get("text") or "").split())[:24]
+        on = known_cycle(item.get("on"), 1)
+        # 标注必须有字、必须挂在转写出来的字母上；挂错字母的整条丢（不歪图）
+        if text and on and len(on) <= 8:
+            labels.append({"text": text, "on": on})
+    return {"points": points, "segments": segments, "shaded": shaded, "labels": labels[:16]}
 
 
 def transcription_summary(t: dict[str, Any]) -> str:
@@ -93,7 +106,29 @@ def transcription_summary(t: dict[str, Any]) -> str:
     pts = "、".join(f"{p['id']}({p['x']:.2f},{p['y']:.2f})" for p in t["points"])
     segs = "、".join("-".join(s) for s in t["segments"]) or "（无）"
     shade = "、".join("-".join(s) for s in t["shaded"]) or "（无）"
-    return f"顶点（图像坐标，y 向下）：{pts}；线段：{segs}；阴影区域：{shade}"
+    labels = "、".join(f"{''.join(l['on'])}:{l['text']}" for l in t.get("labels") or []) or "（无）"
+    return f"顶点（图像坐标，y 向下）：{pts}；线段：{segs}；阴影区域：{shade}；图上标注：{labels}"
+
+
+def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
+    """图上标注 → 一条条"题目条件"文字（给解题/导演的提示词用）。
+
+    照片题里常有条件只写在图上（边长 8cm、∠B=90°、S=12）：题干抄不到，解题就缺条件。
+    转写既然把它们量下来了，就把它们当条件说出来："边AB 标注 8cm"。只转述，不推理。
+    """
+    out: list[str] = []
+    for label in (t or {}).get("labels") or []:
+        on = list(label.get("on") or [])
+        text = str(label.get("text") or "").strip()
+        if not text or not on:
+            continue
+        if len(on) == 1:
+            out.append(f"点{on[0]}处标注「{text}」")
+        elif len(on) == 2:
+            out.append(f"边{on[0]}{on[1]}标注「{text}」")
+        else:
+            out.append(f"区域{''.join(on)}标注「{text}」")
+    return out
 
 
 def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
@@ -101,10 +136,37 @@ def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
 
     在这里统一把图像坐标翻成数学坐标（y 向上）；下游渲染器只认数学坐标。
     """
+    seg_labels: dict[frozenset[str], str] = {}
+    poly_labels: dict[tuple[str, ...], str] = {}
+    for label in t.get("labels") or []:
+        on = list(label.get("on") or [])
+        text = str(label.get("text") or "").strip()
+        if not text:
+            continue
+        if len(on) == 2:
+            seg_labels[frozenset(on)] = text
+        elif len(on) >= 3:
+            poly_labels[tuple(sorted(on))] = text
+    segments = []
+    for s in t["segments"]:
+        if len(s) != 2:
+            continue
+        seg = {"from": s[0], "to": s[1]}
+        text = seg_labels.get(frozenset(s))
+        if text:
+            seg["label"] = text  # 原题写在边上的量，重画时照样写回去
+        segments.append(seg)
+    polygons = []
+    for cycle in t["shaded"]:
+        poly = {"points": list(cycle), "shaded": True}
+        text = poly_labels.get(tuple(sorted(cycle)))
+        if text:
+            poly["label"] = text
+        polygons.append(poly)
     return {
         "points": [{"id": p["id"], "at": [p["x"], round(1 - p["y"], 4)]} for p in t["points"]],
-        "segments": [{"from": s[0], "to": s[1]} for s in t["segments"] if len(s) == 2],
-        "polygons": [{"points": list(cycle), "shaded": True} for cycle in t["shaded"]],
+        "segments": segments,
+        "polygons": polygons,
     }
 
 
@@ -762,10 +824,45 @@ def refine_transcription(
     return t
 
 
+#: 送视觉模型前的最小短边：截图/裁图太小时模型量不准、字母都认不清；放大不改内容
+_MIN_SHORT_SIDE = 800
+
+
+def upscale_for_vision(figure_image: str, min_short_side: int = _MIN_SHORT_SIDE) -> str:
+    """短边不足就等比放大（LANCZOS）后重新编码；不需要放大或解不出来时原样返回。
+
+    通用规则：所有进视觉模型的配图都先过这一步——小图是"看不清"的第一原因，
+    放大不引入任何新信息，只是让模型（和像素核对）有足够的像素可看。
+    """
+    try:
+        import base64
+        import io
+
+        from PIL import Image
+
+        head, _, payload = figure_image.partition(",")
+        if not head.startswith("data:image/") or not payload:
+            return figure_image
+        img = Image.open(io.BytesIO(base64.b64decode(payload)))
+        w, h = img.size
+        short = min(w, h)
+        if short <= 0 or short >= min_short_side:
+            return figure_image
+        factor = min(4.0, min_short_side / short)
+        img = img.convert("RGB").resize((round(w * factor), round(h * factor)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=92)
+        logger.info("figure image upscaled ×%.1f for vision (%dx%d → %dx%d)", factor, w, h, *img.size)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 — 放大失败就用原图，不拦路
+        return figure_image
+
+
 async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | None:
     """跑一趟视觉转写；任何失败返回 None（调用方按'没有转写'继续，绝不拦路）。"""
     if not figure_image.startswith("data:image/"):
         return None
+    figure_image = upscale_for_vision(figure_image)
     # provider 只认 ChatMessage 对象（裸 dict 会在 _to_openai_messages 炸掉——实机踩过）
     messages = [
         ChatMessage(role="system", content=TRANSCRIBE_SYSTEM),
