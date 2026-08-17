@@ -116,3 +116,26 @@ def test_几乎没有直线的图原样返回():
     gray = np.full((300, 300), 240, dtype=np.uint8)
     t = {"points": [{"id": "A", "x": 0.2, "y": 0.2}], "segments": [], "shaded": [], "labels": []}
     assert G.ground_transcription(dict(t), gray) == t
+
+
+def test_题干形状约束_只认题干说的那种区域():
+    gray, P, (W, H) = _synthetic()
+    t = {
+        "points": [{"id": k, "x": x / W, "y": y / H} for k, (x, y) in P.items()],
+        "segments": [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["B", "D"]],
+        "shaded": [],
+        "labels": [{"text": "12", "on": ["A", "B"], "at": [305 / W, 125 / H]}],
+    }
+    G.ground_transcription(t, gray, region_sizes={3})
+    assert set(t["labels"][0]["on"]) == {"A", "O", "B"}
+    t2 = {"points": t["points"], "segments": [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["B", "D"]],
+          "shaded": [], "labels": [{"text": "12", "on": ["A", "B"], "at": [305 / W, 125 / H]}]}
+    G.ground_transcription(t2, gray, region_sizes={4})   # 题干说是四边形，可像素里它在三角形 AOB 里 → 不下结论
+    assert t2["labels"][0].get("resolved") is None
+
+
+def test_题干里的形状约束解析():
+    from math_tutor.infrastructure.agent.figure_transcription import labeled_region_sizes
+    assert labeled_region_sizes("长方形ABCD中，其中三个小三角形的面积已经在图中标出") == {3}
+    assert labeled_region_sizes("三角形ABE的面积为12，阴影四边形EDFB的面积为28") == {3, 4}
+    assert labeled_region_sizes("如图，E是BC的中点，求阴影部分的面积") is None
