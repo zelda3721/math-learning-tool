@@ -1,0 +1,55 @@
+{
+  "id": "rect-three-triangles",
+  "image": "rect-three-triangles.jpg",
+  "source": "用户实拍（2026-08-17），讲义题，照片裁图",
+  "problem": "如图所示，长方形ABCD中，其中三个小三角形的面积已经在图中标出，则阴影部分的面积为______．",
+  "grade": "elementary_upper",
+  "ground_truth": {
+    "points": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "M",
+      "N"
+    ],
+    "region_labels": [
+      {
+        "text": "5",
+        "region": [
+          "A",
+          "E",
+          "F"
+        ]
+      },
+      {
+        "text": "8",
+        "region": [
+          "D",
+          "E",
+          "N"
+        ]
+      },
+      {
+        "text": "7",
+        "region": [
+          "F",
+          "M",
+          "B"
+        ]
+      }
+    ],
+    "shaded": [
+      [
+        "C",
+        "M",
+        "N"
+      ]
+    ],
+    "answer": "6",
+    "notes": "用户给的基准：5 在△AEF，8 在△DEN，7 在△FMB，阴影是△CMN",
+    "structure": "E、M 是长方形内两点，各自与四个顶点相连；F=AM∩BE，N=DM∩CE。S(ABM)−S(ABE)=7−5=2，S(ABM)+S(DCM)=S(ABE)+S(DCE)=S/2 ⇒ S(DCM)−S(DCE)=−2 ⇒ 阴影=8−2=6"
+  }
+}
