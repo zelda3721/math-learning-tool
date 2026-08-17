@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from typing import Any
 
@@ -167,6 +168,26 @@ def figure_structure_text(t: dict[str, Any] | None) -> str:
     parts = ["画出的线段有 " + "、".join(f"{a}{b}" for a, b in segs)]
     if groups:
         parts.append("共线：" + "；".join(order(g) + " 在同一直线上" for g in groups))
+        # 明说"不共线"：模型爱把一条折线看成对角线（实机：把 D–E 和 E–F–B 接成 DB）。
+        # 对每条共线链的两端，凡有别的点与端点相连却不在链上，就点名它不共线
+        # 只点名"看着像一条直线"的折线（转角小于 35°）：D→E 接 E→B 差 26°，模型就当成对角线 DB
+        warnings: list[str] = []
+        for g in groups:
+            chain = sorted(g, key=lambda n: (pts[n][0], pts[n][1]))
+            for end, far in ((chain[0], chain[-1]), (chain[-1], chain[0])):
+                for x in names:
+                    if x in g or frozenset((x, end)) not in edges:
+                        continue
+                    (ax, ay), (bx, by), (cx, cy) = pts[x], pts[end], pts[far]
+                    ux, uy, vx, vy = bx - ax, by - ay, cx - bx, cy - by
+                    nu, nv = math.hypot(ux, uy), math.hypot(vx, vy)
+                    if nu < 1e-6 or nv < 1e-6:
+                        continue
+                    cos_turn = (ux * vx + uy * vy) / (nu * nv)
+                    if cos_turn > math.cos(math.radians(35)):
+                        warnings.append(f"{x}、{end}、{far} 不共线（{x}{end} 与 {end}{far} 不是同一条直线，没有 {x}{far} 这条线）")
+        if warnings:
+            parts.append("；".join(dict.fromkeys(warnings)))
     parts.append("以上之外的连线（例如没列出的对角线）图上**没有**画，不要假设它存在")
     return "；".join(parts)
 
