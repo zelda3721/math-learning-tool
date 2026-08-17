@@ -6063,25 +6063,35 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
         if isinstance(o, dict) and o.get("id")
     }
     scenes = [s for s in plan.get("scenes") or [] if isinstance(s, dict)]
-    figure_shown = any(
-        isinstance(a, dict)
-        and str(a.get("op")) == "create"
-        and (
-            a.get("target") == "original_figure"
-            or "original_figure" in (a.get("targets") or [])
-        )
-        for s in scenes
-        for a in (s.get("actions") or [])
-    )
-    if scenes and not figure_shown:
-        # 底图在第一拍出场是入库时的硬保证（inject_figure_object），校验也要照
-        # 同一事实判：否则"高亮底图"会因"对象出现前执行"被打回，整份好计划降级
-        # （实机第 2 轮就是这么丢的）
+    if scenes:
+        # 底图在**第一拍第一个动作**出场是入库时的硬保证（inject_figure_object），校验也要照
+        # 同一事实判：模型常把 create 写在末拍或写在 highlight 之后（实机第 2、15 轮），
+        # 前面的拍就全被"对象出现前执行"打回。做法：把所有 create 底图的写法都拿掉，
+        # 统一在开头补一个
+        for scene in scenes:
+            cleaned = []
+            for a in scene.get("actions") or []:
+                if not isinstance(a, dict) or str(a.get("op")) != "create":
+                    cleaned.append(a)
+                    continue
+                targets = [t for t in (a.get("targets") or []) if str(t) != "original_figure"]
+                if a.get("target") == "original_figure":
+                    a["target"] = targets[0] if targets else None
+                if not targets and not a.get("target"):
+                    continue  # 这个 create 只创建底图：整条拿掉，下面统一补
+                a["targets"] = targets
+                cleaned.append(a)
+            scene["actions"] = cleaned
         first = scenes[0].setdefault("actions", [])
         if isinstance(first, list):
             first.insert(
                 0,
-                {"op": "create", "targets": ["original_figure"], "target": "original_figure"},
+                {
+                    "op": "create",
+                    "targets": ["original_figure"],
+                    "target": "original_figure",
+                    "meaning": "讲义原图出场",
+                },
             )
     for scene in plan.get("scenes") or []:
         if not isinstance(scene, dict):
