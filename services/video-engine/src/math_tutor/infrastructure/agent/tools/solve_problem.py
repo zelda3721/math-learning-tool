@@ -544,11 +544,13 @@ class SolveProblemTool(ITool):
                 ]
             return [ChatMessage(role="user", content=text)]
 
+        # 带图的几何题推导更长：预算放宽到 8192，别在结论前被截断（实机截断过两次）
+        solve_max_tokens = 8192 if figure_image.startswith("data:image/") else 6144
         try:
             done = await solve_llm.chat_complete(
                 messages=as_messages(prompt),
                 temperature=0.3,
-                max_tokens=6144,
+                max_tokens=solve_max_tokens,
                 # Structured markdown output (## 解题 + 步骤)。Solve does
                 # benefit a bit from thinking, but the markdown template is
                 # already itself a "structured chain of thought", so we give
@@ -582,7 +584,7 @@ class SolveProblemTool(ITool):
                 retry_done = await solve_llm.chat_complete(
                     messages=as_messages(prompt + format_feedback),
                     temperature=0.1,
-                    max_tokens=6144,
+                    max_tokens=solve_max_tokens,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
                 raw_format_artifacts.append(
