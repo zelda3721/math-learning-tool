@@ -34,7 +34,8 @@ TRANSCRIBE_PROMPT = """这张图里有一个几何图形。把它**转写**成�
 {"points":[{"id":"A","x":0.36,"y":0.23}, ...],
  "segments":[["A","B"],["B","C"], ...],
  "shaded":[["E","D","F","B"]],
- "labels":[{"text":"8cm","on":["A","B"]},{"text":"30°","on":["B"]},{"text":"S=12","on":["A","B","E"]}]}
+ "labels":[{"text":"8cm","x":0.30,"y":0.52,"on":["A","B"]},{"text":"30°","x":0.71,"y":0.80,"on":["B"]},
+           {"text":"S=12","x":0.45,"y":0.40,"on":["A","B","E"]}]}
 
 规则：
 - points：每个**标了字母**的点。x、y 是该字母所指的点在图中的位置，
@@ -43,7 +44,8 @@ TRANSCRIBE_PROMPT = """这张图里有一个几何图形。把它**转写**成�
   题目要"连接"的辅助线、你觉得"应该有"的对角线，图上没画就**不要写**；
 - shaded：阴影/深色区域，按顶点顺序列出字母环；没有阴影就给空数组 []；
 - labels：图上**写着的**文字标注（边长、角度、面积、比例、"阴影"等），原文照抄到 text；
-  on 写它标在谁上：一条边写两个字母，一个角/顶点写一个字母，一块区域写它的字母环。
+  x、y 是这段文字本身在图中的位置（同上，0~1）；on 写它标在谁上：一条边写两个字母，
+  一个角/顶点写一个字母，一块区域写它的字母环（拿不准就按最像的写，系统会按位置复核）。
   只抄图上印着的字，不要量、不要算；没有就给空数组 []；
 - 没标字母的点不要编造字母；看不清的部分宁可省略。"""
 
@@ -97,7 +99,14 @@ def parse_transcription(raw: str) -> dict[str, Any] | None:
         on = known_cycle(item.get("on"), 1)
         # 标注必须有字、必须挂在转写出来的字母上；挂错字母的整条丢（不歪图）
         if text and on and len(on) <= 8:
-            labels.append({"text": text, "on": on})
+            label: dict[str, Any] = {"text": text, "on": on}
+            try:
+                lx, ly = float(item.get("x")), float(item.get("y"))
+                if 0 <= lx <= 1 and 0 <= ly <= 1:
+                    label["at"] = [round(lx, 4), round(ly, 4)]
+            except (TypeError, ValueError):
+                pass
+            labels.append(label)
     return {"points": points, "segments": segments, "shaded": shaded, "labels": labels[:16]}
 
 
@@ -121,9 +130,14 @@ def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> st
     if not conditions:
         return problem
     marker = "图中标注："
+    grounded = any(l.get("resolved") == "geometry" for l in (t or {}).get("labels") or [])
     if marker in (problem or ""):
-        return problem  # 抽取层已经把标注抄进题干（同一格式），不重复
-    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}。以上是读图所得，以图为准）"
+        if not grounded:
+            return problem  # 抽取层已经把标注抄进题干（同一格式），不重复
+        # 像素几何定下来的归属胜过抽取器的猜测：把抽取器那句换掉
+        problem = re.sub(r"[（(]?图中标注：[^。．)）\n]*[。．)）]?", "", problem).rstrip()
+    tail = "。以上按原图像素几何核对" if grounded else "。以上是读图所得，以图为准"
+    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}{tail}）"
 
 
 #: 带单位的量（长度/角度/面积单位）——这类标注贴着一条边或一个角写，模型挂对的把握大
@@ -146,8 +160,12 @@ def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
         text = str(label.get("text") or "").strip()
         if not text or not on:
             continue
-        if len(on) == 2 and _UNIT_RE.search(text):
+        resolved = label.get("resolved") == "geometry"
+        if len(on) == 2 and (_UNIT_RE.search(text) or resolved):
             out.append(f"边{on[0]}{on[1]}标注「{text}」")
+        elif resolved and len(on) >= 3:
+            shape = {3: "三角形", 4: "四边形", 5: "五边形", 6: "六边形"}.get(len(on), "多边形")
+            out.append(f"{shape}{''.join(on)}内标注「{text}」")
         else:
             out.append(f"「{text}」写在 {'、'.join(on)} 附近")
     return out
@@ -181,10 +199,17 @@ def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
     polygons = []
     for cycle in t["shaded"]:
         poly = {"points": list(cycle), "shaded": True}
-        text = poly_labels.get(tuple(sorted(cycle)))
+        text = poly_labels.pop(tuple(sorted(cycle)), None)
         if text:
             poly["label"] = text
         polygons.append(poly)
+    # 原图写在（非阴影）区域里的数（面积 5、角度…）也要画回去：不填色，只在重心写字
+    for label in t.get("labels") or []:
+        on = list(label.get("on") or [])
+        text = str(label.get("text") or "").strip()
+        if len(on) >= 3 and text and tuple(sorted(on)) in poly_labels:
+            polygons.append({"points": on, "shaded": False, "label": text})
+            poly_labels.pop(tuple(sorted(on)), None)
     return {
         "points": [{"id": p["id"], "at": [p["x"], round(1 - p["y"], 4)]} for p in t["points"]],
         "segments": segments,
@@ -866,7 +891,21 @@ def refine_transcription(
     ):
         if a in ids and b in ids and a != b:
             constructed.add(frozenset((a, b)))
-    verify_segments_by_ink(t, figure_image, protected=protected - constructed)
+    # 像素几何：点吸附到真实交点、线段按真线判、数字按包含关系归属（做得到就以它为准）。
+    # 题干点名的边照样受保护（拍糊了也不删）；解答里才连的辅助线不受保护
+    gray = _decode_gray(figure_image)
+    grounded = False
+    if gray is not None:
+        from .figure_geometry import ground_transcription
+
+        before = list(t.get("reconciled") or [])
+        ground_transcription(t, gray, protected=protected - constructed)
+        grounded = len(t.get("reconciled") or []) > len(before)
+        if grounded:
+            # 几何校准后再按解答纠一次辅助线（几何只认墨迹，辅助线本来就没画，通常无事）
+            reconcile_transcription(t, problem, solution, steps)
+    if not grounded:
+        verify_segments_by_ink(t, figure_image, protected=protected - constructed)
     return t
 
 

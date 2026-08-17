@@ -1,0 +1,595 @@
+"""像素几何：让**像素**决定图形结构，模型只负责认字。
+
+为什么需要它（2026-08-17，用户实拍"三个小三角形面积 5/7/8"）：本地视觉模型能读出
+字母和数字，但量不准坐标（整体偏 5~8%）、说不准一个数写在哪个三角形里（同一张图两次
+转写归属都不一样）。而这两件事恰恰是**像素能确定地回答**的：线在哪、交点在哪、
+哪个数字落在哪个由真线围成的区域里。所以分工改成：
+
+  模型：字母/数字的**身份**和**大致位置**（认字）
+  像素：线段、交点、端点、区域（量图）
+  这里：把身份吸附到像素几何上（字母 → 最近的交点/角，数字 → 包含它的最小区域）
+
+通用、不认题型：任何"直线 + 字母 + 数字"的几何图都是同一套算法。做不到的地方
+（吸不到、含糊）一律**保持模型原判**，不引入新的猜测。
+
+依赖只有 numpy + PIL（都是 manim 带进来的）。全部函数纯计算、可测。
+"""
+from __future__ import annotations
+
+import itertools
+import logging
+import math
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+Point = tuple[float, float]
+
+
+# ────────────────────────────── 墨迹与直线 ──────────────────────────────
+
+
+def ink_mask(gray: Any, contrast: float | None = None) -> Any:
+    """比局部背景暗得多的像素 = 墨迹（阴影只是"偏暗"，不算）。"""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    img = Image.fromarray(gray)
+    bg = np.asarray(img.filter(ImageFilter.MedianFilter(size=31)), dtype=np.float32)
+    g = gray.astype(np.float32)
+    if contrast is None:
+        paper = float(np.median(gray))
+        darkest = float(np.percentile(gray, 1))
+        contrast = max(25.0, 0.3 * (paper - darkest))
+    return (bg - g) >= contrast
+
+
+def detect_lines(ink: Any, max_lines: int = 24) -> list[dict[str, Any]]:
+    """霍夫变换找直线，并沿每条直线量出**有墨迹的最长区间**（线段端点）。
+
+    返回 [{"a": (x,y), "b": (x,y), "votes": n, "theta": rad, "rho": r}]，坐标为像素。
+    """
+    import numpy as np
+
+    h, w = ink.shape
+    ys, xs = np.nonzero(ink)
+    if len(xs) < 50:
+        return []
+    thetas = np.deg2rad(np.arange(0.0, 180.0, 0.5))
+    cos, sin = np.cos(thetas), np.sin(thetas)
+    diag = int(math.hypot(w, h)) + 2
+    acc = np.zeros((2 * diag, len(thetas)), dtype=np.int32)
+    # 逐点累加（墨迹像素通常几千到几万个，够快）
+    idx = np.arange(len(thetas))
+    for x, y in zip(xs, ys):
+        r = (x * cos + y * sin).astype(int) + diag
+        acc[r, idx] += 1
+    lines: list[dict[str, Any]] = []
+    a = acc.copy()
+    floor = max(40, int(0.12 * a.max()))
+    for _ in range(max_lines):
+        flat = int(np.argmax(a))
+        r, ti = divmod(flat, a.shape[1])
+        votes = int(a[r, ti])
+        if votes < floor:
+            break
+        rho, theta = r - diag, float(thetas[ti])
+        # 抑制邻近峰（同一条线的邻近参数）
+        a[max(0, r - 12) : r + 13, max(0, ti - 8) : ti + 9] = 0
+        if ti < 8:  # 角度是环的：0° 与 180° 相邻
+            a[max(0, r - 12) : r + 13, len(thetas) - (8 - ti) :] = 0
+        seg = _inked_extent(ink, rho, theta)
+        if seg is None:
+            continue
+        (x0, y0), (x1, y1) = seg
+        if math.hypot(x1 - x0, y1 - y0) < 0.08 * min(w, h):
+            continue
+        # 与已有线段几乎重合（同一条线的第二个峰）就并掉
+        if any(_same_segment(seg, (ln["a"], ln["b"]), tol=0.02 * min(w, h)) for ln in lines):
+            continue
+        lines.append({"a": (x0, y0), "b": (x1, y1), "votes": votes, "theta": theta, "rho": rho})
+    return lines
+
+
+def _inked_extent(ink: Any, rho: float, theta: float) -> tuple[Point, Point] | None:
+    """沿直线取样，找允许小缺口的最长墨迹区间。"""
+    import numpy as np
+
+    h, w = ink.shape
+    c, s = math.cos(theta), math.sin(theta)
+    diag = int(math.hypot(w, h)) + 2
+    ts = np.arange(-diag, diag, 1.5)
+    px = rho * c - ts * s
+    py = rho * s + ts * c
+    inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+    hits = np.zeros(len(ts), dtype=bool)
+    for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
+        xi = np.clip(px + dx, 0, w - 1).astype(int)
+        yi = np.clip(py + dy, 0, h - 1).astype(int)
+        hits |= ink[yi, xi] & inside
+    best = (0, 0, 0)
+    start = None
+    end = 0
+    gap = 0
+    for i, hit in enumerate(hits):
+        if hit:
+            if start is None:
+                start = i
+            end = i
+            gap = 0
+        elif start is not None:
+            gap += 1
+            if gap > 10:
+                if end - start > best[0]:
+                    best = (end - start, start, end)
+                start = None
+    if start is not None and end - start > best[0]:
+        best = (end - start, start, end)
+    length, s0, e0 = best
+    if length < 12:
+        return None
+    return (float(px[s0]), float(py[s0])), (float(px[e0]), float(py[e0]))
+
+
+def _same_segment(s1: tuple[Point, Point], s2: tuple[Point, Point], tol: float) -> bool:
+    (a, b), (c, d) = s1, s2
+    return (
+        _point_line_distance(a, c, d) < tol
+        and _point_line_distance(b, c, d) < tol
+        and _overlap_1d(a, b, c, d) > 0.5
+    )
+
+
+def _overlap_1d(a: Point, b: Point, c: Point, d: Point) -> float:
+    """两条近似共线线段沿方向的重叠比例（相对较短者）。"""
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    n = math.hypot(ux, uy) or 1.0
+    ux, uy = ux / n, uy / n
+    t = sorted([(p[0] - a[0]) * ux + (p[1] - a[1]) * uy for p in (a, b, c, d)])
+    la = n
+    lb = abs((d[0] - c[0]) * ux + (d[1] - c[1]) * uy)
+    inter = max(0.0, min(n, max((c[0] - a[0]) * ux + (c[1] - a[1]) * uy, (d[0] - a[0]) * ux + (d[1] - a[1]) * uy)) - max(0.0, min((c[0] - a[0]) * ux + (c[1] - a[1]) * uy, (d[0] - a[0]) * ux + (d[1] - a[1]) * uy)))
+    del t
+    return inter / max(1e-6, min(la, lb))
+
+
+def _point_line_distance(p: Point, a: Point, b: Point) -> float:
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    n = math.hypot(ux, uy)
+    if n < 1e-9:
+        return math.hypot(p[0] - a[0], p[1] - a[1])
+    return abs((p[0] - a[0]) * uy - (p[1] - a[1]) * ux) / n
+
+
+def _on_segment(p: Point, a: Point, b: Point, tol: float) -> bool:
+    if _point_line_distance(p, a, b) > tol:
+        return False
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    n2 = ux * ux + uy * uy or 1e-9
+    t = ((p[0] - a[0]) * ux + (p[1] - a[1]) * uy) / n2
+    return -tol / math.sqrt(n2) <= t <= 1 + tol / math.sqrt(n2)
+
+
+def _intersection(a: Point, b: Point, c: Point, d: Point) -> Point | None:
+    den = (b[0] - a[0]) * (d[1] - c[1]) - (b[1] - a[1]) * (d[0] - c[0])
+    if abs(den) < 1e-9:
+        return None
+    t = ((c[0] - a[0]) * (d[1] - c[1]) - (c[1] - a[1]) * (d[0] - c[0])) / den
+    return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+
+
+# ────────────────────────────── 锚点与吸附 ──────────────────────────────
+
+
+def anchor_points(lines: list[dict[str, Any]], size: tuple[int, int]) -> list[Point]:
+    """图上"有名字资格"的位置：线段端点 + 线段两两交点（交点要落在两条线段的范围内附近）。"""
+    w, h = size
+    tol = 0.03 * min(w, h)
+    anchors: list[Point] = []
+    # 线段端点只有落在别的线上（T 形接头、角）才算锚点：孤零零的端点多半是线段
+    # 延伸进字母/阴影的假端头（实机：底边一直量到 D 字母里，把 D 吸歪了）
+    for ln in lines:
+        for end in (ln["a"], ln["b"]):
+            if any(
+                other is not ln and _on_segment(end, other["a"], other["b"], tol) for other in lines
+            ):
+                anchors.append(end)
+    for l1, l2 in itertools.combinations(lines, 2):
+        p = _intersection(l1["a"], l1["b"], l2["a"], l2["b"])
+        if p is None:
+            continue
+        if _on_segment(p, l1["a"], l1["b"], tol) and _on_segment(p, l2["a"], l2["b"], tol):
+            anchors.append(p)
+    # 合并靠得近的锚点（单链接聚类）：几条线在同一点相交，霍夫角度差一点就会散成
+    # 一小簇交点（实机：E 附近 6 个交点散在 40px 里），簇心才是那个点
+    radius = 0.06 * min(w, h)
+    clusters: list[list[Point]] = []
+    for p in anchors:
+        hit = [c for c in clusters if any(math.hypot(p[0] - q[0], p[1] - q[1]) < radius for q in c)]
+        if not hit:
+            clusters.append([p])
+        else:
+            base = hit[0]
+            base.append(p)
+            for other in hit[1:]:
+                base.extend(other)
+                clusters.remove(other)
+    return [
+        (sum(q[0] for q in c) / len(c), sum(q[1] for q in c) / len(c)) for c in clusters
+    ]
+
+
+def align_named_points(
+    named: dict[str, Point], anchors: list[Point], size: tuple[int, int]
+) -> tuple[dict[str, Point], dict[str, float]]:
+    """把模型量的字母位置吸附到像素锚点上。
+
+    先用一小片全局仿射（缩放 0.8~1.2、平移 ±12%）对齐——模型坐标常整体偏；
+    再逐点取最近锚点，要求：距离 < 6% 且比第二近的近得多（不含糊）。
+    返回 (吸附后的坐标, 每个点的吸附距离)；吸不到的保持对齐后的模型坐标。
+    """
+    import numpy as np
+
+    w, h = size
+    if not named or not anchors:
+        return dict(named), {}
+    names = list(named)
+    P = np.array([named[n] for n in names], dtype=float)
+    A = np.array(anchors, dtype=float)
+
+    def score(sx: float, sy: float, dx: float, dy: float) -> tuple[float, Any]:
+        Q = np.stack([P[:, 0] * sx + dx * w, P[:, 1] * sy + dy * h], axis=1)
+        d = np.sqrt(((Q[:, None, :] - A[None, :, :]) ** 2).sum(-1))
+        nearest = d.min(axis=1)
+        # 稳健：截断距离，别让一个吸不到的点主导
+        return float(np.minimum(nearest, 0.08 * min(w, h)).sum()), Q
+
+    best = (score(1, 1, 0, 0)[0], (1.0, 1.0, 0.0, 0.0))
+    for sx in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+        for sy in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+            for dx in np.arange(-0.12, 0.121, 0.02):
+                for dy in np.arange(-0.12, 0.121, 0.02):
+                    sc, _ = score(sx, sy, float(dx), float(dy))
+                    if sc < best[0] - 1e-9:
+                        best = (sc, (sx, sy, float(dx), float(dy)))
+    _, Q = score(*best[1])
+    tol = 0.08 * min(w, h)
+    # 用已经吸得上的点做最小二乘精修（x、y 各自 scale+shift），再吸一次——
+    # 网格步长 5%/2% 太粗，精修一两轮就能把整体偏差压到几个像素
+    for _ in range(2):
+        d = np.sqrt(((Q[:, None, :] - A[None, :, :]) ** 2).sum(-1))
+        nearest_idx = d.argmin(axis=1)
+        ok = d.min(axis=1) <= tol
+        if ok.sum() < 3:
+            break
+        Pm, Am = P[ok], A[nearest_idx[ok]]
+        Qn = Q.copy()
+        for axis in (0, 1):
+            x, y = Pm[:, axis], Am[:, axis]
+            if float(np.ptp(x)) < 1e-6:
+                continue
+            k, b = np.polyfit(x, y, 1)
+            if 0.7 <= k <= 1.3:
+                Qn[:, axis] = P[:, axis] * k + b
+        Q = Qn
+    snapped: dict[str, Point] = {}
+    dist: dict[str, float] = {}
+    for i, n in enumerate(names):
+        d = np.sqrt(((A - Q[i]) ** 2).sum(-1))
+        order = np.argsort(d)
+        d0 = float(d[order[0]])
+        d1 = float(d[order[1]]) if len(order) > 1 else float("inf")
+        if d0 <= tol and d0 * 1.25 <= d1 + 1e-9:
+            snapped[n] = (float(A[order[0]][0]), float(A[order[0]][1]))
+            dist[n] = d0
+        else:
+            snapped[n] = (float(Q[i][0]), float(Q[i][1]))
+    return snapped, dist
+
+
+def drawn_edges(points: dict[str, Point], lines: list[dict[str, Any]], size: tuple[int, int]) -> set[frozenset[str]]:
+    """两个命名点之间是否有一条**画出来的**直线段：都落在同一条检测线段上（含内部）。"""
+    w, h = size
+    tol = 0.02 * min(w, h)
+    edges: set[frozenset[str]] = set()
+    for a, b in itertools.combinations(points, 2):
+        pa, pb = points[a], points[b]
+        for ln in lines:
+            if _on_segment(pa, ln["a"], ln["b"], tol) and _on_segment(pb, ln["a"], ln["b"], tol):
+                edges.add(frozenset((a, b)))
+                break
+    return edges
+
+
+# ────────────────────────────── 文字块与区域 ──────────────────────────────
+
+
+def text_blobs(ink: Any, lines: list[dict[str, Any]], size: tuple[int, int]) -> list[dict[str, Any]]:
+    """去掉线上的墨迹后剩下的连通块 = 字母/数字。返回 [{"center":(x,y),"box":(x0,y0,x1,y1),"area":n}]。"""
+    import numpy as np
+
+    w, h = size
+    mask = ink.copy()
+    # 抹掉线段附近 3px 的墨迹
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return []
+    keep = np.ones(len(xs), dtype=bool)
+    for ln in lines:
+        (ax, ay), (bx, by) = ln["a"], ln["b"]
+        ux, uy = bx - ax, by - ay
+        n = math.hypot(ux, uy) or 1.0
+        d = np.abs((xs - ax) * uy - (ys - ay) * ux) / n
+        t = ((xs - ax) * ux + (ys - ay) * uy) / (n * n)
+        keep &= ~((d <= 3.0) & (t >= -0.01) & (t <= 1.01))
+    xs, ys = xs[keep], ys[keep]
+    if len(xs) == 0:
+        return []
+    # 连通块：在稀疏点集上做并查集（8 邻域）
+    coord_to_idx = {(int(x), int(y)): i for i, (x, y) in enumerate(zip(xs, ys))}
+    parent = list(range(len(xs)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        for dx, dy in ((1, 0), (0, 1), (1, 1), (-1, 1)):
+            j = coord_to_idx.get((int(x) + dx, int(y) + dy))
+            if j is not None:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[rj] = ri
+    groups: dict[int, list[int]] = {}
+    for i in range(len(xs)):
+        groups.setdefault(find(i), []).append(i)
+    blobs: list[dict[str, Any]] = []
+    min_area = max(6, int(0.0002 * w * h))
+    for members in groups.values():
+        if len(members) < min_area:
+            continue
+        bx, by = xs[members], ys[members]
+        x0, x1, y0, y1 = int(bx.min()), int(bx.max()), int(by.min()), int(by.max())
+        if max(x1 - x0, y1 - y0) > 0.12 * min(w, h):
+            continue  # 太大的不是字（残留的线段/阴影）
+        blobs.append({"center": (float(bx.mean()), float(by.mean())), "box": (x0, y0, x1, y1), "area": len(members)})
+    # 相邻的小块合成一个字（"cm"、"12"）
+    merged: list[dict[str, Any]] = []
+    for b in sorted(blobs, key=lambda b: b["box"][0]):
+        for m in merged:
+            gap = 0.6 * max(m["box"][3] - m["box"][1], b["box"][3] - b["box"][1], 4)
+            if (
+                b["box"][0] - m["box"][2] <= gap
+                and abs((b["box"][1] + b["box"][3]) - (m["box"][1] + m["box"][3])) / 2 <= gap
+            ):
+                x0, y0 = min(m["box"][0], b["box"][0]), min(m["box"][1], b["box"][1])
+                x1, y1 = max(m["box"][2], b["box"][2]), max(m["box"][3], b["box"][3])
+                m["box"] = (x0, y0, x1, y1)
+                m["center"] = ((x0 + x1) / 2, (y0 + y1) / 2)
+                m["area"] += b["area"]
+                break
+        else:
+            merged.append(dict(b))
+    return merged
+
+
+def _polygon_area(poly: list[Point]) -> float:
+    s = 0.0
+    for i in range(len(poly)):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % len(poly)]
+        s += x0 * y1 - x1 * y0
+    return abs(s) / 2
+
+
+def _point_in_polygon(p: Point, poly: list[Point]) -> bool:
+    x, y = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % n]
+        if (y0 > y) != (y1 > y):
+            xin = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+            if x < xin:
+                inside = not inside
+    return inside
+
+
+def _line_crosses_interior(a: Point, b: Point, poly: list[Point], tol: float) -> bool:
+    """线段 ab 是否穿过多边形内部（只擦过顶点/沿边走不算）。"""
+    n = len(poly)
+    # 采样 ab 上的点，看是否有严格在内部且离所有边都不近的点
+    for k in range(1, 40):
+        t = k / 40
+        p = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+        if not _point_in_polygon(p, poly):
+            continue
+        if all(_point_line_distance(p, poly[i], poly[(i + 1) % n]) > tol for i in range(n)):
+            return True
+    return False
+
+
+def resolve_region(
+    label_at: Point,
+    points: dict[str, Point],
+    edges: set[frozenset[str]],
+    lines: list[dict[str, Any]],
+    size: tuple[int, int],
+) -> list[str] | None:
+    """一个标注位置落在哪个"由真线围成、内部没被别的线切开"的最小区域里（三角形/四边形）。"""
+    w, h = size
+    tol = 0.015 * min(w, h)
+    names = list(points)
+    candidates: list[tuple[float, list[str]]] = []
+    for k in (3, 4):
+        for combo in itertools.combinations(names, k):
+            # 找一个环，使得相邻两点都是画出来的边
+            for perm in itertools.permutations(combo[1:]):
+                cycle = (combo[0],) + perm
+                if all(frozenset((cycle[i], cycle[(i + 1) % k])) in edges for i in range(k)):
+                    poly = [points[c] for c in cycle]
+                    if k == 4 and _self_intersecting(poly):
+                        continue
+                    if not _point_in_polygon(label_at, poly):
+                        continue
+                    # 内部不许有别的命名点、不许被别的线切开
+                    if any(
+                        n not in cycle and _point_in_polygon(points[n], poly)
+                        and all(_point_line_distance(points[n], poly[i], poly[(i + 1) % k]) > tol for i in range(k))
+                        for n in names
+                    ):
+                        continue
+                    if any(_line_crosses_interior(ln["a"], ln["b"], poly, tol) for ln in lines):
+                        continue
+                    candidates.append((_polygon_area(poly), list(cycle)))
+                    break
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    return candidates[0][1]
+
+
+def _self_intersecting(poly: list[Point]) -> bool:
+    """非相邻两边严格相交 → 蝴蝶结（不是简单多边形）。用方向数判，不吃浮点误差。"""
+
+    def orient(p: Point, q: Point, r: Point) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    n = len(poly)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if abs(i - j) in (1, n - 1):
+                continue
+            a, b = poly[i], poly[(i + 1) % n]
+            c, d = poly[j], poly[(j + 1) % n]
+            o1, o2 = orient(a, b, c), orient(a, b, d)
+            o3, o4 = orient(c, d, a), orient(c, d, b)
+            if o1 * o2 < 0 and o3 * o4 < 0:
+                return True
+    return False
+
+
+_UNIT_LABEL_RE = __import__("re").compile(r"(cm|mm|km|dm|厘米|毫米|米|千米|分米|°|度)", __import__("re").I)
+
+
+def _segment_distance(p: Point, a: Point, b: Point) -> float:
+    ux, uy = b[0] - a[0], b[1] - a[1]
+    n2 = ux * ux + uy * uy
+    if n2 < 1e-9:
+        return math.hypot(p[0] - a[0], p[1] - a[1])
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * ux + (p[1] - a[1]) * uy) / n2))
+    return math.hypot(p[0] - (a[0] + t * ux), p[1] - (a[1] + t * uy))
+
+
+# ────────────────────────────── 总装 ──────────────────────────────
+
+
+def ground_transcription(
+    t: dict[str, Any], gray: Any, protected: set[frozenset[str]] | None = None
+) -> dict[str, Any]:
+    """用像素几何校准一份转写：点吸附到交点/端点、线段按真线判、标注按包含关系归属。
+
+    只在有把握时改动，改动都记进 t["reconciled"]。任何环节失败都原样返回。
+    """
+    import numpy as np
+
+    try:
+        h, w = gray.shape
+        if min(w, h) < 60:
+            return t
+        # 小图放大到短边 ≥ 600 再量：线细、字小
+        scale = 1.0
+        if min(w, h) < 600:
+            from PIL import Image
+
+            scale = 600 / min(w, h)
+            img = Image.fromarray(gray).resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+            gray = np.asarray(img, dtype=np.uint8)
+            h, w = gray.shape
+        ink = ink_mask(gray)
+        lines = detect_lines(ink)
+        if len(lines) < 3:
+            return t
+        size = (w, h)
+        anchors = anchor_points(lines, size)
+        named = {p["id"]: (float(p["x"]) * (w - 1), float(p["y"]) * (h - 1)) for p in t.get("points") or []}
+        snapped, dist = align_named_points(named, anchors, size)
+        notes: list[str] = []
+        if len(dist) >= max(3, len(named) // 2):
+            # 吸附成功的点够多才相信这套几何；写回坐标（归一化）
+            for p in t.get("points") or []:
+                sx, sy = snapped[p["id"]]
+                p["x"], p["y"] = round(sx / (w - 1), 4), round(sy / (h - 1), 4)
+            notes.append(f"点按像素交点校准 {len(dist)}/{len(named)}")
+        else:
+            return t
+        edges = drawn_edges(snapped, lines, size)
+        # 线段：模型说有但像素说没有 → 去；像素说有但模型没说 → 补（有名字的两端、真线相连）
+        claimed = {frozenset(s) for s in t.get("segments") or [] if len(s) == 2}
+        protected = protected or set()
+        kept = [
+            s for s in t.get("segments") or []
+            if len(s) == 2 and (frozenset(s) in edges or frozenset(s) in protected)
+        ]
+        edges |= {frozenset(s) for s in kept}
+        added = [sorted(e) for e in edges - claimed]
+        removed = [s for s in claimed - edges]
+        # 补线只补"不是同一条直线上跨过其它点"的那种（A-B-C 共线时不补 A-C）
+        added = [
+            e for e in added
+            if not any(
+                n not in e and _on_segment(snapped[n], snapped[e[0]], snapped[e[1]], 0.02 * min(w, h))
+                for n in snapped
+            )
+        ]
+        if removed or added:
+            notes.append(
+                "线段按像素校正："
+                + ("去 " + "、".join("-".join(sorted(s)) for s in removed) if removed else "")
+                + (" 补 " + "、".join("-".join(e) for e in added) if added else "")
+            )
+        t["segments"] = kept + added
+        # 标注归属：数字块 → 最小包含区域
+        blobs = text_blobs(ink, lines, size)
+        for label in t.get("labels") or []:
+            at = label.get("at")
+            if not (isinstance(at, (list, tuple)) and len(at) == 2):
+                continue
+            lx, ly = float(at[0]) * (w - 1), float(at[1]) * (h - 1)
+            # 吸到最近的文字块中心（模型位置粗）
+            if blobs:
+                near = min(blobs, key=lambda b: (b["center"][0] - lx) ** 2 + (b["center"][1] - ly) ** 2)
+                if math.hypot(near["center"][0] - lx, near["center"][1] - ly) <= 0.08 * min(w, h):
+                    lx, ly = near["center"]
+            text = str(label.get("text") or "")
+            if _UNIT_LABEL_RE.search(text):
+                # 带单位的量（8cm、30°）标在边上/角上：吸到最近的画出来的边
+                best_edge, best_d = None, float("inf")
+                for e in edges:
+                    a, b = tuple(e)
+                    d = _segment_distance((lx, ly), snapped[a], snapped[b])
+                    if d < best_d:
+                        best_edge, best_d = e, d
+                if best_edge is not None and best_d <= 0.08 * min(w, h):
+                    on = sorted(best_edge)
+                    if list(label.get("on") or []) != on:
+                        notes.append(f"标注「{text}」按位置贴在边 {''.join(on)}（原判 {''.join(label.get('on') or [])}）")
+                    label["on"] = on
+                    label["resolved"] = "geometry"
+                continue
+            region = resolve_region((lx, ly), snapped, edges, lines, size)
+            if region:
+                if list(label.get("on") or []) != region:
+                    notes.append(f"标注「{text}」按位置落在 {''.join(region)}（原判 {''.join(label.get('on') or [])}）")
+                label["on"] = region
+                label["resolved"] = "geometry"
+        if notes:
+            t.setdefault("reconciled", []).extend(notes)
+            logger.info("figure geometry grounding: %s", "；".join(notes))
+        return t
+    except Exception:  # noqa: BLE001 — 几何校准是加分项，失败不拦路
+        logger.exception("figure geometry grounding failed")
+        return t
