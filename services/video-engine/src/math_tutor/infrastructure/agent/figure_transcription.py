@@ -539,15 +539,41 @@ def _decode_gray(figure_image: str) -> Any:
         return None
 
 
+def _ink_cells(gray: Any, cell: int, contrast: float, band_cells: int) -> Any:
+    """墨迹格网：把图切成 cell×cell 的格，格里有"比局部背景暗 contrast 以上"的像素就算墨迹，
+    再按 band_cells 膨胀（容忍转写坐标误差）。返回 bool 矩阵 [rows, cols]。"""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    h, w = gray.shape
+    rows, cols = h // cell, w // cell
+    if rows < 4 or cols < 4:
+        return None
+    cropped = gray[: rows * cell, : cols * cell].astype(np.float32)
+    blocks = cropped.reshape(rows, cell, cols, cell)
+    block_min = blocks.min(axis=(1, 3))
+    block_mean = blocks.mean(axis=(1, 3))
+    # 局部背景：小图上的中值滤波（约 9 格 ≈ 十来个线宽），阴影算背景、线条不算
+    bg_img = Image.fromarray(np.clip(block_mean, 0, 255).astype(np.uint8), mode="L")
+    background = np.asarray(bg_img.filter(ImageFilter.MedianFilter(size=9)), dtype=np.float32)
+    ink = (background - block_min) >= contrast
+    if band_cells > 0:
+        ink_img = Image.fromarray((ink * 255).astype(np.uint8), mode="L")
+        ink = np.asarray(ink_img.filter(ImageFilter.MaxFilter(size=2 * band_cells + 1))) > 0
+    return ink
+
+
 def verify_segments_by_ink(t: dict[str, Any], figure_image: str) -> dict[str, Any]:
     """按**像素墨迹**核对每条转写线段——视觉模型会把"应该有的线"脑补进去。
 
     实机（2026-08-17，用户实拍）：E-F 根本没画，模型照样量了出来；一条多余的
-    干扰线足以让孩子看错图。转写是测量，那就真的量一下：沿两端点连线取样，
-    每个样点在小邻域里找有没有比纸/阴影暗得多的墨迹；覆盖率不够的线段丢掉并留痕。
-    - 只删不补：图上有而模型没量的线，这里不负责补；
-    - 端点两头各让 8%（字母、端点坐标误差都在那里）；
-    - 阈值相对纸色自适应：线条最黑、阴影居中、纸最亮——阴影不算墨迹。
+    干扰线足以让孩子看错图。转写是测量，那就真的量一下：
+    ① 先对齐坐标系——本地视觉模型量出的坐标常整体偏 5%~7%（缩放/平移），
+       在一小片全局仿射（缩放 0.85~1.15、平移 ±10%）里找让"所有线段落在墨迹上"
+       最多的那组，坐标顺手校准（同样是只按像素改，不引入题干知识）；
+    ② 再逐条看覆盖率：沿线取样，样点落在（膨胀过的）墨迹格上算命中，
+       覆盖率 <70% 的线段丢掉并留痕。只删不补。
+    ③ 一半以上的线都判"没墨迹"，说明这张照片校验不可信——全留。
     """
     gray = _decode_gray(figure_image)
     if gray is None or not t.get("segments"):
@@ -557,68 +583,79 @@ def verify_segments_by_ink(t: dict[str, Any], figure_image: str) -> dict[str, An
     h, w = gray.shape
     if h < 40 or w < 40:
         return t
-    pts = {p["id"]: (p["x"] * (w - 1), p["y"] * (h - 1)) for p in t.get("points") or []}
     paper = float(np.median(gray))
     darkest = float(np.percentile(gray, 1))
-    # 墨迹 = 比**局部背景**暗得多的像素：线条画在纸上比纸黑得多，画在阴影里比阴影黑得多；
-    # 阴影本身相对纸只是"偏暗"，达不到这个反差。用局部中位数当背景，阴影里的假线才不会过关
-    ink_contrast = 0.35 * (paper - darkest)
-    radius = max(2, int(round(0.012 * min(w, h))))
-    local = 4 * radius
-    # 转写坐标有几个百分点的误差：沿法向在一条窄带里找墨迹，别把画歪一点的真线误杀
-    band = max(3 * radius, int(round(0.035 * min(w, h))))
+    contrast = 0.35 * (paper - darkest)
+    if contrast < 12:
+        return t  # 几乎没有反差的图，量不出东西
+    cell = max(2, int(round(0.012 * min(w, h))))
+    band_cells = 2  # 膨胀 ≈ ±2.5% 的容差；更大的整体偏差交给下面的对齐搜索
+    ink = _ink_cells(gray, cell, contrast, band_cells)
+    if ink is None:
+        return t
+    rows, cols = ink.shape
+
+    ids = [p["id"] for p in t.get("points") or []]
+    base = {p["id"]: (float(p["x"]), float(p["y"])) for p in t.get("points") or []}
+    segs = [list(sg) for sg in t["segments"] if len(sg) == 2 and sg[0] in base and sg[1] in base]
+    if not segs:
+        return t
+    # 每条线段的取样参数（掐掉两端 8%：字母和端点误差都在那儿）
+    fs = np.linspace(0.08, 0.92, 32)
+    seg_xy = []  # (S, 2) 归一化坐标
+    for a, b in segs:
+        (x0, y0), (x1, y1) = base[a], base[b]
+        seg_xy.append(np.stack([x0 + (x1 - x0) * fs, y0 + (y1 - y0) * fs], axis=1))
+    all_xy = np.stack(seg_xy)  # (N, S, 2)
+
+    def coverage(sx: float, sy: float, dx: float, dy: float) -> Any:
+        xs = np.clip(((all_xy[..., 0] * sx + dx) * (w - 1) / cell).astype(int), 0, cols - 1)
+        ys = np.clip(((all_xy[..., 1] * sy + dy) * (h - 1) / cell).astype(int), 0, rows - 1)
+        return ink[ys, xs].mean(axis=1)  # (N,)
+
+    identity = coverage(1.0, 1.0, 0.0, 0.0)
+    best = (float(identity.mean()), (1.0, 1.0, 0.0, 0.0), identity)
+    for sx in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+        for sy in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+            for dx in np.arange(-0.10, 0.101, 0.02):
+                for dy in np.arange(-0.10, 0.101, 0.02):
+                    cov = coverage(sx, sy, float(dx), float(dy))
+                    score = float(cov.mean())
+                    if score > best[0] + 1e-9:
+                        best = (score, (sx, sy, float(dx), float(dy)), cov)
+    notes: list[str] = []
+    score, (sx, sy, dx, dy), cov = best
+    if (sx, sy, dx, dy) != (1.0, 1.0, 0.0, 0.0):
+        if score - float(identity.mean()) >= 0.08 and score >= 0.6:
+            for p in t.get("points") or []:
+                p["x"] = round(min(1.0, max(0.0, float(p["x"]) * sx + dx)), 4)
+                p["y"] = round(min(1.0, max(0.0, float(p["y"]) * sy + dy)), 4)
+            notes.append(
+                f"坐标按墨迹校准（缩放 {sx:.2f}/{sy:.2f}，平移 {dx:+.2f}/{dy:+.2f}，"
+                f"覆盖 {float(identity.mean()):.0%}→{score:.0%}）"
+            )
+        else:
+            cov = identity  # 校不准就按原坐标判
     kept: list[list[str]] = []
     dropped: list[str] = []
-    for sg in t["segments"]:
-        if len(sg) != 2 or sg[0] not in pts or sg[1] not in pts:
-            continue
-        (x0, y0), (x1, y1) = pts[sg[0]], pts[sg[1]]
-        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
-        if length < 4 * radius:
-            kept.append(list(sg))  # 太短量不准，宁可保留
-            continue
-        nx, ny = -(y1 - y0) / length, (x1 - x0) / length
-        samples = max(12, int(length / (2 * radius)))
-        hits = 0
-        total = 0
-        for i in range(samples + 1):
-            f = i / samples
-            if f < 0.08 or f > 0.92:
-                continue
-            px, py = x0 + (x1 - x0) * f, y0 + (y1 - y0) * f
-            total += 1
-            found = False
-            for off in range(-band, band + 1, radius):
-                cx, cy = int(round(px + nx * off)), int(round(py + ny * off))
-                window = gray[
-                    max(0, cy - radius) : min(h, cy + radius + 1),
-                    max(0, cx - radius) : min(w, cx + radius + 1),
-                ]
-                if not window.size:
-                    continue
-                background = gray[
-                    max(0, cy - local) : min(h, cy + local + 1),
-                    max(0, cx - local) : min(w, cx + local + 1),
-                ]
-                if float(np.median(background)) - float(window.min()) >= ink_contrast:
-                    found = True
-                    break
-            if found:
-                hits += 1
-        coverage = hits / total if total else 0.0
-        if coverage >= 0.7:
-            kept.append(list(sg))
+    for sg, c in zip(segs, cov):
+        if float(c) >= 0.7:
+            kept.append(sg)
         else:
-            dropped.append(f"{sg[0]}-{sg[1]}({coverage:.0%})")
-    if dropped and len(dropped) * 2 > len(kept) + len(dropped):
+            dropped.append(f"{sg[0]}-{sg[1]}({float(c):.0%})")
+    if dropped and len(dropped) * 2 > len(segs):
         # 一半以上的线都"没墨迹"——多半是阈值对这张照片失效（浅铅笔线、深底纸），
         # 这时候校验不可信：全留，别把真图删秃了
         logger.warning("figure transcription ink check unreliable, keeping all: %s", dropped)
+        if notes:
+            t.setdefault("reconciled", []).extend(notes)
         return t
     if dropped:
-        t["segments"] = kept
-        t.setdefault("reconciled", []).append("像素核对去掉没有墨迹的线段：" + "、".join(dropped))
+        t["segments"] = kept + [list(sg) for sg in t["segments"] if len(sg) != 2 or sg[0] not in base or sg[1] not in base]
+        notes.append("像素核对去掉没有墨迹的线段：" + "、".join(dropped))
         logger.info("figure transcription ink check dropped %s", dropped)
+    if notes:
+        t.setdefault("reconciled", []).extend(notes)
     return t
 
 
