@@ -56,6 +56,7 @@ const ENGINE_PREFIXES = [
   "/api/v1/grades",
   "/api/v1/skills",
   "/api/v1/media",
+  "/api/v1/figure",
   "/api/health",
 ];
 

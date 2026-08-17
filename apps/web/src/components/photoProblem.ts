@@ -284,6 +284,30 @@ async function layoutItems(photoDataUrl: string): Promise<PhotoLayoutItem[]> {
     return items
 }
 
+/** 配图几何核对的时限：一次视觉转写 + 像素几何，本地模型 20~40 秒 */
+const FIGURE_GROUND_TIMEOUT_MS = 90_000
+
+/**
+ * 读图一次、处处可用：引擎按像素几何核对图上标注，返回把「图中标注：…」写准了的题干。
+ * 抽取模型只会猜"中间上方的三角形是 5"，像素几何才说得出"三角形 AEF 内标注 5"。
+ */
+async function groundFigureConditions(problem: string, figureImage: string): Promise<string> {
+    try {
+        const res = await fetch('/api/v1/figure/transcribe', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ problem, figure_image: figureImage }),
+            signal: AbortSignal.timeout(FIGURE_GROUND_TIMEOUT_MS),
+        })
+        if (!res.ok) return problem
+        const data = (await res.json()) as { grounded?: boolean; problem_short?: string }
+        if (data.grounded && data.problem_short?.trim()) return data.problem_short.trim()
+        return problem
+    } catch {
+        return problem
+    }
+}
+
 /** 整条链路：照片 → 转正 → 题干文本 + 题干配图。任何一步失败都抛可读的错。 */
 export async function extractPhotoProblem(
     rawPhotoDataUrl: string,
@@ -328,5 +352,9 @@ export async function extractPhotoProblem(
         : undefined
     const figureImage = cropped_figure ? await upscaleDataUrl(cropped_figure) : undefined
 
-    return { problem: stem.trim(), figureImage }
+    // ④ 配图几何核对：让引擎把图上写的条件按像素几何写准（"三角形AEF内标注「5」"），
+    // 替换抽取模型猜的那句。这一步失败/超时就用抽取的原文，不拦路
+    const problem = figureImage ? await groundFigureConditions(stem.trim(), figureImage) : stem.trim()
+
+    return { problem, figureImage }
 }
