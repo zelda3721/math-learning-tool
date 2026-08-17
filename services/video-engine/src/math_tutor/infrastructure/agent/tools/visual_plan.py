@@ -27,10 +27,11 @@ from ..figure_transcription import (
     _FREE_GEOMETRY,
     _OFF_FIGURE_QUANTITY,
     choreograph_figure,
-    refine_transcription,
     figure_ops_violations,
     filter_figure_plan_errors,
     inject_figure_object,
+    problem_with_figure_conditions,
+    refine_transcription,
     transcribe_figure,
     transcription_summary,
 )
@@ -7691,7 +7692,7 @@ class VisualPlanTool(ITool):
         prompt = self._prompts.render(
             "visual_plan",
             grade=grade,
-            problem=problem,
+            problem=problem_with_figure_conditions(problem, transcription),
             analysis_section=analysis_section,
             solution_section=solution_section,
             feedback_section=feedback,

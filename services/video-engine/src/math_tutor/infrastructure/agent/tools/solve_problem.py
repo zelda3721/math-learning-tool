@@ -23,6 +23,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..math_runtime import MathExecutionResult, execute_math_request
 from ..figure_transcription import (
+    problem_with_figure_conditions,
     refine_transcription,
     transcribe_figure,
     transcription_conditions,
@@ -507,12 +508,11 @@ class SolveProblemTool(ITool):
             if transcription:
                 refine_transcription(transcription, figure_image, problem)
                 ctx.state["figure_transcription"] = transcription
-        conditions = transcription_conditions(ctx.state.get("figure_transcription"))
-        if conditions:
+        # 图上标注并进题面（解题/验证/导演三处同一份），标注是条件、不是提示
+        problem = problem_with_figure_conditions(problem, ctx.state.get("figure_transcription"))
+        if transcription_conditions(ctx.state.get("figure_transcription")):
             analysis_section += (
-                "\n## 图上标注的条件（从配图转写，原文照抄）\n"
-                + "\n".join(f"- {c}" for c in conditions)
-                + "\n这些是题目条件的一部分（题干里可能没写），解题时一并使用；"
+                "\n注意：题面末尾「图中标注」里的量是配图上印着的条件，与题干同等有效；"
                 "图上没标的量不要自己量。\n"
             )
 

@@ -25,6 +25,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
+from ..figure_transcription import problem_with_figure_conditions
 from ..math_runtime import execute_math_request
 from ..prompt_library import PromptLibrary
 from .visual_plan import _machine_checkable_blocking_issue
@@ -538,6 +539,9 @@ class VerifySolutionTool(ITool):
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         problem = (args.get("problem") or ctx.problem or "").strip()
+        # 图上标注是题目条件：验证看的题面必须和解题看的是同一份，否则解题按图上的量算，
+        # 验证却判它"无据"（实机在这里把整条链路停掉过）
+        problem = problem_with_figure_conditions(problem, ctx.state.get("figure_transcription"))
         answer = args.get("answer") or ctx.state.get("solution_answer") or ""
         steps = ctx.state.get("solution_steps") or []
         if not problem:
