@@ -67,12 +67,13 @@ def test_真图_走完refine_条件按几何断言_并替换抽取器的猜测()
     url = "data:image/jpeg;base64," + base64.b64encode(img).decode()
     t = _model_like_transcription()
     refine_transcription(t, url, case["problem"])
-    conds = transcription_conditions(t)
-    assert "三角形AEF内标注「5」" in conds and "三角形DEN内标注「8」" in conds and "三角形BFM内标注「7」" in conds
+    conds = transcription_conditions(t, case["problem"])
+    # 题干说"面积"，区域里的裸数字就是面积
+    assert "三角形AEF的面积为5" in conds and "三角形DEN的面积为8" in conds and "三角形BFM的面积为7" in conds
     # 抽取器猜错的那句被像素几何的结论换掉
     guessed = case["problem"] + "图中标注：$S_{\\triangle AEF}=5$，$S_{\\triangle EFN}=8$，$S_{\\triangle BFM}=7$"
     out = problem_with_figure_conditions(guessed, t)
-    assert "EFN" not in out and "三角形DEN内标注「8」" in out and "像素几何核对" in out
+    assert "EFN" not in out and "三角形DEN的面积为8" in out and "像素几何核对" in out
 
 
 def _synthetic(with_labels: bool = True):
