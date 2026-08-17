@@ -192,6 +192,29 @@ def figure_structure_text(t: dict[str, Any] | None) -> str:
     return "；".join(parts)
 
 
+#: 题干里"标在图上的是什么形状"："三个小三角形的面积已经在图中标出""阴影四边形""四个三角形"
+_SHAPE_WORD_SIZES = {"三角形": 3, "四边形": 4, "梯形": 4, "平行四边形": 4, "菱形": 4, "正方形": 4, "长方形": 4, "矩形": 4}
+_LABELED_SHAPE_RE = re.compile(
+    r"(三角形|四边形|梯形|平行四边形|菱形|正方形|长方形|矩形)[^。．；;]{0,14}?(面积|标出|标注|标记)"
+    r"|(面积|标出|标注|标记)[^。．；;]{0,14}?(三角形|四边形|梯形|平行四边形|菱形|正方形|长方形|矩形)"
+)
+
+
+def labeled_region_sizes(problem: str) -> set[int] | None:
+    """题干说"标出面积的是什么形状"→ 允许的顶点数集合；说不上就 None（不约束）。
+
+    读图要图文合读：题干说"三个小三角形的面积已经在图中标出"，那图上写的数只能属于
+    三角形——像素几何若把它落进一个四边形，只能说明少认了一条线，不能反过来相信像素。
+    只看"面积/标出"附近提到的形状；"长方形ABCD中"这种整体形状不算。
+    """
+    sizes: set[int] = set()
+    for m in _LABELED_SHAPE_RE.finditer(problem or ""):
+        word = m.group(1) or m.group(4)
+        if word in _SHAPE_WORD_SIZES:
+            sizes.add(_SHAPE_WORD_SIZES[word])
+    return sizes or None
+
+
 def problem_with_figure_conditions(
     problem: str, t: dict[str, Any] | None, include_structure: bool = True
 ) -> str:
@@ -999,7 +1022,9 @@ def refine_transcription(
         from .figure_geometry import ground_transcription
 
         before = list(t.get("reconciled") or [])
-        ground_transcription(t, gray, protected=protected - constructed)
+        ground_transcription(
+            t, gray, protected=protected - constructed, region_sizes=labeled_region_sizes(problem)
+        )
         grounded = len(t.get("reconciled") or []) > len(before)
         if grounded:
             # 几何校准后再按解答纠一次辅助线（几何只认墨迹，辅助线本来就没画，通常无事）

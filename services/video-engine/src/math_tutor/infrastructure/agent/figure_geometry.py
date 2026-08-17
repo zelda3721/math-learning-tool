@@ -161,13 +161,17 @@ def _point_line_distance(p: Point, a: Point, b: Point) -> float:
     return abs((p[0] - a[0]) * uy - (p[1] - a[1]) * ux) / n
 
 
-def _on_segment(p: Point, a: Point, b: Point, tol: float) -> bool:
+def _on_segment(p: Point, a: Point, b: Point, tol: float, along_tol: float | None = None) -> bool:
+    """p 是否落在线段 ab 上：垂直方向容差 tol；沿线方向允许超出端点 along_tol
+    （霍夫量出的墨迹区间常在角上/字母处短一截，默认与 tol 相同）。"""
     if _point_line_distance(p, a, b) > tol:
         return False
     ux, uy = b[0] - a[0], b[1] - a[1]
     n2 = ux * ux + uy * uy or 1e-9
+    n = math.sqrt(n2)
     t = ((p[0] - a[0]) * ux + (p[1] - a[1]) * uy) / n2
-    return -tol / math.sqrt(n2) <= t <= 1 + tol / math.sqrt(n2)
+    slack = (along_tol if along_tol is not None else tol) / n
+    return -slack <= t <= 1 + slack
 
 
 def _intersection(a: Point, b: Point, c: Point, d: Point) -> Point | None:
@@ -291,11 +295,14 @@ def drawn_edges(points: dict[str, Point], lines: list[dict[str, Any]], size: tup
     """两个命名点之间是否有一条**画出来的**直线段：都落在同一条检测线段上（含内部）。"""
     w, h = size
     tol = 0.02 * min(w, h)
+    # 沿线方向放宽：线段的墨迹区间在角上、字母处常短一截（实机：B 比 B–E 线的检测端点
+    # 还靠外 19px，B–F 这条真边就没认出来）
+    along = 0.06 * min(w, h)
     edges: set[frozenset[str]] = set()
     for a, b in itertools.combinations(points, 2):
         pa, pb = points[a], points[b]
         for ln in lines:
-            if _on_segment(pa, ln["a"], ln["b"], tol) and _on_segment(pb, ln["a"], ln["b"], tol):
+            if _on_segment(pa, ln["a"], ln["b"], tol, along) and _on_segment(pb, ln["a"], ln["b"], tol, along):
                 edges.add(frozenset((a, b)))
                 break
     return edges
@@ -418,13 +425,21 @@ def resolve_region(
     edges: set[frozenset[str]],
     lines: list[dict[str, Any]],
     size: tuple[int, int],
+    allowed_sizes: set[int] | None = None,
 ) -> list[str] | None:
-    """一个标注位置落在哪个"由真线围成、内部没被别的线切开"的最小区域里（三角形/四边形）。"""
+    """一个标注位置落在哪个"由真线围成、内部没被别的线切开"的最小区域里（三角形/四边形）。
+
+    allowed_sizes：题干给的约束（"三个小三角形的面积已在图中标出" → 只认三角形）。
+    图和题要合起来读：像素说它在某个四边形里，题干说标的是三角形，那就是像素这边
+    少认了一条线——宁可不下结论，也不把一个四边形当条件。
+    """
     w, h = size
     tol = 0.015 * min(w, h)
     names = list(points)
     candidates: list[tuple[float, list[str]]] = []
-    for k in (3, 4):
+    for k in sorted(allowed_sizes) if allowed_sizes else (3, 4):
+        if k not in (3, 4):
+            continue
         for combo in itertools.combinations(names, k):
             # 找一个环，使得相邻两点都是画出来的边
             for perm in itertools.permutations(combo[1:]):
@@ -433,6 +448,8 @@ def resolve_region(
                     poly = [points[c] for c in cycle]
                     if k == 4 and _self_intersecting(poly):
                         continue
+                    if _has_flat_corner(poly, tol):
+                        continue  # 三点共线的"四边形"其实是三角形，别冒充
                     if not _point_in_polygon(label_at, poly):
                         continue
                     # 内部不许有别的命名点、不许被别的线切开
@@ -450,6 +467,15 @@ def resolve_region(
         return None
     candidates.sort(key=lambda c: c[0])
     return candidates[0][1]
+
+
+def _has_flat_corner(poly: list[Point], tol: float) -> bool:
+    n = len(poly)
+    for i in range(n):
+        p, q, r = poly[i - 1], poly[i], poly[(i + 1) % n]
+        if _point_line_distance(q, p, r) <= tol:
+            return True
+    return False
 
 
 def _self_intersecting(poly: list[Point]) -> bool:
@@ -488,7 +514,10 @@ def _segment_distance(p: Point, a: Point, b: Point) -> float:
 
 
 def ground_transcription(
-    t: dict[str, Any], gray: Any, protected: set[frozenset[str]] | None = None
+    t: dict[str, Any],
+    gray: Any,
+    protected: set[frozenset[str]] | None = None,
+    region_sizes: set[int] | None = None,
 ) -> dict[str, Any]:
     """用像素几何校准一份转写：点吸附到交点/端点、线段按真线判、标注按包含关系归属。
 
@@ -580,7 +609,7 @@ def ground_transcription(
                     label["on"] = on
                     label["resolved"] = "geometry"
                 continue
-            region = resolve_region((lx, ly), snapped, edges, lines, size)
+            region = resolve_region((lx, ly), snapped, edges, lines, size, allowed_sizes=region_sizes)
             if region:
                 if list(label.get("on") or []) != region:
                     notes.append(f"标注「{text}」按位置落在 {''.join(region)}（原判 {''.join(label.get('on') or [])}）")
