@@ -510,10 +510,14 @@ class SolveProblemTool(ITool):
                 ctx.state["figure_transcription"] = transcription
         # 图上标注并进题面（解题/验证/导演三处同一份），标注是条件、不是提示
         problem = problem_with_figure_conditions(problem, ctx.state.get("figure_transcription"))
-        if transcription_conditions(ctx.state.get("figure_transcription")):
+        if figure_image.startswith("data:image/"):
+            # 带图的题：把图一起给解题模型看。写在区域里的数（面积、角度）到底属于哪个
+            # 三角形，靠文字转述常常说不准（本地模型给区域起名会错），图本身才是权威——
+            # 题面里的「图中标注」只当读图线索，与图不一致时以图为准
             analysis_section += (
-                "\n注意：题面末尾「图中标注」里的量是配图上印着的条件，与题干同等有效；"
-                "图上没标的量不要自己量。\n"
+                "\n注意：这道题**附有原图**（见消息里的图片）。题面末尾「图中标注」是读图得到的"
+                "文字线索，位置或归属可能有误——以图为准，先在图上核对每个数写在哪一块、"
+                "哪条边上，再解题；图上没标的量不要自己量。\n"
             )
 
         prompt = self._prompts.render(
@@ -524,9 +528,25 @@ class SolveProblemTool(ITool):
             analysis_section=analysis_section,
         )
 
+        # 有原图就走视觉端点，图和文字一起给；没有就照旧纯文本
+        solve_llm = self._vision_llm if figure_image.startswith("data:image/") else self._llm
+
+        def as_messages(text: str) -> list[ChatMessage]:
+            if figure_image.startswith("data:image/"):
+                return [
+                    ChatMessage(
+                        role="user",
+                        content=[
+                            {"type": "text", "text": text},
+                            {"type": "image_url", "image_url": {"url": figure_image}},
+                        ],
+                    )
+                ]
+            return [ChatMessage(role="user", content=text)]
+
         try:
-            done = await self._llm.chat_complete(
-                messages=[ChatMessage(role="user", content=prompt)],
+            done = await solve_llm.chat_complete(
+                messages=as_messages(prompt),
                 temperature=0.3,
                 max_tokens=6144,
                 # Structured markdown output (## 解题 + 步骤)。Solve does
@@ -559,8 +579,8 @@ class SolveProblemTool(ITool):
                     "- 上次输出在完成前被截断：请压缩 ## 分析 篇幅，确保 ## 解题 完整输出。\n"
                 )
             try:
-                retry_done = await self._llm.chat_complete(
-                    messages=[ChatMessage(role="user", content=prompt + format_feedback)],
+                retry_done = await solve_llm.chat_complete(
+                    messages=as_messages(prompt + format_feedback),
                     temperature=0.1,
                     max_tokens=6144,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -628,8 +648,8 @@ class SolveProblemTool(ITool):
                 "只修正上述矛盾，再次逐项核对最终答案与最后一步结果。"
             )
             try:
-                repaired_done = await self._llm.chat_complete(
-                    messages=[ChatMessage(role="user", content=repair_prompt)],
+                repaired_done = await solve_llm.chat_complete(
+                    messages=as_messages(repair_prompt),
                     temperature=0.1,
                     max_tokens=6144,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
