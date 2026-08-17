@@ -23,7 +23,7 @@ from ....application.interfaces import (
     ToolContext,
     ToolResult,
 )
-from ..figure_transcription import transcribe_figure
+from ..figure_transcription import reconcile_transcription, transcribe_figure
 from ..prompt_library import PromptLibrary
 from ..web_explanation_contract import (
     ATTR_FIGURE,
@@ -326,6 +326,12 @@ class GenerateWebExplanationTool(ITool):
         if not transcription and figure_image.startswith("data:image/"):
             transcription = await transcribe_figure(self._llm, figure_image)
             if transcription:
+                reconcile_transcription(
+                    transcription,
+                    str(ctx.problem or ""),
+                    state.get("solution"),
+                    state.get("solution_steps"),
+                )
                 state["figure_transcription"] = transcription
         figure_labels = [p["id"] for p in transcription["points"]] if transcription else None
 

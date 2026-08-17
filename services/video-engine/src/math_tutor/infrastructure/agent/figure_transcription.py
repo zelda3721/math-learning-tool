@@ -38,7 +38,8 @@ TRANSCRIBE_PROMPT = """这张图里有一个几何图形。把它**转写**成�
 规则：
 - points：每个**标了字母**的点。x、y 是该字母所指的点在图中的位置，
   取值 0~1（左上角是 0,0，x 向右、y 向下）。位置尽量量准——下游照它重画；
-- segments：图中实际画出的线段（含对角线、辅助线），端点用字母；
+- segments：图中**实际画出**（有墨迹）的线段，端点用字母。只记录看得见的线：
+  题目要"连接"的辅助线、你觉得"应该有"的对角线，图上没画就**不要写**；
 - shaded：阴影/深色区域，按顶点顺序列出字母环；没有阴影就给空数组 []；
 - 没标字母的点不要编造字母；看不清的部分宁可省略。"""
 
@@ -427,6 +428,97 @@ def inject_figure_object(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, A
                 {"op": "create", "targets": ["original_figure"], "target": "original_figure"},
             )
     return plan
+
+
+#: 解答里"作辅助线"的说法：连接/连结/作/画/引/添加 + 两个字母（可夹 $、空格、"对角线"、"线段"）
+_CONSTRUCT_RE = re.compile(
+    r"(?:连接|连结|作|画出|画|引|添加|添|构造|补)\s*(?:对角线|线段|辅助线|一条)?[\s$\\overline{}]*"
+    r"([A-Za-z])\s*['′]?\s*([A-Za-z])['′]?(?![A-Za-z])"
+)
+_AUX_RE = re.compile(r"辅助线\s*[$\\overline{}\s]*([A-Za-z])\s*([A-Za-z])(?![A-Za-z])")
+#: 题干里点名的阴影区域："阴影四边形EDFB""阴影部分（三角形ABE）"
+_SHADED_RE = re.compile(
+    r"阴影(?:部分|区域)?[^A-Za-z]{0,12}?(?:三角形|四边形|五边形|六边形|梯形|平行四边形|△)?"
+    r"[\s$\\]*([A-Za-z]{3,6})(?![A-Za-z])"
+)
+
+
+def _solution_text(solution: Any, steps: Any) -> str:
+    parts: list[str] = []
+    if isinstance(solution, dict):
+        for key in ("approach", "summary", "brief", "method", "idea", "explanation"):
+            if solution.get(key):
+                parts.append(str(solution[key]))
+        for step in solution.get("steps") or []:
+            if isinstance(step, dict):
+                parts.extend(str(v) for v in step.values() if isinstance(v, str))
+            elif isinstance(step, str):
+                parts.append(step)
+    for step in steps or []:
+        if isinstance(step, dict):
+            parts.extend(str(v) for v in step.values() if isinstance(v, str))
+        elif isinstance(step, str):
+            parts.append(step)
+    return "\n".join(parts)
+
+
+def reconcile_transcription(
+    t: dict[str, Any], problem: str, solution: Any = None, steps: Any = None
+) -> dict[str, Any]:
+    """用题干和已验证解答给转写纠偏——视觉模型会**多量出线**。
+
+    实机（2026-08-17，用户实拍）：转写把解答里才要"连接"的对角线 BD 量成了原图
+    自带的线段，还把阴影从四边形 EDFB 认成了三角形 BDF。结果第一拍就画着 BD，
+    "连 BD"这一步的揭示感没了，孩子看到的也不是题目的图。
+
+    两条确定性规则（只删不补，不引入题干知识画新东西）：
+    ① 解答里"连接/作 XY"的线是**辅助线**，原图上不该有——从转写线段里去掉，
+       由导演在对应的拍用 draw_segment 画出来；
+    ② 题干点名的阴影区域（"阴影四边形 EDFB"）以题干为准：阴影环替换成它，
+       并去掉那个多边形的对角线（一块被点名为"四边形"的阴影，内部不该有对角线）。
+    改动都留痕（t["reconciled"]），方便回看。
+    """
+    ids = {p["id"] for p in t.get("points") or []}
+    notes: list[str] = []
+    text = _solution_text(solution, steps)
+    constructed: set[frozenset[str]] = set()
+    for a, b in _CONSTRUCT_RE.findall(text) + _AUX_RE.findall(text):
+        if a in ids and b in ids and a != b:
+            constructed.add(frozenset((a, b)))
+
+    segments = [list(sg) for sg in (t.get("segments") or []) if len(sg) == 2]
+    if constructed:
+        kept = []
+        for sg in segments:
+            if frozenset(sg) in constructed:
+                notes.append(f"去掉辅助线 {sg[0]}-{sg[1]}（解答里才连接，原图没有）")
+            else:
+                kept.append(sg)
+        segments = kept
+
+    m = _SHADED_RE.search(problem or "")
+    if m:
+        cycle = list(m.group(1))
+        if len(set(cycle)) == len(cycle) and all(c in ids for c in cycle):
+            if [list(c) for c in (t.get("shaded") or [])] != [cycle]:
+                notes.append(f"阴影以题干为准：{''.join(cycle)}")
+                t["shaded"] = [cycle]
+            n = len(cycle)
+            adjacent = {frozenset((cycle[i], cycle[(i + 1) % n])) for i in range(n)}
+            kept = []
+            for sg in segments:
+                pair = frozenset(sg)
+                if pair <= set(cycle) and pair not in adjacent:
+                    notes.append(f"去掉阴影{''.join(cycle)}的内部对角线 {sg[0]}-{sg[1]}")
+                else:
+                    kept.append(sg)
+            segments = kept
+
+    t["segments"] = segments
+    if notes:
+        t["reconciled"] = notes
+        logger.info("figure transcription reconciled: %s", "；".join(notes))
+    return t
 
 
 async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | None:
