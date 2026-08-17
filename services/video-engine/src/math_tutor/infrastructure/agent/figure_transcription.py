@@ -110,6 +110,22 @@ def transcription_summary(t: dict[str, Any]) -> str:
     return f"顶点（图像坐标，y 向下）：{pts}；线段：{segs}；阴影区域：{shade}；图上标注：{labels}"
 
 
+def problem_with_figure_conditions(problem: str, t: dict[str, Any] | None) -> str:
+    """题干 + 图上标注条件（一句"图中标注：…"），给解题/验证/导演**同一份**题面。
+
+    只写在图上的条件（边长、角度、面积）不进题面，解题看不见、验证也看不见——
+    实机：解题按图上的 6cm/8cm 算对了，验证却因为题干里没有这两个数判它"无据"，
+    整条链路在这里停掉。三处都用这一份，谁也不会比谁多知道或少知道。
+    """
+    conditions = transcription_conditions(t)
+    if not conditions:
+        return problem
+    marker = "图中标注："
+    if marker in (problem or ""):
+        return problem  # 抽取层已经把标注抄进题干（同一格式），不重复
+    return f"{problem.rstrip()}\n（{marker}{'；'.join(conditions)}）"
+
+
 def transcription_conditions(t: dict[str, Any] | None) -> list[str]:
     """图上标注 → 一条条"题目条件"文字（给解题/导演的提示词用）。
 

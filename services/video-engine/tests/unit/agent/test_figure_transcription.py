@@ -835,3 +835,14 @@ def test_小图进视觉模型前等比放大_大图不动():
     assert upscale_for_vision(big) is big                                    # 够大原样返回
     assert size_of(upscale_for_vision(data_url(120, 100))) == (480, 400)     # 最多放大 4 倍
     assert upscale_for_vision("not-a-data-url") == "not-a-data-url"
+
+
+def test_题面拼图上标注_三处同一份_已有则不重复():
+    from math_tutor.infrastructure.agent.figure_transcription import problem_with_figure_conditions
+    t = {"points": [], "segments": [], "shaded": [],
+         "labels": [{"text": "6cm", "on": ["A", "B"]}, {"text": "8cm", "on": ["B", "C"]}]}
+    out = problem_with_figure_conditions("如图，长方形ABCD中，求阴影面积。", t)
+    assert out.endswith("（图中标注：边AB标注「6cm」；边BC标注「8cm」）")
+    assert problem_with_figure_conditions(out, t) == out               # 幂等
+    assert problem_with_figure_conditions("题干里已有 图中标注：AB=6cm", t) == "题干里已有 图中标注：AB=6cm"
+    assert problem_with_figure_conditions("无图", None) == "无图"
