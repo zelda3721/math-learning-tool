@@ -27,7 +27,7 @@ from ..figure_transcription import (
     _FREE_GEOMETRY,
     _OFF_FIGURE_QUANTITY,
     choreograph_figure,
-    reconcile_transcription,
+    refine_transcription,
     figure_ops_violations,
     filter_figure_plan_errors,
     inject_figure_object,
@@ -7640,8 +7640,9 @@ class VisualPlanTool(ITool):
         if not transcription and figure_image.startswith("data:image/"):
             transcription = await transcribe_figure(self._llm, figure_image)
             if transcription:
-                reconcile_transcription(
+                refine_transcription(
                     transcription,
+                    figure_image,
                     str(ctx.problem or ""),
                     ctx.state.get("solution"),
                     ctx.state.get("solution_steps"),

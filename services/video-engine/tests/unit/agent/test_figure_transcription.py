@@ -734,3 +734,51 @@ def test_像素核对_一半以上没墨迹判为校验失效_全留():
 def test_像素核对_不是图片就原样返回():
     t = {"points": [{"id": "A", "x": 0, "y": 0}], "segments": [["A", "A"]], "shaded": []}
     assert verify_segments_by_ink(dict(t), "not-a-data-url") == t
+
+
+def test_像素核对_题干点名的边受保护_照片再糊也不删():
+    """通用规则：题干说"四边形ABCD"，AB 就是题目的一部分——哪怕像素里找不到（拍糊/曝光），也不删。"""
+    from math_tutor.infrastructure.agent.figure_transcription import named_edges_in_problem, refine_transcription
+    # 图上故意不画 AB、AD：像素核对会想删它们
+    pts, url = _synthetic_figure([("D", "C"), ("C", "B"), ("B", "E"), ("F", "D")])
+    ids = {p["id"] for p in pts}
+    protected = named_edges_in_problem("如图，四边形ABCD中，E为AD边的中点，阴影四边形EDFB的面积为28", ids)
+    assert frozenset("AB") in protected and frozenset("AD") in protected and frozenset("BE") in protected
+    assert frozenset("BD") not in protected
+    t = {"points": pts, "segments": [["A", "B"], ["A", "D"], ["D", "C"], ["C", "B"], ["B", "E"], ["F", "D"], ["B", "D"]],
+         "shaded": [["E", "D", "F", "B"]]}
+    refine_transcription(t, url, "如图，四边形ABCD中，E为AD边的中点，阴影四边形EDFB的面积为28")
+    pairs = {frozenset(s) for s in t["segments"]}
+    assert frozenset("AB") in pairs and frozenset("AD") in pairs   # 受保护，没被删
+    assert frozenset("BD") not in pairs                              # 假线（阴影对角线 + 无墨迹）删掉
+
+
+def test_像素核对_换一种图形同样成立_矩形加对角线():
+    """不是给某一道题调的：矩形 PQRS 画了对角线 PR，模型多报 QS 与中线——一样处理。"""
+    import base64
+    import io
+    import random
+
+    from PIL import Image, ImageDraw
+
+    W, H = 800, 600
+    im = Image.new("RGB", (W, H), (235, 235, 230))
+    d = ImageDraw.Draw(im)
+    P = {"P": (150, 120), "Q": (650, 120), "R": (650, 460), "S": (150, 460)}
+    P["M"] = (400, 120)
+    for a, b in [("P", "Q"), ("Q", "R"), ("R", "S"), ("S", "P"), ("P", "R")]:
+        d.line([P[a], P[b]], fill=(30, 30, 30), width=3)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=80)
+    url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    random.seed(3)
+    pts = [{"id": k, "x": x / W + random.uniform(-0.02, 0.02), "y": y / H + random.uniform(-0.02, 0.02)}
+           for k, (x, y) in P.items()]
+    t = {"points": pts,
+         "segments": [["P", "Q"], ["Q", "R"], ["R", "S"], ["S", "P"], ["P", "R"], ["Q", "S"], ["M", "S"]],
+         "shaded": []}
+    verify_segments_by_ink(t, url)
+    pairs = {frozenset(s) for s in t["segments"]}
+    for real in ("PQ", "QR", "RS", "SP", "PR"):
+        assert frozenset(real) in pairs, real
+    assert frozenset("QS") not in pairs and frozenset("MS") not in pairs

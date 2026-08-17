@@ -563,17 +563,57 @@ def _ink_cells(gray: Any, cell: int, contrast: float, band_cells: int) -> Any:
     return ink
 
 
-def verify_segments_by_ink(t: dict[str, Any], figure_image: str) -> dict[str, Any]:
-    """按**像素墨迹**核对每条转写线段——视觉模型会把"应该有的线"脑补进去。
+#: 题干里点名的多边形/线段："四边形ABCD""三角形ABE""△DFC""边AB""线段EF""AB边"
+_NAMED_POLY_RE = re.compile(
+    r"(?:三角形|四边形|五边形|六边形|梯形|平行四边形|矩形|长方形|正方形|菱形|△)"
+    r"[\s$\\]*([A-Za-z]{3,6})(?![A-Za-z])"
+)
+_NAMED_EDGE_RE = re.compile(
+    r"(?:边|线段|底边|斜边|高)[\s$\\overline{}]*([A-Za-z])\s*([A-Za-z])(?![A-Za-z])"
+    r"|(?<![A-Za-z])([A-Za-z])\s*([A-Za-z])[\s$]*边"
+)
+
+
+def named_edges_in_problem(problem: str, ids: set[str]) -> set[frozenset[str]]:
+    """题干自己断言存在的线：点名多边形的各条边、"边 XY/线段 XY"。
+
+    这些线是题目的一部分，像素核对**不许**把它们删掉（照片再糊也不删）——
+    通用规则：题干说有的边就有；不认题型、不认字母。
+    """
+    edges: set[frozenset[str]] = set()
+    text = problem or ""
+    for name in _NAMED_POLY_RE.findall(text):
+        cycle = list(name)
+        if len(set(cycle)) != len(cycle) or not all(c in ids for c in cycle):
+            continue
+        n = len(cycle)
+        for i in range(n):
+            edges.add(frozenset((cycle[i], cycle[(i + 1) % n])))
+    for a, b, c, d in _NAMED_EDGE_RE.findall(text):
+        x, y = (a, b) if a else (c, d)
+        if x in ids and y in ids and x != y:
+            edges.add(frozenset((x, y)))
+    return edges
+
+
+def verify_segments_by_ink(
+    t: dict[str, Any],
+    figure_image: str,
+    protected: set[frozenset[str]] | None = None,
+) -> dict[str, Any]:
+    """按**像素墨迹**核对转写线段——只为抓"图上根本没有、模型脑补出来"的线。
 
     实机（2026-08-17，用户实拍）：E-F 根本没画，模型照样量了出来；一条多余的
-    干扰线足以让孩子看错图。转写是测量，那就真的量一下：
+    干扰线足以让孩子看错图。转写是测量，那就真的量一下。但**删掉一条真边比留下
+    一条假线更糟**，所以整套规则偏保守，只在证据很硬时才删：
     ① 先对齐坐标系——本地视觉模型量出的坐标常整体偏 5%~7%（缩放/平移），
-       在一小片全局仿射（缩放 0.85~1.15、平移 ±10%）里找让"所有线段落在墨迹上"
-       最多的那组，坐标顺手校准（同样是只按像素改，不引入题干知识）；
-    ② 再逐条看覆盖率：沿线取样，样点落在（膨胀过的）墨迹格上算命中，
-       覆盖率 <70% 的线段丢掉并留痕。只删不补。
-    ③ 一半以上的线都判"没墨迹"，说明这张照片校验不可信——全留。
+       在一小片全局仿射里找让"所有线段落在墨迹上"最多的那组；明显更贴合时
+       顺手把点坐标校准过去（同样只按像素改，不引入题干知识）；
+    ② 逐条看覆盖率：沿线取样，样点落在（膨胀过的）墨迹格上算命中。
+       覆盖率 <45% 才算"没墨迹"；边缘线还给一次更宽容差的复核机会（照片有透视，
+       远离中心的边局部偏得更多）；题干点名的边（protected）一律不删；
+    ③ 其余线段整体覆盖率不到 70%（对齐/阈值对这张照片不可信）或一半以上都判
+       没墨迹时，全部保留——宁可多一条假线，不把真图删秃。
     """
     gray = _decode_gray(figure_image)
     if gray is None or not t.get("segments"):
@@ -585,77 +625,140 @@ def verify_segments_by_ink(t: dict[str, Any], figure_image: str) -> dict[str, An
         return t
     paper = float(np.median(gray))
     darkest = float(np.percentile(gray, 1))
-    contrast = 0.35 * (paper - darkest)
+    contrast = 0.3 * (paper - darkest)
     if contrast < 12:
         return t  # 几乎没有反差的图，量不出东西
     cell = max(2, int(round(0.012 * min(w, h))))
-    band_cells = 2  # 膨胀 ≈ ±2.5% 的容差；更大的整体偏差交给下面的对齐搜索
-    ink = _ink_cells(gray, cell, contrast, band_cells)
-    if ink is None:
-        return t
-    rows, cols = ink.shape
+    protected = protected or set()
 
     ids = [p["id"] for p in t.get("points") or []]
     base = {p["id"]: (float(p["x"]), float(p["y"])) for p in t.get("points") or []}
     segs = [list(sg) for sg in t["segments"] if len(sg) == 2 and sg[0] in base and sg[1] in base]
     if not segs:
         return t
-    # 每条线段的取样参数（掐掉两端 8%：字母和端点误差都在那儿）
-    fs = np.linspace(0.08, 0.92, 32)
-    seg_xy = []  # (S, 2) 归一化坐标
-    for a, b in segs:
-        (x0, y0), (x1, y1) = base[a], base[b]
-        seg_xy.append(np.stack([x0 + (x1 - x0) * fs, y0 + (y1 - y0) * fs], axis=1))
-    all_xy = np.stack(seg_xy)  # (N, S, 2)
+    fs = np.linspace(0.08, 0.92, 32)  # 掐掉两端 8%：字母和端点误差都在那儿
+    all_xy = np.stack([
+        np.stack([base[a][0] + (base[b][0] - base[a][0]) * fs,
+                  base[a][1] + (base[b][1] - base[a][1]) * fs], axis=1)
+        for a, b in segs
+    ])  # (N, S, 2)
 
-    def coverage(sx: float, sy: float, dx: float, dy: float) -> Any:
+    ink_tight = _ink_cells(gray, cell, contrast, band_cells=2)   # ≈ ±2.5% 容差
+    if ink_tight is None:
+        return t
+    rows, cols = ink_tight.shape
+
+    def coverage(ink: Any, sx: float, sy: float, dx: float, dy: float) -> Any:
         xs = np.clip(((all_xy[..., 0] * sx + dx) * (w - 1) / cell).astype(int), 0, cols - 1)
         ys = np.clip(((all_xy[..., 1] * sy + dy) * (h - 1) / cell).astype(int), 0, rows - 1)
         return ink[ys, xs].mean(axis=1)  # (N,)
 
-    identity = coverage(1.0, 1.0, 0.0, 0.0)
-    best = (float(identity.mean()), (1.0, 1.0, 0.0, 0.0), identity)
-    for sx in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
-        for sy in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+    identity = coverage(ink_tight, 1.0, 1.0, 0.0, 0.0)
+    best = (float(identity.mean()), (1.0, 1.0, 0.0, 0.0))
+    scales = (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15)
+    for sx in scales:
+        for sy in scales:
             for dx in np.arange(-0.10, 0.101, 0.02):
                 for dy in np.arange(-0.10, 0.101, 0.02):
-                    cov = coverage(sx, sy, float(dx), float(dy))
-                    score = float(cov.mean())
+                    score = float(coverage(ink_tight, sx, sy, float(dx), float(dy)).mean())
                     if score > best[0] + 1e-9:
-                        best = (score, (sx, sy, float(dx), float(dy)), cov)
+                        best = (score, (sx, sy, float(dx), float(dy)))
     notes: list[str] = []
-    score, (sx, sy, dx, dy), cov = best
-    if (sx, sy, dx, dy) != (1.0, 1.0, 0.0, 0.0):
-        if score - float(identity.mean()) >= 0.08 and score >= 0.6:
-            for p in t.get("points") or []:
-                p["x"] = round(min(1.0, max(0.0, float(p["x"]) * sx + dx)), 4)
-                p["y"] = round(min(1.0, max(0.0, float(p["y"]) * sy + dy)), 4)
-            notes.append(
-                f"坐标按墨迹校准（缩放 {sx:.2f}/{sy:.2f}，平移 {dx:+.2f}/{dy:+.2f}，"
-                f"覆盖 {float(identity.mean()):.0%}→{score:.0%}）"
-            )
-        else:
-            cov = identity  # 校不准就按原坐标判
-    kept: list[list[str]] = []
-    dropped: list[str] = []
-    for sg, c in zip(segs, cov):
-        if float(c) >= 0.7:
-            kept.append(sg)
-        else:
-            dropped.append(f"{sg[0]}-{sg[1]}({float(c):.0%})")
-    if dropped and len(dropped) * 2 > len(segs):
-        # 一半以上的线都"没墨迹"——多半是阈值对这张照片失效（浅铅笔线、深底纸），
-        # 这时候校验不可信：全留，别把真图删秃了
-        logger.warning("figure transcription ink check unreliable, keeping all: %s", dropped)
+    score, (sx, sy, dx, dy) = best
+    transform = (1.0, 1.0, 0.0, 0.0)
+    if (sx, sy, dx, dy) != transform and score - float(identity.mean()) >= 0.15 and score >= 0.7:
+        transform = (sx, sy, dx, dy)
+        for p in t.get("points") or []:
+            p["x"] = round(min(1.0, max(0.0, float(p["x"]) * sx + dx)), 4)
+            p["y"] = round(min(1.0, max(0.0, float(p["y"]) * sy + dy)), 4)
+        notes.append(
+            f"坐标按墨迹校准（缩放 {sx:.2f}/{sy:.2f}，平移 {dx:+.2f}/{dy:+.2f}，"
+            f"覆盖 {float(identity.mean()):.0%}→{score:.0%}）"
+        )
+    tight = coverage(ink_tight, *transform)
+
+    ink_narrow = _ink_cells(gray, cell, contrast, band_cells=1)
+
+    def relocated_coverage(i: int) -> float:
+        """复核：整条线沿**法向**平移（±6%），能不能整齐地落到一条**窄**墨迹带上。
+        真边只是画偏了：平移到位后整条都贴着墨迹；假线旁边就算有一条不平行的真线，
+        也只在交叉处碰到墨迹，随着平移量变化"碰到"的位置会滑走，凑不出整条覆盖。
+        （粗容差 + 二维乱挪会让贴着真线的假对角线蒙混过关——实测踩过）"""
+        a, b = segs[i]
+        (x0, y0), (x1, y1) = base[a], base[b]
+        sx_, sy_, dx_, dy_ = transform
+        x0, y0 = x0 * sx_ + dx_, y0 * sy_ + dy_
+        x1, y1 = x1 * sx_ + dx_, y1 * sy_ + dy_
+        px0, py0, px1, py1 = x0 * (w - 1), y0 * (h - 1), x1 * (w - 1), y1 * (h - 1)
+        length = ((px1 - px0) ** 2 + (py1 - py0) ** 2) ** 0.5
+        if length < 1e-6:
+            return 0.0
+        nx, ny = -(py1 - py0) / length, (px1 - px0) / length
+        reach = 0.06 * min(w, h)
+        best_cov = 0.0
+        for off in np.arange(-reach, reach + 1e-6, cell):
+            xs = np.clip(((px0 + (px1 - px0) * fs + nx * off) / cell).astype(int), 0, cols - 1)
+            ys = np.clip(((py0 + (py1 - py0) * fs + ny * off) / cell).astype(int), 0, rows - 1)
+            best_cov = max(best_cov, float(ink_narrow[ys, xs].mean()))
+        return best_cov
+
+    suspects: list[int] = []
+    for i, sg in enumerate(segs):
+        if frozenset(sg) in protected:
+            continue  # 题干说有的边，不删
+        if float(tight[i]) >= 0.45:
+            continue
+        if relocated_coverage(i) >= 0.7:
+            continue  # 沿法向平移就整条贴合：是画偏了的真边，不是假线
+        suspects.append(i)
+    others = [float(tight[i]) for i in range(len(segs)) if i not in suspects]
+    if not suspects:
         if notes:
             t.setdefault("reconciled", []).extend(notes)
         return t
-    if dropped:
-        t["segments"] = kept + [list(sg) for sg in t["segments"] if len(sg) != 2 or sg[0] not in base or sg[1] not in base]
-        notes.append("像素核对去掉没有墨迹的线段：" + "、".join(dropped))
-        logger.info("figure transcription ink check dropped %s", dropped)
-    if notes:
-        t.setdefault("reconciled", []).extend(notes)
+    if len(suspects) * 2 > len(segs) or (others and sum(others) / len(others) < 0.7):
+        # 校验对这张照片不可信：全留
+        logger.warning(
+            "figure transcription ink check unreliable, keeping all: %s",
+            [f"{segs[i][0]}-{segs[i][1]}({float(tight[i]):.0%})" for i in suspects],
+        )
+        if notes:
+            t.setdefault("reconciled", []).extend(notes)
+        return t
+    dropped = [f"{segs[i][0]}-{segs[i][1]}({float(tight[i]):.0%})" for i in suspects]
+    drop_pairs = {frozenset(segs[i]) for i in suspects}
+    t["segments"] = [
+        list(sg) for sg in t["segments"]
+        if not (len(sg) == 2 and frozenset(sg) in drop_pairs)
+    ]
+    notes.append("像素核对去掉没有墨迹的线段：" + "、".join(dropped))
+    logger.info("figure transcription ink check dropped %s", dropped)
+    t.setdefault("reconciled", []).extend(notes)
+    return t
+
+
+def refine_transcription(
+    t: dict[str, Any],
+    figure_image: str,
+    problem: str,
+    solution: Any = None,
+    steps: Any = None,
+) -> dict[str, Any]:
+    """转写后的两道校核，按固定顺序：先按题干/解答纠偏，再按像素核对。
+
+    题干点名的边受保护（像素核对不删）；解答里才连的辅助线不受保护（本来就该删）。
+    三个转写入口（视频导演 / Web 讲解 / 计划器）都走这里，规则只此一份。
+    """
+    reconcile_transcription(t, problem, solution, steps)
+    ids = {p["id"] for p in t.get("points") or []}
+    protected = named_edges_in_problem(problem, ids)
+    constructed: set[frozenset[str]] = set()
+    for a, b in _CONSTRUCT_RE.findall(_solution_text(solution, steps)) + _AUX_RE.findall(
+        _solution_text(solution, steps)
+    ):
+        if a in ids and b in ids and a != b:
+            constructed.add(frozenset((a, b)))
+    verify_segments_by_ink(t, figure_image, protected=protected - constructed)
     return t
 
 
@@ -683,7 +786,5 @@ async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | Non
     if parsed is None:
         logger.warning("figure transcription unparsable: %s", (getattr(done, "text", "") or "")[:120])
     else:
-        # 量完再核：模型说有的线，像素里得真有墨迹
-        verify_segments_by_ink(parsed, figure_image)
         logger.info("figure transcription: %s", transcription_summary(parsed))
     return parsed
