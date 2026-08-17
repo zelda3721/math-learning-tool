@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Grade } from '../services/api'
 
-import { Button } from '../ui'
+import { Button, MathText } from '../ui'
 import { PhotoProblemButton } from './PhotoProblemButton'
 
 interface ProblemInputProps {
@@ -69,6 +69,15 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
                     className="input-hero min-h-[120px] resize-y leading-relaxed"
                 />
             </label>
+
+            {/* 输入框里的 $...$ 只能是源码；含 LaTeX 时在下面给一份渲染好的预览，
+                识别出来的题到底对不对，一眼能看出来（公式渲染失败时 MathText 原样显示） */}
+            {/[$\\]/.test(problem) && (
+                <div className="rounded-[10px] border border-rule bg-paper px-3 py-2 text-sm leading-relaxed">
+                    <span className="eyebrow block mb-1">预览</span>
+                    <MathText>{problem}</MathText>
+                </div>
+            )}
 
             {figureImage && (
                 <div className="flex items-start gap-3">

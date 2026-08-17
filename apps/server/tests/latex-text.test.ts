@@ -65,4 +65,14 @@ describe("latexToPlainText", () => {
     const plain = "一辆汽车 3 小时行驶 180 千米，5 小时行驶多少千米？";
     expect(latexToPlainText(plain)).toBe(plain);
   });
+
+  it("下标：数字转 Unicode 下标，记号下标落成后缀（S_{△AEF}=5）", () => {
+    expect(
+      latexToPlainText(
+        "如图所示，长方形$ABCD$中……图中标注：$S_{\\triangle AEF}=5$，$S_{\\triangle EFN}=8$，$S_{\\triangle BFM}=7$",
+      ),
+    ).toBe("如图所示，长方形ABCD中……图中标注：S△AEF=5，S△EFN=8，S△BFM=7");
+    expect(latexToPlainText("$x_1 + x_{12} = a_n$")).toBe("x₁ + x₁₂ = an");
+    expect(latexToPlainText("$S_{阴影}=6$")).toBe("S阴影=6");
+  });
 });
