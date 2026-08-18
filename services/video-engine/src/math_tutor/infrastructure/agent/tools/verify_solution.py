@@ -25,7 +25,7 @@ from ....application.interfaces import (
     ToolResult,
 )
 from .. import markdown_extract as md
-from ..figure_transcription import problem_with_figure_conditions
+from ..figure_transcription import figure_consistency_issues, problem_with_figure_conditions
 from ..math_runtime import execute_math_request
 from ..prompt_library import PromptLibrary
 from .visual_plan import _machine_checkable_blocking_issue
@@ -551,6 +551,26 @@ class VerifySolutionTool(ITool):
             return ToolResult(success=False, summary="缺少题目", error="empty_problem")
         if not answer:
             return ToolResult(success=False, summary="缺少答案", error="empty_answer")
+
+        # 带图的题：解答里的位置断言先按像素几何核对（谁在谁上、谁共线、哪条对角线）。
+        # 一条不成立就判不过并把原因交回解题——比让模型"看图核对"可靠得多
+        figure_issues = figure_consistency_issues(
+            "\n".join(
+                " ".join(str(v) for v in step.values() if isinstance(v, str))
+                for step in steps if isinstance(step, dict)
+            ) + "\n" + str((ctx.state.get("solution") or {}).get("approach") or ""),
+            ctx.state.get("figure_transcription"),
+        )
+        if figure_issues:
+            message = "解答与原图几何不符：" + "；".join(figure_issues)
+            ctx.state["solution_verified"] = False
+            ctx.state["last_verify_failure"] = message
+            return ToolResult(
+                success=False,
+                summary=message,
+                data={"passed": False, "message": message, "figure_issues": figure_issues},
+                error="figure_inconsistent",
+            )
 
         # If verify failed previously, include that as feedback so the LLM
         # writes a more thorough verification this round.

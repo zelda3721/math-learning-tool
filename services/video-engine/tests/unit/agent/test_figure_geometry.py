@@ -142,3 +142,20 @@ def test_题干里的形状约束解析():
     assert labeled_region_sizes("长方形ABCD中，其中三个小三角形的面积已经在图中标出") == {3}
     assert labeled_region_sizes("三角形ABE的面积为12，阴影四边形EDFB的面积为28") == {3, 4}
     assert labeled_region_sizes("如图，E是BC的中点，求阴影部分的面积") is None
+
+
+@pytest.mark.skipif(not (BENCH / "rect-three-triangles.jpg").exists(), reason="基准图不在")
+def test_解答位置断言按像素几何核对_假对角线与假共线被打回():
+    from math_tutor.infrastructure.agent.figure_transcription import figure_consistency_issues
+    case = json.loads((BENCH / "rect-three-triangles.json").read_text("utf8"))
+    url = "data:image/jpeg;base64," + base64.b64encode((BENCH / case["image"]).read_bytes()).decode()
+    t = _model_like_transcription()
+    refine_transcription(t, url, case["problem"])
+    bad = "长方形 ABCD 中，对角线 AC 和 BD 交于点 F，点 M 在线段 BF 上，$E$ 在 $BD$ 上。"
+    issues = figure_consistency_issues(bad, t)
+    joined = "\n".join(issues)
+    assert "对角线 AC" in joined and "对角线 BD" in joined
+    assert "M 在 BF 上" in joined and "E 在 BD 上" in joined
+    good = "A、F、M 共线，E、F、B 共线；连接 BD 作辅助线（注意 E 不在 BD 上）。"
+    assert figure_consistency_issues(good, t) == []
+    assert figure_consistency_issues(bad, {"points": [], "segments": [], "labels": []}) == []  # 没校准过不当裁判

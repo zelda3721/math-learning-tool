@@ -23,6 +23,7 @@ from ....application.interfaces import (
 from .. import markdown_extract as md
 from ..math_runtime import MathExecutionResult, execute_math_request
 from ..figure_transcription import (
+    figure_consistency_issues,
     problem_with_figure_conditions,
     refine_transcription,
     transcribe_figure,
@@ -516,8 +517,11 @@ class SolveProblemTool(ITool):
             # 题面里的「图中标注」只当读图线索，与图不一致时以图为准
             analysis_section += (
                 "\n注意：这道题**附有原图**（见消息里的图片）。题面末尾「图中标注」是读图得到的"
-                "文字线索，位置或归属可能有误——以图为准，先在图上核对每个数写在哪一块、"
-                "哪条边上，再解题；图上没标的量不要自己量。\n"
+                "文字线索——以图为准，先在图上核对每个数写在哪一块、哪条边上，再解题；"
+                "图上没标的量不要自己量。若题面附有「图形结构」（画出的线段、共线关系），"
+                "那是按原图像素量出来的事实：**解题只能用列出的线和共线关系**，没列出的线不存在、"
+                "没说共线的点不共线；需要辅助线必须写明「连接 XY」，且不得假设别的点落在辅助线上。"
+                "解题第一步先用一句话复述你将使用的线和共线关系。\n"
             )
 
         prompt = self._prompts.render(
@@ -632,6 +636,10 @@ class SolveProblemTool(ITool):
         all_contract_issues = [
             *_solution_contract_issues(payload),
             *_math_execution_issues(math_execution),
+            # 带图的题：解答里的位置断言（谁在谁上、谁共线、哪条对角线）按像素几何逐条核对
+            *figure_consistency_issues(
+                getattr(done, "text", "") or "", ctx.state.get("figure_transcription")
+            ),
         ][:4]
         # Advisory issues (style/derivation hints) never justify a repair
         # round on their own — record them and proceed; blocking issues are
@@ -672,6 +680,9 @@ class SolveProblemTool(ITool):
                 repaired_all = [
                     *_solution_contract_issues(repaired_payload),
                     *_math_execution_issues(repaired_execution),
+                    *figure_consistency_issues(
+                        getattr(repaired_done, "text", "") or "", ctx.state.get("figure_transcription")
+                    ),
                 ][:4]
                 repaired_issues = [
                     issue
