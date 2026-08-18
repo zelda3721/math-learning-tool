@@ -223,7 +223,7 @@ def labeled_region_sizes(problem: str) -> set[int] | None:
 
 #: 解答里的位置断言（都按转写坐标核对）："E 在 BD 上""D、E、B 共线""BD 经过 E""BD 上的点 E""对角线 BD"
 _CLAIM_ON_RE = re.compile(r"([A-Z])\s*(?:点)?\s*(?:在|位于|落在)\s*(?:线段|直线|对角线|边)?\s*([A-Z])\s*([A-Z])\s*(?:上|之上|的延长线上)")
-_CLAIM_COLLINEAR_RE = re.compile(r"([A-Z])\s*[、,，和与及]\s*([A-Z])\s*[、,，和与及]\s*([A-Z])\s*(?:三点)?\s*共线")
+_CLAIM_COLLINEAR_RE = re.compile(r"((?:[A-Z]\s*[、,，和与及]\s*){2,}[A-Z])\s*(?:三点|四点|五点)?\s*共线")
 _CLAIM_THROUGH_RE = re.compile(r"(?:线段|直线|对角线)?\s*([A-Z])\s*([A-Z])\s*(?:经过|过|穿过|通过)\s*(?:点)?\s*([A-Z])(?![A-Z])")
 _CLAIM_POINT_ON_RE = re.compile(r"([A-Z])\s*([A-Z])\s*(?:上的点|上一点|上的一点|上取点|上任一点)\s*([A-Z])(?![A-Z])")
 _CLAIM_DIAGONAL_RE = re.compile(r"对角线((?:\s*[A-Z]\s*[A-Z](?![A-Z])\s*(?:和|与|及|、|,|，)?)+)")
@@ -279,9 +279,20 @@ def figure_consistency_issues(solution_text: str, t: dict[str, Any] | None) -> l
                 + ("" if drawn else f"（图上也没有 {a}{b} 这条线）")
                 + "——这条位置关系不能用"
             )
-    for a, b, c in _CLAIM_COLLINEAR_RE.findall(text):
-        if a in pts and b in pts and c in pts and len({a, b, c}) == 3 and not on_line(c, a, b):
-            note(f"解答里说 {a}、{b}、{c} 共线，但按原图它们不共线——这条位置关系不能用")
+    for group in _CLAIM_COLLINEAR_RE.findall(text):
+        letters = [x for x in re.findall(r"[A-Z]", group) if x in pts]
+        letters = list(dict.fromkeys(letters))
+        if len(letters) < 3:
+            continue
+        a, b = letters[0], letters[-1]
+        bad = [c for c in letters[1:-1] if not on_line(c, a, b)] + ([] if on_line(letters[1], a, b) or len(letters) == 3 else [])
+        # 也检查两端：以中间两点定线，看两端是否在线上（四点共线时任意三点都得成立）
+        for i in range(len(letters) - 2):
+            x, y, z = letters[i], letters[i + 1], letters[i + 2]
+            if not on_line(z, x, y):
+                bad.append(z)
+        if bad:
+            note(f"解答里说 {'、'.join(letters)} 共线，但按原图它们不共线——这条位置关系不能用")
     diagonal_pairs = [
         (m[0], m[1])
         for group in _CLAIM_DIAGONAL_RE.findall(text)
