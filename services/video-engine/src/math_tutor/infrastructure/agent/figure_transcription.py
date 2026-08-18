@@ -387,6 +387,13 @@ def transcription_conditions(t: dict[str, Any] | None, problem: str = "") -> lis
     return out
 
 
+def _math_at(t: dict[str, Any], p: dict[str, Any]) -> list[float]:
+    """图像坐标（0~1、y 向下）→ 数学坐标（y 向上），并按原图长宽比拉回真实形状：
+    归一化坐标把宽图压成了正方形，长方形会画成竖长条（实机看过），乘回 aspect 就对了。"""
+    aspect = float(t.get("aspect") or 1.0)
+    return [round(float(p["x"]) * aspect, 4), round(1 - float(p["y"]), 4)]
+
+
 def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
     """转写 → 绘图规格参数（FigureSpec 形状：锚点坐标 + 线段 + 阴影多边形）。
 
@@ -427,7 +434,7 @@ def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
             polygons.append({"points": on, "shaded": False, "label": text})
             poly_labels.pop(tuple(sorted(on)), None)
     return {
-        "points": [{"id": p["id"], "at": [p["x"], round(1 - p["y"], 4)]} for p in t["points"]],
+        "points": [{"id": p["id"], "at": _math_at(t, p)} for p in t["points"]],
         "segments": segments,
         "polygons": polygons,
     }
@@ -526,7 +533,12 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
     指了不存在的字母就丢那一条并留痕——图不会歪，只会少一个注解。
     同时**剥掉**模型自由画的几何图元：坐标只此一家。
     """
-    pts = {p["id"]: [p["x"], round(1 - p["y"], 4)] for p in t["points"]}
+    pts = {p["id"]: _math_at(t, p) for p in t["points"]}
+    base_region_labels = {
+        frozenset(str(n) for n in (l.get("on") or [])): str(l.get("text") or "").strip()
+        for l in t.get("labels") or []
+        if len(l.get("on") or []) >= 3
+    }
 
     banned = _FREE_GEOMETRY | _OFF_FIGURE_QUANTITY
     stripped = [
@@ -576,6 +588,9 @@ def choreograph_figure(plan: dict[str, Any], t: dict[str, Any]) -> dict[str, Any
                 if len(names) >= 3 and all(n in pts for n in names):
                     poly: dict[str, Any] = {"points": names, "shaded": True}
                     label = _figure_label(op.get("label"), dropped_ops, index)
+                    # 原图上这块区域本来就写着同一个数（底图会画）：overlay 不再重复写一遍
+                    if label and base_region_labels.get(frozenset(names)) == label:
+                        label = ""
                     if label:
                         poly["label"] = label
                     polygons.append(poly)
@@ -1112,6 +1127,10 @@ def refine_transcription(
     gray = _decode_gray(figure_image)
     grounded = False
     if gray is not None:
+        # 记下原图长宽比：重画时用它把归一化坐标拉回真实形状
+        h_img, w_img = gray.shape
+        if h_img > 0:
+            t["aspect"] = round(w_img / h_img, 4)
         from .figure_geometry import ground_transcription
 
         before = list(t.get("reconciled") or [])
