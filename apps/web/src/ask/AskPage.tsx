@@ -34,6 +34,7 @@ export function AskPage() {
     const [problem, setProblem] = useState('')
     // 拍照识别出的题干配图（data URL），随题目一起提交
     const [figureImage, setFigureImage] = useState<string | undefined>()
+    const [problemImage, setProblemImage] = useState<string | undefined>()
     const [photoError, setPhotoError] = useState<string | null>(null)
     const [phase, setPhase] = useState<Phase>({ kind: 'input' })
     const [submitting, setSubmitting] = useState(false)
@@ -97,7 +98,7 @@ export function AskPage() {
         if (!trimmed || submitting) return
         setSubmitting(true)
         try {
-            const res = await askQuestion({ learnerId: learner.id, problem: trimmed, grade: learner.level, figureImage })
+            const res = await askQuestion({ learnerId: learner.id, problem: trimmed, grade: learner.level, figureImage, problemImage })
             if (res.status === 'ready') {
                 setPhase({ kind: 'ready', item: toItem(res.question), isNew: res.isNew })
             } else {
