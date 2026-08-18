@@ -125,6 +125,7 @@ function AuthedApp() {
         grade: string
         /** 拍题识别裁出的题干配图（data URL）；讲解拿它当底图 */
         figureImage?: string
+        problemImage?: string
     } | null>(null)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
@@ -147,16 +148,16 @@ function AuthedApp() {
     const isViewingHistory = historicalSession !== null
 
     const handleSubmit = useCallback(
-        async (problem: string, figureImage?: string) => {
+        async (problem: string, figureImage?: string, problemImage?: string) => {
             setHistoricalSession(null)
             if (explainMode === 'anim') {
-                setAnimRequest({ problem, grade: selectedGrade, figureImage })
+                setAnimRequest({ problem, grade: selectedGrade, figureImage, problemImage })
                 return
             }
             // 视频（agent/chat）路也带上原图：引擎 /chat 已接收 figure_image，
             // 导演按转写重画——不带图它只能凭题干想象一个假图形（实机抽帧抓过）
             setAnimRequest(null)
-            await startAgent({ problem, grade: selectedGrade, figureImage })
+            await startAgent({ problem, grade: selectedGrade, figureImage, problemImage })
             setHistoryRefreshKey((k) => k + 1)
         },
         [explainMode, selectedGrade, startAgent]
@@ -366,7 +367,7 @@ function AuthedApp() {
                             </div>
 
                             <ProblemInput
-                                onSubmit={(problem, figureImage) => handleSubmit(problem, figureImage)}
+                                onSubmit={(problem, figureImage, problemImage) => handleSubmit(problem, figureImage, problemImage)}
                                 isLoading={isRunning}
                                 selectedGrade={selectedGrade}
                                 onGradeChange={setSelectedGrade}
@@ -381,6 +382,7 @@ function AuthedApp() {
                                 problem={animRequest.problem}
                                 grade={animRequest.grade}
                                 figureImage={animRequest.figureImage}
+                                problemImage={animRequest.problemImage}
                             />
                         )}
 

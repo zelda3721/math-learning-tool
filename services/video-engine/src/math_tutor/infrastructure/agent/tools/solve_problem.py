@@ -510,7 +510,7 @@ class SolveProblemTool(ITool):
                 ctx.state["figure_transcription"] = transcription
         # 图上标注并进题面（解题/验证/导演三处同一份），标注是条件、不是提示
         problem = problem_with_figure_conditions(problem, ctx.state.get("figure_transcription"))
-        if figure_image.startswith("data:image/"):
+        if figure_image.startswith("data:image/") or str(ctx.state.get("problem_image") or "").startswith("data:image/"):
             # 带图的题：把图一起给解题模型看。写在区域里的数（面积、角度）到底属于哪个
             # 三角形，靠文字转述常常说不准（本地模型给区域起名会错），图本身才是权威——
             # 题面里的「图中标注」只当读图线索，与图不一致时以图为准
@@ -528,24 +528,31 @@ class SolveProblemTool(ITool):
             analysis_section=analysis_section,
         )
 
-        # 有原图就走视觉端点，图和文字一起给；没有就照旧纯文本
-        solve_llm = self._vision_llm if figure_image.startswith("data:image/") else self._llm
+        # 有图就走视觉端点，图和文字一起给；没有就照旧纯文本。
+        # 图片本身就是题：有整题照片（题干 + 图）就先给它，配图裁图作为第二张（细节更清楚）
+        problem_image = str(ctx.state.get("problem_image") or "")
+        images = [u for u in (problem_image, figure_image) if u.startswith("data:image/")]
+        if len(images) == 2 and images[0] == images[1]:
+            images = images[:1]
+        solve_llm = self._vision_llm if images else self._llm
 
         def as_messages(text: str) -> list[ChatMessage]:
-            if figure_image.startswith("data:image/"):
+            if images:
+                caption = (
+                    "\n\n（附图：第一张是整道题的原图，第二张是配图放大）" if len(images) == 2
+                    else ("\n\n（附图：整道题的原图）" if problem_image and images[0] == problem_image else "")
+                )
                 return [
                     ChatMessage(
                         role="user",
-                        content=[
-                            {"type": "text", "text": text},
-                            {"type": "image_url", "image_url": {"url": figure_image}},
-                        ],
+                        content=[{"type": "text", "text": text + caption}]
+                        + [{"type": "image_url", "image_url": {"url": u}} for u in images],
                     )
                 ]
             return [ChatMessage(role="user", content=text)]
 
         # 带图的几何题推导更长：预算放宽到 8192，别在结论前被截断（实机截断过两次）
-        solve_max_tokens = 8192 if figure_image.startswith("data:image/") else 6144
+        solve_max_tokens = 8192 if images else 6144
         try:
             done = await solve_llm.chat_complete(
                 messages=as_messages(prompt),

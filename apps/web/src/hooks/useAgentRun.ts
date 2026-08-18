@@ -206,6 +206,7 @@ export interface StartArgs {
     extraDirectives?: string
     /** 原题原图（data URL，拍题识别裁出）；引擎按它的转写重画，不传就只能凭题干想象 */
     figureImage?: string
+    problemImage?: string
 }
 
 export interface UseAgentRun {
@@ -228,7 +229,7 @@ export function useAgentRun(): UseAgentRun {
         abortRef.current?.abort()
     }, [])
 
-    const start = useCallback(async ({ problem, grade, extraDirectives, figureImage }: StartArgs) => {
+    const start = useCallback(async ({ problem, grade, extraDirectives, figureImage, problemImage }: StartArgs) => {
         abortRef.current?.abort()
         dispatch({ type: 'RESET' })
 
@@ -243,6 +244,7 @@ export function useAgentRun(): UseAgentRun {
                     grade,
                     extra_directives: extraDirectives,
                     ...(figureImage ? { figure_image: figureImage } : {}),
+                    ...(problemImage ? { problem_image: problemImage } : {}),
                 },
                 { signal: controller.signal }
             )

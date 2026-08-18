@@ -581,7 +581,11 @@ class VerifySolutionTool(ITool):
 
         # 带图的题：验证也要看图——解答里"图上标的 6cm/面积 5"这类条件，纯文字验证无从核对
         figure_image = str(ctx.state.get("figure_image") or "")
-        has_figure = figure_image.startswith("data:image/")
+        problem_image = str(ctx.state.get("problem_image") or "")
+        images = [u for u in (problem_image, figure_image) if u.startswith("data:image/")]
+        if len(images) == 2 and images[0] == images[1]:
+            images = images[:1]
+        has_figure = bool(images)
         verify_llm = self._vision_llm if has_figure else self._llm
 
         def as_messages(text: str) -> list[ChatMessage]:
@@ -589,10 +593,8 @@ class VerifySolutionTool(ITool):
                 return [
                     ChatMessage(
                         role="user",
-                        content=[
-                            {"type": "text", "text": text + "\n\n（附原图：解答引用的图上条件以图为准核对。）"},
-                            {"type": "image_url", "image_url": {"url": figure_image}},
-                        ],
+                        content=[{"type": "text", "text": text + "\n\n（附原图：解答引用的图上条件以图为准核对。）"}]
+                        + [{"type": "image_url", "image_url": {"url": u}} for u in images],
                     )
                 ]
             return [ChatMessage(role="user", content=text)]

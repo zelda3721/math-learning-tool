@@ -40,6 +40,8 @@ const AskSchema = z.object({
    * 上限与 storeFigure 的 4MB 对齐（base64 膨胀后约 6M 字符），先拦住再解码。
    */
   figureImage: z.string().max(6_000_000).optional(),
+  /** 整道题的照片（data URL）：图片本身就是题，解题时连同题干一起给模型看；不落盘 */
+  problemImage: z.string().max(6_000_000).optional(),
 });
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（与 practice 的 sanitize 同口径，独立实现避免跨模块耦合） */
@@ -139,6 +141,8 @@ async function callPlan(
     extra_directives?: string;
     /** 题干配图（data URL）：几何/统计题不看图解不出正确答案 */
     figure_image?: string;
+    /** 整道题的照片（题干 + 图）：图片本身就是题，解题/验证直接看它 */
+    problem_image?: string;
   },
 ): Promise<PlanResult> {
   // 同样绕开内置 fetch 的 300 秒 headersTimeout（见 engineHttp.ts）
@@ -161,6 +165,8 @@ export async function runAskJob(
     level: Question["level"];
     /** 已存盘的题干配图文件名（路由层 storeFigure 的产物） */
     figureImageName?: string;
+    /** 整道题的照片（data URL，只在这一次请求里用，不落盘） */
+    problemImage?: string;
   },
 ): Promise<void> {
   const repo = state.repo;
@@ -179,6 +185,7 @@ export async function runAskJob(
       learner_id: args.learnerId,
       extra_directives: composeDirectives({ knowledge: state.knowledge, focusNodeId: nodeIds[0] }),
       ...(figureImage ? { figure_image: figureImage } : {}),
+      ...(args.problemImage ? { problem_image: args.problemImage } : {}),
     });
     if (result.status !== "ok") {
       repo.failAskJob(jobId, result.error ?? `引擎 plan 返回 ${result.status}`);
@@ -336,7 +343,9 @@ export function askRoutes(state: AppState): Hono {
     const learner = learnerId ? state.repo.getLearner(learnerId) : undefined;
     const level = parsed.data.grade ?? learner?.level ?? "elementary_upper";
     const jobId = state.repo.createAskJob({ learnerId, questionId, problem });
-    void runAskJob(state, jobId, { learnerId, problem, level, figureImageName });
+    void runAskJob(state, jobId, {
+      learnerId, problem, level, figureImageName, problemImage: parsed.data.problemImage,
+    });
     return c.json({ status: "generating", isNew: true, jobId, questionId }, 202);
   });
 

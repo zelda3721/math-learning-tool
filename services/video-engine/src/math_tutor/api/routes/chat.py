@@ -48,6 +48,9 @@ class ChatRequest(BaseModel):
     learner_id: str | None = None
     #: 原题原图（data URL）。视觉导演按它的转写重画（不贴截图、不凭空想象）
     figure_image: str | None = None
+    #: 整道题的照片（题干 + 图，data URL）：解题/验证直接看它——图片本身就是题，
+    #: 文字题干和配图裁图只是它的派生物
+    problem_image: str | None = None
 
 
 def _event_to_sse(event_type: str, payload: dict) -> str:
@@ -65,6 +68,7 @@ async def _stream_events(loop: AgentLoop, req: ChatRequest) -> AsyncIterator[str
             extra_directives=req.extra_directives,
             learner_id=req.learner_id,
             figure_image=req.figure_image,
+            problem_image=req.problem_image,
         ):
             if isinstance(evt, SessionCreated):
                 yield _event_to_sse("session", {"session_id": evt.session_id})
