@@ -9,7 +9,7 @@ import { PhotoProblemButton } from './PhotoProblemButton'
 
 interface ProblemInputProps {
     /** figureImage：拍照识别裁出的题干配图（data URL）；手动输入时为 undefined */
-    onSubmit: (problem: string, figureImage?: string) => void
+    onSubmit: (problem: string, figureImage?: string, problemImage?: string) => void
     isLoading: boolean
     selectedGrade?: string
     onGradeChange?: (grade: string) => void
@@ -20,6 +20,8 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
     const [problem, setProblem] = useState('')
     // 拍照识别出的题干配图，随题目一起交给讲解
     const [figureImage, setFigureImage] = useState<string | undefined>()
+    // 整道题的照片（题干 + 图）：图片本身就是题，解题时连题干一起给模型看
+    const [problemImage, setProblemImage] = useState<string | undefined>()
     const [photoError, setPhotoError] = useState<string | null>(null)
     const exampleRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({})
 
@@ -37,7 +39,7 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         if (problem.trim() && !isLoading) {
-            onSubmit(problem, figureImage)
+            onSubmit(problem, figureImage, problemImage)
         }
     }
 
@@ -98,10 +100,11 @@ export function ProblemInput({ onSubmit, isLoading, selectedGrade, onGradeChange
                         level={selectedGrade}
                         size="md"
                         disabled={isLoading}
-                        onExtracted={({ problem: extracted, figureImage: figure }) => {
+                        onExtracted={({ problem: extracted, figureImage: figure, problemImage: whole }) => {
                             // 只回填不提交：识别错一个数字，讲解就整个跑偏，先让人过目
                             setProblem(extracted)
                             setFigureImage(figure)
+                            setProblemImage(whole)
                             setPhotoError(null)
                         }}
                         onError={setPhotoError}

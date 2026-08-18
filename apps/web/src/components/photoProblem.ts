@@ -29,6 +29,8 @@ export interface ExtractedPhotoProblem {
     problem: string
     /** 题干配图（从照片上裁下的 data URL）；没图的题就没有 */
     figureImage?: string
+    /** 整道题的照片（题干 + 图，转正后、多题时按框裁出的那一道）：图片本身就是题 */
+    problemImage?: string
 }
 
 /**
@@ -356,5 +358,5 @@ export async function extractPhotoProblem(
     // 替换抽取模型猜的那句。这一步失败/超时就用抽取的原文，不拦路
     const problem = figureImage ? await groundFigureConditions(stem.trim(), figureImage) : stem.trim()
 
-    return { problem, figureImage }
+    return { problem, figureImage, problemImage: cropped }
 }

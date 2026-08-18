@@ -57,6 +57,8 @@ class PlanRequest(BaseModel):
     #: 讲义【解析】里那张图（data URL）：老师画的解法图。
     #: 只在讲解里用——参考它的思路，并在最后一拍展示，让孩子对得上讲义。
     analysis_image: str | None = None
+    #: 整道题的照片（题干 + 图）：解题/验证直接看它
+    problem_image: str | None = None
 
 
 class PlanResponse(BaseModel):
@@ -92,6 +94,7 @@ async def plan_only(
         "extra_directives": req.extra_directives or "",
         "figure_image": req.figure_image or "",
         "analysis_image": req.analysis_image or "",
+        "problem_image": req.problem_image or "",
     }
 
     async def run(tool_name: str, turn: int, args: dict[str, Any] | None = None):

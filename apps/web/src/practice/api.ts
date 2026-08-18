@@ -134,6 +134,8 @@ export interface ExplainRequest {
     problem?: string
     /** 自由题目的题干配图（data URL，拍照识题裁出） */
     figureImage?: string
+    /** 整道题的照片（data URL）：图片本身就是题 */
+    problemImage?: string
     grade?: string
 }
 
@@ -387,6 +389,8 @@ export async function askQuestion(payload: {
     grade?: string
     /** 拍照识别裁出的题干配图（data URL） */
     figureImage?: string
+    /** 整道题的照片（data URL）：图片本身就是题 */
+    problemImage?: string
 }): Promise<AskResponse> {
     const res = await fetch('/api/v1/ask', {
         method: 'POST',

@@ -26,6 +26,7 @@ type Phase =
 
 export function FreeExplainPanel({
     problem,
+    problemImage,
     grade,
     figureImage,
 }: {
@@ -33,6 +34,7 @@ export function FreeExplainPanel({
     grade: string
     /** 拍题识别裁出的题干配图（data URL）；讲解拿它当底图 */
     figureImage?: string
+    problemImage?: string
 }) {
     const [phase, setPhase] = useState<Phase>({ kind: 'generating' })
 
@@ -40,7 +42,7 @@ export function FreeExplainPanel({
     useEffect(() => {
         let cancelled = false
         setPhase({ kind: 'generating' })
-        requestExplain({ problem, grade, figureImage })
+        requestExplain({ problem, grade, figureImage, problemImage })
             .then((res) => {
                 if (cancelled) return
                 if (res.status === 'ready')
@@ -56,7 +58,7 @@ export function FreeExplainPanel({
         return () => {
             cancelled = true
         }
-    }, [problem, grade, figureImage])
+    }, [problem, grade, figureImage, problemImage])
 
     // 轮询任务
     useEffect(() => {

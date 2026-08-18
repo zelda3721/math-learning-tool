@@ -28,6 +28,8 @@ const ExplainSchema = z
     problem: z.string().min(4).max(500).optional(),
     /** 自由题目的题干配图（data URL，拍照识题裁出）；只与 problem 搭配有意义。上限对齐 storeFigure 4MB */
     figureImage: z.string().max(6_000_000).optional(),
+    /** 整道题的照片（data URL）：图片本身就是题，解题/验证连同题干一起看；只在本次请求里用，不落盘 */
+    problemImage: z.string().max(6_000_000).optional(),
     grade: EducationLevelSchema.optional(),
     /** 模式 A（web，默认）：plan-only 秒级动画；模式 B（video）：Manim 高级成片 */
     // web=SceneSpec 交给固定播放器（画不出假话，受图元词表限制）
@@ -104,6 +106,8 @@ interface WebJobBody {
   mistakeId?: string;
   /** 自由题目随请求带来的配图（已存盘的文件名）；题库题的图从题目上取，轮不到它 */
   figureImageName?: string;
+  /** 整道题的照片（data URL）：只在这一次任务里用，不落盘 */
+  problemImage?: string;
 }
 
 /**
@@ -167,6 +171,7 @@ async function runWebJob(
         route: engineRoute,
         ...(figureImage ? { figure_image: figureImage } : {}),
         ...(analysisImage ? { analysis_image: analysisImage } : {}),
+        ...(body.problemImage ? { problem_image: body.problemImage } : {}),
       }),
     });
     if (!resp.ok) throw new Error(`引擎 plan 响应 ${resp.status}`);
@@ -369,6 +374,7 @@ export function explainRoutes(state: AppState): Hono {
       learnerId: effectiveLearnerId(c, state, raw.learnerId) ?? raw.learnerId,
       questionId: raw.questionId ?? (raw.problem ? `free-${contentHashOf(raw.problem, "")}` : undefined),
       figureImageName,
+      problemImage: raw.problemImage,
     };
     const fallback = buildFallback(state, body);
 
@@ -454,7 +460,11 @@ export function explainRoutes(state: AppState): Hono {
     const contractVersion = state.contract.contract_version;
     void generateViaEngine(
       state.config.engineUrl,
-      { ...payload, ...(videoFigure ? { figure_image: videoFigure } : {}) },
+      {
+        ...payload,
+        ...(videoFigure ? { figure_image: videoFigure } : {}),
+        ...(body.problemImage ? { problem_image: body.problemImage } : {}),
+      },
       state.engineFetch ?? fetch,
     )
       .then(async (result) => {

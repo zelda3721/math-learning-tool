@@ -177,10 +177,11 @@ export function AskPage() {
                             <PhotoProblemButton
                                 level={learner.level}
                                 disabled={submitting}
-                                onExtracted={({ problem: extracted, figureImage: figure }) => {
+                                onExtracted={({ problem: extracted, figureImage: figure, problemImage: whole }) => {
                                     // 识别结果只回填，不直接提交——读错一个数字，判卷讲解全跟着错
                                     setProblem(extracted)
                                     setFigureImage(figure)
+                                    setProblemImage(whole)
                                     setPhotoError(null)
                                 }}
                                 onError={setPhotoError}
