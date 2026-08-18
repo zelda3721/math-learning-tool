@@ -166,6 +166,12 @@ def figure_structure_text(t: dict[str, Any] | None) -> str:
         xs = sorted(g, key=lambda n: (pts[n][0], pts[n][1]))
         return "、".join(xs)
     parts = ["画出的线段有 " + "、".join(f"{a}{b}" for a, b in segs)]
+    # 示意坐标：按原图量得（x 向右、y 向下、0~1），只用来判断谁在谁之间、谁不共线——
+    # 图不按比例画，**不要**拿它算长度面积
+    parts.append(
+        "示意坐标（只用于判断位置关系，不按比例，不要用它算长度面积）："
+        + "、".join(f"{n}({pts[n][0]:.2f},{pts[n][1]:.2f})" for n in names)
+    )
     if groups:
         parts.append("共线：" + "；".join(order(g) + " 在同一直线上" for g in groups))
         # 明说"不共线"：模型爱把一条折线看成对角线（实机：把 D–E 和 E–F–B 接成 DB）。
@@ -213,6 +219,82 @@ def labeled_region_sizes(problem: str) -> set[int] | None:
         if word in _SHAPE_WORD_SIZES:
             sizes.add(_SHAPE_WORD_SIZES[word])
     return sizes or None
+
+
+#: 解答里的位置断言（都按转写坐标核对）："E 在 BD 上""D、E、B 共线""BD 经过 E""BD 上的点 E""对角线 BD"
+_CLAIM_ON_RE = re.compile(r"([A-Z])\s*(?:点)?\s*(?:在|位于|落在)\s*(?:线段|直线|对角线|边)?\s*([A-Z])\s*([A-Z])\s*(?:上|之上|的延长线上)")
+_CLAIM_COLLINEAR_RE = re.compile(r"([A-Z])\s*[、,，和与及]\s*([A-Z])\s*[、,，和与及]\s*([A-Z])\s*(?:三点)?\s*共线")
+_CLAIM_THROUGH_RE = re.compile(r"(?:线段|直线|对角线)?\s*([A-Z])\s*([A-Z])\s*(?:经过|过|穿过|通过)\s*(?:点)?\s*([A-Z])(?![A-Z])")
+_CLAIM_POINT_ON_RE = re.compile(r"([A-Z])\s*([A-Z])\s*(?:上的点|上一点|上的一点|上取点|上任一点)\s*([A-Z])(?![A-Z])")
+_CLAIM_DIAGONAL_RE = re.compile(r"对角线((?:\s*[A-Z]\s*[A-Z](?![A-Z])\s*(?:和|与|及|、|,|，)?)+)")
+_CONSTRUCT_MENTION_RE = re.compile(r"(?:连接|连结|作|画|引|添加|辅助线)\s*(?:对角线|线段|辅助线)?\s*([A-Z])\s*([A-Z])(?![A-Z])")
+
+
+def _plain_math_text(text: str) -> str:
+    """去掉 LaTeX 外壳，便于用正则找位置断言：$\\triangle AEF$→AEF、\\overline{BD}→BD。"""
+    out = re.sub(r"\\(?:triangle|overline|mathrm|text)\s*\{?", "", text or "")
+    out = out.replace("$", "").replace("{", "").replace("}", "")
+    return out
+
+
+def figure_consistency_issues(solution_text: str, t: dict[str, Any] | None) -> list[str]:
+    """按像素几何校准过的转写，核对解答里的**位置断言**（谁在谁上、谁共线、哪条对角线）。
+
+    实机（2026-08-18）：模型拿着"D、E、B 不共线、没有 BD 这条线"的结构说明，解题时仍写
+    "E 在 BD 上"并按对角线算——它的先验太强，文字提醒压不住。所以把它写出来的断言逐条
+    对照坐标核对，不对的当成契约问题打回去修，而不是指望它自觉。
+    只在几何校准过的转写上做（模型原判的坐标不配当裁判）；只用画出的线和坐标判断，不认题型。
+    """
+    if not t:
+        return []
+    grounded = any(l.get("resolved") == "geometry" for l in t.get("labels") or []) or any(
+        "像素" in str(n) for n in t.get("reconciled") or []
+    )
+    if not grounded:
+        return []
+    pts = {p["id"]: (float(p["x"]), float(p["y"])) for p in t.get("points") or []}
+    edges = {frozenset(sg) for sg in t.get("segments") or [] if len(sg) == 2}
+    text = _plain_math_text(solution_text)
+    constructed = {frozenset((a, b)) for a, b in _CONSTRUCT_MENTION_RE.findall(text)}
+
+    def on_line(x: str, a: str, b: str) -> bool:
+        (px, py), (ax, ay), (bx, by) = pts[x], pts[a], pts[b]
+        ux, uy = bx - ax, by - ay
+        n = math.hypot(ux, uy) or 1e-9
+        return abs((px - ax) * uy - (py - ay) * ux) / n < 0.03
+
+    issues: list[str] = []
+    seen: set[str] = set()
+
+    def note(msg: str) -> None:
+        if msg not in seen:
+            seen.add(msg)
+            issues.append(msg)
+
+    for x, a, b in _CLAIM_ON_RE.findall(text) + [(c, a, b) for a, b, c in _CLAIM_THROUGH_RE.findall(text)] + [(c, a, b) for a, b, c in _CLAIM_POINT_ON_RE.findall(text)]:
+        if x in pts and a in pts and b in pts and len({x, a, b}) == 3 and not on_line(x, a, b):
+            drawn = frozenset((a, b)) in edges or frozenset((a, b)) in constructed
+            note(
+                f"解答里说 {x} 在 {a}{b} 上，但按原图 {x} 不在直线 {a}{b} 上"
+                + ("" if drawn else f"（图上也没有 {a}{b} 这条线）")
+                + "——这条位置关系不能用"
+            )
+    for a, b, c in _CLAIM_COLLINEAR_RE.findall(text):
+        if a in pts and b in pts and c in pts and len({a, b, c}) == 3 and not on_line(c, a, b):
+            note(f"解答里说 {a}、{b}、{c} 共线，但按原图它们不共线——这条位置关系不能用")
+    diagonal_pairs = [
+        (m[0], m[1])
+        for group in _CLAIM_DIAGONAL_RE.findall(text)
+        for m in re.findall(r"([A-Z])\s*([A-Z])", group)
+    ]
+    for a, b in diagonal_pairs:
+        pair = frozenset((a, b))
+        if a in pts and b in pts and pair not in edges and pair not in constructed:
+            note(
+                f"解答里用了对角线 {a}{b}，但图上没有画这条线；要用必须写明「连接 {a}{b}」当辅助线，"
+                f"而且不能默认图上别的点落在它上面"
+            )
+    return issues[:4]
 
 
 def problem_with_figure_conditions(
