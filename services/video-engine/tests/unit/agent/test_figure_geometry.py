@@ -85,9 +85,12 @@ def _synthetic(with_labels: bool = True):
     for a, b in [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A"), ("A", "C"), ("B", "D")]:
         d.line([P[a], P[b]], fill="black", width=3)
     if with_labels:
-        f = ImageFont.load_default()
+        try:
+            f = ImageFont.truetype("/System/Library/Fonts/Supplemental/Times New Roman.ttf", 26)
+        except OSError:
+            f = ImageFont.load_default(size=26) if hasattr(ImageFont, "load_default") else ImageFont.load_default()
         d.text((300, 120), "12", fill="black", font=f)   # 上面的三角形 AOB 里
-        d.text((60, 230), "6cm", fill="black", font=f)   # AD 边旁
+        d.text((50, 225), "6cm", fill="black", font=f)   # AD 边旁
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=90)
     return np.asarray(im.convert("L")), P, (W, H)

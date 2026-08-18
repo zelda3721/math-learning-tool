@@ -1085,7 +1085,9 @@ async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | Non
         ),
     ]
     try:
-        done = await llm.chat_complete(messages=messages, max_tokens=1024)
+        # 转写是测量：温度压到最低，同一张图两次量出来的东西要一样（默认 0.6 时
+        # 点位、标注位置每次都在飘，下游像素几何的临界情况跟着飘）
+        done = await llm.chat_complete(messages=messages, max_tokens=1024, temperature=0.1)
     except Exception:  # noqa: BLE001 — 转写失败只降级，不中断讲解
         logger.exception("figure transcription failed")
         return None
