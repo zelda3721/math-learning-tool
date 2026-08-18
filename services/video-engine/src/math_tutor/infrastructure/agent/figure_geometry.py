@@ -66,8 +66,15 @@ def detect_lines(ink: Any, max_lines: int = 24) -> list[dict[str, Any]]:
         acc[r, idx] += 1
     lines: list[dict[str, Any]] = []
     a = acc.copy()
-    floor = max(40, int(0.12 * a.max()))
-    for _ in range(max_lines):
+    a_max = int(a.max())
+    floor = max(40, int(0.10 * a_max))
+    # 抑制窗随分辨率走：线粗几个像素、稍有倾斜，同一条线会在 rho 上散出好几个峰；
+    # 窗太窄时前 20 个峰全是长边的重影，短线（A–E、D–E）根本轮不到（实机踩过）
+    rho_win = max(12, int(0.02 * min(w, h)))
+    theta_win = 8
+    for _ in range(max_lines * 6):
+        if len(lines) >= max_lines:
+            break
         flat = int(np.argmax(a))
         r, ti = divmod(flat, a.shape[1])
         votes = int(a[r, ti])
@@ -75,14 +82,19 @@ def detect_lines(ink: Any, max_lines: int = 24) -> list[dict[str, Any]]:
             break
         rho, theta = r - diag, float(thetas[ti])
         # 抑制邻近峰（同一条线的邻近参数）
-        a[max(0, r - 12) : r + 13, max(0, ti - 8) : ti + 9] = 0
-        if ti < 8:  # 角度是环的：0° 与 180° 相邻
-            a[max(0, r - 12) : r + 13, len(thetas) - (8 - ti) :] = 0
+        a[max(0, r - rho_win) : r + rho_win + 1, max(0, ti - theta_win) : ti + theta_win + 1] = 0
+        if ti < theta_win:  # 角度是环的：0° 与 180° 相邻
+            a[max(0, r - rho_win) : r + rho_win + 1, len(thetas) - (theta_win - ti) :] = 0
         seg = _inked_extent(ink, rho, theta)
         if seg is None:
             continue
         (x0, y0), (x1, y1) = seg
-        if math.hypot(x1 - x0, y1 - y0) < 0.08 * min(w, h):
+        # 太短的"线"多半是字母笔画（实机：E、7 的笔画凑出 70~80px 的假线，把真三角形"切开"）；
+        # 又短又弱的（不到 1/4 短边、票数不到最强线的 35%）同样是笔画/阴影边，不是几何线
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length < 0.12 * min(w, h):
+            continue
+        if length < 0.25 * min(w, h) and votes < 0.35 * a_max:
             continue
         # 与已有线段几乎重合（同一条线的第二个峰）就并掉
         if any(_same_segment(seg, (ln["a"], ln["b"]), tol=0.02 * min(w, h)) for ln in lines):
@@ -189,38 +201,44 @@ def anchor_points(lines: list[dict[str, Any]], size: tuple[int, int]) -> list[Po
     """图上"有名字资格"的位置：线段端点 + 线段两两交点（交点要落在两条线段的范围内附近）。"""
     w, h = size
     tol = 0.03 * min(w, h)
-    anchors: list[Point] = []
+    # 沿线方向放宽：墨迹区间在角上常短一截（角上是字母、笔画没接上），角点是两条边
+    # 延长一点点才相交（实机：底边区间离 D 角还差 43px，D 角就不是锚点，D 吸到了旁边的接头）
+    along = 0.06 * min(w, h)
+    anchors: list[tuple[Point, float]] = []  # (位置, 权重=线的票数：强线的交点更可信)
     # 线段端点只有落在别的线上（T 形接头、角）才算锚点：孤零零的端点多半是线段
     # 延伸进字母/阴影的假端头（实机：底边一直量到 D 字母里，把 D 吸歪了）
     for ln in lines:
         for end in (ln["a"], ln["b"]):
-            if any(
-                other is not ln and _on_segment(end, other["a"], other["b"], tol) for other in lines
-            ):
-                anchors.append(end)
+            others = [o for o in lines if o is not ln and _on_segment(end, o["a"], o["b"], tol, along)]
+            if others:
+                anchors.append((end, float(min(ln["votes"], max(o["votes"] for o in others)))))
     for l1, l2 in itertools.combinations(lines, 2):
         p = _intersection(l1["a"], l1["b"], l2["a"], l2["b"])
         if p is None:
             continue
-        if _on_segment(p, l1["a"], l1["b"], tol) and _on_segment(p, l2["a"], l2["b"], tol):
-            anchors.append(p)
+        if _on_segment(p, l1["a"], l1["b"], tol, along) and _on_segment(p, l2["a"], l2["b"], tol, along):
+            anchors.append((p, float(min(l1["votes"], l2["votes"]))))
     # 合并靠得近的锚点（单链接聚类）：几条线在同一点相交，霍夫角度差一点就会散成
-    # 一小簇交点（实机：E 附近 6 个交点散在 40px 里），簇心才是那个点
+    # 一小簇交点（实机：E 附近 6 个交点散在 40px 里），簇心才是那个点。
+    # 簇心按票数加权：字母笔画凑出的弱线的交点，别把真角点拽偏
     radius = 0.06 * min(w, h)
-    clusters: list[list[Point]] = []
-    for p in anchors:
-        hit = [c for c in clusters if any(math.hypot(p[0] - q[0], p[1] - q[1]) < radius for q in c)]
+    clusters: list[list[tuple[Point, float]]] = []
+    for item in anchors:
+        p = item[0]
+        hit = [c for c in clusters if any(math.hypot(p[0] - q[0][0], p[1] - q[0][1]) < radius for q in c)]
         if not hit:
-            clusters.append([p])
+            clusters.append([item])
         else:
             base = hit[0]
-            base.append(p)
+            base.append(item)
             for other in hit[1:]:
                 base.extend(other)
                 clusters.remove(other)
-    return [
-        (sum(q[0] for q in c) / len(c), sum(q[1] for q in c) / len(c)) for c in clusters
-    ]
+    out: list[Point] = []
+    for c in clusters:
+        total = sum(wt for _, wt in c) or 1.0
+        out.append((sum(q[0] * wt for q, wt in c) / total, sum(q[1] * wt for q, wt in c) / total))
+    return out
 
 
 def align_named_points(
@@ -241,12 +259,19 @@ def align_named_points(
     P = np.array([named[n] for n in names], dtype=float)
     A = np.array(anchors, dtype=float)
 
+    inlier_tol = 0.04 * min(w, h)
+
     def score(sx: float, sy: float, dx: float, dy: float) -> tuple[float, Any]:
         Q = np.stack([P[:, 0] * sx + dx * w, P[:, 1] * sy + dy * h], axis=1)
         d = np.sqrt(((Q[:, None, :] - A[None, :, :]) ** 2).sum(-1))
         nearest = d.min(axis=1)
-        # 稳健：截断距离，别让一个吸不到的点主导
-        return float(np.minimum(nearest, 0.08 * min(w, h)).sum()), Q
+        # 先比"有几个点吸得上"（内点数），再比距离：字母笔画凑出的假锚点只能拉偏
+        # 距离和，拉不动内点数——RANSAC 的思路（实机：C 被两个假交点拽偏了 40px）
+        inliers = int((nearest <= inlier_tol).sum())
+        dist_sum = float(np.minimum(nearest, 0.08 * min(w, h)).sum())
+        # 距离和为主、内点数为辅（每多一个内点抵 1% 的距离）：纯内点数会在两个
+        # 都"全吸上"的变换之间随机挑，把点吸到邻近的假交点上
+        return dist_sum - inliers * 0.01 * min(w, h), Q
 
     best = (score(1, 1, 0, 0)[0], (1.0, 1.0, 0.0, 0.0))
     for sx in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
@@ -291,18 +316,29 @@ def align_named_points(
     return snapped, dist
 
 
-def drawn_edges(points: dict[str, Point], lines: list[dict[str, Any]], size: tuple[int, int]) -> set[frozenset[str]]:
-    """两个命名点之间是否有一条**画出来的**直线段：都落在同一条检测线段上（含内部）。"""
+def drawn_edges(
+    points: dict[str, Point],
+    lines: list[dict[str, Any]],
+    size: tuple[int, int],
+    anchored: set[str] | None = None,
+) -> set[frozenset[str]]:
+    """两个命名点之间是否有一条**画出来的**直线段：都落在同一条检测线段上（含内部）。
+
+    anchored：吸附到像素交点/角上的点。线段的墨迹区间常在角上短一截（角上是字母、
+    笔画没接上），一条线明明指着角、区间却差几十像素——对已确认在别的线上的点，
+    沿线方向放得更宽（15% 线长）；普通点只放 10%。
+    """
     w, h = size
-    tol = 0.02 * min(w, h)
-    # 沿线方向放宽：线段的墨迹区间在角上、字母处常短一截（实机：B 比 B–E 线的检测端点
-    # 还靠外 19px，B–F 这条真边就没认出来）
-    along = 0.06 * min(w, h)
+    tol = 0.03 * min(w, h)  # 角点是几条线交点的加权簇心，离每条线都可能差十来个像素
+    anchored = anchored or set()
     edges: set[frozenset[str]] = set()
     for a, b in itertools.combinations(points, 2):
         pa, pb = points[a], points[b]
         for ln in lines:
-            if _on_segment(pa, ln["a"], ln["b"], tol, along) and _on_segment(pb, ln["a"], ln["b"], tol, along):
+            length = math.hypot(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
+            along_a = max(0.06 * min(w, h), (0.15 if a in anchored else 0.1) * length)
+            along_b = max(0.06 * min(w, h), (0.15 if b in anchored else 0.1) * length)
+            if _on_segment(pa, ln["a"], ln["b"], tol, along_a) and _on_segment(pb, ln["a"], ln["b"], tol, along_b):
                 edges.add(frozenset((a, b)))
                 break
     return edges
@@ -529,12 +565,13 @@ def ground_transcription(
         h, w = gray.shape
         if min(w, h) < 60:
             return t
-        # 小图放大到短边 ≥ 600 再量：线细、字小
+        # 统一工作分辨率：短边 600~800。小图放大（线细、字小），大图缩回来——前端可能
+        # 已经把裁图放大到几千像素，线粗成十几像素只会让霍夫峰散开、字块被当成线
         scale = 1.0
-        if min(w, h) < 600:
+        if min(w, h) < 600 or min(w, h) > 900:
             from PIL import Image
 
-            scale = 600 / min(w, h)
+            scale = (600 if min(w, h) < 600 else 800) / min(w, h)
             img = Image.fromarray(gray).resize((round(w * scale), round(h * scale)), Image.LANCZOS)
             gray = np.asarray(img, dtype=np.uint8)
             h, w = gray.shape
@@ -555,7 +592,7 @@ def ground_transcription(
             notes.append(f"点按像素交点校准 {len(dist)}/{len(named)}")
         else:
             return t
-        edges = drawn_edges(snapped, lines, size)
+        edges = drawn_edges(snapped, lines, size, anchored=set(dist))
         # 线段：模型说有但像素说没有 → 去；像素说有但模型没说 → 补（有名字的两端、真线相连）
         claimed = {frozenset(s) for s in t.get("segments") or [] if len(s) == 2}
         protected = protected or set()
