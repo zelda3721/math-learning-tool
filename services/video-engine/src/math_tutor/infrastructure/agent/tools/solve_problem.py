@@ -521,7 +521,8 @@ class SolveProblemTool(ITool):
                 "图上没标的量不要自己量。若题面附有「图形结构」（画出的线段、共线关系），"
                 "那是按原图像素量出来的事实：**解题只能用列出的线和共线关系**，没列出的线不存在、"
                 "没说共线的点不共线；需要辅助线必须写明「连接 XY」，且不得假设别的点落在辅助线上。"
-                "解题第一步先用一句话复述你将使用的线和共线关系。\n"
+                "解题第一步先用一句话复述你将使用的线和共线关系。"
+                "推导要收敛：先定策略再写步骤，不要反复推翻重来，## 解题 控制在 8 步以内。\n"
             )
 
         prompt = self._prompts.render(
@@ -591,6 +592,15 @@ class SolveProblemTool(ITool):
                 format_feedback += (
                     "- 上次输出在完成前被截断：请压缩 ## 分析 篇幅，确保 ## 解题 完整输出。\n"
                 )
+            # 截断/格式失败的稿子也可能已经把图读错（"E 在 BD 上"）：把像素几何核对的
+            # 反对意见一并交回去，别让它照着错的图再写一遍
+            early_figure_issues = figure_consistency_issues(
+                getattr(done, "text", "") or "", ctx.state.get("figure_transcription")
+            )
+            if early_figure_issues:
+                format_feedback += "- 上次的图形理解与原图不符：\n" + "\n".join(
+                    f"  - {issue}" for issue in early_figure_issues
+                ) + "\n"
             try:
                 retry_done = await solve_llm.chat_complete(
                     messages=as_messages(prompt + format_feedback),
