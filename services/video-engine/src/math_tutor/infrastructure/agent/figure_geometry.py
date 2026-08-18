@@ -583,18 +583,58 @@ def ground_transcription(
         t["segments"] = kept + added
         # 标注归属：数字块 → 最小包含区域
         blobs = text_blobs(ink, lines, size)
+        # 字母块（贴着命名点的文字块）先排除：剩下的块才是数值/文字标注
+        letter_radius = 0.06 * min(w, h)
+        label_blobs = [
+            b for b in blobs
+            if all(math.hypot(b["center"][0] - q[0], b["center"][1] - q[1]) > letter_radius for q in snapped.values())
+        ]
+        # 每个标注：候选 = 附近的文字块（≤10%）。最近的块明显更近就用它；几个块差不多近时，
+        # 用模型自己说的字母（on）当裁判——哪个块所在的区域和 on 重合最多就选哪个，
+        # 仍分不出就不下结论（宁可退回"附近"线索，也不断错归属）
+        reach = 0.10 * min(w, h)
         for label in t.get("labels") or []:
-            at = label.get("at")
-            if not (isinstance(at, (list, tuple)) and len(at) == 2):
-                continue
-            lx, ly = float(at[0]) * (w - 1), float(at[1]) * (h - 1)
-            # 吸到最近的文字块中心（模型位置粗）
-            if blobs:
-                near = min(blobs, key=lambda b: (b["center"][0] - lx) ** 2 + (b["center"][1] - ly) ** 2)
-                if math.hypot(near["center"][0] - lx, near["center"][1] - ly) <= 0.08 * min(w, h):
-                    lx, ly = near["center"]
             text = str(label.get("text") or "")
-            if _UNIT_LABEL_RE.search(text):
+            at = label.get("at")
+            if isinstance(at, (list, tuple)) and len(at) == 2:
+                rx, ry = float(at[0]) * (w - 1), float(at[1]) * (h - 1)
+            else:
+                on0 = [n for n in (label.get("on") or []) if n in snapped]
+                if not on0:
+                    continue
+                rx = sum(snapped[n][0] for n in on0) / len(on0)
+                ry = sum(snapped[n][1] for n in on0) / len(on0)
+            cands = sorted(
+                (b for b in label_blobs if math.hypot(b["center"][0] - rx, b["center"][1] - ry) <= reach),
+                key=lambda b: math.hypot(b["center"][0] - rx, b["center"][1] - ry),
+            )
+            if not cands:
+                continue
+            # 一个标注可能碎成几个块（"6" 和 "cm"、"12" 的两位数）：挨在一起的块算同一个词，
+            # 不构成"两个候选"的歧义
+            head = cands[0]
+            cands = [head] + [
+                b for b in cands[1:]
+                if math.hypot(b["center"][0] - head["center"][0], b["center"][1] - head["center"][1]) > 0.08 * min(w, h)
+            ]
+            d0 = math.hypot(cands[0]["center"][0] - rx, cands[0]["center"][1] - ry)
+            unit_label = bool(_UNIT_LABEL_RE.search(text))
+            chosen: Point | None = None
+            if len(cands) == 1 or d0 <= 0.02 * min(w, h) or math.hypot(cands[1]["center"][0] - rx, cands[1]["center"][1] - ry) >= 1.4 * d0:
+                chosen = cands[0]["center"]
+            elif not unit_label:
+                on_set = set(label.get("on") or [])
+                scored = []
+                for b in cands[:4]:
+                    face = resolve_region(b["center"], snapped, edges, lines, size, allowed_sizes=region_sizes)
+                    scored.append((len(on_set & set(face)) if face else -1, b))
+                scored.sort(key=lambda x: -x[0])
+                if scored and scored[0][0] >= 1 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+                    chosen = scored[0][1]["center"]
+            if chosen is None:
+                continue
+            lx, ly = chosen
+            if unit_label:
                 # 带单位的量（8cm、30°）标在边上/角上：吸到最近的画出来的边
                 best_edge, best_d = None, float("inf")
                 for e in edges:
@@ -602,7 +642,7 @@ def ground_transcription(
                     d = _segment_distance((lx, ly), snapped[a], snapped[b])
                     if d < best_d:
                         best_edge, best_d = e, d
-                if best_edge is not None and best_d <= 0.08 * min(w, h):
+                if best_edge is not None and best_d <= 0.12 * min(w, h):
                     on = sorted(best_edge)
                     if list(label.get("on") or []) != on:
                         notes.append(f"标注「{text}」按位置贴在边 {''.join(on)}（原判 {''.join(label.get('on') or [])}）")
