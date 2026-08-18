@@ -473,6 +473,29 @@ class SolveProblemTool(ITool):
             "required": [],
         }
 
+    async def _draft_solve(self, llm: Any, as_messages: Any, problem: str) -> str:
+        """自由推理的素解：只要思路和"答案：数值"，不套模板。失败返回空串（不拦路）。"""
+        prompt = (
+            f"{problem}\n\n"
+            "只能使用题面（含「图形结构」）里列出的线段与共线关系；没列出的线不存在。"
+            "请直接解题：先用一两句话说清关键的面积/长度关系，再给推导，"
+            "最后一行写「答案：数值（带单位）」。不要写模板、不要反复推翻重来，控制在 600 字以内。"
+        )
+        try:
+            done = await llm.chat_complete(
+                messages=as_messages(prompt),
+                temperature=0.2,
+                max_tokens=3000,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("solve_problem draft solve failed")
+            return ""
+        text = (getattr(done, "text", "") or "").strip()
+        if "答案" not in text:
+            return ""
+        return text
+
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         problem = (args.get("problem") or ctx.problem or "").strip()
         grade = args.get("grade") or ctx.grade
@@ -558,6 +581,16 @@ class SolveProblemTool(ITool):
 
         # 带图的几何题推导更长：预算放宽到 8192，别在结论前被截断（实机截断过两次）
         solve_max_tokens = 8192 if images else 6144
+        # 带图的题先"素解"一遍：不带任何格式要求，只要思路和答案。实测同一模型、同一题面，
+        # 素解 90 秒给出正确答案，而直接套结构化模板会在"分析/确定性计算/解题"里反复推翻、
+        # 一万多字后被截断。素解结果作为草稿交给结构化那一步去整理（允许它修正）
+        if images:
+            draft = await self._draft_solve(solve_llm, as_messages, problem)
+            if draft:
+                prompt += (
+                    "\n\n## 预解草稿（同一道题先自由推理得到，供你整理成上述格式；发现错误可以修正）\n"
+                    + draft[:3000]
+                )
         try:
             done = await solve_llm.chat_complete(
                 messages=as_messages(prompt),
