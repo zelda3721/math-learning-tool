@@ -427,10 +427,22 @@ class OpenAILLMProvider(ILLMProvider):
             tool_calls=tool_events,
         )
 
-    async def chat_complete(
+    #: 思考型模型（qwen3.8 等）reasoning 会占用 completion 预算，且部分模型的
+    #: enable_thinking 开关不生效。这里不关思考、而是**接住**它：
+    #: ① 前瞻：按最近调用的思考开销（EMA）给 max_tokens 自动加头寸；
+    #: ② 反应：finish=length 且确有 reasoning 时，按本次思考长度加预算重试一次。
+    #: 单次追加封顶，防失控。
+    _REASONING_HEADROOM_CAP = 12000
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        # Qwen 系对中文压缩率高（约 2~3 字/词元），len//2 偏保守够用
+        return len(text) // 2 + 32
+
+    async def _collect(
         self,
         messages: list[ChatMessage],
-        tools: list[ToolDefinition] | None = None,
+        tools: list[ToolDefinition] | None,
         **kwargs: Any,
     ) -> StreamDone:
         last: StreamDone | None = None
@@ -439,6 +451,43 @@ class OpenAILLMProvider(ILLMProvider):
                 last = evt
         if last is None:
             return StreamDone(finish_reason="error")
+        return last
+
+    async def chat_complete(
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition] | None = None,
+        **kwargs: Any,
+    ) -> StreamDone:
+        requested = int(kwargs.get("max_tokens") or self._default_max_tokens)
+        overhead = int(getattr(self, "_reasoning_overhead_ema", 0.0))
+        if overhead > 0:
+            kwargs["max_tokens"] = requested + min(
+                int(overhead * 1.5), self._REASONING_HEADROOM_CAP
+            )
+        last = await self._collect(messages, tools, **kwargs)
+        observed = self._estimate_tokens(last.reasoning or "")
+        # EMA：偏向最近一次（0.5），模型/题型切换后几次调用内就能跟上
+        prev = float(getattr(self, "_reasoning_overhead_ema", 0.0))
+        self._reasoning_overhead_ema = prev * 0.5 + observed * 0.5
+        if last.finish_reason == "length" and (last.reasoning or "").strip():
+            bump = min(
+                max(2048, observed), self._REASONING_HEADROOM_CAP
+            )
+            kwargs["max_tokens"] = int(kwargs.get("max_tokens") or requested) + bump
+            logger.info(
+                "thinking ate the budget (reasoning≈%d tok, finish=length); "
+                "retrying once with max_tokens=%d",
+                observed,
+                kwargs["max_tokens"],
+            )
+            retry = await self._collect(messages, tools, **kwargs)
+            self._reasoning_overhead_ema = (
+                self._reasoning_overhead_ema * 0.5
+                + self._estimate_tokens(retry.reasoning or "") * 0.5
+            )
+            if (retry.text or "").strip() or retry.finish_reason != "error":
+                return retry
         return last
 
 
