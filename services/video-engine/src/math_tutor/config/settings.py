@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     # smaller / faster model
     # (e.g. Qwen3-4B) while keeping the main 35B+ model for generate_manim_code
     # where code quality matters. Empty model = use main LLM (no routing).
+    # 解题/验证专用端点（"混搭"：推理强的模型管对错，快的模型管其余）。留空 = 主 LLM
+    llm_reasoner_api_base: str = ""
+    llm_reasoner_api_key: str = ""
+    llm_reasoner_model: str = ""
     llm_fast_api_base: str = ""
     llm_fast_api_key: str = ""
     llm_fast_model: str = ""
@@ -187,6 +191,23 @@ class Settings(BaseSettings):
             logger.warning("LLM_EXTRA_BODY is not valid JSON: %s", exc)
         return {}
 
+    @property
+    def resolved_reasoner_api_base(self) -> str:
+        return self.llm_reasoner_api_base.strip() or self.llm_api_base
+
+    @property
+    def resolved_reasoner_api_key(self) -> str:
+        return self.llm_reasoner_api_key.strip() or self.llm_api_key
+
+    @property
+    def resolved_reasoner_model(self) -> str:
+        return self.llm_reasoner_model.strip() or self.llm_model
+
+    @property
+    def reasoner_enabled(self) -> bool:
+        return bool(self.llm_reasoner_model.strip())
+
+    @property
     @property
     def resolved_fast_api_base(self) -> str:
         return self.llm_fast_api_base.strip() or self.llm_api_base

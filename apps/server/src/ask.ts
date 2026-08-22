@@ -127,6 +127,8 @@ interface PlanResult {
   plan_id?: string;
   scene_spec?: unknown;
   solution_answer?: string;
+  /** 答案只经"降级放行"（独立验证反复失败且无确定性证据）——不可入库、不可判卷 */
+  verification_untrusted?: boolean;
   solution_steps?: string[];
   error?: string;
 }
@@ -189,6 +191,12 @@ export async function runAskJob(
     });
     if (result.status !== "ok") {
       repo.failAskJob(jobId, result.error ?? `引擎 plan 返回 ${result.status}`);
+      return;
+    }
+    // 降级放行的答案没有独立验证背书：宁可让孩子重试，也不拿一个没核实过的数去判卷
+    // （实测漏洞：错答案曾走降级放行拿到 good 成片——2026-08-22 重复性基准）
+    if (result.verification_untrusted) {
+      repo.failAskJob(jobId, "这道题引擎没能独立验证答案，暂时收不了——换个说法再试一次，或先做今天的练习");
       return;
     }
     const steps = (result.solution_steps ?? []).map((s) => String(s).trim()).filter(Boolean);

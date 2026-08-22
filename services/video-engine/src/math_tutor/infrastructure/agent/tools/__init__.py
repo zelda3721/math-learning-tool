@@ -50,6 +50,7 @@ def build_default_registry(
     prompts: PromptLibrary,
     fast_llm: ILLMProvider | None = None,
     vision_llm: ILLMProvider | None = None,
+    reasoner_llm: ILLMProvider | None = None,
     vision_model: str | None = None,
     narration: NarrationPostProcessor | None = None,
     subtitles_enabled: bool = True,
@@ -58,10 +59,16 @@ def build_default_registry(
     # the main `llm` (35B+) is reserved for code generation where quality
     # matters. Falls back to `llm` if no fast model is configured.
     light_llm = fast_llm or llm
+    # 对错攸关的两步（solve/verify）走重推理端点；其余走轻端点——重复性基准（2026-08-22）：
+    # qwen3.8 答案 3/4 对且从不出错、qwen3.6 只有 1/4——"对"必须交给对得起它的模型
+    heavy_llm = reasoner_llm or light_llm
     registry = ToolRegistry()
+    # solve/verify 带图时走各自的 vision_llm——重推理端点若配置了（要求多模态），
+    # 图也必须给它看，否则带图题（最需要它的场景）会绕回轻模型
+    heavy_vision = reasoner_llm or vision_llm or llm
     # 原图转写走视觉端点（没配就退回主模型）；解题/导演各自在需要时触发一次
-    registry.register(SolveProblemTool(light_llm, prompts, vision_llm=vision_llm or llm))
-    registry.register(VerifySolutionTool(light_llm, prompts, vision_llm=vision_llm or llm))
+    registry.register(SolveProblemTool(heavy_llm, prompts, vision_llm=heavy_vision))
+    registry.register(VerifySolutionTool(heavy_llm, prompts, vision_llm=heavy_vision))
     director = DirectVideoTool(VisualPlanTool(light_llm, prompts, vision_llm=vision_llm or llm))
     registry.register(director)
     # The legacy match/search tools remain importable for offline analysis,
