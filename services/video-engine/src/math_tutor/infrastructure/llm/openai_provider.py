@@ -470,24 +470,23 @@ class OpenAILLMProvider(ILLMProvider):
         # EMA：偏向最近一次（0.5），模型/题型切换后几次调用内就能跟上
         prev = float(getattr(self, "_reasoning_overhead_ema", 0.0))
         self._reasoning_overhead_ema = prev * 0.5 + observed * 0.5
-        if last.finish_reason == "length" and (last.reasoning or "").strip():
-            bump = min(
-                max(2048, observed), self._REASONING_HEADROOM_CAP
-            )
-            kwargs["max_tokens"] = int(kwargs.get("max_tokens") or requested) + bump
+        # 截断的思考只给出真实开销的**下界**：首跳按估算×3（至少 4096），
+        # 还不够就直接顶到上限——最多两跳，之后 EMA 会让后续调用免遭冷启动
+        for bump in (max(4096, observed * 3), self._REASONING_HEADROOM_CAP):
+            if not (last.finish_reason == "length" and (last.reasoning or "").strip()):
+                break
+            kwargs["max_tokens"] = requested + min(bump, self._REASONING_HEADROOM_CAP)
             logger.info(
                 "thinking ate the budget (reasoning≈%d tok, finish=length); "
-                "retrying once with max_tokens=%d",
-                observed,
+                "retrying with max_tokens=%d",
+                self._estimate_tokens(last.reasoning or ""),
                 kwargs["max_tokens"],
             )
-            retry = await self._collect(messages, tools, **kwargs)
+            last = await self._collect(messages, tools, **kwargs)
             self._reasoning_overhead_ema = (
                 self._reasoning_overhead_ema * 0.5
-                + self._estimate_tokens(retry.reasoning or "") * 0.5
+                + self._estimate_tokens(last.reasoning or "") * 0.5
             )
-            if (retry.text or "").strip() or retry.finish_reason != "error":
-                return retry
         return last
 
 

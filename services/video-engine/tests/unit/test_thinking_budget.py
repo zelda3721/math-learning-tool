@@ -24,16 +24,18 @@ def _done(finish, text, reasoning=""):
     return StreamDone(finish_reason=finish, text=text, reasoning=reasoning)
 
 
-def test_思考吃掉预算_按思考长度加预算重试一次():
+def test_思考吃掉预算_指数加注最多两跳():
     p = _Scripted([
         _done("length", "", reasoning="推" * 3000),      # ≈1532 tok 思考，被截断
-        _done("stop", "答案：6", reasoning="推" * 1000),
+        _done("length", "", reasoning="推" * 6000),      # 首跳仍不够
+        _done("stop", "答案：6", reasoning="推" * 5000),
     ])
     out = asyncio.run(p.chat_complete([], max_tokens=1024))
     assert out.text == "答案：6"
     assert p.calls[0] == 1024
-    assert p.calls[1] >= 1024 + 2048          # 至少加 2048
-    assert p.calls[1] <= 1024 + 12000         # 封顶
+    assert p.calls[1] >= 1024 + 4096          # 首跳 ≥4096
+    assert p.calls[2] == 1024 + 12000         # 末跳顶到上限
+    assert len(p.calls) == 3                  # 之后不再试
 
 
 def test_思考开销进EMA_下一次调用自动加头寸():
