@@ -432,7 +432,13 @@ _FULL_EQUALITY_RE = re.compile(
     # right after a letter, digit, operator or closing paren is a slice of a
     # longer (possibly symbolic) expression such as "2x+5" and must not be
     # evaluated as literal arithmetic.
-    r"(?P<left>(?<![0-9A-Za-z).+\-*/.])[\d\s+\-*/().]+?)=\s*(?P<right>-?\d+(?:\.\d+)?)"
+    # The right side is a full literal expression, not just a number: the
+    # conservation idiom "5 + 8 = 7 + 6" is TRUE and must not be sliced into
+    # "5 + 8 = 7" (real regression: the director's correct figure plan was
+    # vetoed four times and degraded on exactly this).  The class excludes
+    # "=", so chained equalities still split at each step.
+    r"(?P<left>(?<![0-9A-Za-z).+\-*/.])[\d\s+\-*/().]+?)="
+    r"\s*(?P<right>-?[\d\s+\-*/().]*[\d)])"
 )
 
 
@@ -482,7 +488,7 @@ def _false_literal_equality(text: str) -> bool:
                 raise ValueError("non-literal")
 
             actual = evaluate(_ast.parse(left_expression, mode="eval"))
-            expected = _Fraction(match.group("right"))
+            expected = evaluate(_ast.parse(match.group("right").strip(), mode="eval"))
         except (ValueError, SyntaxError, ZeroDivisionError, OverflowError):
             continue
         if actual != expected:
