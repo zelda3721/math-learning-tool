@@ -114,6 +114,15 @@ def test_internal_builder_plans_are_exempt() -> None:
     assert not _errors_containing(errors, "把算式写进了 teaching_line")
 
 
+def test_expression_on_both_sides_is_not_a_false_equality() -> None:
+    # 守恒惯用式「5 + 8 = 7 + 6」为真（实机回归：曾被截成 5+8=7 连续否掉正确首稿）
+    plan = _plan()
+    plan["scenes"][2]["formula"] = "5 + 8 = 7 + 6"
+    assert not _errors_containing(_validate_plan(plan, "elementary_upper"), "计算错误")
+    plan["scenes"][2]["formula"] = "5 + 8 = 7 + 5"
+    assert _errors_containing(_validate_plan(plan, "elementary_upper"), "计算错误")
+
+
 def test_placeholder_text_detector() -> None:
     assert _placeholder_formula_text("算式")
     assert _placeholder_formula_text("等式(II)")
