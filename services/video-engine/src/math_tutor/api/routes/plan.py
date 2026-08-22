@@ -70,6 +70,8 @@ class PlanResponse(BaseModel):
     #: html 的门禁判定（errors/warnings）；未生成时为 None
     html_gate: dict[str, Any] | None = None
     solution_answer: str | None = None
+    #: 答案只经"降级放行"（独立验证反复失败且无确定性证据）——不可入库、不可判卷
+    verification_untrusted: bool = False
     solution_steps: list[dict[str, Any]] | None = None
     error: str | None = None
 
@@ -193,6 +195,7 @@ async def plan_only(
         html=html,
         html_gate=html_gate,
         solution_answer=str(state.get("solution_answer") or "") or None,
+        verification_untrusted=bool(state.get("verification_untrusted")),
         solution_steps=state.get("solution_steps")
         if isinstance(state.get("solution_steps"), list)
         else None,

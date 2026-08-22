@@ -210,7 +210,8 @@ class WatchVideoTool(ITool):
             ctx.state["quality_degraded"] = True
             ctx.state["delivery_warning"] = "成片评审为 acceptable：可交付，问题已写入质量报告"
         elif not fallback_delivery:
-            ctx.state.pop("quality_degraded", None)
+            if not ctx.state.get("verification_untrusted"):
+                ctx.state.pop("quality_degraded", None)
             ctx.state.pop("delivery_warning", None)
         prefix = "可播放保底成片" if fallback_delivery else "成片"
         band = "复审" if internal_repair_count else "首审"

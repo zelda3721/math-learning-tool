@@ -176,6 +176,28 @@ def get_fast_llm_provider(
     return _get_fast_llm_provider(settings)
 
 
+_reasoner_provider_instance: ILLMProvider | None = None
+
+
+def _get_reasoner_provider(settings: Settings) -> ILLMProvider:
+    """解题/验证专用 LLM（重推理）。未配置时回落主 LLM。"""
+    if not settings.reasoner_enabled:
+        return _get_llm_provider(settings)
+    global _reasoner_provider_instance
+    if _reasoner_provider_instance is None:
+        _reasoner_provider_instance = OpenAILLMProvider(
+            base_url=settings.resolved_reasoner_api_base,
+            api_key=settings.resolved_reasoner_api_key,
+            default_model=settings.resolved_reasoner_model,
+            default_temperature=settings.llm_temperature,
+            default_max_tokens=settings.llm_max_tokens,
+            timeout=settings.llm_request_timeout,
+            default_extra_body=settings.llm_extra_body_dict,
+            disable_thinking_with_tools=settings.llm_disable_thinking_with_tools,
+        )
+    return _reasoner_provider_instance
+
+
 def _get_vision_provider(settings: Settings) -> ILLMProvider:
     """Provider for multimodal calls (inspect_video). Falls back to the
     main LLM provider when vision-specific config is empty."""
@@ -302,6 +324,7 @@ def _get_tool_registry(settings: Settings) -> ToolRegistry:
             use_latex=settings.manim_use_latex,
             prompts=_get_prompt_library(),
             vision_llm=_get_vision_provider(settings),
+            reasoner_llm=_get_reasoner_provider(settings),
             vision_model=settings.resolved_vision_model,
             narration=NarrationPostProcessor(
                 enabled=settings.narration_tts_enabled,

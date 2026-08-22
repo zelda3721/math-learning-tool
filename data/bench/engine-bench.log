@@ -1,0 +1,154 @@
+INFO:     Started server process [66374]
+INFO:     Waiting for application startup.
+2026-08-22 15:58:14,138 | math_tutor.api.main | INFO | Math Tutor API starting up...
+2026-08-22 15:58:14,138 | math_tutor.api.main | INFO | LLM Model: qwen/qwen3.6-27b via http://localhost:1234/v1
+2026-08-22 15:58:14,138 | math_tutor.api.main | INFO | Manim Quality: medium
+2026-08-22 15:58:14,139 | math_tutor.infrastructure.storage.database | INFO | SQLite database ready at /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data/math_tutor.sqlite
+2026-08-22 15:58:14,139 | math_tutor.infrastructure.storage.file_archive | INFO | FileArchive root: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data
+2026-08-22 15:58:14,139 | math_tutor.api.main | INFO | Storage: db=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data/math_tutor.sqlite data_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-08-22 15:58:15,583 | math_tutor.infrastructure.llm.openai_provider | INFO | OpenAILLMProvider ready (base_url=http://localhost:1234/v1, model=qwen/qwen3.6-27b, max_retries=3, disable_thinking_with_tools=True, bypass_proxy=True)
+2026-08-22 15:58:15,583 | math_tutor.infrastructure.manim.executor | INFO | ManimExecutor initialized: output=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media, quality=medium
+2026-08-22 15:58:15,583 | math_tutor.infrastructure.agent.prompt_library | INFO | PromptLibrary loaded 12 templates: ['analyze', 'audit_manim_semantics', 'audit_solution_consistency', 'audit_visual_plan', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'web_explanation', 'wiki_ingest']
+2026-08-22 15:58:15,619 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 15:58:15,619 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=2 tools=0 max_tokens=1024 temperature=0.10 extra_body=no
+2026-08-22 15:58:46,630 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.24,0.16)、B(0.82,0.16)、C(0.89,0.80)、D(0.26,0.80)、E(0.46,0.46)、F(0.53,0.40)、M(0.66,0.52)、N(0.59,0.57)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-M、B-M、D-M；阴影区域：M-N-C；图上标注：AE:5、DE:8、FM:7
+2026-08-22 15:58:48,809 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 C-M、A-E、B-F、F-M、M-N、D-N、E-F、E-N、D-E、C-N、A-F；标注「5」按位置落在 AEF（原判 AE）；标注「8」按位置落在 DEN（原判 DE）；标注「7」按位置落在 BFM（原判 FM）
+2026-08-22 15:58:48,809 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3024 temperature=0.20 extra_body=yes
+2026-08-22 16:00:26,160 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8228 temperature=0.30 extra_body=yes
+2026-08-22 16:03:17,498 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=6186 temperature=0.10 extra_body=yes
+2026-08-22 16:06:33,147 | math_tutor.infrastructure.agent.tools.solve_problem | WARNING | solve math evidence downgraded to logical verification: 确定性计算没有证明最终答案：{'id': 'final_answer', 'relation': 'equal', 'left': '-S/2 - 12', 'right': '2', 'passed': False}；解答里说 E 在 BD 上，但按原图 E 不在直线 BD 上（图上也没有 BD 这条线）——这条位置关系不能用；解答里说 D、E、B 共线，但按原图它们不共线——这条位置关系不能用；解答里说 B、M、D 共线，但按原图它们不共线——这条位置关系不能用
+2026-08-22 16:06:33,168 | math_tutor.infrastructure.agent.loop | WARNING | session f5264357-0723-452d-b943-2014a954291f stopped by stage budget: verify_solution attempts=3
+2026-08-22 16:06:33,194 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 16:06:33,194 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=2 tools=0 max_tokens=1069 temperature=0.10 extra_body=no
+2026-08-22 16:06:46,868 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.24,0.16)、B(0.82,0.16)、C(0.89,0.80)、D(0.26,0.80)、E(0.46,0.46)、F(0.53,0.40)、M(0.66,0.51)、N(0.59,0.57)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-M、D-M；阴影区域：M-N-C；图上标注：AE:5、DE:8、FM:7
+2026-08-22 16:06:49,139 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 C-M、A-E、B-M、B-F、F-M、M-N、D-N、E-F、E-N、D-E、C-N、A-F；标注「5」按位置落在 AEF（原判 AE）；标注「8」按位置落在 DEN（原判 DE）；标注「7」按位置落在 BFM（原判 FM）
+2026-08-22 16:06:49,139 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3046 temperature=0.20 extra_body=yes
+2026-08-22 16:07:16,075 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8238 temperature=0.30 extra_body=yes
+2026-08-22 16:10:03,966 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=6190 temperature=0.10 extra_body=yes
+2026-08-22 16:13:15,057 | math_tutor.infrastructure.agent.tools.solve_problem | WARNING | solve math evidence downgraded to logical verification: 确定性计算失败：claim 1: ValueError: reference has no keyed field: $calc_shaded[0].x
+2026-08-22 16:13:15,066 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3118 temperature=0.10 extra_body=yes
+2026-08-22 16:15:03,039 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3118 temperature=0.10 extra_body=yes
+2026-08-22 16:16:38,187 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3118 temperature=0.10 extra_body=yes
+2026-08-22 16:18:13,268 | math_tutor.infrastructure.agent.tools.verify_solution | WARNING | verification degraded after format exhaustion: 逻辑审计缺少证据区：boundary_checks, independent_checks
+2026-08-22 16:18:13,276 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8238 temperature=0.25 extra_body=yes
+2026-08-22 16:23:00,466 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8238 temperature=0.25 extra_body=yes
+2026-08-22 16:24:09,750 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=4142 temperature=0.00 extra_body=yes
+2026-08-22 16:26:27,589 | math_tutor.infrastructure.agent.figure_transcription | WARNING | figure choreography: 指了不存在的字母，丢弃 ['beat1:label 是算式不上图:1/2 Area', 'beat1:compare_equal:多于两块只取前两块']
+2026-08-22 16:26:31,401 | math_tutor.infrastructure.manim.executor | INFO | Executing: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/.venv/bin/python -m manim -qm --media_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media /var/folders/24/6tl7zj713gg8mk4vz8_7gdfr0000gn/T/manim_script_0e90acca95afba0db87ed56c.py SolutionScene
+2026-08-22 16:26:43,552 | math_tutor.infrastructure.manim.executor | WARNING | Could not parse video path from logs, falling back to search
+2026-08-22 16:26:43,646 | math_tutor.infrastructure.manim.executor | INFO | Video generated: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media/videos/manim_script_0e90acca95afba0db87ed56c/720p30/SolutionScene.mp4
+2026-08-22 16:26:44,415 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3118 temperature=0.00 extra_body=yes
+2026-08-22 16:27:51,414 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8238 temperature=0.25 extra_body=yes
+2026-08-22 16:29:09,833 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=4142 temperature=0.00 extra_body=yes
+2026-08-22 16:29:36,019 | math_tutor.infrastructure.manim.executor | INFO | Executing: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/.venv/bin/python -m manim -qm --media_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media /var/folders/24/6tl7zj713gg8mk4vz8_7gdfr0000gn/T/manim_script_ce367bb50b0751de6acaa572.py SolutionScene
+2026-08-22 16:29:47,451 | math_tutor.infrastructure.manim.executor | WARNING | Could not parse video path from logs, falling back to search
+2026-08-22 16:29:47,495 | math_tutor.infrastructure.manim.executor | INFO | Video generated: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media/videos/manim_script_ce367bb50b0751de6acaa572/720p30/SolutionScene.mp4
+2026-08-22 16:29:48,224 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3118 temperature=0.00 extra_body=yes
+2026-08-22 16:30:52,955 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 16:30:52,956 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=2 tools=0 max_tokens=1070 temperature=0.10 extra_body=no
+2026-08-22 16:31:06,913 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.24,0.16)、B(0.82,0.16)、C(0.89,0.80)、D(0.26,0.80)、E(0.46,0.46)、F(0.53,0.40)、M(0.66,0.52)、N(0.59,0.57)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-M、B-M、D-M；阴影区域：M-N-C；图上标注：AE:5、DE:8、FM:7
+2026-08-22 16:31:09,187 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 C-M、A-E、B-F、F-M、M-N、D-N、E-F、E-N、D-E、C-N、A-F；标注「5」按位置落在 AEF（原判 AE）；标注「8」按位置落在 DEN（原判 DE）；标注「7」按位置落在 BFM（原判 FM）
+2026-08-22 16:31:09,187 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=3046 temperature=0.20 extra_body=yes
+2026-08-22 16:31:36,078 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=8238 temperature=0.30 extra_body=yes
+2026-08-22 16:35:57,661 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.6-27b msgs=1 tools=0 max_tokens=6190 temperature=0.10 extra_body=yes
+2026-08-22 16:42:53,003 | math_tutor.infrastructure.agent.tools.solve_problem | WARNING | solve math evidence downgraded to logical verification: 确定性计算失败：claim 1: ValueError: unknown reference field: $solve_system[0].x；解答里说 F 在 BD 上，但按原图 F 不在直线 BD 上（图上也没有 BD 这条线）——这条位置关系不能用；解答里说 E 在 BD 上，但按原图 E 不在直线 BD 上（图上也没有 BD 这条线）——这条位置关系不能用；解答里说 F 在 CB 上，但按原图 F 不在直线 CB 上——这条位置关系不能用
+2026-08-22 16:42:53,067 | math_tutor.infrastructure.agent.loop | WARNING | session 2a448a02-8347-4cec-9246-d019a57d4ed4 stopped by stage budget: verify_solution attempts=3
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-08-22 16:42:53,205 | math_tutor.api.main | INFO | Math Tutor API shutting down...
+INFO:     Application shutdown complete.
+INFO:     Finished server process [66374]
+INFO:     Started server process [88776]
+INFO:     Waiting for application startup.
+2026-08-22 16:42:55,751 | math_tutor.api.main | INFO | Math Tutor API starting up...
+2026-08-22 16:42:55,751 | math_tutor.api.main | INFO | LLM Model: qwen/qwen3.8-27b via http://localhost:1234/v1
+2026-08-22 16:42:55,751 | math_tutor.api.main | INFO | Manim Quality: medium
+2026-08-22 16:42:55,752 | math_tutor.infrastructure.storage.database | INFO | SQLite database ready at /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data/math_tutor.sqlite
+2026-08-22 16:42:55,752 | math_tutor.infrastructure.storage.file_archive | INFO | FileArchive root: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data
+2026-08-22 16:42:55,752 | math_tutor.api.main | INFO | Storage: db=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data/math_tutor.sqlite data_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/data
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-08-22 16:42:57,173 | math_tutor.infrastructure.llm.openai_provider | INFO | OpenAILLMProvider ready (base_url=http://localhost:1234/v1, model=qwen/qwen3.8-27b, max_retries=3, disable_thinking_with_tools=True, bypass_proxy=True)
+2026-08-22 16:42:57,173 | math_tutor.infrastructure.manim.executor | INFO | ManimExecutor initialized: output=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media, quality=medium
+2026-08-22 16:42:57,174 | math_tutor.infrastructure.agent.prompt_library | INFO | PromptLibrary loaded 12 templates: ['analyze', 'audit_manim_semantics', 'audit_solution_consistency', 'audit_visual_plan', 'generate_manim', 'inspect_video', 'match_skill_llm', 'solve', 'verify_solution', 'visual_plan', 'web_explanation', 'wiki_ingest']
+2026-08-22 16:42:57,212 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 16:42:57,212 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=2 tools=0 max_tokens=1024 temperature=0.10 extra_body=no
+2026-08-22 16:43:29,492 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (2491 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 16:43:29,492 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈1277 tok, finish=length); retrying with max_tokens=5120 temperature=0.3
+2026-08-22 16:43:29,492 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=2 tools=0 max_tokens=5120 temperature=0.30 extra_body=no
+2026-08-22 16:46:06,310 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (12433 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 16:46:06,311 | math_tutor.infrastructure.llm.openai_provider | WARNING | thinking diverges (1277 → 6248 tok), budget retries won't help
+2026-08-22 16:46:06,311 | math_tutor.infrastructure.llm.openai_provider | INFO | looping thinking; final attempt with reasoning_effort=none max_tokens=3072
+2026-08-22 16:46:06,311 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=2 tools=0 max_tokens=3072 temperature=0.30 extra_body=yes
+2026-08-22 16:46:31,176 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.25,0.18)、B(0.82,0.15)、C(0.88,0.80)、D(0.26,0.81)、E(0.47,0.46)、F(0.53,0.41)、M(0.67,0.51)、N(0.60,0.57)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-E、E-F、F-M、M-C、B-E、E-N、N-M、D-E、D-N、N-C；阴影区域：M-N-C；图上标注：EF:5、FM:7、EN:8、M:M、N:N、E:E、F:F
+2026-08-22 16:46:33,524 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 B-F、B-M、A-F；标注「5」按位置落在 AEF（原判 EF）；标注「7」按位置落在 BFM（原判 FM）；标注「8」按位置落在 DEN（原判 EN）；标注「M」按位置落在 BCM（原判 M）；标注「N」按位置落在 CDN（原判 N）；标注「E」按位置落在 ADE（原判 E）；标注「F」按位置落在 ABF（原判 F）
+2026-08-22 16:46:33,524 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=8164 temperature=0.20 extra_body=yes
+2026-08-22 16:50:52,014 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (12292 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 16:50:52,014 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈6178 tok, finish=length); retrying with max_tokens=15000 temperature=0.3
+2026-08-22 16:50:52,014 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15000 temperature=0.30 extra_body=yes
+2026-08-22 16:58:39,185 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (21236 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 16:58:39,186 | math_tutor.infrastructure.llm.openai_provider | WARNING | thinking diverges (6178 → 10650 tok), budget retries won't help
+2026-08-22 16:58:39,186 | math_tutor.infrastructure.llm.openai_provider | INFO | looping thinking; final attempt with reasoning_effort=none max_tokens=5048
+2026-08-22 16:58:39,186 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=5048 temperature=0.30 extra_body=yes
+2026-08-22 17:01:18,870 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=19787 temperature=0.30 extra_body=yes
+2026-08-22 17:06:12,653 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=18144 temperature=0.10 extra_body=yes
+2026-08-22 17:14:37,015 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15072 temperature=0.10 extra_body=yes
+2026-08-22 17:15:37,593 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=16887 temperature=0.25 extra_body=yes
+2026-08-22 17:17:43,987 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=11648 temperature=0.00 extra_body=yes
+2026-08-22 17:24:07,442 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (42833 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 17:24:07,442 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈21448 tok, finish=length); retrying with max_tokens=16096 temperature=0.3
+2026-08-22 17:24:07,442 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=16096 temperature=0.30 extra_body=yes
+2026-08-22 17:32:43,857 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (56248 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 17:32:43,857 | math_tutor.infrastructure.llm.openai_provider | WARNING | thinking diverges (21448 → 28156 tok), budget retries won't help
+2026-08-22 17:32:43,858 | math_tutor.infrastructure.llm.openai_provider | INFO | looping thinking; final attempt with reasoning_effort=none max_tokens=6144
+2026-08-22 17:32:43,858 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=6144 temperature=0.30 extra_body=yes
+2026-08-22 17:36:21,029 | math_tutor.infrastructure.agent.figure_transcription | WARNING | figure choreography: 指了不存在的字母，丢弃 ['beat1:label 是算式不上图:S/2 上半', 'beat1:label 是算式不上图:S/2 下半', 'beat2:label 是算式不上图:S/2 上半', 'beat2:label 是算式不上图:S/2 下半']
+2026-08-22 17:36:25,858 | math_tutor.infrastructure.manim.executor | INFO | Executing: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/.venv/bin/python -m manim -qm --media_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media /var/folders/24/6tl7zj713gg8mk4vz8_7gdfr0000gn/T/manim_script_a70df5005523c3add3f43881.py SolutionScene
+2026-08-22 17:36:41,450 | math_tutor.infrastructure.manim.executor | WARNING | Could not parse video path from logs, falling back to search
+2026-08-22 17:36:41,560 | math_tutor.infrastructure.manim.executor | INFO | Video generated: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media/videos/manim_script_a70df5005523c3add3f43881/720p30/SolutionScene.mp4
+2026-08-22 17:36:42,382 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15072 temperature=0.00 extra_body=yes
+2026-08-22 17:39:14,387 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 17:39:14,387 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=2 tools=0 max_tokens=13024 temperature=0.10 extra_body=no
+2026-08-22 17:44:31,241 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.19,0.17)、B(0.64,0.15)、C(0.69,0.80)、D(0.20,0.82)、E(0.36,0.46)、F(0.41,0.40)、M(0.52,0.52)、N(0.46,0.57)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-M、D-M、B-M、C-M；阴影区域：M-N-C；图上标注：AEF:5、FBM:7、EDN:8
+2026-08-22 17:44:33,503 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 M-N、B-F、F-M、E-N、A-E、E-F、A-F、C-N、D-N、D-E；标注「7」按位置落在 ABF（原判 FBM）
+2026-08-22 17:44:33,504 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15000 temperature=0.20 extra_body=yes
+2026-08-22 17:52:29,507 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (21408 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 17:52:29,507 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈10736 tok, finish=length); retrying with max_tokens=15000 temperature=0.3
+2026-08-22 17:52:29,507 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15000 temperature=0.30 extra_body=yes
+2026-08-22 18:00:13,723 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (22404 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 18:00:13,723 | math_tutor.infrastructure.llm.openai_provider | WARNING | thinking diverges (10736 → 11234 tok), budget retries won't help
+2026-08-22 18:00:13,723 | math_tutor.infrastructure.llm.openai_provider | INFO | looping thinking; final attempt with reasoning_effort=none max_tokens=5048
+2026-08-22 18:00:13,723 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=5048 temperature=0.30 extra_body=yes
+2026-08-22 18:02:52,302 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=20192 temperature=0.30 extra_body=yes
+2026-08-22 18:13:50,123 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (51899 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 18:13:50,123 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈25981 tok, finish=length); retrying with max_tokens=20192 temperature=0.3
+2026-08-22 18:13:50,123 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=20192 temperature=0.30 extra_body=yes
+2026-08-22 18:19:14,380 | math_tutor.infrastructure.agent.loop | WARNING | session 1961a05c-30d6-4dcd-acff-7ed1d72e85a1 stopped by stage budget: solve_problem attempts=1
+2026-08-22 18:19:14,424 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure image upscaled ×2.4 for vision (752x336 → 1790x800)
+2026-08-22 18:19:14,424 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=2 tools=0 max_tokens=13024 temperature=0.10 extra_body=no
+2026-08-22 18:25:37,929 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure transcription: 顶点（图像坐标，y 向下）：A(0.25,0.17)、B(0.82,0.15)、C(0.89,0.79)、D(0.26,0.81)、E(0.47,0.47)、F(0.53,0.40)、M(0.66,0.51)、N(0.59,0.56)；线段：A-B、B-C、C-D、D-A、A-C、B-D、A-M、D-M、B-M、M-C；阴影区域：M-N-C；图上标注：AEF:5、BFM:7、DEN:8
+2026-08-22 18:25:40,204 | math_tutor.infrastructure.agent.figure_geometry | INFO | figure geometry grounding: 点按像素交点校准 8/8；线段按像素校正：去 B-D、A-C 补 M-N、B-F、F-M、E-N、A-E、E-F、A-F、C-N、D-N、D-E
+2026-08-22 18:25:40,204 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15000 temperature=0.20 extra_body=yes
+2026-08-22 18:31:38,249 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=20192 temperature=0.30 extra_body=yes
+2026-08-22 18:34:22,870 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=14212 temperature=0.10 extra_body=yes
+2026-08-22 18:35:34,404 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=14990 temperature=0.25 extra_body=yes
+2026-08-22 18:37:12,708 | math_tutor.infrastructure.agent.tools.visual_plan | INFO | visual_plan draft 1 contract errors: ['场景 3 action 1 在对象出现前执行 highlight：eq_E_node', '场景 4 action 1 在对象出现前执行 compare：eq_M_node', '场景 5 action 2 在对象出现前执行 verify：eq_M_node', 'transform 场景序列必须包含会改变非文字图形状态的结构化动作', 'transform 场景只有对象罗列，没有对已出现对象执行可见的因果变化']
+2026-08-22 18:37:12,708 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=13740 temperature=0.25 extra_body=yes
+2026-08-22 18:39:02,145 | math_tutor.infrastructure.agent.tools.visual_plan | INFO | visual_plan draft 2 contract errors: ['场景 4 action 1 在对象出现前执行 highlight：eq_M_node', '场景 4 action 2 在对象出现前执行 highlight：eq_M_node', '场景 4 action 3 在对象出现前执行 compare：eq_M_node', 'transform 场景序列必须包含会改变非文字图形状态的结构化动作', 'transform 场景只有对象罗列，没有对已出现对象执行可见的因果变化']
+2026-08-22 18:39:02,147 | math_tutor.infrastructure.agent.figure_transcription | INFO | figure choreography: 剥掉模型自由画的几何对象 ['verified_value_0']
+2026-08-22 18:39:05,100 | math_tutor.infrastructure.manim.executor | INFO | Executing: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/.venv/bin/python -m manim -qm --media_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media /var/folders/24/6tl7zj713gg8mk4vz8_7gdfr0000gn/T/manim_script_a4d6984944b6f64bf0e22133.py SolutionScene
+2026-08-22 18:39:11,098 | math_tutor.infrastructure.manim.executor | WARNING | Could not parse video path from logs, falling back to search
+2026-08-22 18:39:11,200 | math_tutor.infrastructure.manim.executor | INFO | Video generated: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media/videos/manim_script_a4d6984944b6f64bf0e22133/720p30/SolutionScene.mp4
+2026-08-22 18:39:11,738 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=8770 temperature=0.00 extra_body=yes
+2026-08-22 18:43:31,155 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=18864 temperature=0.25 extra_body=yes
+2026-08-22 18:44:58,257 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=11587 temperature=0.00 extra_body=yes
+2026-08-22 18:51:13,862 | math_tutor.infrastructure.llm.openai_provider | INFO | Promoting truncated reasoning (39661 chars) to text channel: model ran out of tokens before closing <think>
+2026-08-22 18:51:13,864 | math_tutor.infrastructure.llm.openai_provider | INFO | thinking ate the budget (reasoning≈19862 tok, finish=length); retrying with max_tokens=16096 temperature=0.3
+2026-08-22 18:51:13,864 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=16096 temperature=0.30 extra_body=yes
+2026-08-22 18:57:15,015 | math_tutor.infrastructure.agent.figure_transcription | WARNING | figure choreography: 指了不存在的字母，丢弃 ['beat1:label 是算式不上图:5+p1', 'beat1:label 是算式不上图:8+p4', 'beat2:label 是算式不上图:7+p1', 'beat2:label 是算式不上图:s+p4']
+2026-08-22 18:57:18,359 | math_tutor.infrastructure.manim.executor | INFO | Executing: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/.venv/bin/python -m manim -qm --media_dir=/Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media /var/folders/24/6tl7zj713gg8mk4vz8_7gdfr0000gn/T/manim_script_fbb429fbd7d84efbb3862180.py SolutionScene
+2026-08-22 18:57:30,229 | math_tutor.infrastructure.manim.executor | WARNING | Could not parse video path from logs, falling back to search
+2026-08-22 18:57:30,329 | math_tutor.infrastructure.manim.executor | INFO | Video generated: /Users/ailab/Documents/codes/math-learning-tool/services/video-engine/media/videos/manim_script_fbb429fbd7d84efbb3862180/720p30/SolutionScene.mp4
+2026-08-22 18:57:31,055 | math_tutor.infrastructure.llm.openai_provider | INFO | LLM stream: model=qwen/qwen3.8-27b msgs=1 tools=0 max_tokens=15072 temperature=0.00 extra_body=yes

@@ -519,6 +519,11 @@ class VerifySolutionTool(ITool):
             logger.warning("verification degraded after format exhaustion: %s", message)
             ctx.state["solution_verified"] = True
             ctx.state["verification_downgraded"] = f"{reason}（{message[:200]}）"
+            # 无确定性证据的硬放行 = 答案未经独立核实：会话只配"保底"，答案不得入库判卷。
+            # 实测漏洞：错答案 4 走这条路拿到了 good 成片（2026-08-22 重复性基准 #2）
+            if not solve_backed:
+                ctx.state["verification_untrusted"] = True
+                ctx.state["quality_degraded"] = True
             ctx.state.pop("last_verify_failure", None)
             self._clear_format_failure(ctx)
             return ToolResult(

@@ -480,6 +480,12 @@ class OpenAILLMProvider(ILLMProvider):
         for bump in (max(4096, observed * 3), self._REASONING_HEADROOM_CAP):
             if not (last.finish_reason == "length" and (last.reasoning or "").strip()):
                 break
+            if prev_est > 8000:
+                # 思考已经这么长还被截断，加注从未救活过（实测三战三败、每败 8~11 分钟）
+                logger.warning(
+                    "runaway thinking (≈%d tok truncated); skipping budget retries", prev_est
+                )
+                break
             kwargs["max_tokens"] = requested + min(bump, self._REASONING_HEADROOM_CAP)
             kwargs["temperature"] = max(0.3, float(kwargs.get("temperature") or 0.0))
             logger.info(
