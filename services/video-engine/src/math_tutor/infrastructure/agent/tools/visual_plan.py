@@ -7007,6 +7007,29 @@ def _geometrically_false_object_ids(plan: dict[str, Any]) -> set[str]:
     return {object_id for object_id, _ in _geometric_truth_findings(plan)}
 
 
+def _derivation_pacing_errors(plan: dict[str, Any], ctx: ToolContext) -> list[str]:
+    """推导步数决定拍数下限：一步一拍分开演，不许把多步压进一拍。
+
+    实机对照：同一道题 7 拍的混搭版明显比 4 拍版清楚——4 拍版把「两边拆开+
+    抵消」压进了一条复合算式。只挂在模型自由计划的起草/重试点；salvage 与
+    内部构建器的极简叙事不受此约束。
+    """
+    steps = [
+        step for step in (ctx.state.get("solution_steps") or []) if isinstance(step, dict)
+    ]
+    if not steps:
+        return []
+    required = min(2 + len(steps), 6)
+    scenes = [s for s in (plan.get("scenes") or []) if isinstance(s, dict)]
+    if scenes and len(scenes) < required:
+        return [
+            f"推导有 {len(steps)} 步，但只有 {len(scenes)} 拍：至少要 {required} 拍"
+            "（题目卡 + 每步推导一拍 + 验证）。一步一拍分开演，"
+            "每拍一条短算式，不要把多步压进一条复合式"
+        ]
+    return []
+
+
 def _validate_plan(
     plan: dict[str, Any],
     grade: str,
@@ -7148,6 +7171,20 @@ def _validate_plan(
                 )
             if _false_literal_equality(formula_text):
                 errors.append(f"场景 {index} formula 含计算错误的等式：{formula_text}")
+            # 一条 formula 只做一次改写：两边同时拆开的复合式把多步压进一拍，
+            # 画面跟不上（实机：4 拍片一条复合式装下拆分+抵消，观感明显不如分拍版）
+            if model_authored:
+                head, _, tail = formula_text.partition("=")
+                if "(" in head and "(" in tail:
+                    errors.append(
+                        f"场景 {index} formula 是两边同时改写的复合式：拆成连续两拍，"
+                        f"每拍只改写等式一侧：{formula_text[:44]}"
+                    )
+                elif len(formula_text) > 50:
+                    errors.append(
+                        f"场景 {index} formula 超过 50 字符：把多步改写拆成连续多拍，"
+                        "每拍一条短算式"
+                    )
         elif model_authored and _DIGIT_EQUALITY_RE.search(
             str(scene.get("teaching_line") or "")
         ):
@@ -7858,6 +7895,7 @@ class VisualPlanTool(ITool):
         if transcription:
             _sanitize_figure_plan_actions(plan)
         errors = _validate_plan(plan, grade)
+        errors.extend(_derivation_pacing_errors(plan, ctx))
         if transcription:
             errors.extend(figure_ops_violations(plan))
             errors = filter_figure_plan_errors(errors, plan)
@@ -7882,6 +7920,7 @@ class VisualPlanTool(ITool):
                     if transcription:
                         _sanitize_figure_plan_actions(retry_plan)
                     retry_errors = _validate_plan(retry_plan, grade)
+                    retry_errors.extend(_derivation_pacing_errors(retry_plan, ctx))
                     if transcription:
                         retry_errors.extend(figure_ops_violations(retry_plan))
                         retry_errors = filter_figure_plan_errors(retry_errors, retry_plan)

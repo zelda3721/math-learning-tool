@@ -123,6 +123,34 @@ def test_expression_on_both_sides_is_not_a_false_equality() -> None:
     assert _errors_containing(_validate_plan(plan, "elementary_upper"), "计算错误")
 
 
+def test_compound_both_side_rewrite_is_rejected() -> None:
+    # 实机：4 拍片把「两边拆开+抵消」压进一条复合式，观感明显不如分拍版
+    plan = _plan()
+    plan["scenes"][2]["formula"] = "(5 + a) + (8 + b) = (a + 7) + (b + 6)"
+    assert _errors_containing(_validate_plan(plan, "elementary_upper"), "复合式")
+
+
+def test_overlong_formula_is_rejected() -> None:
+    plan = _plan()
+    plan["scenes"][2]["formula"] = "阴影 = 30 − 5 − 8 − 7 − 4 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 = 6"
+    assert _errors_containing(_validate_plan(plan, "elementary_upper"), "50 字符")
+
+
+def test_derivation_pacing_requires_one_beat_per_step() -> None:
+    from types import SimpleNamespace
+
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _derivation_pacing_errors,
+    )
+
+    plan = _plan()  # 3 拍
+    ctx = SimpleNamespace(state={"solution_steps": [{}, {}, {}]})  # 3 步 → 至少 5 拍
+    assert _derivation_pacing_errors(plan, ctx)
+    ctx_short = SimpleNamespace(state={"solution_steps": [{}]})  # 1 步 → 3 拍够
+    assert not _derivation_pacing_errors(plan, ctx_short)
+    assert not _derivation_pacing_errors(plan, SimpleNamespace(state={}))
+
+
 def test_placeholder_text_detector() -> None:
     assert _placeholder_formula_text("算式")
     assert _placeholder_formula_text("等式(II)")
