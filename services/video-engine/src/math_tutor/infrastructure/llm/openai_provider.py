@@ -496,12 +496,29 @@ class OpenAILLMProvider(ILLMProvider):
             )
             if last.finish_reason == "length" and new_est >= prev_est:
                 logger.warning(
-                    "thinking diverges (%d → %d tok), giving up on budget retries",
+                    "thinking diverges (%d → %d tok), budget retries won't help",
                     prev_est,
                     new_est,
                 )
                 break
             prev_est = new_est
+        # 末级护栏：预算救不了的循环思考（发散/两跳后仍截断），对**这一次调用**
+        # 请求最低推理力度重来。思考仍是全链路默认开启的——这里只在模型被证实
+        # 原地打转时救场；不支持该参数的端点会忽略它或报错，报错就如实返回上一结果
+        if last.finish_reason == "length" and (last.reasoning or "").strip():
+            clamped = dict(kwargs)
+            clamped["max_tokens"] = requested + 2048
+            clamped["extra_body"] = {**(kwargs.get("extra_body") or {}), "reasoning_effort": "none"}
+            logger.info(
+                "looping thinking; final attempt with reasoning_effort=none max_tokens=%d",
+                clamped["max_tokens"],
+            )
+            try:
+                final = await self._collect(messages, tools, **clamped)
+                if (final.text or "").strip() and final.finish_reason != "error":
+                    return final
+            except Exception:
+                logger.exception("reasoning_effort clamp attempt failed; returning previous result")
         return last
 
 

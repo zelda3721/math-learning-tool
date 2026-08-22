@@ -17,6 +17,8 @@ class _Scripted(OpenAILLMProvider):
 
     async def chat_stream(self, messages, tools=None, **kwargs):  # type: ignore[override]
         self.calls.append(int(kwargs.get("max_tokens") or 0))
+        self.extras = getattr(self, "extras", [])
+        self.extras.append(dict(kwargs.get("extra_body") or {}))
         yield self._script.pop(0)
 
 
@@ -38,15 +40,28 @@ def test_思考吃掉预算_指数加注最多两跳():
     assert len(p.calls) == 3                  # 之后不再试
 
 
-def test_思考发散就停止加注_不再喂token():
+def test_思考发散_末级降低推理力度救场():
     p = _Scripted([
         _done("length", "", reasoning="转" * 3000),      # 截断
         _done("length", "", reasoning="转" * 9000),      # 加注后思考反而更长 = 原地打转
-        _done("stop", "不该到这里"),
+        _done("stop", "答案：6"),                        # 降低推理力度后正常作答
     ])
     out = asyncio.run(p.chat_complete([], max_tokens=1024))
-    assert len(p.calls) == 2                  # 发散后立即停手
-    assert out.finish_reason == "length"      # 如实返回截断结果（流层已把思考尾提升为 text）
+    assert len(p.calls) == 3
+    assert p.extras[2].get("reasoning_effort") == "none"   # 只有末级带这个参数
+    assert "reasoning_effort" not in p.extras[0] and "reasoning_effort" not in p.extras[1]
+    assert p.calls[2] == 1024 + 2048
+    assert out.text == "答案：6"
+
+
+def test_末级救场也失败_如实返回截断结果():
+    p = _Scripted([
+        _done("length", "", reasoning="转" * 3000),
+        _done("length", "", reasoning="转" * 9000),
+        _done("length", "", reasoning="转" * 9000),      # 降低力度也没救回来
+    ])
+    out = asyncio.run(p.chat_complete([], max_tokens=1024))
+    assert out.finish_reason == "length"      # 流层已把思考尾提升为 text，交给下游兜底
 
 
 def test_思考开销进EMA_下一次调用自动加头寸():
