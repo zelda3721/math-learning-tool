@@ -6015,18 +6015,21 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
         # 动作改指底图——真正的画面在 figure_ops 里（实机第 5 轮：四个 relation_node
         # 幻影让一份两对 compare_equal 的好计划整份降级）
         created: set[str] = set()
-        for scene in plan.get("scenes") or []:
+        first_create_scene: dict[str, int] = {}
+        for scene_index, scene in enumerate(plan.get("scenes") or []):
             if not isinstance(scene, dict):
                 continue
             for action in scene.get("actions") or []:
                 if not isinstance(action, dict):
                     continue
                 if str(action.get("op")) == "create":
-                    created.update(str(t) for t in (action.get("targets") or []))
-                    if action.get("target"):
-                        created.add(str(action["target"]))
+                    for t in [*(action.get("targets") or []), action.get("target")]:
+                        if t:
+                            created.add(str(t))
+                            first_create_scene.setdefault(str(t), scene_index)
                 if action.get("result"):
                     created.add(str(action["result"]))
+                    first_create_scene.setdefault(str(action["result"]), scene_index)
         for o in objects:
             if not isinstance(o, dict):
                 continue
@@ -6093,21 +6096,30 @@ def _sanitize_figure_plan_actions(plan: dict[str, Any]) -> None:
                     "meaning": "讲义原图出场",
                 },
             )
-    for scene in plan.get("scenes") or []:
+    for scene_index, scene in enumerate(plan.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
         kept: list[dict[str, Any]] = []
         for action in scene.get("actions") or []:
             if not isinstance(action, dict):
                 continue
-            # 指向被删对象（多余 figure / 幻影）的动作改指底图（与 inject 的做法一致）
-            if extra_figures:
+            # 指向被删对象（多余 figure / 幻影）的动作改指底图（与 inject 的做法一致）。
+            # "晚 create 早引用"同罪：对象在它的 create 拍**之前**被点名（实机 qwen3.8
+            # 把四个 region 的 create 写在末拍、第一拍就 highlight）——早引用改指底图，
+            # 真画面本来就在 figure_ops 里
+            def _early(t: Any) -> bool:
+                return (
+                    str(action.get("op")) != "create"
+                    and first_create_scene.get(str(t), -1) > scene_index
+                )
+
+            if extra_figures or first_create_scene:
                 retargeted = [
-                    "original_figure" if str(t) in extra_figures else t
+                    "original_figure" if (str(t) in extra_figures or _early(t)) else t
                     for t in (action.get("targets") or [])
                 ]
                 action["targets"] = list(dict.fromkeys(retargeted))
-                if str(action.get("target")) in extra_figures:
+                if str(action.get("target")) in extra_figures or _early(action.get("target")):
                     action["target"] = "original_figure"
             targets = [t for t in (action.get("targets") or []) if str(t) in declared]
             single = action.get("target")
