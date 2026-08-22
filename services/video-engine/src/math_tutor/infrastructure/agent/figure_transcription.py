@@ -517,6 +517,16 @@ def filter_figure_plan_errors(errors: list[str], plan: dict[str, Any]) -> list[s
     ]
     if transforms and all(s.get("figure_ops") for s in transforms):
         out = [e for e in out if "transform 场景" not in e]
+    # 「verify 场景的新数值结论要 measure/compare 证据」：带图计划的核对证据就是
+    # 该拍的 figure_ops（在图上把结论那块区域标出数值）——verify 拍都有 figure_ops
+    # 时豁免（实机 qwen3.8：末拍 create 几个 relation_node 标签 + 图上标 6，被误拦）
+    verifies = [
+        s
+        for s in plan.get("scenes") or []
+        if isinstance(s, dict) and str(s.get("role")) == "verify"
+    ]
+    if verifies and all(s.get("figure_ops") for s in verifies):
+        out = [e for e in out if "verify 场景的新数值结论" not in e]
     return out
 
 

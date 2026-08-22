@@ -880,3 +880,43 @@ def test_底图create写在末拍_消毒后挪到首拍开头():
     assert [a["op"] for a in plan["scenes"][1]["actions"]] == ["verify"]
     errors = _validate_plan(plan, "elementary_upper")
     assert not [e for e in errors if "出现前" in e], errors
+
+
+def test_晚create早引用_改指底图_末拍标签核对由figure_ops豁免():
+    """实机 qwen3.8：四个 region 的 create 写在末拍、第一拍就 highlight；
+    末拍 create 标签 + verify 又被"新数值结论缺少 measure/compare"误拦。"""
+    plan = {
+        "visual_thesis": "对 E、M 各用一次上下三角形面积和等于一半",
+        "essence_rationale": "两个等式相减，公共块消去，因此阴影 = 5+8-7 = 6",
+        "symbol_ledger": ["原图 = 底图"],
+        "visual_objects": [
+            {"id": "original_figure", "primitive": "figure", "params": {}, "meaning": "底图"},
+            {"id": "region_MNC", "primitive": "relation_node", "label": "6", "meaning": "阴影"},
+            {"id": "eq_node", "primitive": "relation_node", "label": "5+8=7+6", "meaning": "等式"},
+        ],
+        "scenes": [
+            {"role": "setup", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "看图", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "看清已知", "teaching_line": "已知三块面积",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["original_figure"], "meaning": "出场"},
+                         {"op": "highlight", "targets": ["region_MNC"], "meaning": "早引用"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["A", "B", "D"], "label": "5"}]},
+            {"role": "verify", "anchor_zone": "center", "key_objects": "original_figure",
+             "action": "核对", "invariant": "面积守恒", "attention_target": "阴影",
+             "exit_condition": "得出6", "teaching_line": "阴影是 6",
+             "duration_s": 5,
+             "actions": [{"op": "create", "targets": ["region_MNC", "eq_node"], "meaning": "标签"},
+                         {"op": "verify", "targets": ["region_MNC", "eq_node"], "meaning": "核对"}],
+             "figure_ops": [{"op": "highlight_region", "points": ["B", "C", "D"], "label": "6"}]},
+        ],
+    }
+    _sanitize_figure_plan_actions(plan)
+    assert plan["scenes"][0]["actions"][1]["targets"] == ["original_figure"]   # 早引用改指底图
+    errors = _validate_plan(plan, "elementary_upper")
+    from math_tutor.infrastructure.agent.figure_transcription import (
+        figure_ops_violations,
+        filter_figure_plan_errors,
+    )
+    final = filter_figure_plan_errors(errors + figure_ops_violations(plan), plan)
+    assert not [e for e in final if "出现前" in e or "新数值结论" in e], final
