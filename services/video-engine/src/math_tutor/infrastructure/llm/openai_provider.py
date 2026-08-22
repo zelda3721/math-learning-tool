@@ -471,22 +471,37 @@ class OpenAILLMProvider(ILLMProvider):
         prev = float(getattr(self, "_reasoning_overhead_ema", 0.0))
         self._reasoning_overhead_ema = prev * 0.5 + observed * 0.5
         # 截断的思考只给出真实开销的**下界**：首跳按估算×3（至少 4096），
-        # 还不够就直接顶到上限——最多两跳，之后 EMA 会让后续调用免遭冷启动
+        # 还不够就直接顶到上限——最多两跳，之后 EMA 会让后续调用免遭冷启动。
+        # 两道护栏（实机：temp 0.0 的审计调用思考 1.6 万 token 截断，加注后涨到
+        # 2.7 万还截断——那不是预算不够，是模型在原地打转）：
+        # ① 重试把温度抬到 ≥0.3，打破贪心解码的复读循环；
+        # ② 加注后思考不降反升 = 发散，立即停手，别再喂 token
+        prev_est = self._estimate_tokens(last.reasoning or "")
         for bump in (max(4096, observed * 3), self._REASONING_HEADROOM_CAP):
             if not (last.finish_reason == "length" and (last.reasoning or "").strip()):
                 break
             kwargs["max_tokens"] = requested + min(bump, self._REASONING_HEADROOM_CAP)
+            kwargs["temperature"] = max(0.3, float(kwargs.get("temperature") or 0.0))
             logger.info(
                 "thinking ate the budget (reasoning≈%d tok, finish=length); "
-                "retrying with max_tokens=%d",
-                self._estimate_tokens(last.reasoning or ""),
+                "retrying with max_tokens=%d temperature=%.1f",
+                prev_est,
                 kwargs["max_tokens"],
+                kwargs["temperature"],
             )
             last = await self._collect(messages, tools, **kwargs)
+            new_est = self._estimate_tokens(last.reasoning or "")
             self._reasoning_overhead_ema = (
-                self._reasoning_overhead_ema * 0.5
-                + self._estimate_tokens(last.reasoning or "") * 0.5
+                self._reasoning_overhead_ema * 0.5 + new_est * 0.5
             )
+            if last.finish_reason == "length" and new_est >= prev_est:
+                logger.warning(
+                    "thinking diverges (%d → %d tok), giving up on budget retries",
+                    prev_est,
+                    new_est,
+                )
+                break
+            prev_est = new_est
         return last
 
 
