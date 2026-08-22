@@ -123,6 +123,33 @@ def test_expression_on_both_sides_is_not_a_false_equality() -> None:
     assert _errors_containing(_validate_plan(plan, "elementary_upper"), "计算错误")
 
 
+def test_function_notation_is_not_a_compound_rewrite() -> None:
+    # 实机误杀：S(...) 面积记号两边出现被当成复合改写，正确首稿被否导致降级
+    plan = _plan()
+    for formula in (
+        "S(ABE) + S(CDE) = 1/2 S(ABCD)",
+        "S(ABF) + 5 + S(DCN) + 8 = S(ABM) + S(CDM)",
+    ):
+        plan["scenes"][2]["formula"] = formula
+        errors = _validate_plan(plan, "elementary_upper")
+        assert not _errors_containing(errors, "复合式"), formula
+        assert not _errors_containing(errors, "计算错误"), formula
+
+
+def test_symbolic_sides_are_not_machine_checked() -> None:
+    # 实机误杀：右边截断成 "7"（5+8=7+S_阴影）、左边空格切片（S_ABF + 5 = 12）
+    plan = _plan()
+    for formula in (
+        "5 + 8 = 7 + S_阴影",
+        "S_ABF + 5 = 12",
+        "5 + 8 = 7 + S_阴影 => S_阴影 = 6",
+    ):
+        plan["scenes"][2]["formula"] = formula
+        assert not _errors_containing(
+            _validate_plan(plan, "elementary_upper"), "计算错误"
+        ), formula
+
+
 def test_compound_both_side_rewrite_is_rejected() -> None:
     # 实机：4 拍片把「两边拆开+抵消」压进一条复合式，观感明显不如分拍版
     plan = _plan()

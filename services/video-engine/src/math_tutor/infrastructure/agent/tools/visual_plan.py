@@ -459,6 +459,21 @@ def _false_literal_equality(text: str) -> bool:
         left_expression = match.group("left").strip()
         if not re.search(r"\d", left_expression):
             continue
+        # 边界护栏：左边越过空格后若是 ASCII 标识符字符或运算符，说明匹配到的
+        # 是符号表达式的数字切片（"S_ABF + 5 = 12" 的 "5"）；右边若被运算符或
+        # 紧贴的标识符延续，说明右侧表达式被截断（"5 + 8 = 7 + S_阴影" 截成
+        # "7"）。中文叙述（"计划 3*4+5=20"）和后续单词（"20 expected"）不算延续。
+        before = normalized[: match.start("left")].rstrip()
+        if before and (
+            before[-1] in "_)+-*/"
+            or (before[-1].isascii() and before[-1].isalnum())
+        ):
+            continue
+        tail = normalized[match.end("right"):]
+        if tail and (tail[0].isalnum() or tail[0] == "_"):
+            continue
+        if tail.lstrip()[:1] in {"+", "-", "*", "/"}:
+            continue
         try:
             import ast as _ast
 
@@ -498,6 +513,8 @@ def _false_literal_equality(text: str) -> bool:
 
 _FORMULA_PLACEHOLDER_WORDS = {"算式", "公式", "式子", "等式", "formula", "equation"}
 _DIGIT_EQUALITY_RE = re.compile(r"\d\s*[=＝]|[=＝]\s*\d")
+# 分组括号：前面不是标识符字符的 "("。`S(ABE)`/`f(x)` 是函数式记号，不算分组
+_GROUPING_PAREN_RE = re.compile(r"(?<![0-9A-Za-z_])\(")
 
 
 def _placeholder_formula_text(value: str) -> bool:
@@ -7175,7 +7192,9 @@ def _validate_plan(
             # 画面跟不上（实机：4 拍片一条复合式装下拆分+抵消，观感明显不如分拍版）
             if model_authored:
                 head, _, tail = formula_text.partition("=")
-                if "(" in head and "(" in tail:
+                # 只认分组括号：`(5 + a) + (8 + b)` 是复合改写，`S(ABE)` 这类
+                # 前面紧跟标识符的是函数式记号（实机：面积记号被误杀导致降级）
+                if _GROUPING_PAREN_RE.search(head) and _GROUPING_PAREN_RE.search(tail):
                     errors.append(
                         f"场景 {index} formula 是两边同时改写的复合式：拆成连续两拍，"
                         f"每拍只改写等式一侧：{formula_text[:44]}"
