@@ -300,6 +300,10 @@ def _fallback_visual_ir(raw_plan: Any) -> dict[str, Any] | None:
                         width=30,
                         max_lines=2,
                     ),
+                    # 板书带内容：真算式单行渲染，fit 负责缩放，不做换行
+                    "formula": " ".join(
+                        _plain_fallback_text(raw_scene.get("formula")).split()
+                    )[:80],
                     "duration_s": duration_s,
                     "actions": actions,
                 }
@@ -1256,11 +1260,12 @@ class SolutionScene(Scene):
         rows = math.ceil(count / columns)
         if self.coordinate_ids:
             # 几何图形以原点为中心占据画面中部（geometry_point 的映射）；
-            # 关系框等自由对象沉到底部一条带——压在图上就是"框糊脸"（实机踩过）
+            # 关系框等自由对象走图形与板书带之间的一条窄带——沉到 2.95 会压进
+            # 字幕/板书带（实机：红框「算式」卡糊在字幕上），压在图上是"框糊脸"
             x_gap = 3.9 if columns > 1 else 0
             return [
                 RIGHT * ((index % columns) - (columns - 1) / 2) * x_gap
-                + DOWN * (2.95 - (index // columns) * 1.0)
+                + DOWN * (2.28 - (index // columns) * 1.0)
                 for index in range(count)
             ]
         x_gap = 3.7 if columns > 1 else 0
@@ -1282,7 +1287,8 @@ class SolutionScene(Scene):
         animations = []
         for object_id, position in zip(free_ids, positions):
             item = self.objects[object_id]
-            self.fit(item)
+            # 几何模式下自由对象挤在窄带里：限高，别越界进板书带或图形
+            self.fit(item, 3.4, 0.72 if self.coordinate_ids else 2.5)
             if object_id in visible:
                 animations.append(item.animate.move_to(position))
             else:
@@ -1560,6 +1566,22 @@ class SolutionScene(Scene):
             self.play(FadeOut(old_caption), run_time=0.22)
             self.play(FadeIn(caption), run_time=0.3)
         return caption
+
+    def show_formula(self, old_formula, text):
+        # 板书带：真算式的唯一渲染位置，位于字幕带正上方的固定条带。
+        # 空文本 = 本拍没有新等量关系，上一条板书留在画面上继续供核对。
+        value = str(text or "").strip()
+        if not value:
+            return old_formula
+        formula = Text(value, font_size=30, color=YELLOW)
+        self.fit(formula, 11.0, 0.5)
+        formula.move_to(DOWN * 2.98)
+        if old_formula is None:
+            self.play(FadeIn(formula), run_time=0.4)
+        else:
+            self.play(FadeOut(old_formula), run_time=0.22)
+            self.play(FadeIn(formula), run_time=0.3)
+        return formula
 
     def execute_action(self, action, visible):
         op = action["op"]
@@ -2738,10 +2760,12 @@ class SolutionScene(Scene):
             self.play(FadeIn(self.geometry_background), run_time=0.6)
         visible = []
         caption = None
+        formula = None
         self.beat_manifest = []
         for beat_index, scene in enumerate(VISUAL_SCENES):
             beat_start_time = float(self.renderer.time)
             caption = self.show_caption(caption, scene.get("teaching_line"))
+            formula = self.show_formula(formula, scene.get("formula"))
             actions = scene.get("actions", [])
             for index, action in enumerate(actions):
                 next_action = actions[index + 1] if index + 1 < len(actions) else {}
@@ -2768,8 +2792,9 @@ class SolutionScene(Scene):
             self.wait(min(8.0, max(0.7, planned - elapsed)))
             self.record_beat(beat_index, scene, beat_start_time)
 
-        if caption is not None:
-            self.play(FadeOut(caption))
+        closing = [item for item in (caption, formula) if item is not None]
+        if closing:
+            self.play(*[FadeOut(item) for item in closing])
         self.emit_beat_manifest()
         answer = self.fit(Text(ANSWER_TEXT, font_size=34, color=GREEN), 10.6, 1.0)
         answer.to_edge(DOWN, buff=0.3)

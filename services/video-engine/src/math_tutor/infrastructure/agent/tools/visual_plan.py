@@ -257,6 +257,9 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                             "attention_target": {"type": "string"},
                             "exit_condition": {"type": "string"},
                             "teaching_line": {"type": "string"},
+                            # 板书带的唯一来源：真算式（数值代入），不是文字描述。
+                            # 必填 key、允许 null：约束解码下可选 key 根本不会被说出来
+                            "formula": {"type": ["string", "null"]},
                             "duration_s": {"type": "number"},
                             "actions": {
                                 "type": "array",
@@ -354,6 +357,7 @@ _VISUAL_PLAN_RESPONSE_FORMAT: dict[str, Any] = {
                             "attention_target",
                             "exit_condition",
                             "teaching_line",
+                            "formula",
                             "duration_s",
                             "actions",
                             "figure_ops",
@@ -484,6 +488,24 @@ def _false_literal_equality(text: str) -> bool:
         if actual != expected:
             return True
     return False
+
+
+_FORMULA_PLACEHOLDER_WORDS = {"算式", "公式", "式子", "等式", "formula", "equation"}
+_DIGIT_EQUALITY_RE = re.compile(r"\d\s*[=＝]|[=＝]\s*\d")
+
+
+def _placeholder_formula_text(value: str) -> bool:
+    """「算式」「等式(II)」这类只有名目没有内容的文本。
+
+    实机踩过：导演想展示等式，却创建了 label 为「算式」的文字卡片压在字幕带上，
+    真正的等式反而散落在 teaching_line 里。占位词后面若跟着运算符或数字则是真内容。
+    """
+    text = value.strip()
+    head = re.sub(r"[\s：:（(].*$", "", text)
+    if head not in _FORMULA_PLACEHOLDER_WORDS:
+        return False
+    rest = text[len(head):]
+    return not re.search(r"[=＝+×÷*/\-−\d]", rest)
 
 
 def _machine_checkable_blocking_issue(issue: str) -> bool:
@@ -797,6 +819,7 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 "teaching_line",
             ):
                 scene[field] = _strip_decorations(scene.get(field) or "")
+            scene["formula"] = _strip_decorations(scene.get("formula") or "")
             scene["role"] = scene["role"].lower()
             scene["anchor_zone"] = _clean_zone(scene.get("anchor_zone") or "")
             # Preserve semantic safety without spending another LLM call on
@@ -1248,6 +1271,7 @@ def _md_to_plan(section: str) -> dict[str, Any]:
                 "attention_target": values.get("attention_target") or "",
                 "exit_condition": values.get("exit_condition") or "",
                 "teaching_line": values.get("teaching_line") or "",
+                "formula": values.get("formula") or "",
                 "duration_s": values.get("duration_s") or "",
             }
         )
@@ -1653,6 +1677,10 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
             recount_total = None
 
     final_id = alias[answer_value]
+    equation_lines = [
+        f"{number_label(left)} {operator} {number_label(right)} = {number_label(output)}"
+        for left, operator, right, output, _ in equations
+    ]
     return {
         "grounding_source": "verified_solution_arithmetic",
         "visual_thesis": "让已验证运算链中的每个数量状态连续变化并最终落到答案",
@@ -1675,6 +1703,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "attention_target": "初始数量及操作量",
                 "exit_condition": "初始关系清楚可见",
                 "teaching_line": "先把已知数量放到同一个画面中。",
+                "formula": "",
                 "duration_s": 4,
                 "actions": [
                     {
@@ -1694,6 +1723,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "attention_target": "数量在每一步如何改变",
                 "exit_condition": "最终答案数量由连续变化得到",
                 "teaching_line": "依次执行相同的运算，观察数量怎样到达答案。",
+                "formula": "；".join(equation_lines[:3]),
                 "duration_s": max(6, min(16, 4 * len(equations))),
                 "actions": actions,
             },
@@ -1706,6 +1736,7 @@ def _verified_arithmetic_candidate(ctx: ToolContext) -> dict[str, Any] | None:
                 "attention_target": "各组计数与合计算式",
                 "exit_condition": "答案对象清楚可见并可计数",
                 "teaching_line": f"最后核对：{answer_text}",
+                "formula": equation_lines[-1] if equation_lines else "",
                 "duration_s": 4,
                 "actions": [
                     (
@@ -5928,6 +5959,10 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 "attention_target": "来源集合中实际发生变化并产生结果的单位",
                 "exit_condition": "决定性图形关系完整可见",
                 "teaching_line": verified_line,
+                # 已验证步骤本身可能就是等式：同时落进板书带，字幕规则也因此放行
+                "formula": (
+                    verified_line if _DIGIT_EQUALITY_RE.search(verified_line) else ""
+                ),
                 "duration_s": 7,
                 "actions": transform_actions,
             },
@@ -5940,6 +5975,11 @@ def build_safe_visual_plan(candidate: Any, ctx: ToolContext) -> dict[str, Any] |
                 "attention_target": "结果对象与原条件的共同满足关系",
                 "exit_condition": "学生能从图形直接定位并核对结论",
                 "teaching_line": f"最后在图形中核对：{answer}"[:100],
+                "formula": (
+                    str(answer)[:80]
+                    if "=" in str(answer)
+                    else (f"答案 = {answer}"[:80] if re.search(r"\d", str(answer)) else "")
+                ),
                 "duration_s": 5,
                 "actions": [
                     *(
@@ -6971,6 +7011,13 @@ def _validate_plan(
     """Validate a universal scene contract, never a problem-type taxonomy."""
     del grade, previous_pattern, is_replan
     errors: list[str] = []
+    # 内部确定性构建器（盖 grounding_source / grounded_from_math_execution 戳）
+    # 的等式已独立验证，且其 teaching_line 早于板书带契约；formula 契约只对
+    # 模型自由计划强制。
+    model_authored = not (
+        str(plan.get("grounding_source") or "").strip()
+        or plan.get("grounded_from_math_execution")
+    )
     # Geometric truth ranks with the structural contract, not below it: a plan
     # whose drawing contradicts its own function is a defect of the same order
     # as a missing scene, and must take the same repair/degrade path instead of
@@ -7013,6 +7060,12 @@ def _validate_plan(
             )
         if not meaning:
             errors.append(f"visual_objects[{index}].meaning 为空，图形没有稳定数学含义")
+        label_text = str(item.get("label") or "").strip()
+        if model_authored and label_text and _placeholder_formula_text(label_text):
+            errors.append(
+                f"visual_objects[{index}].label 是占位词「{label_text}」："
+                "真算式写进对应场景的 formula 字段（板书带渲染），不要创建文字卡片"
+            )
         if primitive == "function_curve":
             params = item.get("params") or {}
             if not str(params.get("expression") or "").strip():
@@ -7081,6 +7134,21 @@ def _validate_plan(
         ):
             if not (scene.get(field) or "").strip():
                 errors.append(f"场景 {index} {field} 为空")
+        formula_text = str(scene.get("formula") or "").strip()
+        if formula_text:
+            if _placeholder_formula_text(formula_text):
+                errors.append(
+                    f"场景 {index} formula 只有占位词「{formula_text}」，必须写出完整真算式"
+                )
+            if _false_literal_equality(formula_text):
+                errors.append(f"场景 {index} formula 含计算错误的等式：{formula_text}")
+        elif model_authored and _DIGIT_EQUALITY_RE.search(
+            str(scene.get("teaching_line") or "")
+        ):
+            errors.append(
+                f"场景 {index} 把算式写进了 teaching_line 却没填 formula："
+                "真算式放到 formula 字段（板书带专位渲染），teaching_line 只负责指路"
+            )
         actions = scene.get("actions") or []
         if not actions:
             errors.append(f"场景 {index} actions 为空，只有文字导演描述而无可执行图形动作")
