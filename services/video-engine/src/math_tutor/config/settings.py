@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     llm_reasoner_api_base: str = ""
     llm_reasoner_api_key: str = ""
     llm_reasoner_model: str = ""
+    # verify 不通过后的重解升级模型（同 reasoner 端点；要求多模态）。留空 = 不升级
+    llm_reasoner_escalation_model: str = ""
     llm_fast_api_base: str = ""
     llm_fast_api_key: str = ""
     llm_fast_model: str = ""
@@ -206,6 +208,10 @@ class Settings(BaseSettings):
     @property
     def reasoner_enabled(self) -> bool:
         return bool(self.llm_reasoner_model.strip())
+
+    @property
+    def reasoner_escalation_enabled(self) -> bool:
+        return bool(self.llm_reasoner_escalation_model.strip())
 
     @property
     @property

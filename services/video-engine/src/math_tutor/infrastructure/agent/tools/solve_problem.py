@@ -441,11 +441,26 @@ def _invalid_literal_equalities(value: Any) -> list[str]:
 
 class SolveProblemTool(ITool):
     def __init__(
-        self, llm: ILLMProvider, prompts: PromptLibrary, vision_llm: ILLMProvider | None = None
+        self,
+        llm: ILLMProvider,
+        prompts: PromptLibrary,
+        vision_llm: ILLMProvider | None = None,
+        escalation_llm: ILLMProvider | None = None,
     ) -> None:
         self._llm = llm
         self._vision_llm = vision_llm or llm
+        self._escalation_llm = escalation_llm
         self._prompts = prompts
+
+    def _pick_llms(self, ctx: ToolContext) -> tuple[Any, Any, bool]:
+        """升级梯：首解用常规 reasoner（快）；verify 打回过再解，就换升级模型（强）。
+        正确性兜底与常规速度兼得——升级模型要求多模态，文本与图都归它。"""
+        escalate = self._escalation_llm is not None and bool(
+            ctx.state.get("last_verify_failure") or ctx.state.get("verify_format_failure_count")
+        )
+        if escalate:
+            return self._escalation_llm, self._escalation_llm, True
+        return self._llm, self._vision_llm, False
 
     @property
     def name(self) -> str:
@@ -562,7 +577,10 @@ class SolveProblemTool(ITool):
         images = [u for u in (problem_image, figure_image) if u.startswith("data:image/")]
         if len(images) == 2 and images[0] == images[1]:
             images = images[:1]
-        solve_llm = self._vision_llm if images else self._llm
+        text_llm, vision_llm, escalated = self._pick_llms(ctx)
+        if escalated:
+            logger.info("solve escalation: verify rejected a previous attempt, using the stronger reasoner")
+        solve_llm = vision_llm if images else text_llm
 
         def as_messages(text: str) -> list[ChatMessage]:
             if images:

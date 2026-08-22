@@ -198,6 +198,28 @@ def _get_reasoner_provider(settings: Settings) -> ILLMProvider:
     return _reasoner_provider_instance
 
 
+_escalation_provider_instance: ILLMProvider | None = None
+
+
+def _get_escalation_provider(settings: Settings) -> ILLMProvider | None:
+    """verify 打回后的重解升级模型（更强更慢）。未配置返回 None（沿用 reasoner）。"""
+    if not settings.reasoner_escalation_enabled:
+        return None
+    global _escalation_provider_instance
+    if _escalation_provider_instance is None:
+        _escalation_provider_instance = OpenAILLMProvider(
+            base_url=settings.resolved_reasoner_api_base,
+            api_key=settings.resolved_reasoner_api_key,
+            default_model=settings.llm_reasoner_escalation_model.strip(),
+            default_temperature=settings.llm_temperature,
+            default_max_tokens=settings.llm_max_tokens,
+            timeout=settings.llm_request_timeout,
+            default_extra_body=settings.llm_extra_body_dict,
+            disable_thinking_with_tools=settings.llm_disable_thinking_with_tools,
+        )
+    return _escalation_provider_instance
+
+
 def _get_vision_provider(settings: Settings) -> ILLMProvider:
     """Provider for multimodal calls (inspect_video). Falls back to the
     main LLM provider when vision-specific config is empty."""
@@ -325,6 +347,7 @@ def _get_tool_registry(settings: Settings) -> ToolRegistry:
             prompts=_get_prompt_library(),
             vision_llm=_get_vision_provider(settings),
             reasoner_llm=_get_reasoner_provider(settings),
+            escalation_llm=_get_escalation_provider(settings),
             vision_model=settings.resolved_vision_model,
             narration=NarrationPostProcessor(
                 enabled=settings.narration_tts_enabled,
