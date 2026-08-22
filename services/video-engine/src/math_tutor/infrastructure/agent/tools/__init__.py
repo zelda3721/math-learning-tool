@@ -51,6 +51,7 @@ def build_default_registry(
     fast_llm: ILLMProvider | None = None,
     vision_llm: ILLMProvider | None = None,
     reasoner_llm: ILLMProvider | None = None,
+    escalation_llm: ILLMProvider | None = None,
     vision_model: str | None = None,
     narration: NarrationPostProcessor | None = None,
     subtitles_enabled: bool = True,
@@ -67,7 +68,9 @@ def build_default_registry(
     # 图也必须给它看，否则带图题（最需要它的场景）会绕回轻模型
     heavy_vision = reasoner_llm or vision_llm or llm
     # 原图转写走视觉端点（没配就退回主模型）；解题/导演各自在需要时触发一次
-    registry.register(SolveProblemTool(heavy_llm, prompts, vision_llm=heavy_vision))
+    registry.register(
+        SolveProblemTool(heavy_llm, prompts, vision_llm=heavy_vision, escalation_llm=escalation_llm)
+    )
     registry.register(VerifySolutionTool(heavy_llm, prompts, vision_llm=heavy_vision))
     director = DirectVideoTool(VisualPlanTool(light_llm, prompts, vision_llm=vision_llm or llm))
     registry.register(director)
