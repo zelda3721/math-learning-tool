@@ -16,13 +16,17 @@ Manim 画 Manim 的、HTML 画 SVG 的。
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import logging
 import math
 import re
+import time
 from typing import Any
 
 from ...application.interfaces import ChatMessage
+from .figure_geometry import is_point_letter_label
 
 logger = logging.getLogger(__name__)
 
@@ -358,11 +362,14 @@ def transcription_conditions(t: dict[str, Any] | None, problem: str = "") -> lis
     out: list[str] = []
     area_context = bool(_AREA_HINT_RE.search(problem or ""))
     shape_name = {3: "三角形", 4: "四边形", 5: "五边形", 6: "六边形"}
+    point_ids = {str(p.get("id")) for p in (t or {}).get("points") or []}
     for label in (t or {}).get("labels") or []:
         on = list(label.get("on") or [])
         text = str(label.get("text") or "").strip()
         if not text or not on:
             continue
+        if is_point_letter_label(text, point_ids):
+            continue  # 「E」写在 E 附近／三角形ADE内标注「E」——顶点字母不进题面
         resolved = label.get("resolved") == "geometry"
         bare_number = re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", text) is not None
         if len(on) == 2 and (_UNIT_RE.search(text) or resolved):
@@ -401,14 +408,21 @@ def to_figure_params(t: dict[str, Any]) -> dict[str, Any]:
     """
     seg_labels: dict[frozenset[str], str] = {}
     poly_labels: dict[tuple[str, ...], str] = {}
+    point_ids = {str(p.get("id")) for p in t.get("points") or []}
     for label in t.get("labels") or []:
         on = list(label.get("on") or [])
         text = str(label.get("text") or "").strip()
         if not text:
             continue
         if len(on) == 2:
+            # 顶点字母不是边标注；小写边名（a/b/c）合法保留
+            if text in point_ids:
+                continue
             seg_labels[frozenset(on)] = text
         elif len(on) >= 3:
+            # 字母被归属成区域标签会让顶点字母画两遍（实机 E/M/N 各出现两次）
+            if is_point_letter_label(text, point_ids):
+                continue
             poly_labels[tuple(sorted(on))] = text
     segments = []
     for s in t["segments"]:
@@ -1190,10 +1204,38 @@ def upscale_for_vision(figure_image: str, min_short_side: int = _MIN_SHORT_SIDE)
         return figure_image
 
 
+#: 读图一次、处处可用：抽取步接地过的转写按图片指纹缓存，视频会话复用同一份，
+#: 不再重掷视觉转写的骰子（实机：抽取步 8/8 全对，会话重转写 7/8 把 F 丢成悬空点，
+#: 合并弦、区域畸形、面积标签丢失全是它的下游）。只缓存质量完好的转写（写入方把关）
+_TRANSCRIPTION_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TRANSCRIPTION_CACHE_MAX = 16
+
+
+def _figure_fingerprint(figure_image: str) -> str:
+    return hashlib.sha256(figure_image.encode("utf-8", "ignore")).hexdigest()
+
+
+def cache_grounded_transcription(figure_image: str, t: dict[str, Any]) -> None:
+    _TRANSCRIPTION_CACHE[_figure_fingerprint(figure_image)] = (time.time(), copy.deepcopy(t))
+    while len(_TRANSCRIPTION_CACHE) > _TRANSCRIPTION_CACHE_MAX:
+        _TRANSCRIPTION_CACHE.pop(
+            min(_TRANSCRIPTION_CACHE, key=lambda k: _TRANSCRIPTION_CACHE[k][0])
+        )
+
+
+def cached_grounded_transcription(figure_image: str) -> dict[str, Any] | None:
+    entry = _TRANSCRIPTION_CACHE.get(_figure_fingerprint(figure_image))
+    return copy.deepcopy(entry[1]) if entry else None
+
+
 async def transcribe_figure(llm: Any, figure_image: str) -> dict[str, Any] | None:
     """跑一趟视觉转写；任何失败返回 None（调用方按'没有转写'继续，绝不拦路）。"""
     if not figure_image.startswith("data:image/"):
         return None
+    cached = cached_grounded_transcription(figure_image)
+    if cached is not None:
+        logger.info("figure transcription: 复用抽取步的接地转写（图片指纹命中）")
+        return cached
     figure_image = upscale_for_vision(figure_image)
     # provider 只认 ChatMessage 对象（裸 dict 会在 _to_openai_messages 炸掉——实机踩过）
     messages = [

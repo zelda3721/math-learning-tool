@@ -19,6 +19,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,20 @@ def anchor_points(lines: list[dict[str, Any]], size: tuple[int, int]) -> list[Po
         total = sum(wt for _, wt in c) or 1.0
         out.append((sum(q[0] * wt for q, wt in c) / total, sum(q[1] * wt for q, wt in c) / total))
     return out
+
+
+def is_point_letter_label(text: Any, point_ids: set[str] | None = None) -> bool:
+    """顶点字母写成的"标注"（E、M、N…）：不是条件——不参与归属、不下传重画。
+
+    实机：字母标注的 at 就是它自己的像素位置，恒能击穿"at 比命名点更近"的
+    比较判定，字母块混进候选后被归属成区域标签，成片里顶点字母画了两遍。
+    """
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if point_ids and s in point_ids:
+        return True
+    return bool(re.fullmatch(r"[A-Z]", s))
 
 
 def align_named_points(
@@ -617,6 +632,34 @@ def ground_transcription(
         named = {p["id"]: (float(p["x"]) * (w - 1), float(p["y"]) * (h - 1)) for p in t.get("points") or []}
         snapped, dist = align_named_points(named, anchors, size)
         notes: list[str] = []
+        # 未吸附点回收：真交点常就在锚点表里，只是模型初判偏得超出常规吸附半径。
+        # 实机：F 偏 10.9% 图高、在转写线段里度数为 0，带着错坐标画图——合并弦
+        # A-M 绕过它、"7"区域无边界、面积标签丢失。未被占用的锚点在放宽半径内
+        # 唯一匹配才收；含糊保持原判
+        used_anchors = {(round(p[0], 3), round(p[1], 3)) for p in snapped.values()}
+        wide = 0.15 * min(w, h)
+        for n in list(named):
+            if n in dist:
+                continue
+            q = snapped[n]
+            free = [
+                a for a in anchors
+                if (round(a[0], 3), round(a[1], 3)) not in used_anchors
+            ]
+            free.sort(key=lambda a: math.hypot(a[0] - q[0], a[1] - q[1]))
+            if not free:
+                continue
+            d0 = math.hypot(free[0][0] - q[0], free[0][1] - q[1])
+            d1 = (
+                math.hypot(free[1][0] - q[0], free[1][1] - q[1])
+                if len(free) > 1 else float("inf")
+            )
+            if d0 <= wide and d1 >= 1.3 * d0:
+                snapped[n] = (float(free[0][0]), float(free[0][1]))
+                dist[n] = d0
+                used_anchors.add((round(free[0][0], 3), round(free[0][1], 3)))
+                notes.append(f"点 {n} 按放宽半径回收到未占用交点")
+        t["snap_matched"], t["snap_total"] = len(dist), len(named)
         if len(dist) >= max(3, len(named) // 2):
             # 吸附成功的点够多才相信这套几何；写回坐标（归一化）
             for p in t.get("points") or []:
@@ -664,17 +707,48 @@ def ground_transcription(
                 + ("去 " + "、".join("-".join(sorted(s)) for s in removed) if removed else "")
                 + (" 补 " + "、".join("-".join(e) for e in added) if added else "")
             )
-        t["segments"] = kept + added
+        # 合并弦拆分：线段经过另一**已校准**命名点的邻域时在该点拆开
+        # （A-M → A-F + F-M）。只在像素确认过的点上拆——错位点上拆弦是固化错误
+        split_tol = 0.02 * min(w, h)
+        segs = [list(s) for s in kept + added]
+        changed = True
+        while changed:
+            changed = False
+            out_segs: list[list[str]] = []
+            seen_pairs: set[frozenset[str]] = set()
+            for s in segs:
+                u, v = s[0], s[1]
+                mid = next(
+                    (
+                        n for n in dist
+                        if n not in (u, v)
+                        and _on_segment(snapped[n], snapped[u], snapped[v], split_tol)
+                    ),
+                    None,
+                )
+                pieces = [[u, mid], [mid, v]] if mid else [[u, v]]
+                if mid:
+                    changed = True
+                    notes.append(f"线段 {u}-{v} 在 {mid} 处拆分")
+                for piece in pieces:
+                    key = frozenset(piece)
+                    if len(key) == 2 and key not in seen_pairs:
+                        seen_pairs.add(key)
+                        out_segs.append(piece)
+            segs = out_segs
+        t["segments"] = segs
         # 标注归属：数字块 → 最小包含区域（blobs 已在线段桥接前取好）
         # 字母块（贴着命名点的文字块）先排除：剩下的块才是数值/文字标注。
         # 比较判定而不是半径一刀切：某个标注自己声明的位置（at）比最近命名点
         # 离这个块更近，它就是标注不是字母——实机：数字 5 距交点 E 34px 落进
         # 36px 排除半径被当字母吞掉，归属静默失败（bench 裁图 36.4px 恰好幸存）
         letter_radius = 0.06 * min(w, h)
+        point_ids = set(named)
         declared_ats = [
             (float(a[0]) * (w - 1), float(a[1]) * (h - 1))
             for label in t.get("labels") or []
-            if isinstance((a := label.get("at")), (list, tuple)) and len(a) == 2
+            if not is_point_letter_label(label.get("text"), point_ids)
+            and isinstance((a := label.get("at")), (list, tuple)) and len(a) == 2
         ]
         label_blobs = []
         for b in blobs:
@@ -695,6 +769,8 @@ def ground_transcription(
         unresolved: list[str] = []
         for label in t.get("labels") or []:
             text = str(label.get("text") or "")
+            if is_point_letter_label(text, point_ids):
+                continue  # 顶点字母不是条件：不归属、不盖 resolved 章
             at = label.get("at")
             if isinstance(at, (list, tuple)) and len(at) == 2:
                 rx, ry = float(at[0]) * (w - 1), float(at[1]) * (h - 1)

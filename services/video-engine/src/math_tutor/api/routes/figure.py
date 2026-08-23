@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from ...application.interfaces import ILLMProvider
 from ...config.dependencies import get_escalation_provider_optional, get_vision_provider
 from ...infrastructure.agent.figure_transcription import (
+    cache_grounded_transcription,
     figure_structure_text,
     problem_with_figure_conditions,
     refine_transcription,
@@ -88,22 +89,36 @@ async def transcribe(
     if not t:
         return {"transcription": None, "conditions": [], "structure": "", "problem_with_conditions": req.problem}
     refine_transcription(t, req.figure_image, req.problem)
-    # 抽取升级梯：像素几何没能把全部数字标注归属到区域时，用升级模型重转写一次。
-    # 更强的视觉初判常常直接给出正确区域（AEF:5），不依赖像素补救；只在失败时付时间税
+    # 抽取升级梯：像素几何没能把全部数字标注归属到区域、或有命名点没校准上时，
+    # 用升级模型重转写一次。更强的视觉初判常常直接给出正确区域（AEF:5）和更准的
+    # 点位，不依赖像素补救；只在失败时付时间税
+    def _snap_incomplete(x: dict[str, Any]) -> bool:
+        return int(x.get("snap_total") or 0) > int(x.get("snap_matched") or 0)
+
     unresolved = _unresolved_numeric_labels(t)
-    if unresolved and escalation_llm is not None:
-        logger.info("figure transcribe escalation: 未归属数字标注 %s，升级模型重转写", unresolved)
+    if (unresolved or _snap_incomplete(t)) and escalation_llm is not None:
+        logger.info(
+            "figure transcribe escalation: 未归属数字标注 %s / 点校准 %s/%s，升级模型重转写",
+            unresolved, t.get("snap_matched"), t.get("snap_total"),
+        )
         try:
             t2 = await transcribe_figure(escalation_llm, req.figure_image)
             if t2:
                 refine_transcription(t2, req.figure_image, req.problem)
-                if len(_unresolved_numeric_labels(t2)) < len(unresolved):
-                    t2.setdefault("reconciled", []).append("升级模型重转写（首轮数字标注未归属）")
+                better = (
+                    len(_unresolved_numeric_labels(t2)) < len(unresolved)
+                    or (_snap_incomplete(t) and not _snap_incomplete(t2))
+                )
+                if better:
+                    t2.setdefault("reconciled", []).append("升级模型重转写（首轮抽取不完整）")
                     t = t2
         except Exception:  # noqa: BLE001
             logger.exception("figure transcribe escalation failed")
-    if _unresolved_numeric_labels(t):
+    if _unresolved_numeric_labels(t) or _snap_incomplete(t):
         _dump_figure_debug(req.figure_image, req.problem, t)
+    else:
+        # 质量完好的转写才配进缓存：视频会话将复用这一份，不再重掷骰子
+        cache_grounded_transcription(req.figure_image, t)
     return {
         "transcription": t,
         "conditions": transcription_conditions(t, req.problem),
