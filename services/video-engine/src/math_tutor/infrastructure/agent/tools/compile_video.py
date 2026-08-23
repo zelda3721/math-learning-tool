@@ -567,6 +567,7 @@ class SolutionScene(Scene):
         self.figure_letter_spots = []
         # 各 overlay 里成对（compare_equal）的区域 mobject：出场后一起脉冲一次
         self.paired_polygons = {}
+        self.figure_reveal_groups = {}
         coordinate_points = []
         figure_coordinate_points = []
         for spec in VISUAL_OBJECTS:
@@ -1136,6 +1137,19 @@ class SolutionScene(Scene):
             }
             body = VGroup()
             is_overlay = str(spec.get("id") or "").startswith("figure_overlay_")
+            # 分步出场账本：overlay 里每个独立色块（配对块算一组）是一个"步骤"，
+            # 出场时逐组亮起——四块同帧全亮就不是"分步表达"（实机被人工评审点名）
+            reveal_groups: dict[Any, Any] = {}
+            reveal_order: list[Any] = []
+            reveal_base = VGroup()
+
+            def reveal_slot(key):
+                grp = reveal_groups.get(key)
+                if grp is None:
+                    grp = VGroup()
+                    reveal_groups[key] = grp
+                    reveal_order.append(key)
+                return grp
             # 每个 figure 对象一本占位账：底图从零开始（字母登记进 figure_letter_spots），
             # overlay 从字母账起步——各拍轮流在场，不必给已退场的拍让位
             self.placed_figure_labels = list(self.figure_letter_spots) if is_overlay else []
@@ -1150,9 +1164,13 @@ class SolutionScene(Scene):
                 # 配对（compare_equal）的两块登记下来：出场时一起脉冲一次——
                 # "这两块是一对"靠同色 + 同步呼吸表达，图上不写等号
                 paired_polys = self.paired_polygons.setdefault(spec["id"], [])
-                for cycle in params.get("polygons") or []:
+                for poly_index, cycle in enumerate(params.get("polygons") or []):
                     names = [str(n) for n in (cycle.get("points") or [])]
                     if len(names) >= 3 and all(n in figure_points for n in names):
+                        pair_key = cycle.get("pair")
+                        slot = reveal_slot(
+                            ("pair", pair_key) if pair_key else ("solo", poly_index)
+                        )
                         fill = tone_map.get(str(cycle.get("tone") or ""), GREY_B)
                         # 配对区域（compare_equal）描边也用同色加粗：两块"是一对"要一眼看出
                         paired = bool(cycle.get("pair"))
@@ -1163,7 +1181,7 @@ class SolutionScene(Scene):
                             fill_opacity=0.5 if cycle.get("shaded") else 0.0,
                             stroke_width=3.2 if paired else 2.4,
                         )
-                        body.add(region)
+                        slot.add(region)
                         if paired:
                             paired_polys.append(region)
                         # 区域标签写在重心：面积数值属于那块区域，不该漂在图外
@@ -1174,13 +1192,13 @@ class SolutionScene(Scene):
                             centroid_y = sum(p[1] for p in cpts) / len(cpts)
                             mark = Text(cycle_label, font_size=22, color=WHITE)
                             self.place_figure_label(mark, centroid_x, centroid_y)
-                            body.add(mark)
+                            slot.add(mark)
                             # 数值被挤出重心（窄条区域装不下）时补一条细引线指回去：
                             # 漂在图外的数字不说明属于哪一块，引线替它说
                             placed = mark.get_center()
                             drift = ((placed[0] - centroid_x) ** 2 + (placed[1] - centroid_y) ** 2) ** 0.5
                             if drift > 0.45:
-                                body.add(Line(
+                                slot.add(Line(
                                     [centroid_x, centroid_y, 0],
                                     mark.get_center() + (
                                         [centroid_x, centroid_y, 0] - mark.get_center()
@@ -1215,6 +1233,17 @@ class SolutionScene(Scene):
                         body.add(letter)
                     # 底图上的一切标注（字母 + 原题写在边/区域上的量）都是各拍 overlay 要避开的
                     self.figure_letter_spots = list(self.placed_figure_labels)
+            ordered_groups = [
+                reveal_groups[key] for key in reveal_order if len(reveal_groups[key]) > 0
+            ]
+            if is_overlay and len(ordered_groups) >= 2:
+                # 分步出场：底座（线段/标签）先现，各步骤组逐个亮起
+                base_parts = VGroup(*[m for m in body])
+                body = VGroup(base_parts, *ordered_groups)
+                self.figure_reveal_groups[spec["id"]] = ordered_groups
+            else:
+                for grp in ordered_groups:
+                    body.add(*[m for m in grp])
             if len(body) == 0:
                 body = VGroup(Dot([0, 0, 0], radius=0.001))
         else:
@@ -1601,9 +1630,24 @@ class SolutionScene(Scene):
                     attachment_ids.append(item)
                 else:
                     regular_ids.append(item)
+            staged_ids = [item for item in regular_ids if item in self.figure_reveal_groups]
+            regular_ids = [item for item in regular_ids if item not in staged_ids]
             animations.extend(self.animate_create(item) for item in regular_ids)
             if animations:
                 self.play(*animations)
+            # 分步出场：一拍里多块独立区域逐组亮起（配对块同组同现），四块同帧
+            # 全亮就不是"分步表达"（实机被人工评审点名）。完成后原子换回单父对
+            # 象，后续退场/变换照常引用整体
+            for item in staged_ids:
+                staged_obj = self.objects[item]
+                staged_groups = self.figure_reveal_groups[item]
+                self.play(FadeIn(staged_obj[0]), run_time=0.4)
+                for grp in staged_groups:
+                    self.play(FadeIn(grp), run_time=0.45)
+                    self.wait(0.3)
+                self.remove(staged_obj[0], *staged_groups)
+                self.add(staged_obj)
+            regular_ids = regular_ids + staged_ids
             # 等量配对出场后同步呼吸一次：两块同色又同时动，"一样大"不用符号也看得见
             pairs = [
                 poly
