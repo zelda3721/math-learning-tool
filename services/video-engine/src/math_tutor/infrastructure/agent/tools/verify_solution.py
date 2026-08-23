@@ -453,11 +453,16 @@ def _parse_consistency_audit(text: str) -> tuple[bool, list[str], list[str]] | N
 
 class VerifySolutionTool(ITool):
     def __init__(
-        self, llm: ILLMProvider, prompts: PromptLibrary, vision_llm: ILLMProvider | None = None
+        self,
+        llm: ILLMProvider,
+        prompts: PromptLibrary,
+        vision_llm: ILLMProvider | None = None,
+        escalation_available: bool = False,
     ) -> None:
         self._llm = llm
         self._vision_llm = vision_llm or llm
         self._prompts = prompts
+        self._escalation_available = escalation_available
 
     @property
     def name(self) -> str:
@@ -511,6 +516,24 @@ class VerifySolutionTool(ITool):
             solve_backed = bool(solve_evidence.get("applicable")) and bool(
                 solve_evidence.get("all_claims_passed")
             )
+            # 无证据放行前先要求一次升级重解：这个洞今天咬了两次——错答案 4 走
+            # 降级放行拿到 good 成片；正确答案 6 也曾未经独立核实就交付。升级梯
+            # 本来就是为这种时刻造的，够得着就不许空放行
+            if (
+                not solve_backed
+                and self._escalation_available
+                and not ctx.state.get("solve_was_escalated")
+            ):
+                ctx.state["last_verify_failure"] = message[:300]
+                return ToolResult(
+                    success=False,
+                    summary=(
+                        "独立验证反复失败且无确定性证据：请调用 solve_problem 重解"
+                        "（将自动换升级模型），不要再直接重试 verify_solution"
+                    ),
+                    error="needs_escalated_resolve",
+                    artifacts=artifacts,
+                )
             reason = (
                 "独立验证连续格式失败；已采用 solve 阶段确定性证据作为验证依据"
                 if solve_backed

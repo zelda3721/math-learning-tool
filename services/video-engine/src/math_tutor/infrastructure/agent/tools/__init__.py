@@ -71,7 +71,10 @@ def build_default_registry(
     registry.register(
         SolveProblemTool(heavy_llm, prompts, vision_llm=heavy_vision, escalation_llm=escalation_llm)
     )
-    registry.register(VerifySolutionTool(heavy_llm, prompts, vision_llm=heavy_vision))
+    registry.register(VerifySolutionTool(
+        heavy_llm, prompts, vision_llm=heavy_vision,
+        escalation_available=escalation_llm is not None,
+    ))
     director = DirectVideoTool(VisualPlanTool(light_llm, prompts, vision_llm=vision_llm or llm))
     registry.register(director)
     # The legacy match/search tools remain importable for offline analysis,
