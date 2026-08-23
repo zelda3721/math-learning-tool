@@ -178,6 +178,30 @@ def test_derivation_pacing_requires_one_beat_per_step() -> None:
     assert not _derivation_pacing_errors(plan, SimpleNamespace(state={}))
 
 
+def test_redundant_value_cards_flagged_only_for_pure_values() -> None:
+    # 人工评审：片尾一排 ?、5、8、7 矩形框没有承载新关系，是第三次复述
+    from math_tutor.infrastructure.agent.tools.visual_plan import (
+        _redundant_value_card_errors,
+    )
+
+    plan = _plan()
+    plan["visual_objects"] += [
+        {"id": "eq_node_1", "primitive": "relation_node", "meaning": "已知值",
+         "label": "5", "color": "orange", "params": {}},
+        {"id": "eq_node_q", "primitive": "rectangle", "meaning": "待求",
+         "label": "?", "color": "red", "params": {}},
+        {"id": "named_card", "primitive": "relation_node", "meaning": "守恒关系",
+         "label": "守恒", "color": "yellow", "params": {}},
+        {"id": "unit_group", "primitive": "rectangle", "meaning": "数量组",
+         "label": "12", "color": "blue", "params": {"count": 12}},
+    ]
+    errors = _redundant_value_card_errors(plan)
+    flagged = " ".join(errors)
+    assert "eq_node_1" in flagged and "eq_node_q" in flagged
+    assert "named_card" not in flagged  # 文字关系卡不受影响
+    assert "unit_group" not in flagged  # 带 count 的数量对象是主要表征
+
+
 def test_placeholder_text_detector() -> None:
     assert _placeholder_formula_text("算式")
     assert _placeholder_formula_text("等式(II)")

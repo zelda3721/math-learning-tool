@@ -7024,6 +7024,36 @@ def _geometrically_false_object_ids(plan: dict[str, Any]) -> set[str]:
     return {object_id for object_id, _ in _geometric_truth_findings(plan)}
 
 
+_PURE_VALUE_LABEL_RE = re.compile(r"[?？]|\d+(?:\.\d+)?")
+
+
+def _redundant_value_card_errors(plan: dict[str, Any]) -> list[str]:
+    """原图接地的计划里，浮动的纯数值/问号卡片是第三次复述，直接打回。
+
+    人工评审（2026-08-23）：片尾一排 ?、5、8、7 矩形框"没啥意义"——图上有区域
+    标注、板书有算式，卡片没有承载新关系。等量关系两种合法形态：完整天平，或
+    formula 板书；结论数值落在图上（highlight_region label）。只在有原图的计划
+    上启用：无图的算术叙事里数值卡片是主要表征，不受此约束。
+    """
+    errors: list[str] = []
+    for item in plan.get("visual_objects") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("primitive") or "") not in {"relation_node", "rectangle", "circle", "dot"}:
+            continue
+        params = item.get("params") or {}
+        if any(params.get(key) for key in ("count", "value", "count_per_unit")):
+            continue
+        label = str(item.get("label") or "").strip()
+        if label and _PURE_VALUE_LABEL_RE.fullmatch(label):
+            errors.append(
+                f"对象 {item.get('id')} 是 label 为「{label}」的浮动数值卡片：删除它——"
+                "图上标注和 formula 板书已表达该数值，等量关系用板书算式或完整天平，"
+                "结论数值用 highlight_region 的 label 落在图上"
+            )
+    return errors
+
+
 def _derivation_pacing_errors(plan: dict[str, Any], ctx: ToolContext) -> list[str]:
     """推导步数决定拍数下限：一步一拍分开演，不许把多步压进一拍。
 
@@ -7917,6 +7947,7 @@ class VisualPlanTool(ITool):
         errors.extend(_derivation_pacing_errors(plan, ctx))
         if transcription:
             errors.extend(figure_ops_violations(plan))
+            errors.extend(_redundant_value_card_errors(plan))
             errors = filter_figure_plan_errors(errors, plan)
         if errors:
             logger.info("visual_plan draft 1 contract errors: %s", errors[:6])
@@ -7942,6 +7973,7 @@ class VisualPlanTool(ITool):
                     retry_errors.extend(_derivation_pacing_errors(retry_plan, ctx))
                     if transcription:
                         retry_errors.extend(figure_ops_violations(retry_plan))
+                        retry_errors.extend(_redundant_value_card_errors(retry_plan))
                         retry_errors = filter_figure_plan_errors(retry_errors, retry_plan)
                     logger.info("visual_plan draft 2 contract errors: %s", retry_errors[:6])
                     if not retry_errors:
