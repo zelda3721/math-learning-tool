@@ -688,6 +688,14 @@ class SolveProblemTool(ITool):
                 done = await _structured_write(solve_llm)
         except Exception as exc:
             logger.exception("solve_problem LLM call failed")
+            # 常规 reasoner 的调用故障（如 LM Studio 模型加载被打断）：立刻换升级
+            # 模型重跑，不把故障抛给循环去猜下一步
+            if self._escalation_llm is not None and not escalated:
+                ctx.state["solve_no_answer_count"] = (
+                    int(ctx.state.get("solve_no_answer_count") or 0) + 1
+                )
+                logger.warning("solve LLM call failed; re-running with escalation model")
+                return await self.execute(args, ctx)
             return ToolResult(success=False, summary="解题调用失败", error=str(exc))
 
         payload = _parse_solution(done)
@@ -782,6 +790,11 @@ class SolveProblemTool(ITool):
         ]
         internal_repair_count = 0
         repaired_done = None
+        # 墙钟预算同样盖住修复阶段：常规 reasoner 已经磨过预算时，修复调用换
+        # 升级模型（实机：结构化写作赶在预算内完成，随后的低温修复又磨了 6 分钟）
+        solve_llm, escalated = self._maybe_escalate_mid(
+            ctx, solve_llm, escalated, solve_started, "consistency_repair"
+        )
         if contract_issues:
             # This is a bounded self-repair inside Solve, driven only by
             # machine-observed contradictions in the submitted artifact. It
@@ -941,14 +954,18 @@ class SolveProblemTool(ITool):
         n = len(steps)
         ans = str(payload.get("answer") or "").strip()
         if not ans:
-            # 无答案的"解"绝不下传：验证只会连报"缺少答案"耗尽预算（实机 3 连败
-            # 后整个会话失败）。按失败返回让循环重解——升级梯看到计数换 3.8。
+            # 无答案的"解"绝不下传：验证只会连报"缺少答案"耗尽预算。升级也不再
+            # 托付给循环——实机两次，循环模型无视"请重解"的指示、连调三次 verify
+            # 烧光预算，3.8 全程没被够到。解题自己立刻用升级模型重跑一遍
             ctx.state["solve_no_answer_count"] = (
                 int(ctx.state.get("solve_no_answer_count") or 0) + 1
             )
+            if self._escalation_llm is not None and not escalated:
+                logger.warning("solve produced no answer; re-running with escalation model")
+                return await self.execute(args, ctx)
             return ToolResult(
                 success=False,
-                summary="解题完成但未产出答案：按失败处理，请重新调用 solve_problem（将自动升级模型重解）",
+                summary="解题（含升级模型）未产出答案：请检查题面条件或换一种问法",
                 error="no_answer",
             )
         ctx.state.pop("solve_no_answer_count", None)

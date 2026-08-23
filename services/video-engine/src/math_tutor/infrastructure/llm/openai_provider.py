@@ -21,6 +21,7 @@ from openai import (
     APIConnectionError,
     APITimeoutError,
     AsyncOpenAI,
+    BadRequestError,
     InternalServerError,
     RateLimitError,
 )
@@ -179,9 +180,26 @@ class OpenAILLMProvider(ILLMProvider):
         transient server errors (502/503/504) and connection failures."""
         delay = self._retry_initial_delay
         last_exc: Exception | None = None
+
+        def _transient_load_failure(exc: Exception) -> bool:
+            # LM Studio 按需加载模型时的瞬态 400（"Failed to load model … Operation
+            # canceled"）——不是请求写错，是模型正在换入/被打断（实机：首个 solve
+            # 秒败，几秒后同一请求成功）。这类 400 按瞬态重试
+            return "Failed to load model" in str(exc)
+
         for attempt in range(self._max_retries + 1):
             try:
                 return await self._client.chat.completions.create(**request_kwargs)
+            except BadRequestError as exc:
+                if not _transient_load_failure(exc) or attempt >= self._max_retries:
+                    raise
+                last_exc = exc
+                logger.warning(
+                    "model load in flight (%s); retrying in %.1fs (attempt %d/%d)",
+                    _short_error(exc), max(delay, 5.0), attempt + 1, self._max_retries,
+                )
+                await asyncio.sleep(max(delay, 5.0))
+                delay = min(max(delay, 5.0) * 2, self._retry_max_delay)
             except _RETRYABLE as exc:
                 last_exc = exc
                 status = getattr(exc, "status_code", None)

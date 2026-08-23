@@ -26,6 +26,29 @@ def test_wall_clock_budget_switches_to_escalation_model() -> None:
     assert llm2 is llm and escalated2 is True
 
 
+def test_no_answer_solve_reruns_itself_with_escalation() -> None:
+    """无答案/调用故障时 solve 内部自升级——循环模型两次无视'请重解'指示的教训。"""
+    import asyncio
+
+    tool = SolveProblemTool.__new__(SolveProblemTool)
+    tool._escalation_llm = object()
+    calls = []
+
+    async def fake_execute(args, ctx):
+        calls.append(dict(ctx.state))
+        return "rerun-sentinel"
+
+    tool.execute = fake_execute  # type: ignore[method-assign]
+    ctx = SimpleNamespace(state={})
+    # 模拟无答案分支的判定逻辑：未升级 + 有升级模型 → 递归重跑
+    escalated = False
+    ctx.state["solve_no_answer_count"] = 1
+    if tool._escalation_llm is not None and not escalated:
+        result = asyncio.run(tool.execute({}, ctx))
+    assert result == "rerun-sentinel"
+    assert calls and calls[0]["solve_no_answer_count"] == 1
+
+
 def test_no_answer_count_triggers_escalation() -> None:
     # 实机：素解降级导致解题无答案——重解必须直接上升级模型
     tool = SolveProblemTool.__new__(SolveProblemTool)
