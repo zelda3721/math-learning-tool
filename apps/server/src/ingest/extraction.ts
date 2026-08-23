@@ -466,7 +466,15 @@ async function collectText(
   maxTokens = 8192,
 ): Promise<string> {
   let text = "";
-  for await (const ev of client.chat(messages, { maxTokens, temperature: 0.2 })) {
+  // 抽取是感知任务，显式关思考：思考型模型（qwen3.6 MoE 等）默认思考，会把
+  // 全部预算烧在 <think> 里、可见文本 0 字（实机：单题抽取两连败收到 0 字）。
+  // 客户端只在带工具时自动关，这里没有工具，必须手动关
+  const options = {
+    maxTokens,
+    temperature: 0.2,
+    extraBody: { chat_template_kwargs: { enable_thinking: false } },
+  };
+  for await (const ev of client.chat(messages, options)) {
     if (ev.type === "text") text += ev.text;
   }
   return text;
