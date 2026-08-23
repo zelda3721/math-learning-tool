@@ -6,9 +6,12 @@ JSON output is accepted as a fallback.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import logging
+import os
 import re
+import time
 from fractions import Fraction
 from typing import Any
 
@@ -440,6 +443,11 @@ def _invalid_literal_equalities(value: Any) -> list[str]:
 
 
 class SolveProblemTool(ITool):
+    #: 常规 reasoner 的墙钟预算（秒）：超过就把剩余解题步骤切给升级模型接力。
+    #: MoE 中位数 6-11 分钟、失控尾部 20 分钟+（实机 2026-08-23）；预算封住尾部，
+    #: 已产出的素解草稿不浪费。0 = 关闭
+    _ESCALATION_AFTER_S = float(os.environ.get("LLM_SOLVE_ESCALATION_AFTER_S", "480"))
+
     def __init__(
         self,
         llm: ILLMProvider,
@@ -451,6 +459,25 @@ class SolveProblemTool(ITool):
         self._vision_llm = vision_llm or llm
         self._escalation_llm = escalation_llm
         self._prompts = prompts
+
+    def _maybe_escalate_mid(
+        self, ctx: ToolContext, solve_llm: Any, escalated: bool,
+        started: float, stage: str,
+    ) -> tuple[Any, bool]:
+        """墙钟预算切换：常规 reasoner 磨太久，剩余步骤换升级模型接力。"""
+        if (
+            escalated
+            or self._escalation_llm is None
+            or self._ESCALATION_AFTER_S <= 0
+            or time.monotonic() - started <= self._ESCALATION_AFTER_S
+        ):
+            return solve_llm, escalated
+        logger.info(
+            "solve wall-clock budget exceeded (%.0fs) at %s; switching to escalation model",
+            time.monotonic() - started, stage,
+        )
+        ctx.state["solve_escalated_mid"] = stage
+        return self._escalation_llm, True
 
     def _pick_llms(self, ctx: ToolContext) -> tuple[Any, Any, bool]:
         """升级梯：首解用常规 reasoner（快）；verify 打回过再解，就换升级模型（强）。
@@ -605,15 +632,36 @@ class SolveProblemTool(ITool):
         # 带图的题先"素解"一遍：不带任何格式要求，只要思路和答案。实测同一模型、同一题面，
         # 素解 90 秒给出正确答案，而直接套结构化模板会在"分析/确定性计算/解题"里反复推翻、
         # 一万多字后被截断。素解结果作为草稿交给结构化那一步去整理（允许它修正）
+        solve_started = time.monotonic()
+
+        def _remaining() -> float | None:
+            # 共享截止线：常规 reasoner 全阶段共用一个墙钟预算；升级模型不限时
+            if escalated or self._escalation_llm is None or self._ESCALATION_AFTER_S <= 0:
+                return None
+            return max(60.0, self._ESCALATION_AFTER_S - (time.monotonic() - solve_started))
+
         if images:
-            draft = await self._draft_solve(solve_llm, as_messages, problem)
+            try:
+                budget = _remaining()
+                draft = await (
+                    asyncio.wait_for(self._draft_solve(solve_llm, as_messages, problem), budget)
+                    if budget is not None
+                    else self._draft_solve(solve_llm, as_messages, problem)
+                )
+            except asyncio.TimeoutError:
+                logger.info("solve draft exceeded wall-clock budget; escalating without draft")
+                draft = ""
             if draft:
                 prompt += (
                     "\n\n## 预解草稿（同一道题先自由推理得到，供你整理成上述格式；发现错误可以修正）\n"
                     + draft[:3000]
                 )
-        try:
-            done = await solve_llm.chat_complete(
+        solve_llm, escalated = self._maybe_escalate_mid(
+            ctx, solve_llm, escalated, solve_started, "structured_write"
+        )
+
+        async def _structured_write(llm: Any) -> Any:
+            return await llm.chat_complete(
                 messages=as_messages(prompt),
                 temperature=0.3,
                 max_tokens=solve_max_tokens,
@@ -623,6 +671,21 @@ class SolveProblemTool(ITool):
                 # the budget to the actual answer instead.
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
+
+        try:
+            budget = _remaining()
+            try:
+                done = await (
+                    asyncio.wait_for(_structured_write(solve_llm), budget)
+                    if budget is not None
+                    else _structured_write(solve_llm)
+                )
+            except asyncio.TimeoutError:
+                # 常规 reasoner 磨过预算：取消它，结构化写作直接换升级模型重来
+                solve_llm, escalated = self._maybe_escalate_mid(
+                    ctx, solve_llm, escalated, solve_started, "structured_write_timeout"
+                )
+                done = await _structured_write(solve_llm)
         except Exception as exc:
             logger.exception("solve_problem LLM call failed")
             return ToolResult(success=False, summary="解题调用失败", error=str(exc))
@@ -655,6 +718,9 @@ class SolveProblemTool(ITool):
                 format_feedback += "- 上次的图形理解与原图不符：\n" + "\n".join(
                     f"  - {issue}" for issue in early_figure_issues
                 ) + "\n"
+            solve_llm, escalated = self._maybe_escalate_mid(
+                ctx, solve_llm, escalated, solve_started, "format_retry"
+            )
             try:
                 retry_done = await solve_llm.chat_complete(
                     messages=as_messages(prompt + format_feedback),

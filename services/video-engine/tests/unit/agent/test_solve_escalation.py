@@ -6,6 +6,26 @@ from types import SimpleNamespace
 from math_tutor.infrastructure.agent.tools.solve_problem import SolveProblemTool
 
 
+def test_wall_clock_budget_switches_to_escalation_model() -> None:
+    import time
+
+    tool = SolveProblemTool.__new__(SolveProblemTool)
+    tool._escalation_llm = object()
+    ctx = SimpleNamespace(state={})
+    moe = object()
+    # 预算内：不切换
+    llm, escalated = tool._maybe_escalate_mid(ctx, moe, False, time.monotonic(), "s")
+    assert llm is moe and escalated is False
+    # 超预算：切换并留痕
+    started = time.monotonic() - tool._ESCALATION_AFTER_S - 1
+    llm, escalated = tool._maybe_escalate_mid(ctx, moe, False, started, "structured_write")
+    assert llm is tool._escalation_llm and escalated is True
+    assert ctx.state.get("solve_escalated_mid") == "structured_write"
+    # 已升级：不重复切换
+    llm2, escalated2 = tool._maybe_escalate_mid(ctx, llm, True, started, "s")
+    assert llm2 is llm and escalated2 is True
+
+
 def test_no_answer_count_triggers_escalation() -> None:
     # 实机：素解降级导致解题无答案——重解必须直接上升级模型
     tool = SolveProblemTool.__new__(SolveProblemTool)
