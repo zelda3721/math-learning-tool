@@ -22,7 +22,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ...application.interfaces import ILLMProvider
-from ...config.dependencies import get_escalation_provider_optional, get_vision_provider
+from ...config.dependencies import (
+    get_escalation_provider_optional,
+    get_transcription_provider,
+)
 from ...infrastructure.agent.figure_transcription import (
     cache_grounded_transcription,
     figure_structure_text,
@@ -76,7 +79,7 @@ def _dump_figure_debug(figure_image: str, problem: str, t: dict[str, Any] | None
 @router.post("/transcribe")
 async def transcribe(
     req: FigureTranscribeRequest,
-    llm: ILLMProvider = Depends(get_vision_provider),
+    llm: ILLMProvider = Depends(get_transcription_provider),
     escalation_llm: ILLMProvider | None = Depends(get_escalation_provider_optional),
 ) -> dict[str, Any]:
     if not req.figure_image.startswith("data:image/"):
