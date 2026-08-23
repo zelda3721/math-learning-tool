@@ -459,6 +459,10 @@ class OpenAILLMProvider(ILLMProvider):
         tools: list[ToolDefinition] | None = None,
         **kwargs: Any,
     ) -> StreamDone:
+        # 推理关键调用（解题素解等）：失控时保留被截断的思考——里面是真实推演，
+        # 比 effort=none 的空壳输出有用（实机：素解被钳成空壳 → 解题"成功"却无答案
+        # → 验证三连败 → 会话失败；对照实验早已证明 effort=none 摧毁该模型解题力）
+        reasoning_critical = bool(kwargs.pop("reasoning_critical", False))
         requested = int(kwargs.get("max_tokens") or self._default_max_tokens)
         overhead = int(getattr(self, "_reasoning_overhead_ema", 0.0))
         if overhead > 0:
@@ -512,6 +516,12 @@ class OpenAILLMProvider(ILLMProvider):
         # 请求最低推理力度重来。思考仍是全链路默认开启的——这里只在模型被证实
         # 原地打转时救场；不支持该参数的端点会忽略它或报错，报错就如实返回上一结果
         if last.finish_reason == "length" and (last.reasoning or "").strip():
+            if reasoning_critical:
+                logger.info(
+                    "looping thinking on a reasoning-critical call; "
+                    "keeping truncated reasoning instead of effort=none clamp"
+                )
+                return last
             clamped = dict(kwargs)
             clamped["max_tokens"] = requested + 2048
             clamped["extra_body"] = {**(kwargs.get("extra_body") or {}), "reasoning_effort": "none"}

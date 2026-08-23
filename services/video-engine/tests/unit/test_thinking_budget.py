@@ -54,6 +54,20 @@ def test_思考发散_末级降低推理力度救场():
     assert out.text == "答案：6"
 
 
+def test_推理关键调用不做末级钳制_保留截断思考():
+    # 实机：素解被 effort=none 钳成空壳 → 解题"成功"却无答案 → 验证三连败。
+    # 推理关键调用失控时保留被截断的思考（真实推演），绝不换空壳。
+    p = _Scripted([
+        _done("length", "面积关系推演到一半…", reasoning="转" * 3000),
+        _done("length", "面积关系推演到一半…", reasoning="转" * 9000),  # 发散
+    ])
+    out = asyncio.run(p.chat_complete([], max_tokens=1024, reasoning_critical=True))
+    assert len(p.calls) == 2                       # 发散后立即停手，不做第三次调用
+    assert all("reasoning_effort" not in e for e in p.extras)
+    assert out.finish_reason == "length"
+    assert "推演" in out.text
+
+
 def test_末级救场也失败_如实返回截断结果():
     p = _Scripted([
         _done("length", "", reasoning="转" * 3000),

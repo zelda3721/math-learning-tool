@@ -456,7 +456,9 @@ class SolveProblemTool(ITool):
         """升级梯：首解用常规 reasoner（快）；verify 打回过再解，就换升级模型（强）。
         正确性兜底与常规速度兼得——升级模型要求多模态，文本与图都归它。"""
         escalate = self._escalation_llm is not None and bool(
-            ctx.state.get("last_verify_failure") or ctx.state.get("verify_format_failure_count")
+            ctx.state.get("last_verify_failure")
+            or ctx.state.get("verify_format_failure_count")
+            or ctx.state.get("solve_no_answer_count")
         )
         if escalate:
             return self._escalation_llm, self._escalation_llm, True
@@ -502,6 +504,7 @@ class SolveProblemTool(ITool):
                 temperature=0.2,
                 max_tokens=3000,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                reasoning_critical=True,
             )
         except Exception:  # noqa: BLE001
             logger.exception("solve_problem draft solve failed")
@@ -868,7 +871,19 @@ class SolveProblemTool(ITool):
             ctx.state.pop(key, None)
 
         n = len(steps)
-        ans = payload.get("answer") or "(无答案)"
+        ans = str(payload.get("answer") or "").strip()
+        if not ans:
+            # 无答案的"解"绝不下传：验证只会连报"缺少答案"耗尽预算（实机 3 连败
+            # 后整个会话失败）。按失败返回让循环重解——升级梯看到计数换 3.8。
+            ctx.state["solve_no_answer_count"] = (
+                int(ctx.state.get("solve_no_answer_count") or 0) + 1
+            )
+            return ToolResult(
+                success=False,
+                summary="解题完成但未产出答案：按失败处理，请重新调用 solve_problem（将自动升级模型重解）",
+                error="no_answer",
+            )
+        ctx.state.pop("solve_no_answer_count", None)
         execution_report = {
             "stage": self.name,
             "source": "solve",
