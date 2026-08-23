@@ -10,14 +10,19 @@ POST /api/v1/figure/transcribe  { problem, figure_image }
 """
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import re
+import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ...application.interfaces import ILLMProvider
-from ...config.dependencies import get_vision_provider
+from ...config.dependencies import get_escalation_provider_optional, get_vision_provider
 from ...infrastructure.agent.figure_transcription import (
     figure_structure_text,
     problem_with_figure_conditions,
@@ -35,10 +40,43 @@ class FigureTranscribeRequest(BaseModel):
     figure_image: str
 
 
+_NUMERIC_LABEL_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _unresolved_numeric_labels(t: dict[str, Any] | None) -> list[str]:
+    """数字标注中没被像素几何归属到区域的那些（短 on 也算没归属）。"""
+    out = []
+    for label in (t or {}).get("labels") or []:
+        text = str(label.get("text") or "").strip()
+        if not _NUMERIC_LABEL_RE.fullmatch(text):
+            continue
+        if label.get("resolved") != "geometry" and len(label.get("on") or []) < 3:
+            out.append(text)
+    return out
+
+
+def _dump_figure_debug(figure_image: str, problem: str, t: dict[str, Any] | None) -> None:
+    """失败可复现：把收到的图形原样存档（前端裁剪不可观测，实机两次只能盲猜框）。"""
+    try:
+        head, _, payload = figure_image.partition(",")
+        ext = "png" if "png" in head else "jpg"
+        stamp = time.strftime("%Y%m%dT%H%M%S")
+        root = Path("data/figure_debug")
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"{stamp}.{ext}").write_bytes(base64.b64decode(payload))
+        (root / f"{stamp}.json").write_text(json.dumps(
+            {"problem": problem[:400], "labels": (t or {}).get("labels"),
+             "reconciled": (t or {}).get("reconciled")},
+            ensure_ascii=False, indent=2))
+    except Exception:  # noqa: BLE001
+        logger.exception("figure debug dump failed")
+
+
 @router.post("/transcribe")
 async def transcribe(
     req: FigureTranscribeRequest,
     llm: ILLMProvider = Depends(get_vision_provider),
+    escalation_llm: ILLMProvider | None = Depends(get_escalation_provider_optional),
 ) -> dict[str, Any]:
     if not req.figure_image.startswith("data:image/"):
         return {"transcription": None, "conditions": [], "structure": "", "problem_with_conditions": req.problem}
@@ -50,6 +88,22 @@ async def transcribe(
     if not t:
         return {"transcription": None, "conditions": [], "structure": "", "problem_with_conditions": req.problem}
     refine_transcription(t, req.figure_image, req.problem)
+    # 抽取升级梯：像素几何没能把全部数字标注归属到区域时，用升级模型重转写一次。
+    # 更强的视觉初判常常直接给出正确区域（AEF:5），不依赖像素补救；只在失败时付时间税
+    unresolved = _unresolved_numeric_labels(t)
+    if unresolved and escalation_llm is not None:
+        logger.info("figure transcribe escalation: 未归属数字标注 %s，升级模型重转写", unresolved)
+        try:
+            t2 = await transcribe_figure(escalation_llm, req.figure_image)
+            if t2:
+                refine_transcription(t2, req.figure_image, req.problem)
+                if len(_unresolved_numeric_labels(t2)) < len(unresolved):
+                    t2.setdefault("reconciled", []).append("升级模型重转写（首轮数字标注未归属）")
+                    t = t2
+        except Exception:  # noqa: BLE001
+            logger.exception("figure transcribe escalation failed")
+    if _unresolved_numeric_labels(t):
+        _dump_figure_debug(req.figure_image, req.problem, t)
     return {
         "transcription": t,
         "conditions": transcription_conditions(t, req.problem),

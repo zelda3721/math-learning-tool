@@ -126,7 +126,14 @@ def _inked_extent(
     py = rho * s + ts * c
     inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
     ink_hits = np.zeros(len(ts), dtype=bool)
-    for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
+    # 默认 ±2px；认边重测（bridge_boxes 路径）加宽到 ±4px：实拍纸面透视/弯曲
+    # 让角部墨迹偏离霍夫拟合线几个像素，±2 在角上够不着（实机：对角线近角一截
+    # 被判无墨，A-F 边失踪）。检测路径保持 ±2——全局加宽会把邻线墨迹并进来
+    # （实测 8/7 的归属反而炸了）
+    offsets = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)]
+    if bridge_boxes:
+        offsets += [(3, 0), (-3, 0), (0, 3), (0, -3), (4, 0), (-4, 0), (0, 4), (0, -4)]
+    for dx, dy in offsets:
         xi = np.clip(px + dx, 0, w - 1).astype(int)
         yi = np.clip(py + dy, 0, h - 1).astype(int)
         ink_hits |= ink[yi, xi] & inside
