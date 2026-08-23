@@ -915,6 +915,8 @@ class SolveProblemTool(ITool):
             }
 
         ctx.state["analysis"] = analysis
+        # 当前解答产物是否出自升级模型：verify 的无证据降级要看它决定"先重解还是放行"
+        ctx.state["solve_was_escalated"] = escalated
         ctx.state["solution"] = payload
         ctx.state["solution_steps"] = steps
         ctx.state["solution_answer"] = payload.get("answer", "")
