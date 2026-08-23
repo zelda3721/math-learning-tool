@@ -48,13 +48,18 @@ _NUMERIC_LABEL_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
 def _unresolved_numeric_labels(t: dict[str, Any] | None) -> list[str]:
-    """数字标注中没被像素几何归属到区域的那些（短 on 也算没归属）。"""
+    """数字标注中没被像素几何归属到区域的那些。
+
+    只看 resolved 章，不看 on 的长度——实机：VLM 给「5」写了 AEMC 四字母乱码
+    on，len>=3 被误判"已归属"，升级重转写、失败存档、缓存把关三重防线全被
+    这一个条件短路（坏转写还进了缓存被会话复用）。
+    """
     out = []
     for label in (t or {}).get("labels") or []:
         text = str(label.get("text") or "").strip()
         if not _NUMERIC_LABEL_RE.fullmatch(text):
             continue
-        if label.get("resolved") != "geometry" and len(label.get("on") or []) < 3:
+        if label.get("resolved") != "geometry":
             out.append(text)
     return out
 

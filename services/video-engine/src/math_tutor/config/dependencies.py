@@ -259,11 +259,9 @@ def get_escalation_provider_optional(
 def get_transcription_provider(
     settings: Settings = Depends(get_settings),
 ) -> ILLMProvider:
-    """图形转写模型：优先重推理端点（MoE，多模态且快）——抽取步的转写是会话
-    按图片指纹复用的权威份，用和会话内重转写相同的模型，质量一致且提速。
-    评审看帧（vision provider）不受影响。"""
-    if settings.reasoner_enabled:
-        return _get_reasoner_provider(settings)
+    """图形转写模型：vision provider（27b）。曾切 MoE 提速，实测其视觉初判明显
+    更差（线段写成 A-E-M-C 多点链、标注 on 给 BFED/AEMC 乱码组合），像素几何
+    救不全。正确组合是 27b 初判 + 像素校准 + 3.8 失败升级。"""
     return _get_vision_provider(settings)
 
 
