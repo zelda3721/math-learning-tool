@@ -1265,7 +1265,7 @@ class SolutionScene(Scene):
             x_gap = 3.9 if columns > 1 else 0
             return [
                 RIGHT * ((index % columns) - (columns - 1) / 2) * x_gap
-                + DOWN * (2.28 - (index // columns) * 1.0)
+                + DOWN * (2.10 - (index // columns) * 1.0)
                 for index in range(count)
             ]
         x_gap = 3.7 if columns > 1 else 0
@@ -1288,7 +1288,7 @@ class SolutionScene(Scene):
         for object_id, position in zip(free_ids, positions):
             item = self.objects[object_id]
             # 几何模式下自由对象挤在窄带里：限高，别越界进板书带或图形
-            self.fit(item, 3.4, 0.72 if self.coordinate_ids else 2.5)
+            self.fit(item, 3.4, 0.68 if self.coordinate_ids else 2.5)
             if object_id in visible:
                 animations.append(item.animate.move_to(position))
             else:
@@ -1556,7 +1556,8 @@ class SolutionScene(Scene):
 
     def show_caption(self, old_caption, text):
         caption = Text(str(text or "观察图形关系的变化"), font_size=23, color=WHITE)
-        self.fit(caption, 11.0, 0.9)
+        # 字幕最多两行（转写端已截断），限高 0.66 保证顶边不越过 -3.04
+        self.fit(caption, 11.0, 0.66)
         caption.to_edge(DOWN, buff=0.3)
         if old_caption is None:
             self.play(FadeIn(caption))
@@ -1573,9 +1574,10 @@ class SolutionScene(Scene):
         value = str(text or "").strip()
         if not value:
             return old_formula
+        # 板书带按两行字幕的最坏情况留位：底边 -2.94，与字幕顶 -3.04 留 0.1 缝
         formula = Text(value, font_size=30, color=YELLOW)
-        self.fit(formula, 11.0, 0.5)
-        formula.move_to(DOWN * 2.98)
+        self.fit(formula, 11.0, 0.44)
+        formula.move_to(DOWN * 2.72)
         if old_formula is None:
             self.play(FadeIn(formula), run_time=0.4)
         else:
