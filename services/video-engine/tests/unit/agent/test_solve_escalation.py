@@ -6,6 +6,17 @@ from types import SimpleNamespace
 from math_tutor.infrastructure.agent.tools.solve_problem import SolveProblemTool
 
 
+def test_no_answer_count_triggers_escalation() -> None:
+    # 实机：素解降级导致解题无答案——重解必须直接上升级模型
+    tool = SolveProblemTool.__new__(SolveProblemTool)
+    tool._llm, tool._vision_llm = object(), object()
+    tool._escalation_llm = object()
+    ctx = SimpleNamespace(state={"solve_no_answer_count": 1})
+    text_llm, vision_llm, escalated = tool._pick_llms(ctx)
+    assert escalated is True
+    assert text_llm is tool._escalation_llm and vision_llm is tool._escalation_llm
+
+
 def _tool(escalation):
     tool = SolveProblemTool.__new__(SolveProblemTool)
     tool._llm = "fast"
