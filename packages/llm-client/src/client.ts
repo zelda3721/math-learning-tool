@@ -180,16 +180,23 @@ export class LlmClient {
     };
 
     const tools = opts.tools ?? [];
-    if (tools.length > 0 && this.disableThinkingWithTools) {
-      const ctk = {
-        ...((mergedExtra["chat_template_kwargs"] as
-          | Record<string, unknown>
-          | undefined) ?? {}),
-      };
-      if (!("enable_thinking" in ctk)) {
-        ctk["enable_thinking"] = false;
-        mergedExtra["chat_template_kwargs"] = ctk;
-      }
+    // 服务端的调用全是小预算的感知/判定任务（抽取 2048、判卷 200、审计 512），
+    // 思考型模型默认思考会把预算烧光、可见文本 0 字（实机：换 MoE 后单题抽取
+    // 两连败收到 0 字）。默认一律关思考，两个开关都下——LM Studio 上
+    // chat_template_kwargs.enable_thinking 对 qwen3.6 MoE/qwen3.8 是 NO-OP，
+    // 顶层 reasoning_effort:"none" 才有效（实测），不认识它的端点会忽略。
+    // 调用方在 extraBody 里显式设置任一开关时尊重其值
+    const ctk = {
+      ...((mergedExtra["chat_template_kwargs"] as
+        | Record<string, unknown>
+        | undefined) ?? {}),
+    };
+    if (!("enable_thinking" in ctk)) {
+      ctk["enable_thinking"] = false;
+      mergedExtra["chat_template_kwargs"] = ctk;
+    }
+    if (!("reasoning_effort" in mergedExtra)) {
+      mergedExtra["reasoning_effort"] = "none";
     }
 
     const payload: Record<string, unknown> = {
