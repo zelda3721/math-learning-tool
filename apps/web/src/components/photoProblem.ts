@@ -286,8 +286,9 @@ async function layoutItems(photoDataUrl: string): Promise<PhotoLayoutItem[]> {
     return items
 }
 
-/** 配图几何核对的时限：一次视觉转写 + 像素几何，本地模型 20~40 秒 */
-const FIGURE_GROUND_TIMEOUT_MS = 90_000
+/** 配图几何核对的时限：常规一趟 20~40 秒；像素归属失败时引擎会用升级模型
+ * 重转写一次（思考型模型，2~4 分钟），时限要盖得住这条慢路径 */
+const FIGURE_GROUND_TIMEOUT_MS = 300_000
 
 /**
  * 读图一次、处处可用：引擎按像素几何核对图上标注，返回把「图中标注：…」写准了的题干。

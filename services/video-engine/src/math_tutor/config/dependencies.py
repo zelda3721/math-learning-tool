@@ -249,6 +249,13 @@ def get_vision_provider(
     return _get_vision_provider(settings)
 
 
+def get_escalation_provider_optional(
+    settings: Settings = Depends(get_settings),
+) -> ILLMProvider | None:
+    """升级模型（未配置返回 None）。抽取端点在像素归属失败时用它重转写。"""
+    return _get_escalation_provider(settings)
+
+
 def _get_embedding_provider(settings: Settings) -> IEmbeddingProvider | None:
     """Returns None when no embedding model is configured."""
     if not settings.embedding_enabled:
