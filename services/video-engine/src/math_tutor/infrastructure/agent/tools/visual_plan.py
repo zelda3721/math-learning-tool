@@ -7109,6 +7109,62 @@ def _redundant_value_card_errors(plan: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _degenerate_figure_region_errors(
+    plan: dict[str, Any], transcription: dict[str, Any] | None
+) -> list[str]:
+    """figure_ops 点名的区域在像素校准坐标下退化（近共线）时打回换名。
+
+    实机：重规划把抵消区错叫成 BEF/CEN——像素几何下 F∈BE、N∈CE，CEN 面积
+    ≈0.015%、BEF 是翻转细条，关键拍讲着色画面却几乎无色；正确区域是 ABF/CDN。
+    共线性是仿射不变量，直接在归一化坐标上判。
+    """
+    pts = {
+        str(p.get("id")): (float(p.get("x") or 0), float(p.get("y") or 0))
+        for p in (transcription or {}).get("points") or []
+    }
+    if not pts:
+        return []
+    errors: list[str] = []
+    flagged: set[str] = set()
+
+    def flat(names: list[str]) -> bool:
+        poly = [pts[n] for n in names]
+        k = len(poly)
+        for i in range(k):
+            p, q, r = poly[i - 1], poly[i], poly[(i + 1) % k]
+            ux, uy = r[0] - p[0], r[1] - p[1]
+            norm = math.hypot(ux, uy)
+            if norm < 1e-9:
+                return True
+            d = abs((q[0] - p[0]) * uy - (q[1] - p[1]) * ux) / norm
+            if d < 0.02:
+                return True
+        return False
+
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for op in scene.get("figure_ops") or []:
+            if not isinstance(op, dict):
+                continue
+            regions = []
+            if op.get("op") == "highlight_region":
+                regions = [[str(n) for n in op.get("points") or []]]
+            elif op.get("op") == "compare_equal":
+                regions = [[str(n) for n in r] for r in op.get("regions") or []]
+            for names in regions:
+                key = "".join(names)
+                if len(names) < 3 or key in flagged or any(n not in pts for n in names):
+                    continue
+                if flat(names):
+                    flagged.add(key)
+                    errors.append(
+                        f"figure_ops 区域 {key} 在像素校准坐标下退化（顶点近共线，"
+                        "画不出可见色块）：换一个真实存在的区域表达这一步"
+                    )
+    return errors
+
+
 def _derivation_pacing_errors(plan: dict[str, Any], ctx: ToolContext) -> list[str]:
     """推导步数决定拍数下限：一步一拍分开演，不许把多步压进一拍。
 
@@ -8003,6 +8059,7 @@ class VisualPlanTool(ITool):
         if transcription:
             errors.extend(figure_ops_violations(plan))
             errors.extend(_redundant_value_card_errors(plan))
+            errors.extend(_degenerate_figure_region_errors(plan, transcription))
             errors = filter_figure_plan_errors(errors, plan)
         if errors:
             logger.info("visual_plan draft 1 contract errors: %s", errors[:6])
@@ -8029,6 +8086,9 @@ class VisualPlanTool(ITool):
                     if transcription:
                         retry_errors.extend(figure_ops_violations(retry_plan))
                         retry_errors.extend(_redundant_value_card_errors(retry_plan))
+                        retry_errors.extend(
+                            _degenerate_figure_region_errors(retry_plan, transcription)
+                        )
                         retry_errors = filter_figure_plan_errors(retry_errors, retry_plan)
                     logger.info("visual_plan draft 2 contract errors: %s", retry_errors[:6])
                     if not retry_errors:
