@@ -103,8 +103,19 @@ def detect_lines(ink: Any, max_lines: int = 24) -> list[dict[str, Any]]:
     return lines
 
 
-def _inked_extent(ink: Any, rho: float, theta: float) -> tuple[Point, Point] | None:
-    """沿直线取样，找允许小缺口的最长墨迹区间。"""
+def _inked_extent(
+    ink: Any,
+    rho: float,
+    theta: float,
+    bridge_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> tuple[Point, Point] | None:
+    """沿直线取样，找允许小缺口的最长墨迹区间。
+
+    bridge_boxes：文字块包围盒——写在线上的字母/数字会把墨迹区间截断
+    （实机：对角线在 E/5/F 文字簇处断开，近角一段被整个丢弃，A-F 边失踪、
+    标注归属失败）。盖住取样点的文字块视为有墨，但只做**桥**：两端最后会
+    收缩回真实墨迹，纯文字撑不出线。
+    """
     import numpy as np
 
     h, w = ink.shape
@@ -114,11 +125,18 @@ def _inked_extent(ink: Any, rho: float, theta: float) -> tuple[Point, Point] | N
     px = rho * c - ts * s
     py = rho * s + ts * c
     inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
-    hits = np.zeros(len(ts), dtype=bool)
+    ink_hits = np.zeros(len(ts), dtype=bool)
     for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
         xi = np.clip(px + dx, 0, w - 1).astype(int)
         yi = np.clip(py + dy, 0, h - 1).astype(int)
-        hits |= ink[yi, xi] & inside
+        ink_hits |= ink[yi, xi] & inside
+    hits = ink_hits
+    if bridge_boxes:
+        hits = ink_hits.copy()
+        for x0, y0, x1, y1 in bridge_boxes:
+            hits |= (
+                (px >= x0 - 4) & (px <= x1 + 4) & (py >= y0 - 4) & (py <= y1 + 4) & inside
+            )
     best = (0, 0, 0)
     start = None
     end = 0
@@ -140,6 +158,14 @@ def _inked_extent(ink: Any, rho: float, theta: float) -> tuple[Point, Point] | N
     length, s0, e0 = best
     if length < 12:
         return None
+    if bridge_boxes:
+        # 两端收缩到真实墨迹：文字块只能当区间内部的桥，不能当端点
+        import numpy as np
+
+        real = np.nonzero(ink_hits[s0 : e0 + 1])[0]
+        if len(real) < 12:
+            return None
+        s0, e0 = s0 + int(real[0]), s0 + int(real[-1])
     return (float(px[s0]), float(py[s0])), (float(px[e0]), float(py[e0]))
 
 
@@ -592,7 +618,21 @@ def ground_transcription(
             notes.append(f"点按像素交点校准 {len(dist)}/{len(named)}")
         else:
             return t
-        edges = drawn_edges(snapped, lines, size, anchored=set(dist))
+        # 文字遮挡不算断线：先取文字块，把被文字截断的线段区间重新量一遍再认边。
+        # 实机：对角线在 E/5/F 文字簇处断开，A 端缺口超出容差 → A-F/A-M 边失踪 →
+        # 标注「5」的归属区域建不起来，错误初判静默流入题面。
+        # 桥接结果只用于认边（欠延伸有害）；resolve_region 的"线穿内部"守卫继续用
+        # 原始区间（过延伸有害——实机：桥接把线尾接到了邻线墨迹上，延长段切进
+        # AEF 内部，反把正确区域误杀）
+        blobs = text_blobs(ink, lines, size)
+        blob_boxes = [b["box"] for b in blobs]
+        edge_lines = lines
+        if blob_boxes:
+            edge_lines = []
+            for ln in lines:
+                bridged = _inked_extent(ink, ln["rho"], ln["theta"], bridge_boxes=blob_boxes)
+                edge_lines.append({**ln, "a": bridged[0], "b": bridged[1]} if bridged else ln)
+        edges = drawn_edges(snapped, edge_lines, size, anchored=set(dist))
         # 线段：模型说有但像素说没有 → 去；像素说有但模型没说 → 补（有名字的两端、真线相连）
         claimed = {frozenset(s) for s in t.get("segments") or [] if len(s) == 2}
         protected = protected or set()
@@ -618,18 +658,34 @@ def ground_transcription(
                 + (" 补 " + "、".join("-".join(e) for e in added) if added else "")
             )
         t["segments"] = kept + added
-        # 标注归属：数字块 → 最小包含区域
-        blobs = text_blobs(ink, lines, size)
-        # 字母块（贴着命名点的文字块）先排除：剩下的块才是数值/文字标注
+        # 标注归属：数字块 → 最小包含区域（blobs 已在线段桥接前取好）
+        # 字母块（贴着命名点的文字块）先排除：剩下的块才是数值/文字标注。
+        # 比较判定而不是半径一刀切：某个标注自己声明的位置（at）比最近命名点
+        # 离这个块更近，它就是标注不是字母——实机：数字 5 距交点 E 34px 落进
+        # 36px 排除半径被当字母吞掉，归属静默失败（bench 裁图 36.4px 恰好幸存）
         letter_radius = 0.06 * min(w, h)
-        label_blobs = [
-            b for b in blobs
-            if all(math.hypot(b["center"][0] - q[0], b["center"][1] - q[1]) > letter_radius for q in snapped.values())
+        declared_ats = [
+            (float(a[0]) * (w - 1), float(a[1]) * (h - 1))
+            for label in t.get("labels") or []
+            if isinstance((a := label.get("at")), (list, tuple)) and len(a) == 2
         ]
+        label_blobs = []
+        for b in blobs:
+            point_d = min(
+                (math.hypot(b["center"][0] - q[0], b["center"][1] - q[1]) for q in snapped.values()),
+                default=float("inf"),
+            )
+            at_d = min(
+                (math.hypot(b["center"][0] - q[0], b["center"][1] - q[1]) for q in declared_ats),
+                default=float("inf"),
+            )
+            if point_d > letter_radius or at_d <= point_d:
+                label_blobs.append(b)
         # 每个标注：候选 = 附近的文字块（≤10%）。最近的块明显更近就用它；几个块差不多近时，
         # 用模型自己说的字母（on）当裁判——哪个块所在的区域和 on 重合最多就选哪个，
         # 仍分不出就不下结论（宁可退回"附近"线索，也不断错归属）
         reach = 0.10 * min(w, h)
+        unresolved: list[str] = []
         for label in t.get("labels") or []:
             text = str(label.get("text") or "")
             at = label.get("at")
@@ -646,6 +702,7 @@ def ground_transcription(
                 key=lambda b: math.hypot(b["center"][0] - rx, b["center"][1] - ry),
             )
             if not cands:
+                unresolved.append(f"「{text}」附近无文字块")
                 continue
             # 一个标注可能碎成几个块（"6" 和 "cm"、"12" 的两位数）：挨在一起的块算同一个词，
             # 不构成"两个候选"的歧义
@@ -669,6 +726,7 @@ def ground_transcription(
                 if scored and scored[0][0] >= 1 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
                     chosen = scored[0][1]["center"]
             if chosen is None:
+                unresolved.append(f"「{text}」候选块歧义未裁决")
                 continue
             lx, ly = chosen
             if unit_label:
@@ -692,6 +750,11 @@ def ground_transcription(
                     notes.append(f"标注「{text}」按位置落在 {''.join(region)}（原判 {''.join(label.get('on') or [])}）")
                 label["on"] = region
                 label["resolved"] = "geometry"
+            else:
+                unresolved.append(f"「{text}」找到块但区域解析失败")
+        if unresolved:
+            # 静默失败曾让错误初判以"已像素校准"的姿态流入题面（实机「5」两次）
+            logger.info("figure geometry: 标注未按像素归属：%s", "；".join(unresolved))
         # 阴影核对：模型说的阴影环，内部像素得真的比纸暗（阴影是"偏暗的一片"，不是墨迹）
         paper = float(np.median(gray))
         confirmed: list[list[str]] = []
