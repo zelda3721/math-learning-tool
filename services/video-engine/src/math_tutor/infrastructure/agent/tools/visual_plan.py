@@ -1262,7 +1262,62 @@ def _normalize_plan(plan: dict[str, Any]) -> dict[str, Any]:
     plan["forbidden"] = [
         _strip_decorations(x) for x in forbidden if isinstance(x, str) and x.strip()
     ]
+    _repair_use_before_create(plan)
     return plan
+
+
+_LATE_CONCLUSION_OPS = {"highlight", "verify", "compare", "measure", "count"}
+
+
+def _repair_use_before_create(plan: dict[str, Any]) -> None:
+    """结论对象没 create 就被核对时，自动在使用前补一个 create。
+
+    提示词本来就要求"若需要新的结论对象，先显式 create，再执行 verify/measure/
+    compare"——模型经常在 verify 拍漏掉这一步（实机：eq_node_m/final_eq 三个错
+    全是这一个模式，二稿因此报废、导演降级）。机械地补齐机械的遗漏；数量动词
+    （take_from/combine…）的 use-before-create 仍然硬报错，那是逻辑缺陷不是笔误。
+    """
+    declared = {
+        str(item.get("id"))
+        for item in plan.get("visual_objects") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    introduced: set[str] = set()
+    repairs: list[str] = []
+    for scene in plan.get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        repaired: list[dict[str, Any]] = []
+        for action in scene.get("actions") or []:
+            if not isinstance(action, dict):
+                repaired.append(action)
+                continue
+            op = str(action.get("op") or "")
+            targets = [t for t in action.get("targets") or [] if isinstance(t, str)]
+            if op in _LATE_CONCLUSION_OPS:
+                missing = [
+                    t for t in dict.fromkeys(targets) if t in declared and t not in introduced
+                ]
+                if missing:
+                    repaired.append({
+                        "op": "create",
+                        "targets": missing,
+                        "result": "",
+                        "meaning": "结论对象先出场再核对（自动补 create）",
+                    })
+                    introduced.update(missing)
+                    repairs.append(f"{'/'.join(missing)} 在 {op} 前补 create")
+            if op == "create":
+                introduced.update(t for t in targets if t in declared)
+            for key in ("result", "destination"):
+                value = action.get(key)
+                if isinstance(value, str) and value in declared:
+                    introduced.add(value)
+            repaired.append(action)
+        scene["actions"] = repaired
+    if repairs:
+        plan.setdefault("auto_repairs", []).extend(repairs)
+        logger.info("visual_plan use-before-create 自动修复：%s", "；".join(repairs[:4]))
 
 
 def _md_to_plan(section: str) -> dict[str, Any]:

@@ -811,7 +811,10 @@ def execute_math_request(request: Any) -> MathExecutionResult:
             result.errors.append(f"invalid or duplicate operation id: {operation_id}")
             result.success = False
             break
-        if operation_id in symbols or operation_id in _CONSTANTS or operation_id in _FUNCTIONS:
+        # 函数名不冲突：裸名解析走 symbols→常量→outputs，函数只在调用位置查
+        # _FUNCTIONS——运算取名 diff/solve 完全无歧义（实机：verify 因此白白
+        # 重试 80s+）。真冲突只有已声明变量与常量（裸名优先级会遮蔽输出）。
+        if operation_id in symbols or operation_id in _CONSTANTS:
             result.errors.append(f"operation id conflicts with a reserved name: {operation_id}")
             result.success = False
             break
