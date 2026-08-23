@@ -256,6 +256,17 @@ def get_escalation_provider_optional(
     return _get_escalation_provider(settings)
 
 
+def get_transcription_provider(
+    settings: Settings = Depends(get_settings),
+) -> ILLMProvider:
+    """图形转写模型：优先重推理端点（MoE，多模态且快）——抽取步的转写是会话
+    按图片指纹复用的权威份，用和会话内重转写相同的模型，质量一致且提速。
+    评审看帧（vision provider）不受影响。"""
+    if settings.reasoner_enabled:
+        return _get_reasoner_provider(settings)
+    return _get_vision_provider(settings)
+
+
 def _get_embedding_provider(settings: Settings) -> IEmbeddingProvider | None:
     """Returns None when no embedding model is configured."""
     if not settings.embedding_enabled:
