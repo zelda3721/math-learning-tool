@@ -9,6 +9,7 @@
  */
 import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
+import { Playhead, buildTimeline, type TimelineFrame } from "./timeline.js";
 import {
   limitSwaps,
   liveTotal,
@@ -32,9 +33,33 @@ import { renderSolved } from "./figure/render.js";
 import type { FigureSpec } from "@mathtutor/schema";
 import type { CoordSystem } from "./math/coords.js";
 
+/** 时钟：浏览器里是 requestAnimationFrame + performance.now，测试里可以手动喂时间 */
+export interface PlayerClock {
+  now(): number;
+  schedule(cb: () => void): number;
+  cancel(handle: number): void;
+}
+
+const browserClock: PlayerClock = {
+  now: () => (typeof performance !== "undefined" ? performance.now() : Date.now()),
+  schedule: (cb) =>
+    typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame(cb)
+      : (setTimeout(cb, 16) as unknown as number),
+  cancel: (h) => {
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(h);
+    else clearTimeout(h as unknown as ReturnType<typeof setTimeout>);
+  },
+};
+
 export interface PlayerOptions {
   autoPlay?: boolean;
+  /** 每拍时长（毫秒）；时间轴按它铺开，缺省 3200 */
   beatMs?: number;
+  /** 转场时长（毫秒）；0 = 硬切。截图比对时用 0 */
+  transitionMs?: number;
+  /** 注入时钟（测试用），缺省浏览器时钟 */
+  clock?: PlayerClock;
   onBeatChange?: (index: number, total: number) => void;
   /** 算不出的曲线、未知构件、计数不一致——诚实上报 */
   onIssue?: (issue: SceneIssue) => void;
@@ -97,7 +122,10 @@ export class ExplainerPlayer {
   private controlsEl: HTMLDivElement | null = null;
 
   private index = 0;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly clock: PlayerClock;
+  private readonly playhead: Playhead;
+  private raf: number | null = null;
+  private lastTickMs = 0;
   private playing = false;
   private destroyed = false;
   private width = 640;
@@ -120,6 +148,10 @@ export class ExplainerPlayer {
     this.opts = opts;
     this.beats = foldBeats(spec);
     this.beatCount = this.beats.length;
+    this.clock = opts.clock ?? browserClock;
+    this.playhead = new Playhead(
+      buildTimeline(this.beatCount, { beatMs: opts.beatMs, transitionMs: opts.transitionMs }),
+    );
 
     this.root = document.createElement("div");
     this.root.style.cssText = "display:flex;flex-direction:column;gap:10px;width:100%";
@@ -145,6 +177,7 @@ export class ExplainerPlayer {
     const interactive = this.firstScrubbableBeat();
     if (interactive > 0) {
       this.index = interactive;
+      this.playhead.seekBeat(interactive);
       this.startSubPlayback();
     }
     if (opts.autoPlay) this.play();
@@ -161,35 +194,67 @@ export class ExplainerPlayer {
 
   // ── 播放控制 ───────────────────────────────────────────
 
+  /** 总时长（毫秒） */
+  get duration(): number {
+    return this.playhead.timeline.duration;
+  }
+
+  /** 当前时刻（毫秒） */
+  get currentTime(): number {
+    return this.playhead.time;
+  }
+
   play(): void {
     if (this.destroyed || this.playing) return;
+    // 已经播到头：再按播放就从头来，而不是原地不动装死
+    if (this.playhead.finished) this.seek(0);
     this.playing = true;
     this.syncControls();
-    this.schedule();
+    this.lastTickMs = this.clock.now();
+    this.scheduleTick();
   }
 
   pause(): void {
     this.playing = false;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    if (this.raf !== null) this.clock.cancel(this.raf);
+    this.raf = null;
     this.syncControls();
   }
 
   next(): void {
-    this.goTo(this.index + 1);
+    this.seekBeat(this.index + 1);
   }
 
   prev(): void {
-    this.goTo(this.index - 1);
+    this.seekBeat(this.index - 1);
   }
 
   goTo(i: number): void {
+    this.seekBeat(i);
+  }
+
+  /** 跳到指定时刻（毫秒）。画面由时间决定，与"怎么走到这里"无关 */
+  seek(tMs: number): void {
     if (this.destroyed) return;
-    const clamped = Math.max(0, Math.min(this.beatCount - 1, i));
-    if (clamped === this.index) return;
-    this.index = clamped;
+    const frame = this.playhead.seek(tMs);
+    this.applyFrame(frame);
+    this.syncControls();
+  }
+
+  seekBeat(i: number): void {
+    if (this.destroyed) return;
+    this.applyFrame(this.playhead.seekBeat(i));
+    this.syncControls();
+  }
+
+  /**
+   * 应用一帧：跨拍才重建画面（同一拍内的补间是阶段 2 后续切片，
+   * 届时这里的"只换拍"会变成"按 local 插值"）。
+   */
+  private applyFrame(frame: TimelineFrame): void {
+    if (frame.beatIndex === this.index) return;
+    this.index = frame.beatIndex;
     this.startSubPlayback();
-    if (this.playing) this.schedule();
   }
 
   /**
@@ -216,18 +281,29 @@ export class ExplainerPlayer {
     if (this.root.parentNode === this.container) this.container.removeChild(this.root);
   }
 
-  private schedule(): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.index >= this.beatCount - 1) {
-      this.playing = false;
-      this.syncControls();
-      return;
-    }
-    this.timer = setTimeout(() => {
-      this.index += 1;
-      this.render();
-      this.schedule();
-    }, this.opts.beatMs ?? 3200);
+  /**
+   * 时间驱动的播放循环：每帧把「过了多少毫秒」交给播放头，而不是等一个固定时长的定时器。
+   *
+   * 换掉 setTimeout 的理由不是审美：定时器的误差会一直累积（每拍迟几十毫秒，
+   * 二十拍后就是一两秒），而且它没法表达"跳到第 7.3 秒"——
+   * 而 seek、字幕轨对时、断点续看都要求画面是 t 的函数。
+   */
+  private scheduleTick(): void {
+    if (!this.playing) return;
+    this.raf = this.clock.schedule(() => {
+      this.raf = null;
+      if (!this.playing || this.destroyed) return;
+      const now = this.clock.now();
+      const dt = now - this.lastTickMs;
+      this.lastTickMs = now;
+      this.applyFrame(this.playhead.advance(dt));
+      if (this.playhead.finished) {
+        this.playing = false;
+        this.syncControls();
+        return;
+      }
+      this.scheduleTick();
+    });
   }
 
   // ── 渲染 ───────────────────────────────────────────────
