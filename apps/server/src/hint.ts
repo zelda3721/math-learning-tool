@@ -1,5 +1,5 @@
 import type { Question } from "@mathtutor/schema";
-import { normalizeText, parseNumeric } from "./grading.js";
+import { normalizeText, parseNumeric } from "@mathtutor/subject-math";
 
 /** 提示阶梯 L1→L3（宪法第 2 条：不喂答案，练方法）。 */
 export interface HintProvider {

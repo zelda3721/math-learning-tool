@@ -52,6 +52,8 @@ const RawNodeSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    /** 学科归属：现有节点一律 math（缺省即 math，无需回填）；新学科节点 id 带前缀如 `en:`、`phys:` */
+    subject: z.string().min(1).default("math"),
     nameEn: z.string().optional(),
     stage: StageIdSchema,
     strand: z.string(),
@@ -193,3 +195,43 @@ export const QuestionSchema = z.object({
   status: z.enum(["extracted", "verified"]),
 });
 export type Question = z.infer<typeof QuestionSchema>;
+
+/* ── 跨学科连接（data/knowledge/links.json） ── */
+
+/**
+ * 边的类型。刻意只有四种：每多一种，界面上就多一种说不清的箭头。
+ *
+ * - `prerequisite` 先学 A 才学得动 B（可跨学科，如「比例」→「物理密度」）
+ * - `applies`      A 在 B 里被用上（数学 → 物理的常态）
+ * - `analogy`      A 与 B 结构同构（如「分数」与「英语的可数/不可数」）
+ * - `evolves`      A 的思想演化成 B（同学科内的纵向关系，图谱里已有 evolvesTo，
+ *                  这里只用于**跨学科**的演化叙述）
+ */
+export const KnowledgeLinkTypeSchema = z.enum(["prerequisite", "applies", "analogy", "evolves"]);
+export type KnowledgeLinkType = z.infer<typeof KnowledgeLinkTypeSchema>;
+
+export const KnowledgeLinkSchema = z.object({
+  /** 起点节点 id（必须存在于图谱） */
+  from: z.string(),
+  /** 终点节点 id（必须存在于图谱） */
+  to: z.string(),
+  type: KnowledgeLinkTypeSchema,
+  /**
+   * 一句话说清「怎么联系上的」，界面上直接显示这一句。
+   * 跨学科连接是最容易编造的东西——「数学和音乐有关」这种话谁都会说，
+   * 所以这里要求具体到可判断：说清哪个概念、在哪一步用上。
+   */
+  note: z.string().min(1),
+  /** 依据（课标条目、教材页码、具体实验），便于家长核对 */
+  source: z.string().optional(),
+});
+export type KnowledgeLink = z.infer<typeof KnowledgeLinkSchema>;
+
+export const LinksFileSchema = z
+  .object({
+    /** 文件说明；lint 会核对 from/to 是否都在图谱里 */
+    $comment: z.string().optional(),
+    links: z.array(KnowledgeLinkSchema).default([]),
+  })
+  .passthrough();
+export type LinksFile = z.infer<typeof LinksFileSchema>;

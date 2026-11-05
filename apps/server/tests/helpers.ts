@@ -71,7 +71,10 @@ export function tempFixtureEnv(questions: Question[]): {
   return { dataDir, store, repo, state };
 }
 
-export function makeApp(questions: Question[]) {
+export function makeApp(questions: Question[], overrides: Partial<AppState> = {}) {
   const env = tempFixtureEnv(questions);
-  return { app: createApp(env.state), ...env };
+  // overrides 用来注入需要外部依赖的部件（如语义判卷的 judge），
+  // 让"AI 确认"这类路径也可测，而不必真连模型
+  const state: AppState = { ...env.state, ...overrides };
+  return { app: createApp(state), ...env, state };
 }

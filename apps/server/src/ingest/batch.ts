@@ -1,5 +1,5 @@
 import type { EducationLevel } from "@mathtutor/schema";
-import { normalizeText } from "../grading.js";
+import { normalizeText } from "@mathtutor/subject-math";
 import {
   offlineTextDrafts,
   segmentQuestionsOffline,

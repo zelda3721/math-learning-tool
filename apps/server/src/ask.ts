@@ -11,7 +11,7 @@ import { figureDataUrl, storeFigure } from "./figures.js";
 import { latexToPlainText } from "./latexText.js";
 import { classifyFigures, isDanglingLabel } from "./ingest/passes.js";
 import { stripDataUrl } from "./ingest/routes.js";
-import { expressionsEquivalent, normalizeText, parseNumeric } from "./grading.js";
+import { expressionsEquivalent, normalizeText, parseNumeric } from "@mathtutor/subject-math";
 import { composeDirectives } from "./explain/engine.js";
 import { groundingSourceOf } from "./explain/grounding.js";
 import { engineJsonFetch } from "./engineHttp.js";

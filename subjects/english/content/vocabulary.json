@@ -1,0 +1,39 @@
+[
+  {
+    "id": "w-apple",
+    "zh": "苹果",
+    "en": "apple",
+    "cefr": "A1",
+    "example": "I ate an apple after lunch."
+  },
+  {
+    "id": "w-library",
+    "zh": "图书馆",
+    "en": "library",
+    "cefr": "A1",
+    "example": "She borrowed two books from the library."
+  },
+  {
+    "id": "w-season",
+    "zh": "季节",
+    "en": "season",
+    "cefr": "A2",
+    "example": "Spring is my favourite season."
+  },
+  {
+    "id": "w-borrow",
+    "zh": "借入",
+    "en": "borrow",
+    "cefr": "A2",
+    "example": "May I borrow your ruler?"
+  },
+  {
+    "id": "g-present-simple-third",
+    "zh": "他每天走路去上学。",
+    "en": "He goes to school on foot every day.",
+    "cefr": "A1",
+    "itemType": "en.gap-fill",
+    "gapSentence": "He ____ to school on foot every day.",
+    "reference": "goes"
+  }
+]

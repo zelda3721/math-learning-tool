@@ -14,6 +14,7 @@ import { JobStore } from "./ingest/jobs.js";
 import { createPhotoGrader } from "./photoGrader.js";
 import { buildAnswerJudge } from "./semanticJudge.js";
 import { AuthStore } from "./auth.js";
+import { createSubjectRegistry } from "./subjects.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -70,6 +71,7 @@ async function main(): Promise<void> {
   const knowledge = loadKnowledge({
     graphPath: path.join(config.dataDir, "knowledge", "graph.json"),
     problemsPath: path.join(config.dataDir, "knowledge", "problems.json"),
+    linksPath: path.join(config.dataDir, "knowledge", "links.json"),
   });
   const db = openDb(config.dataDir);
   const repo = new Repo(db);
@@ -79,6 +81,8 @@ async function main(): Promise<void> {
     config,
     contract,
     knowledge,
+    // 学科装配只有一处（subjects.ts）：加学科改那一行，这里不用动
+    subjects: createSubjectRegistry(),
     questions,
     repo,
     hintProvider: buildHintProvider(),

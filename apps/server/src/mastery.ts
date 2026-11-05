@@ -1,7 +1,18 @@
-import { MASTERY_PARAMS } from "@mathtutor/schema";
+import { MASTERY_PARAMS, type VerificationLevel } from "@mathtutor/schema";
 import type { MasteryRow } from "./repo.js";
 
 export type MasteryBand = "dim" | "glow" | "lit";
+
+/**
+ * 这条证据能不能进掌握度（宪法第 5 条：未经验证的知识不承重）。
+ *
+ * `ai_unverified`（作文、口语、开放回答）只作为练习记录与建议，绝不点亮星图。
+ * 这不是"少算一点"：一个不该亮的星亮起来，孩子会以为自己会了，
+ * 家长也无从分辨——而且事后没有任何数据能把它挑出来。
+ */
+export function countsTowardMastery(verification: VerificationLevel): boolean {
+  return verification !== "ai_unverified";
+}
 
 /** 无证据时间衰减：p 沿半衰期向 p₀ 回归（读时计算，存储保持原始 p） */
 export function effectiveP(row: Pick<MasteryRow, "p" | "lastEvidenceAt">, now = new Date()): number {

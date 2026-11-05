@@ -1,0 +1,17 @@
+{
+  "name": "@mathtutor/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "端到端冒烟：起真网关（离线降级、独立沙箱 DB）+ 真前端，走 9 个视图",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "prepare-sandbox": "node prepare-sandbox.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^22",
+    "typescript": "^5.6"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@mathtutor/subject-math",
+  "version": "0.1.0",
+  "description": "数学学科包：判卷器（数值/表达式/多段）、验证器、视觉词汇",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mathtutor/core": "workspace:*",
+    "@mathtutor/schema": "workspace:*",
+    "mathjs": "^14"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}

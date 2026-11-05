@@ -9,7 +9,7 @@ import { boxQuality, classifyFigures, isDanglingLabel } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
 import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
-import { deriveAnswerType } from "../grading.js";
+import { deriveAnswerType } from "@mathtutor/subject-math";
 import { reviewQuestion } from "../knowledgeAdmin.js";
 import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
 import { processBatch, type BatchFile } from "./batch.js";

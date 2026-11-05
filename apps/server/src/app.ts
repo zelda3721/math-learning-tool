@@ -25,6 +25,7 @@ import { askRoutes } from "./ask.js";
 import { bankRoutes } from "./bank.js";
 import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
+import type { SubjectRegistry } from "@mathtutor/core";
 
 export interface AppState {
   config: ServerConfig;
@@ -46,6 +47,11 @@ export interface AppState {
   /** 账户体系；authDisabled=true 时全开放（单测用） */
   auth?: AuthStore | null;
   authDisabled?: boolean;
+  /**
+   * 学科注册表（判卷器/验证器/题型的唯一来源）。
+   * 可省略：省略时用默认装配（数学 + 英语），所以单测不必逐个注入。
+   */
+  subjects?: SubjectRegistry;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
