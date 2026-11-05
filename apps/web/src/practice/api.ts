@@ -48,6 +48,13 @@ export interface SubmitResult {
     correct: boolean
     method: 'numeric' | 'expression' | 'string' | 'pending'
     needsReview: boolean
+    /**
+     * 这条判定凭什么算数。`ai_unverified` = 只有 AI 判断（规则判不准、模型说对）：
+     * 界面必须如实标注，因为这次的"对"不会点亮星图。
+     */
+    verification?: 'executable' | 'reference' | 'ai_unverified'
+    /** 是否计入掌握度；false 时界面上不能显示成"学会了" */
+    countedTowardMastery?: boolean
     hintAvailable: boolean
     mastery: MasteryChange[]
     review?: ReviewProgress

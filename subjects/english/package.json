@@ -1,0 +1,29 @@
+{
+  "name": "@mathtutor/subject-english",
+  "version": "0.1.0",
+  "description": "英语学科包（骨架）：词汇卡题型 + 参考答案判卷器",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "content"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mathtutor/core": "workspace:*",
+    "@mathtutor/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}

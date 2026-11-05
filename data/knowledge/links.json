@@ -1,0 +1,4 @@
+{
+  "$comment": "跨学科连接表（docs/PLAN.md 第三部分 3.2）。边类型只有 prerequisite / applies / analogy / evolves 四种；from 与 to 必须是 graph.json 里真实存在的节点 id，同学科的纵向关系请写进节点自己的 prerequisites / evolvesTo，不要在这里重复。note 必须具体到可判断——'数学和音乐有关'这种话不算连接。当前为空：英语与物理的节点还没有入库，先立骨架，避免编造。",
+  "links": []
+}

@@ -3,8 +3,8 @@ import { z } from "zod";
 import type { Question } from "@mathtutor/schema";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { composeToday } from "../composer.js";
-import { grade } from "../grading.js";
-import { applyAttempt, effectiveP, masteryBand } from "../mastery.js";
+import { getSubjectRegistry, judgeAnswer } from "../subjects.js";
+import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 import { makeHint } from "../hint.js";
 import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
@@ -111,6 +111,7 @@ export function practiceRoutes(state: AppState): Hono {
     if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
+    const registry = state.subjects ?? getSubjectRegistry();
 
     const m = /^data:([\w/+.-]+);base64,/.exec(body.image);
     const base64 = m ? body.image.slice(m[0].length) : body.image;
@@ -122,9 +123,10 @@ export function practiceRoutes(state: AppState): Hono {
       return c.json({ error: `识别失败: ${String(err)}` }, 502);
     }
 
-    const result = grade(question, extracted.answer);
+    const result = await judgeAnswer(registry, state.knowledge, question, extracted.answer);
     // 低置信度识别：无论判对错都进家长抽检（识别错误不能污染掌握度证据）
-    const needsReview = !extracted.confident || result.method === "pending";
+    // 没有判卷器时也不自己判：转家长，而不是让一条无依据的判定进掌握度
+    const needsReview = !extracted.confident || result.method === "pending" || !result.hasJudge;
     const attempt = state.repo.insertAttempt({
       learnerId: body.learnerId,
       questionId: body.questionId,
@@ -134,12 +136,13 @@ export function practiceRoutes(state: AppState): Hono {
       source: body.source,
       durationS: body.durationS,
       needsReview,
+      verification: result.verification,
     });
     if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
 
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
     let review: { stage: number; mastered: boolean; nextReviewAt: string | null } | undefined;
-    if (!needsReview) {
+    if (!needsReview && countsTowardMastery(attempt.verification)) {
       for (const nodeId of question.nodeIds) {
         const current = state.repo.getMastery(body.learnerId, nodeId);
         const next = applyAttempt(
@@ -190,8 +193,9 @@ export function practiceRoutes(state: AppState): Hono {
     if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
+    const registry = state.subjects ?? getSubjectRegistry();
 
-    let result = grade(question, body.answer);
+    let result = await judgeAnswer(registry, state.knowledge, question, body.answer);
     /**
      * 规则判不准时，问模型「是不是同一个意思」。
      *
@@ -206,12 +210,23 @@ export function practiceRoutes(state: AppState): Hono {
         student: body.answer,
       });
       if (verdict?.verdict === "correct") {
-        result = { correct: true, method: "numeric" };
+        /*
+         * 模型只在这条路上被允许"判对"，但这条路径的判定**只能是 ai_unverified**：
+         * 规则判卷器已经说了"判不准"，此刻唯一的依据就是模型的判断。
+         * 按宪法第 5 条，它记进作答、留审计事件，但**不进掌握度**——
+         * 否则等于让「模型说对」点亮一颗星，而这件事无法复核。
+         *
+         * 孩子想让它算数，就再答一次让规则判卷器判得出来；那不是刁难，
+         * 而是"理解由行为验证"的本意（宪法第 1 条）。
+         */
+        result = { correct: true, method: "numeric", verification: "ai_unverified", hasJudge: true };
         state.repo.appendEvent(body.learnerId, "ai_judge_accepted", {
           questionId: body.questionId,
           student: body.answer,
           reference: question.answer,
           why: verdict.why,
+          // 审计要说清这条"对"凭什么算数（不算数也算一种交代）
+          verification: "ai_unverified",
         });
       }
     }
@@ -224,13 +239,21 @@ export function practiceRoutes(state: AppState): Hono {
       hintLevelUsed: body.hintLevelUsed as 0 | 1 | 2 | 3,
       source: body.source,
       durationS: body.durationS,
-      needsReview: pending,
+      needsReview: pending || !result.hasJudge,
+      verification: result.verification,
     });
     if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
 
-    // 掌握度：主观题 pending 不计入证据，等家长裁决（宪法：不污染证据基础）
+    /*
+     * 一条证据到底算不算数，**只在这里判一次**。
+     *
+     * 不算数的两种情形：判不准（pending，等家长裁决）、以及只有 AI 判断
+     * （ai_unverified）。两者都不进掌握度、不推进 SM-2、不回填探针证据——
+     * 否则"不算数的证据"会从侧门把知识推动了，只是看不见而已。
+     */
+    const counted = !pending && countsTowardMastery(attempt.verification);
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
-    if (!pending) {
+    if (counted) {
       for (const nodeId of question.nodeIds) {
         const current = state.repo.getMastery(body.learnerId, nodeId);
         const next = applyAttempt(
@@ -259,15 +282,15 @@ export function practiceRoutes(state: AppState): Hono {
     });
 
     // 探针作答回填归因证据（宪法第 4 条：探针是证据，图遍历只是假设）
-    if (body.source === "probe" && !pending) {
+    if (body.source === "probe" && counted) {
       backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
     }
 
     // SM-2 推进（复习卡作答）；日常答错自动入复习（宪法第 3 条）
     let review: { stage: number; mastered: boolean; nextReviewAt: string | null } | undefined;
-    if (body.reviewCardId && !pending) {
+    if (body.reviewCardId && counted) {
       review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
-    } else if (!pending && !result.correct && body.source === "daily") {
+    } else if (counted && !result.correct && body.source === "daily") {
       ensureReviewCard(state.repo, body.learnerId, body.questionId);
     }
 
@@ -276,6 +299,9 @@ export function practiceRoutes(state: AppState): Hono {
       correct: result.correct,
       method: result.method,
       needsReview: pending,
+      // 让界面能如实标注"AI 判断，未验证"，而不是悄悄给一个对勾
+      verification: attempt.verification,
+      countedTowardMastery: counted,
       hintAvailable: !result.correct && !pending && body.hintLevelUsed < 3,
       mastery: masteryChanges,
       review,

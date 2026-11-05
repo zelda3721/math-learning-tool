@@ -14,7 +14,13 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @mathtutor/e2e test:e2e",
+    "test:engine": "cd services/video-engine && .venv/bin/python -m pytest -q",
+    "golden:check": "python3 scripts/golden_check.py",
+    "golden:eval": "python3 scripts/golden_eval.py",
+    "verify": "node scripts/verify.mjs",
+    "verify:fast": "node scripts/verify.mjs --fast",
     "dev:server": "pnpm --filter @mathtutor/server dev",
-    "dev:web": "pnpm --filter @mathtutor/web dev"
+    "dev:web": "pnpm --filter frontend dev"
   }
 }

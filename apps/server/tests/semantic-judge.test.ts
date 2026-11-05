@@ -85,16 +85,25 @@ describe("练习提交里的语义层", () => {
     return { env, learner, body: (await res.json()) as { correct: boolean; needsReview: boolean } };
   }
 
-  it("规则 pending + 模型 correct → 判对、计掌握度、不打扰家长", async () => {
+  /*
+   * 2026-11-05 改了口径（用户拍板）：模型确认的"对"记作答、留痕迹，但**不进掌握度**。
+   *
+   * 旧行为是把它当 executable 证据点亮星图。那件事无法复核：
+   * 规则判卷器已经说了"判不准"，此刻唯一的依据就是模型那一句话。
+   * 按宪法第 5 条，只有 AI 判断的证据一律 ai_unverified。
+   */
+  it("规则 pending + 模型 correct → 判对、标注 ai_unverified、不计掌握度", async () => {
     const { env, learner, body } = await submit('{"verdict":"correct","why":"意思一致"}');
     expect(body.correct).toBe(true);
+    expect(body.verification).toBe("ai_unverified");
+    expect(body.countedTowardMastery).toBe(false);
+    // 仍然不打扰家长：这条只是"暂时不算数"，不是"等人裁决"
     expect(body.needsReview).toBe(false);
-    expect(env.repo.allMastery(learner.id).length).toBeGreaterThan(0);
+    expect(env.repo.allMastery(learner.id).length).toBe(0);
     // 放行要有痕迹，家长可审
-    const events = env.repo["db"]
-      .prepare("SELECT type FROM learner_events WHERE learner_id = ?")
-      .all(learner.id) as { type: string }[];
-    expect(events.some((e) => e.type === "ai_judge_accepted")).toBe(true);
+    const events = env.repo.listEvents(learner.id, "ai_judge_accepted");
+    expect(events.length).toBeGreaterThan(0);
+    expect((events[0]!.payload as { verification?: string }).verification).toBe("ai_unverified");
   });
 
   it("模型说 wrong → 不判错，维持交家长（只许判对不许判错）", async () => {

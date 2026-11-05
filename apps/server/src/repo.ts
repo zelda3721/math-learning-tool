@@ -45,13 +45,20 @@ export class Repo {
   }
 
   // ---- attempts ----
-  insertAttempt(a: Omit<Attempt, "id" | "at"> & { at?: string }): Attempt {
+  /**
+   * `verification` 可省略，缺省 `executable`：在英语包接入之前，判卷全部来自
+   * 确定性判卷器，缺省值就是事实。新学科要写 `ai_unverified` 时必须显式传。
+   */
+  insertAttempt(
+    a: Omit<Attempt, "id" | "at" | "verification"> & { at?: string; verification?: Attempt["verification"] },
+  ): Attempt {
     const id = randomUUID();
     const at = a.at ?? new Date().toISOString();
+    const verification = a.verification ?? "executable";
     this.db
       .prepare(
         `INSERT INTO attempts (id, learner_id, question_id, answer, correct, hint_level_used,
-          source, duration_s, needs_review, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          source, duration_s, needs_review, verification, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -63,9 +70,10 @@ export class Repo {
         a.source,
         a.durationS ?? null,
         a.needsReview ? 1 : 0,
+        verification,
         at,
       );
-    return { ...a, id, at, needsReview: a.needsReview };
+    return { ...a, id, at, verification, needsReview: a.needsReview };
   }
 
   getAttempt(id: string): (Attempt & { at: string }) | undefined {
@@ -81,6 +89,7 @@ export class Repo {
       source: r.source as Attempt["source"],
       durationS: r.duration_s === null ? undefined : Number(r.duration_s),
       needsReview: Boolean(r.needs_review),
+      verification: (r.verification ?? "executable") as Attempt["verification"],
       parentVerdict: (r.parent_verdict ?? undefined) as Attempt["parentVerdict"],
       parentNote: (r.parent_note ?? undefined) as string | undefined,
       at: String(r.at),
@@ -188,6 +197,34 @@ export class Repo {
     this.db
       .prepare("INSERT INTO learner_events (id, learner_id, ts, type, payload_json) VALUES (?, ?, ?, ?, ?)")
       .run(randomUUID(), learnerId, new Date().toISOString(), type, JSON.stringify(payload));
+  }
+
+  /**
+   * 读事件（按时间正序）。可传 type 过滤。
+   *
+   * 补这个方法的原因很实在：`learner_events` 一直是**只写不读**的。
+   * 而语义判卷那边写着"模型放行的每一次都记进 learner_events，可审"——
+   * 一条没人读得到的审计记录，跟没记没有区别。
+   */
+  listEvents(
+    learnerId: string,
+    type?: string,
+  ): { id: string; ts: string; type: string; payload: unknown }[] {
+    const rows = (
+      type
+        ? this.db
+            .prepare("SELECT * FROM learner_events WHERE learner_id = ? AND type = ? ORDER BY ts")
+            .all(learnerId, type)
+        : this.db
+            .prepare("SELECT * FROM learner_events WHERE learner_id = ? ORDER BY ts")
+            .all(learnerId)
+    ) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: String(r.ts),
+      type: String(r.type),
+      payload: JSON.parse(String(r.payload_json)),
+    }));
   }
 
   // ---- mistakes（P2 错因坐标） ----

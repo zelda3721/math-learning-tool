@@ -6,7 +6,7 @@ import type { QuestionStore } from "./questions.js";
 import { practiceReady } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { effectiveP } from "./mastery.js";
-import { normalizeText } from "./grading.js";
+import { normalizeText } from "@mathtutor/subject-math";
 
 /**
  * 诊断归因（设计 §06/§07）：归因主链是代码，LLM 只在候选集内做受限选择。

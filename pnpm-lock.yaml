@@ -13,6 +13,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.1)
+      '@mathtutor/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@mathtutor/explainer-web':
         specifier: workspace:*
         version: link:../../packages/explainer-web
@@ -25,6 +28,12 @@ importers:
       '@mathtutor/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@mathtutor/subject-english':
+        specifier: workspace:*
+        version: link:../../subjects/english
+      '@mathtutor/subject-math':
+        specifier: workspace:*
+        version: link:../../subjects/math
       hono:
         specifier: ^4.6.14
         version: 4.13.1
@@ -121,6 +130,34 @@ importers:
         specifier: ^2
         version: 2.1.9(@types/node@24.13.3)(lightningcss@1.32.0)
 
+  e2e:
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.56.0
+        version: 1.64.1
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+
+  packages/core:
+    dependencies:
+      '@mathtutor/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
   packages/explainer-web:
     dependencies:
       '@mathtutor/schema':
@@ -177,6 +214,47 @@ importers:
       vitest:
         specifier: ^2
         version: 2.1.9(@types/node@24.13.3)(lightningcss@1.32.0)
+
+  subjects/english:
+    dependencies:
+      '@mathtutor/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@mathtutor/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  subjects/math:
+    dependencies:
+      '@mathtutor/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@mathtutor/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
+      mathjs:
+        specifier: ^14
+        version: 14.9.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
 packages:
 
@@ -716,6 +794,11 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+
+  '@playwright/test@1.64.1':
+    resolution: {integrity: sha512-IaYGml/nSOiZWROfPtuIL7neuu9qDOZ3TNvNljUIrhDMxiGTgPjzj/g9p9RxpS2tSepPDRY+UwAaEeiKtUvIAg==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@rolldown/pluginutils@1.0.0-rc.3':
     resolution: {integrity: sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==}
@@ -1593,6 +1676,16 @@ packages:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
     engines: {node: '>=12'}
 
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.64.1:
+    resolution: {integrity: sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   postcss@8.5.26:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
@@ -2273,6 +2366,10 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@playwright/test@1.64.1':
+    dependencies:
+      playwright: 1.64.1
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 
@@ -3118,6 +3215,12 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.5: {}
+
+  playwright-core@1.64.1: {}
+
+  playwright@1.64.1:
+    dependencies:
+      playwright-core: 1.64.1
 
   postcss@8.5.26:
     dependencies:

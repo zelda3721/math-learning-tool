@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   source TEXT NOT NULL DEFAULT 'daily',
   duration_s REAL,
   needs_review INTEGER NOT NULL DEFAULT 0,
+  -- 这条证据的验证等级（宪法第 5 条）：ai_unverified 不进掌握度
+  verification TEXT NOT NULL DEFAULT 'executable',
   parent_verdict TEXT,
   parent_note TEXT,
   at TEXT NOT NULL
@@ -183,6 +185,8 @@ const MIGRATIONS = [
   "ALTER TABLE explanations ADD COLUMN grounding_source TEXT",
   "ALTER TABLE explanations ADD COLUMN html_url TEXT",
   "ALTER TABLE explain_jobs ADD COLUMN note TEXT",
+  // 证据的验证等级（宪法第 5 条）。旧库里的作答都来自确定性判卷，默认 executable 即事实
+  "ALTER TABLE attempts ADD COLUMN verification TEXT NOT NULL DEFAULT 'executable'",
 ];
 
 function migrate(db: DatabaseSync): void {

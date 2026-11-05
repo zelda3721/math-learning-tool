@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppState } from "../app.js";
-import { applyAttempt, effectiveP, masteryBand } from "../mastery.js";
+import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 
 /**
  * 家长只读聚合 + 裁决通道（P3，设计 §04 元认知视图）：
@@ -180,7 +180,9 @@ export function parentRoutes(state: AppState): Hono {
     state.repo.setAttemptVerdict(parsed.data.attemptId, parsed.data.verdict, parsed.data.note);
     const question = state.questions.byId.get(attempt.questionId);
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
-    if (question) {
+    // 家长可以判一个 ai_unverified 的作答，但它仍然不进掌握度：
+    // 家长判的是"孩子答得对不对"，而这条证据本身没有可执行/可定位的验证依据
+    if (question && countsTowardMastery(attempt.verification)) {
       const correct = parsed.data.verdict === "correct";
       for (const nodeId of question.nodeIds) {
         const current = state.repo.getMastery(attempt.learnerId, nodeId);

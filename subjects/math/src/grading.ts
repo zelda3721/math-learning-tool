@@ -570,7 +570,12 @@ export function deriveAnswerType(answer: string): Question["answerType"] {
  * 策略由答案本身推导。
  */
 export function grade(
-  question: Pick<Question, "answer" | "answerType"> & { answerUnique?: boolean; stem?: string },
+  /**
+   * `answerType` 是可选的：它在本函数里从不参与判定（策略由答案本身推导），
+   * 保留它只是为了让调用方仍能整题传进来。内核的判卷器适配层因此不必伪造一个
+   * answerType 才能调用——伪造类型比缺省值更容易变成真错误。
+   */
+  question: { answer: string; answerType?: Question["answerType"]; answerUnique?: boolean; stem?: string },
   studentAnswer: string,
 ): GradeResult {
   const student = studentAnswer.trim();

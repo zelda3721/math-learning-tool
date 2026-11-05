@@ -35,6 +35,11 @@ export interface QuestionRecord {
 
 type Feedback =
     | { kind: 'correct' }
+    /**
+     * 判对了，但依据只有 AI（规则判不准、模型确认）。这次不计入掌握度，
+     * 所以文案不能说"学会了"——说了就是在教错人。
+     */
+    | { kind: 'correct-unverified' }
     | { kind: 'review' }
     | { kind: 'wrong'; canHint: boolean }
     | null
@@ -91,7 +96,10 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
         startRef.current = performance.now()
     }, [q.id])
 
-    const finished = feedback?.kind === 'correct' || feedback?.kind === 'review'
+    const finished =
+        feedback?.kind === 'correct' ||
+        feedback?.kind === 'correct-unverified' ||
+        feedback?.kind === 'review'
     const wrongExhausted = feedback?.kind === 'wrong' && hintLevel >= 3
 
     const handleSubmit = async () => {
@@ -113,7 +121,11 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             if (result.needsReview) {
                 setFeedback({ kind: 'review' })
             } else if (result.correct) {
-                setFeedback({ kind: 'correct' })
+                setFeedback(
+                    result.verification === 'ai_unverified'
+                        ? { kind: 'correct-unverified' }
+                        : { kind: 'correct' },
+                )
             } else {
                 lastWrongRef.current = trimmed
                 lastAttemptIdRef.current = result.attemptId
@@ -197,7 +209,9 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
         extra?: { diagnosed?: boolean; variantCorrect?: boolean }
     ): QuestionRecord => ({
         questionId: q.id,
-        correct: feedback?.kind === 'correct',
+        // AI 判断的"对"也算答对了（作答本身是对的），只是没进掌握度——
+        // 这一句说的是孩子这次的表现，不是说系统记住了多少
+        correct: feedback?.kind === 'correct' || feedback?.kind === 'correct-unverified',
         review: feedback?.kind === 'review',
         skipped,
         hintLevel,
@@ -340,6 +354,12 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {feedback?.kind === 'correct' && (
                 <div className="rounded-[10px] bg-correct-wash border border-correct/25 px-4 py-3 text-[var(--color-correct)] font-semibold">
                     答对啦！真棒！
+                </div>
+            )}
+            {feedback?.kind === 'correct-unverified' && (
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
+                    答对了。不过这次是 AI 判断、尚未验证，所以先不算进掌握度——
+                    再用老师教的方法答一遍，这颗星才是真的亮了。
                 </div>
             )}
             {feedback?.kind === 'review' && (

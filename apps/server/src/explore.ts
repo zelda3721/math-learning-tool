@@ -1,8 +1,15 @@
 /**
- * P5 探索伙伴（ExploreAgent）：自由 tool-calling 循环。
+ * 探索伙伴：自由 tool-calling 循环。
+ *
+ * 阶段 1 起，「这个学科该怎么带」不再写死在这里——它是一份技能文件
+ * `skills/math/explore/SKILL.md`。本文件只剩与学科无关的部分：
+ * 一轮 agent 循环、工具执行、离线兜底。
+ *
+ * 这么切的理由：每加一门学科就复制一份代理代码，而真正随学科变化的
+ * 其实只有提示词与工具子集（见 docs/PLAN.md D10）。
+ *
  * 宪法：苏格拉底式只引导不喂答案；图谱事实必须经工具查证（防幻觉）。
- * 首版两个工具：graph_query（节点档案）、find_similar（离线相关匹配）。
- * LLM 不可用时返回固定引导语（离线兜底，永不 500）。
+ * LLM 或技能文件不可用时返回固定引导语（离线兜底，永不 500）。
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -15,6 +22,8 @@ import {
   type ToolDefinition,
 } from "@mathtutor/llm-client";
 import { matchOffline, matchProblemTypesOffline, type Knowledge } from "@mathtutor/knowledge";
+import { loadSkills, resolveSkill, type Skill } from "@mathtutor/core";
+import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +69,8 @@ const MAX_ROUNDS = 4;
 // 工具
 // ---------------------------------------------------------------------------
 
-const EXPLORE_TOOLS: ToolDefinition[] = [
+const TOOL_DEFS: Record<string, ToolDefinition> = {
+  graph_query:
   {
     name: "graph_query",
     description:
@@ -71,7 +81,7 @@ const EXPLORE_TOOLS: ToolDefinition[] = [
       required: ["nodeId"],
     },
   },
-  {
+  find_similar: {
     name: "find_similar",
     description: "根据一段文字（孩子的问题或想法）找到相关的知识点与经典题型名称。",
     parameters: {
@@ -80,7 +90,21 @@ const EXPLORE_TOOLS: ToolDefinition[] = [
       required: ["text"],
     },
   },
-];
+};
+
+/**
+ * 技能声明用哪些工具，就只把哪些交给模型。
+ * 全量交给模型再指望它别用，等于用提示词做权限控制——那件事从来没有成功过。
+ */
+export function toolsFor(skill: Skill): ToolDefinition[] {
+  const picked: ToolDefinition[] = [];
+  for (const name of skill.tools) {
+    const def = TOOL_DEFS[name];
+    if (def) picked.push(def);
+    else console.warn(`[explore] 技能 ${skill.id} 声明了未实现的工具 ${name}，已忽略`);
+  }
+  return picked;
+}
 
 function executeTool(
   knowledge: Knowledge,
@@ -137,32 +161,46 @@ const LEVEL_LABEL: Record<string, string> = {
   advanced: "大学",
 };
 
-function buildSystemPrompt(knowledge: Knowledge, level?: string, nodeId?: string): string {
-  const focus = nodeId ? knowledge.index.getNode(nodeId) : undefined;
-  const levelLine = level
-    ? `学生年级：${LEVEL_LABEL[level] ?? level}。解释和追问都不要超出这个年级的认知上限。`
-    : "学生年级未知，按小学高年级的认知水平交流。";
-  const focusLine = focus
-    ? `当前聚焦的知识点：「${focus.name}」（id: ${focus.id}）。可以先用 graph_query 查它的档案再展开。`
-    : "";
-  return `你是「探索伙伴」——陪孩子在数学星图里自由漫游的同伴，不是讲课老师。
-${levelLine}
-${focusLine}
-守则（必须遵守）：
-1. 苏格拉底式：用追问引导孩子自己想明白，每次回复以一个能推进思考的好问题结尾。
-2. 绝对不直接给出任何题目的答案或完整解法；孩子要答案时，把问题拆小再反问。
-3. 需要图谱事实（节点关系、相关题型）时用工具 graph_query / find_similar 查证，绝不编造。
-4. 语言面向孩子：短句、真诚鼓励；每次回复不超过 5 句话，禁止使用 LaTeX 公式记号（不要写 $...$、\\times、\\frac），
-   算式直接写成「1 × 0 = 0」这样的普通文字。
-5. 孩子说出好想法时，提醒他/她可以「记下这个发现」。
+/**
+ * 技能文件是按需读的：一份写坏或找不到的技能，不该让整个服务起不来。
+ * 读一次缓存住——提示词不会在运行中变。
+ */
+const SKILLS_ROOT = fileURLToPath(new URL("../../../skills", import.meta.url));
+let cachedSkills: Skill[] | null = null;
 
-讲清楚的标准（比守则更重要——回复前先自检）：
-A. 一次只讲一条线索。不要把三种理由堆在一起；先抛出最能让孩子自己动手验证的那一个，剩下的等他回应后再说。
-B. 例子必须是孩子能真的动手数一数、摆一摆、算一算的。像「0 块饼干分给 0 个小朋友」这种连大人都想不明白的场景是坏例子——
-   宁可用「6 块饼干分给 3 个人」这种他能验证的具体例子，先建立规则，再问「那如果人数变成 0 呢？」让他自己撞到矛盾。
-C. 先让孩子体验到「咦，说不通」，再谈结论。数学规则的道理来自它必须自洽，不是来自权威。
-D. 结尾的问题要小、要具体、要可回答。别问「你觉得会有什么麻烦吗」这种大而空的问题，
-   要问「那你觉得 6 ÷ 0 应该等于几？你能找到一个数乘以 0 得到 6 吗？」这种他能立刻试的问题。`;
+export function exploreSkill(): Skill | undefined {
+  cachedSkills ??= loadSkills(SKILLS_ROOT);
+  return resolveSkill(cachedSkills, "math", "explore");
+}
+
+/**
+ * 组装系统提示：**技能文件是提示词的唯一来源**，这里只补上随会话变化的上下文
+ * （年级、当前聚焦的知识点）。
+ *
+ * 不把提示词内嵌回代码里当兜底——那会立刻变成第二份真相：
+ * 有人改了 SKILL.md，线上跑的却是那一份旧的，而且没有任何地方会报错。
+ */
+export function buildSystemPrompt(
+  knowledge: Knowledge,
+  skill: Skill,
+  level?: string,
+  nodeId?: string,
+): string {
+  const focus = nodeId ? knowledge.index.getNode(nodeId) : undefined;
+  const context = [
+    level
+      ? `学生年级：${LEVEL_LABEL[level] ?? level}。解释和追问都不要超出这个年级的认知上限。`
+      : "学生年级未知，按小学高年级的认知水平交流。",
+    focus
+      ? `当前聚焦的知识点：「${focus.name}」（id: ${focus.id}）。可以先用 graph_query 查它的档案再展开。`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return skill.body.includes("{{context}}")
+    ? skill.body.replace("{{context}}", context)
+    : `${context}\n\n${skill.body}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,9 +240,20 @@ export async function runExplore(
     return { reply: EXPLORE_FALLBACK_REPLY, toolTrace };
   }
 
+  // 没有技能文件就没有提示词可讲——照兜底语回复，而不是用一份临时拼的话术顶上
+  const skill = exploreSkill();
+  if (!skill) {
+    console.warn("[explore] 找不到技能 skills/math/explore/SKILL.md");
+    return { reply: EXPLORE_FALLBACK_REPLY, toolTrace };
+  }
+  const tools = toolsFor(skill);
+
   const learner = state.repo.getLearner(input.learnerId);
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(state.knowledge, learner?.level, input.nodeId) },
+    {
+      role: "system",
+      content: buildSystemPrompt(state.knowledge, skill, learner?.level, input.nodeId),
+    },
     ...input.messages.map((m): ChatMessage => ({ role: m.role, content: m.content })),
   ];
 
@@ -213,7 +262,7 @@ export async function runExplore(
       let text = "";
       let toolCalls: { id: string; name: string; argumentsJson: string }[] = [];
       for await (const ev of client.chat(messages, {
-        tools: EXPLORE_TOOLS,
+        tools,
         temperature: 0.5,
         maxTokens: 900,
       })) {

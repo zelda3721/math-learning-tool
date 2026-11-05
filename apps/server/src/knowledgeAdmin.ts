@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { GraphSchema, type Question, type Source } from "@mathtutor/schema";
+import { GraphSchema, LinksFileSchema, type Question, type Source } from "@mathtutor/schema";
 import { lint, loadKnowledge, type Knowledge } from "@mathtutor/knowledge";
 import type { QuestionStore } from "./questions.js";
 
@@ -8,6 +8,13 @@ import type { QuestionStore } from "./questions.js";
  * 知识层管理通道（P1b）：所有修改都走 file-first + lint 闸门 + reload，
  * 禁止绕过文件直接改内存/DB（设计 §06 纪律）。
  */
+
+/** 读跨学科连接表（校验节点改动时要用它一起过 lint）；文件缺失按"没有连接"处理 */
+function readLinks(dataDir: string) {
+  const p = path.join(dataDir, "knowledge", "links.json");
+  if (!existsSync(p)) return [];
+  return LinksFileSchema.parse(JSON.parse(readFileSync(p, "utf8"))).links;
+}
 
 export interface CoverageRow {
   nodeId: string;
@@ -90,7 +97,7 @@ export function verifyNode(
   if (!candidate.success) {
     return { ok: false, error: `修改后 schema 校验失败: ${candidate.error.issues[0]?.message}` };
   }
-  const report = lint(candidate.data, []);
+  const report = lint(candidate.data, [], readLinks(dataDir));
   if (report.errors.length) {
     node.status = before.status;
     node.sources = before.sources;
@@ -100,6 +107,7 @@ export function verifyNode(
   const knowledge = loadKnowledge({
     graphPath,
     problemsPath: path.join(dataDir, "knowledge", "problems.json"),
+    linksPath: path.join(dataDir, "knowledge", "links.json"),
   });
   return { ok: true, knowledge };
 }

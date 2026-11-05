@@ -25,7 +25,7 @@ import { checkFigure } from "./ingest/figureGate.js";
 import { contentHashOf } from "./questions.js";
 import { pruneFigures } from "./figures.js";
 import { practiceReady } from "./questions.js";
-import { deriveAnswerType } from "./grading.js";
+import { deriveAnswerType } from "@mathtutor/subject-math";
 import { runSemanticAudit } from "./bankAudit.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
