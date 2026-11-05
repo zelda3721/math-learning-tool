@@ -10,6 +10,7 @@
  * 这比截图稳（不受字体/DPI/抗锯齿影响），也更说明问题（diff 直接指向挪了的那个元素）。
  */
 import { ExplainerPlayer, type SceneSpec } from '@mathtutor/explainer-web'
+import { renderMathAtoms } from '../math/katexAtoms'
 
 /**
  * 同一个场景里放两条补间路径，缺一不可：
@@ -24,7 +25,8 @@ const SPEC = {
     visual_objects: [
         { id: 'apples', primitive: 'unit_grid', params: { total: 12 } },
         { id: 'basket', primitive: 'unit_grid', params: { total: 0 } },
-        { id: 'price', primitive: 'quantity_bar', params: { total: 12 } },
+        // 标签里带 LaTeX：公式要能用同一个播放器渲染并逐项显现
+        { id: 'price', primitive: 'quantity_bar', label: '$8x-3y$', params: { total: 12 } },
     ],
     scenes: [
         {
@@ -42,11 +44,15 @@ const SPEC = {
             teaching_line: '拿走 4 个',
         },
         {
-            actions: [
-                { op: 'take_from', source: 'apples', destination: 'basket', count: 3 },
-                { op: 'set_value', target: 'price', value: 5 },
-            ],
+            // 这一拍**只搬运、不碰 price**：动作通道要靠它验"被冷落的组会压暗"。
+            // 三组都被点到时压暗无从体现——第一版就是这么写的，测出来全是不透明的。
+            actions: [{ op: 'take_from', source: 'apples', destination: 'basket', count: 3 }],
             teaching_line: '再拿走 3 个',
+        },
+        {
+            // 数一遍：state 通道要让这个数字在拍内从 0 走到真实数量
+            actions: [{ op: 'count', target: 'apples', expect: 5 }],
+            teaching_line: '数一遍',
         },
     ],
 } as unknown as SceneSpec
@@ -59,6 +65,8 @@ const player = new ExplainerPlayer(stage, SPEC, {
     autoPlay: false,
     // 固定转场时长，测试才能算准"转场窗口是 [2780, 3200)"
     transitionMs: 420,
+    // 公式渲染器由这里注入：播放器本身零依赖
+    math: renderMathAtoms,
 })
 
 interface LabHandle {

@@ -13,7 +13,11 @@ export interface ValidateResult {
  * - errors（拒绝播放）：schema 不合法、对象 id 重复、action 引用不存在的对象 id
  * - warnings（宽容放行）：未知 primitive、未知 op
  */
-export function validateSpec(raw: unknown): ValidateResult {
+export function validateSpec(
+  raw: unknown,
+  /** 视觉词表：学科新增图元要从这里传，否则会被当成未知图元报警告 */
+  visuals: { has(primitive: string): boolean } = { has: (p) => KNOWN_PRIMITIVES.has(p) },
+): ValidateResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -33,7 +37,7 @@ export function validateSpec(raw: unknown): ValidateResult {
     if (ids.has(obj.id)) errors.push(`duplicate object id: "${obj.id}"`);
     ids.add(obj.id);
     primitiveById.set(obj.id, obj.primitive);
-    if (!KNOWN_PRIMITIVES.has(obj.primitive)) {
+    if (!visuals.has(obj.primitive)) {
       warnings.push(`unknown primitive "${obj.primitive}" on object "${obj.id}"`);
     }
   }
