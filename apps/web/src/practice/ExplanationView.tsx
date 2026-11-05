@@ -12,6 +12,7 @@ import {
 import { Button } from '../ui'
 import { GeneratedExplanation } from './GeneratedExplanation'
 import { ExplanationCompare } from './ExplanationCompare'
+import { renderMathAtoms } from '../math/katexAtoms'
 
 /**
  * 讲解视图：默认 mode:'web' 动态讲解——ready/job done 后拉 SceneSpec 挂 ExplainerPlayer；
@@ -313,6 +314,8 @@ function WebPlayer({ spec }: { spec: SceneSpec }) {
         const player = new ExplainerPlayer(el, spec, {
             // 不自动播放：能拨的画面应当等学生动手，而不是自己走完
             autoPlay: false,
+            // 公式由 KaTeX 渲染：播放器本身零依赖，渲染器从这里注入
+            math: renderMathAtoms,
             onBeatChange: (i, total) => setBeat({ i, total }),
         })
         playerRef.current = player

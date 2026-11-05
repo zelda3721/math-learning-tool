@@ -17,6 +17,9 @@ export {
   type TimelineFrame,
   type TimelineOptions,
 } from "./timeline.js";
+export { BUILTIN_VISUALS, VisualRegistry, defaultVisuals, type VisualDefinition } from "./visuals.js";
+export { atomOpacity, revealedAtoms } from "./formulas.js";
+export { buildChannels, cuesForBeat, intensityAt, revealOpacityAt, stateValueAt, type ChannelCue, type ChannelKind } from "./channels.js";
 export { tweenPoint, tweenPositions, tweenBarGeometry, easeOutCubic, type Point, type BarGeometry } from "./motion.js";
 export { solveScene, type Scene, type SceneIssue, type Shape } from "./render/scene.js";
 export { KNOWN_PRIMITIVES, KNOWN_OPS } from "./refs.js";

@@ -6,6 +6,7 @@
  *    否则「根在曲线与 x 轴交点」这种最基本的数学关系画面上就是错位的。
  * 2. 算不出来就不画。函数编译/采样失败一律产出 issue，绝不退化成装饰性曲线。
  */
+import { defaultVisuals, type VisualRegistry } from "../visuals.js";
 import type { BeatState, GroupState } from "../fold.js";
 import { compileExpression } from "../math/expr.js";
 import { sampleFunction } from "../math/sample.js";
@@ -281,15 +282,20 @@ const pair = (v: unknown): [number, number] | null =>
 const range = (v: unknown): [number, number] | null => pair(v);
 
 /** 数量型（展开成单位记号）还是几何型（进坐标系） */
-const PLOTTED_PRIMITIVES = new Set([
-  "function_curve", "axes", "number_line", "dot", "line", "arrow", "polygon",
-  "tangent_line", "secant_line", "riemann_rects", "limit_approach", "composition_chain",
-]);
+// 分类搬到 visuals.ts：是不是画在坐标系里由词表说了算
+
 
 /**
  * 解算一拍。samples 控制曲线采样密度（按画布宽度自适应）。
  */
-export function solveScene(beat: BeatState, width: number, height: number, samples = 600): Scene {
+export function solveScene(
+  beat: BeatState,
+  width: number,
+  height: number,
+  samples = 600,
+  /** 视觉词表：缺省用内置数学图元 */
+  visuals: VisualRegistry = defaultVisuals,
+): Scene {
   const issues: SceneIssue[] = [];
   const plotted: Shape[] = [];
   const flowed: Shape[] = [];
@@ -312,14 +318,14 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
 
   for (const g of beat.groups) {
     if (g.attachPerUnit !== undefined) continue; // 已经变成宿主身上的结构
-    if (g.primitive === "figure") {
+    if (visuals.isFigure(g.primitive)) {
       const fig = figureShapeOf(g);
       if (fig) flowed.push(fig);
       else
         flowed.push({ kind: "label", id: g.id, text: g.label ?? "讲义原图", placeholder: true });
       continue;
     }
-    if (!PLOTTED_PRIMITIVES.has(g.primitive)) {
+    if (!visuals.isPlotted(g.primitive)) {
       // 数量型：展开成可数记号
       if (g.units.length > 0 || g.quantity !== undefined) {
         const shape = unitsShape(g);

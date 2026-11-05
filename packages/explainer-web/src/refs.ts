@@ -1,23 +1,14 @@
+import { defaultVisuals } from "./visuals.js";
 import type { SceneAction } from "@mathtutor/schema";
 
 /** 引擎图元词表（validate 里未知图元 → warning，player 里未知图元走兜底盒） */
-export const KNOWN_PRIMITIVES = new Set([
-  "dot",
-  "circle",
-  "rectangle",
-  "line",
-  "function_curve",
-  "arrow",
-  "quantity_bar",
-  "unit_grid",
-  "number_line",
-  "axes",
-  "polygon",
-  "relation_node",
-  "balance",
-  // 讲义原图的转写重画（引擎注入坐标；播放器走保形的 figure 渲染器）
-  "figure",
-]);
+/**
+ * 已知图元 = 视觉词表里声明过的那些。
+ *
+ * 从注册表**派生**而不是另抄一份：抄一份的下场是加了新图元、校验器还在报警告，
+ * 而警告看多了就没人看了。
+ */
+export const KNOWN_PRIMITIVES = new Set(defaultVisuals.list().map((d) => d.primitive));
 
 /** 引擎常见动作 op（未知 op → warning，折叠时忽略但保持可见性） */
 export const KNOWN_OPS = new Set([
