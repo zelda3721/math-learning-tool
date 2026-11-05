@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Player Lab · 播放器实验台</title>
+    <style>
+      body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #fff; }
+      #stage { max-width: 720px; }
+    </style>
+  </head>
+  <body>
+    <!--
+      播放器实验台：只给冒烟测试用，不进产品入口（vite build 只打包 index.html）。
+      它存在的唯一理由：播放器的 DOM 部分在 node 里跑不了，而"同一时刻两次渲染
+      逐像素一致"这条 DoD 必须在真浏览器里被真正验一次，不能只靠纯函数层的推理。
+    -->
+    <div id="stage"></div>
+    <script type="module" src="/src/dev/playerLab.ts"></script>
+  </body>
+</html>

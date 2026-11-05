@@ -794,6 +794,34 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
           break;
         }
 
+        case "set_value": {
+          /*
+           * 改一根"条"的量。
+           *
+           * 这是让数量条随叙事变长变短的唯一入口：magnitude 平时在建组时从 params
+           * 读一次就再不变了，于是「吃掉 3 个，条缩短」这类过程在画面上根本发生不了
+           * （只有可数记号那一路能动）。
+           *
+           * 只对量（magnitude）生效。可数记号组不走这条路——那边的数量由 units 决定，
+           * 凭空改一个数会让"看得见的个数"与声明的数打架，而验算存在的意义正是
+           * 让这两者必须一致。要减就把单位取走（take_from）。
+           */
+          const targets = (
+            strList(rec.targets).length > 0 ? strList(rec.targets) : strList(rec.target).concat(refs)
+          ).filter((id, i, arr) => arr.indexOf(id) === i);
+          const raw = num(rec.value ?? rec.total ?? rec.to, Number.NaN);
+          if (!Number.isFinite(raw)) break;
+          const next = Math.max(0, raw);
+          for (const id of targets) {
+            const group = touch(id);
+            if (!group || group.magnitude === undefined) continue;
+            group.magnitude = next;
+            group.visible = true;
+            group.emphasis = true;
+          }
+          break;
+        }
+
         case "balance_remove":
         case "balance_divide": {
           sawBalanceOp = true;
