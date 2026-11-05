@@ -8,6 +8,15 @@ export {
   type RenderObject,
 } from "./fold.js";
 export { ExplainerPlayer, type PlayerOptions, type PlayerOptions as ExplainerPlayerOptions } from "./player.js";
+export {
+  buildTimeline,
+  Playhead,
+  DEFAULT_BEAT_MS,
+  DEFAULT_TRANSITION_MS,
+  type Timeline,
+  type TimelineFrame,
+  type TimelineOptions,
+} from "./timeline.js";
 export { solveScene, type Scene, type SceneIssue, type Shape } from "./render/scene.js";
 export { KNOWN_PRIMITIVES, KNOWN_OPS } from "./refs.js";
 /** 数学核心：调用方可独立复算校验引擎给的数值（曲线、斜率、面积） */
