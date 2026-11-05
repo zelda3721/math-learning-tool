@@ -10,6 +10,7 @@
 import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
 import { Playhead, buildTimeline, type TimelineFrame } from "./timeline.js";
+import { tweenBarGeometry, tweenPoint, type BarGeometry, type Point } from "./motion.js";
 import {
   limitSwaps,
   liveTotal,
@@ -130,8 +131,17 @@ export class ExplainerPlayer {
   private destroyed = false;
   private width = 640;
   private height = 380;
-  /** 上一拍每个单位的屏幕位置，用于 FLIP 飞行 */
-  private lastUnitPos = new Map<string, { x: number; y: number }>();
+  /**
+   * 转场补间的目标位置与进度（由时间轴给出）。
+   * 非转场帧一律为 null——画面就是本拍该有的样子，不掺上一帧的残留。
+   */
+  private motion: {
+    positions: Map<string, Point>;
+    bars: Map<string, BarGeometry>;
+    progress: number;
+  } | null = null;
+  /** 目标拍的落点缓存（按拍与画布高度），转场时每帧都要用，别重算 */
+  private readonly posCache = new Map<string, { units: Map<string, Point>; bars: Map<string, BarGeometry> }>();
   private reportedIssues = new Set<string>();
   /**
    * 本拍「已经换了几只」。假设法的道理不在终态而在过程——
@@ -179,6 +189,10 @@ export class ExplainerPlayer {
       this.index = interactive;
       this.playhead.seekBeat(interactive);
       this.startSubPlayback();
+    } else {
+      // 从第 0 拍开画。少了这一句，seek(0) 会拿到一个空画布——
+      // 看起来像"播放器坏了"，其实只是从来没人要求它画过第一帧。
+      this.render();
     }
     if (opts.autoPlay) this.play();
   }
@@ -248,13 +262,80 @@ export class ExplainerPlayer {
   }
 
   /**
-   * 应用一帧：跨拍才重建画面（同一拍内的补间是阶段 2 后续切片，
-   * 届时这里的"只换拍"会变成"按 local 插值"）。
+   * 应用一帧。画面由（哪一拍、转场进度）共同决定，两者都来自时间轴：
+   * 跨拍就重建，同拍处在转场窗口里就按进度插值重绘。
+   *
+   * 减弱动效（reduceMotion）时不做补间：直接跳到下一拍该有的样子，
+   * 而不是把这一拍的单位预先画到下一拍的位置上——那样标签与图形会对不上。
    */
   private applyFrame(frame: TimelineFrame): void {
-    if (frame.beatIndex === this.index) return;
-    this.index = frame.beatIndex;
-    this.startSubPlayback();
+    /*
+     * 顺序很重要：先换拍（清掉一拍内的拨动状态），**再**装补间。
+     * 反过来写过一版——motion 先设好、再调 startSubPlayback()，被它顺手清掉，
+     * 于是"正着播到转场"有动画、"seek 进转场"没有。画面取决于你怎么走到这里，
+     * 这正是确定性最不能容忍的那种错。播放器实验台里抓到的。
+     */
+    const beatChanged = frame.beatIndex !== this.index;
+    if (beatChanged) {
+      this.index = frame.beatIndex;
+      this.subK = 0;
+    }
+
+    const hadMotion = this.motion !== null;
+    this.motion =
+      frame.transition && !reduceMotion()
+        ? (() => {
+            const targets = this.targetsOf(frame.transition.to);
+            return { positions: targets.units, bars: targets.bars, progress: frame.transition.progress };
+          })()
+        : null;
+
+    /*
+     * 什么时候必须重画：
+     * - 换拍了：内容变了
+     * - 正在转场：位置随进度变
+     * - **刚离开转场**（hadMotion）：上一帧画的是被位移过的单位，不重画就停在半路上
+     *
+     * 第三种最容易漏，也最伤人：seek(0) 落在一个"既不换拍也没转场"的时刻，
+     * 于是画面原封不动，看上去像跳转失败——其实是没人要求它把位移收回去。
+     * 播放器实验台里抓到的（同一时刻两次渲染不一致，正是这条）。
+     *
+     * 一拍之内的静止帧不重画，是刻意的：播放时每帧都重解一次场景太贵，
+     * 而静止帧的内容本来就没变。
+     */
+    if (beatChanged || frame.transition || hadMotion) this.render();
+  }
+
+  /**
+   * 某一拍里每个单位的落点（屏幕坐标）。纯计算，用于转场插值的目标端。
+   *
+   * 缓存键带上画布高度：`fitHeight` 会按内容改变高度，高度一变，
+   * 同一拍的落点也跟着变，拿旧缓存去插值就是让单位飞向一个不存在的位置。
+   */
+  private targetsOf(beatIndex: number): { units: Map<string, Point>; bars: Map<string, BarGeometry> } {
+    const key = `${beatIndex}@${this.height}`;
+    const cached = this.posCache.get(key);
+    if (cached) return cached;
+
+    const units = new Map<string, Point>();
+    const bars = new Map<string, BarGeometry>();
+    const beat = this.beats[beatIndex];
+    if (beat) {
+      const scene = solveScene(beat, this.width, this.height);
+      const top = scene.coords ? Math.round(this.height * 0.62) : 34;
+      const bottom = FACTS_H + (this.subSteps > 0 ? TALLY_H : 0);
+      const { items } = layoutFlowed(scene, { width: this.width, height: this.height, top, bottom });
+      for (const item of items) {
+        if (item.kind === "units") {
+          for (const u of item.units) units.set(u.id, { x: u.cx, y: u.cy });
+        } else if (item.kind === "bar") {
+          bars.set(item.id, { x: item.box.x, y: item.box.y, w: item.box.w, h: item.box.h, fillW: item.fillW });
+        }
+      }
+    }
+    const out = { units, bars };
+    this.posCache.set(key, out);
+    return out;
   }
 
   /**
@@ -266,12 +347,14 @@ export class ExplainerPlayer {
    */
   private startSubPlayback(): void {
     this.subK = 0;
+    this.motion = null;
     this.render();
   }
 
   /** 拨到第 k 只 */
   private scrubTo(k: number): void {
     this.subK = Math.max(0, Math.min(this.subSteps, Math.round(k)));
+    this.motion = null;
     this.render();
   }
 
@@ -485,11 +568,15 @@ export class ExplainerPlayer {
       return;
     }
     if (!Number.isFinite(len) || len <= 0) return;
-    path.style.strokeDasharray = `${len}`;
-    path.style.strokeDashoffset = `${len}`;
-    path.animate?.([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
-      duration: 900, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards",
-    });
+    /*
+     * 这里曾经做"曲线画入"：先设 strokeDashoffset = 全长，再用 WAAPI 在 900ms 内归零。
+     * 那是墙上时钟的动画，与 t 无关——同一时刻截两次图会得到不同的像素，
+     * 而阶段 2 的 DoD 要的正是"同一 t 必得同一画面"。所以删掉。
+     *
+     * 曲线画入这件事本身没错，但它该由**动作通道**在时间轴上驱动（谁在第几拍出现、
+     * 用多长时间露出），而不是渲染完顺手起一个动画。等 reveal 通道落地再回来做。
+     */
+    void len;
   }
 
   private drawTag(text: string, cs: CoordSystem, segs: [number, number][][], fill: string): void {
@@ -530,13 +617,39 @@ export class ExplainerPlayer {
       else this.paintUnits(item, nextPos);
     }
 
-    this.lastUnitPos = nextPos;
   }
 
-  /** 量：长度正比于数值的条。共享一把尺，差额那一截高亮——「差 24」是看出来的 */
+  /**
+   * 量：长度正比于数值的条。共享一把尺，差额那一截高亮——「差 24」是看出来的。
+   *
+   * 转场时插的是**几何**（槽位 + 填充长度），不是数值：所有条共享一把尺，
+   * 而尺本身会随全场最大值变；去插数值再按新尺换算，中途会出现
+   * "数值没动、条却跳了一下"的怪相。读数是文字，哪一拍的写哪一拍的，不补间。
+   *
+   * 需要知道的一件事：**当前模型里条根本不会跨拍变化**。
+   * `magnitude` 在 fold 建组时从 params 读一次，之后没有任何动作会改它
+   * （take_from 改的是 units，平衡类动作改的是 live 值，都不落在 magnitude 上）。
+   * 所以这段补间目前是"接通但待机"：写好了、纯函数测过，等哪天有动作能改条的量，
+   * 它立刻生效。要让数量条随叙事变长变短，缺的是**动作**（例如 set_value），不是播放器。
+   *
+   * 刻度按填充宽度的比例压缩：一轮转场里刻度数不变、间距等比缩，
+   * 转场结束才换成下一拍那组。刻度的语义是"单位分格"，单位数本来就会变，
+   * 追求逐刻度连续既做不到也没意义。
+   */
   private paintBar(bar: PlacedBar): void {
     const tone = CHANNELS[bar.channel % CHANNELS.length]!;
-    const { box } = bar;
+    const target = this.motion?.bars.get(bar.id);
+    const geom: BarGeometry = target
+      ? tweenBarGeometry(
+          { x: bar.box.x, y: bar.box.y, w: bar.box.w, h: bar.box.h, fillW: bar.fillW },
+          target,
+          this.motion!.progress,
+        )
+      : { x: bar.box.x, y: bar.box.y, w: bar.box.w, h: bar.box.h, fillW: bar.fillW };
+    const box = { x: geom.x, y: geom.y, w: geom.w, h: geom.h };
+    const fillW = geom.fillW;
+    // 刻度与差额段都是相对槽位左侧的偏移：随填充一起等比压缩，才不会被留在框外
+    const tickScale = bar.fillW > 0 ? fillW / bar.fillW : 1;
     this.text(bar.label ?? bar.id, bar.labelAt.x, bar.labelAt.y, 12, C.ink, "start", 600);
     // 空槽：让所有条的量程一致，短的那根一眼看出"还差一截"
     this.svg.appendChild(
@@ -546,30 +659,24 @@ export class ExplainerPlayer {
       }),
     );
     const fill = el("rect", {
-      x: box.x, y: box.y, width: Math.max(0, bar.fillW), height: box.h, rx: 6,
+      x: box.x, y: box.y, width: Math.max(0, fillW), height: box.h, rx: 6,
       fill: tone, "fill-opacity": 0.22, stroke: tone, "stroke-width": 1.5,
     });
     this.svg.appendChild(fill);
-    if (!reduceMotion()) {
-      fill.animate?.(
-        [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
-        { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
-      );
-      (fill as SVGElement).style.transformOrigin = `${box.x}px ${box.y}px`;
-    }
     for (const t of bar.ticks) {
       this.svg.appendChild(
         el("line", {
-          x1: box.x + t, y1: box.y + 6, x2: box.x + t, y2: box.y + box.h - 6,
+          x1: box.x + t * tickScale, y1: box.y + 6,
+          x2: box.x + t * tickScale, y2: box.y + box.h - 6,
           stroke: tone, "stroke-width": 1, "stroke-opacity": 0.45,
         }),
       );
     }
     // 数值写在填充段内侧；条太短就挪到外面，绝不压在边框上
-    const inside = bar.fillW > 46;
+    const inside = fillW > 46;
     this.text(
       String(bar.value),
-      box.x + bar.fillW + (inside ? -10 : 8),
+      box.x + fillW + (inside ? -10 : 8),
       box.y + box.h / 2 + 4,
       13,
       tone,
@@ -577,16 +684,20 @@ export class ExplainerPlayer {
       700,
     );
     if (bar.delta) {
-      const w = bar.delta.toX - bar.delta.fromX;
+      const w = (bar.delta.toX - bar.delta.fromX) * tickScale;
       this.svg.appendChild(
         el("rect", {
-          x: box.x + bar.delta.fromX, y: box.y - 4, width: w, height: box.h + 8, rx: 4,
+          x: box.x + bar.delta.fromX * tickScale, y: box.y - 4, width: w, height: box.h + 8, rx: 4,
           fill: C.beam, "fill-opacity": 0.12, stroke: C.beam,
           "stroke-width": 1.5, "stroke-dasharray": "5 3",
         }),
       );
       // 「比最短的那根多出 N」——写「差 N」在三根条并排时会被读成缺口
-      this.text(`+${bar.delta.value}`, box.x + bar.delta.fromX + w / 2, box.y - 9, 12, C.beam, "middle", 700);
+      this.text(
+        `+${bar.delta.value}`,
+        box.x + bar.delta.fromX * tickScale + w / 2,
+        box.y - 9, 12, C.beam, "middle", 700,
+      );
     }
   }
 
@@ -673,14 +784,24 @@ export class ExplainerPlayer {
     }
 
     for (const u of g.units) {
+      // 本拍的落点记下来（拨动滑杆、同一拍重绘都要用它当基准）
       nextPos.set(u.id, { x: u.cx, y: u.cy });
+      /*
+       * 转场中：位置按进度插值，而不是让 CSS 自己动。
+       * 由 t 算出来的位置，seek 到任意时刻都对得上；CSS 动画一旦被打断，
+       * 画面就停在"当时是什么样"，而那个"当时"谁也复现不出来。
+       */
+      const target = this.motion?.positions.get(u.id);
+      const at = target
+        ? tweenPoint({ x: u.cx, y: u.cy }, target, this.motion!.progress)
+        : { x: u.cx, y: u.cy };
       // 被替换过的记号长成它变成的那一类的样子（换成兔就该像兔）；
       // spec 没说变成什么时退到下一个通道，至少和原类别区分得开
       const swappedCh = u.swappedChannel ?? (g.channel + 1) % CHANNELS.length;
       const swappedTone = CHANNELS[swappedCh % CHANNELS.length]!;
       const node = this.unitNode(
         u.swapped ? SHAPES[swappedCh % SHAPES.length]! : shape,
-        u.cx, u.cy, u.r,
+        at.x, at.y, u.r,
         g.ghost ? "none" : u.swapped ? swappedTone : u.kind === "unknown" ? C.lit : tone,
         g.ghost ? C.inkFaint : u.swapped ? swappedTone : tone,
         g.ghost,
@@ -691,8 +812,8 @@ export class ExplainerPlayer {
         for (const dx of u.markXs) {
           this.svg.appendChild(
             el("line", {
-              x1: u.cx + dx, y1: u.cy + u.r * 0.8,
-              x2: u.cx + dx, y2: u.cy + u.r * 0.8 + u.markLen,
+              x1: at.x + dx, y1: at.y + u.r * 0.8,
+              x2: at.x + dx, y2: at.y + u.r * 0.8 + u.markLen,
               stroke: u.swapped ? swappedTone : tone,
               "stroke-width": Math.max(1, u.r * 0.22),
               "stroke-linecap": "round",
@@ -701,17 +822,7 @@ export class ExplainerPlayer {
         }
       }
       if (u.weight > 1) {
-        this.text(String(u.weight), u.cx, u.cy + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
-      }
-      const prev = this.lastUnitPos.get(u.id);
-      if (prev && !reduceMotion() && (prev.x !== u.cx || prev.y !== u.cy)) {
-        node.animate?.(
-          [
-            { transform: `translate(${prev.x - u.cx}px, ${prev.y - u.cy}px)` },
-            { transform: "translate(0,0)" },
-          ],
-          { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
-        );
+        this.text(String(u.weight), at.x, at.y + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
       }
     }
   }

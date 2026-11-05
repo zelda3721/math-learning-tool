@@ -32,6 +32,7 @@ export const KNOWN_OPS = new Set([
   "highlight",
   "reveal",
   "transform",
+  "set_value",
 ]);
 
 /**

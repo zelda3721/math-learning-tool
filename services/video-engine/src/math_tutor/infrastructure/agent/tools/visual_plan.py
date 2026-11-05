@@ -127,6 +127,9 @@ _VISUAL_ACTIONS = {
     "balance_remove",
     "balance_divide",
     "balance_verify",
+    # 量的重新取值（2026-11-05）：数量条随叙事变长变短只能靠它。
+    # 有它之前，magnitude 建组时读一次就再不变，"吃掉 3 个"只能靠单位搬运动作表达。
+    "set_value",
 }
 _QUANTITY_ACTIONS = {
     "take_from",
@@ -139,6 +142,7 @@ _QUANTITY_ACTIONS = {
 _MUTATING_VISUAL_ACTIONS = {
     "transform",
     "move",
+    "set_value",
     "partition",
     "merge",
     "map",
