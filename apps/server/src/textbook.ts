@@ -1,10 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import {
+  compileBook,
   extractKnowledgePoints,
+  listCompiledBooks,
   listCurricula,
+  loadCompiledBook,
   planCurriculum,
   proposeAlignment,
+  saveCompiledBook,
   saveCurriculum,
   splitChapters,
 } from "@mathtutor/knowledge";
@@ -128,6 +132,64 @@ export function textbookRoutes(state: AppState): Hono {
   });
 
   app.get("/curricula", (c) => c.json({ curricula: listCurricula(state.config.dataDir) }));
+
+  /**
+   * 知识编译：章节 → 概念（跨章合并、带出处、冲突留痕）。
+   *
+   * 和 /propose 的区别：propose 直接出"每章对应图谱哪个节点"的候选，
+   * 这里先把书编译成**书自己的概念结构**并落盘（JSON 给机器、Markdown 给家长），
+   * 对齐图谱是下一步动作。书与书差异再大，也止步于编译产物这一层。
+   *
+   * 只写 data/knowledge/compiled/，仍然**不碰图谱**。
+   */
+  app.post("/compile", async (c) => {
+    const parsed = ProposeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "需要 pages: [{page, text}]（页码从 1 起）" }, 400);
+    }
+    const { title, pages } = parsed.data;
+
+    const chapters = splitChapters(
+      pages.map((p) => ({ page: p.page, text: p.text })),
+      title ?? "全书",
+    );
+    if (chapters.length === 0) return c.json({ error: "没有可切分的内容" }, 422);
+
+    const book = await compileBook(chapters, {
+      title: title ?? "未命名教材",
+      provider: state.textbookProvider ?? null,
+    });
+    const saved = saveCompiledBook(state.config.dataDir, book);
+
+    return c.json({
+      title: book.title,
+      // 只回摘要：一概念一段原文在列表里太大，家长页按概念单独取
+      concepts: book.concepts.map((concept) => ({
+        id: concept.id,
+        title: concept.title,
+        definition: concept.definition,
+        keyPointCount: concept.keyPoints.length,
+        prerequisites: concept.prerequisites,
+        sourceCount: concept.sources.length,
+        conflictCount: concept.conflicts.length,
+      })),
+      links: book.links,
+      unresolvedPrerequisites: book.unresolvedPrerequisites,
+      coverage: book.coverage,
+      degraded: book.degraded,
+      savedTo: path.basename(saved.jsonPath),
+      markdownDir: path.basename(saved.markdownDir),
+      note: "编译产物：只写 data/knowledge/compiled/，图谱不会被修改",
+    });
+  });
+
+  app.get("/compiled", (c) => c.json({ books: listCompiledBooks(state.config.dataDir) }));
+
+  app.get("/compiled/:name", (c) => {
+    const book = loadCompiledBook(state.config.dataDir, c.req.param("name"));
+    if (!book) return c.json({ error: "没有这份编译产物" }, 404);
+    return c.json(book);
+  });
 
   return app;
 }

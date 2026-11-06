@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import type { EngineContract } from "@mathtutor/schema";
 import { SESSION_COOKIE, type AuthStore, type AuthUser } from "./auth.js";
 import { authRoutes } from "./routes/auth.js";
-import type { Knowledge } from "@mathtutor/knowledge";
+import type { ConceptExtractionProvider, Knowledge } from "@mathtutor/knowledge";
 import type { ServerConfig } from "./config.js";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
@@ -39,6 +39,12 @@ export interface AppState {
   judge?: import("./semanticJudge.js").AnswerJudge | null;
   /** 上传抽取 LLM Provider；null/缺省时 text 走离线兜底、image/pdf 返回 501 */
   extraction?: ExtractionProvider | null;
+  /**
+   * 教材概念编译的模型端（知识编译）。null/缺省时整本走离线兜底并标 degraded。
+   * 单独一个端口而不是复用 extraction：两者提示词与失效方式都不同
+   * （抽取题面 vs 编译概念），混用会让调一个坏掉另一个。
+   */
+  textbookProvider?: ConceptExtractionProvider | null;
   /** P1b 批量抽取任务存储；未提供时批量端点返回 503 */
   jobs?: JobStore;
   /** 可注入的引擎 fetch（测试 mock 引擎 SSE 用）；缺省 globalThis.fetch */
