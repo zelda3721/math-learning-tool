@@ -14,6 +14,7 @@ export * from "./machine.js";
 export * from "./session.js";
 export * from "./persistence.js";
 export * from "./redact.js";
+export * from "./degrade.js";
 export * from "./action.js";
 export * from "./types.js";
 export * from "./derived-state.js";
