@@ -11,6 +11,7 @@ export { parseHermesToolCalls, type HermesToolCall } from "./hermes.js";
 export {
   loadLlmConfig,
   isLocalUrl,
+  parseLocalOnly,
   DEFAULT_LLM_API_BASE,
   DEFAULT_LLM_API_KEY,
   DEFAULT_LLM_MODEL,
@@ -32,6 +33,8 @@ export {
 export {
   LlmClient,
   LlmHttpError,
+  LocalOnlyViolationError,
+  type LlmAuditEvent,
   type LlmClientInit,
   type ChatMessage,
   type ChatRole,

@@ -17,7 +17,8 @@
  *            两种错的代价差一个量级。
  *   家长层   最终仲裁不变。模型放行的每一次都记进 learner_events，可审。
  */
-import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
 
 /** 只用到 chat 一件事；抽成接口是为了测试能注入假模型（与 bankAudit 同一模式） */
 export interface JudgeChat {
@@ -110,7 +111,7 @@ export function createAnswerJudge(chat: JudgeChat): AnswerJudge {
 export function buildAnswerJudge(env: NodeJS.ProcessEnv = process.env): AnswerJudge | null {
   try {
     const config = loadLlmConfig(env);
-    return createAnswerJudge(LlmClient.fromEndpoint(config.fast));
+    return createAnswerJudge(createServerLlmClient(config, "fast", { dataDir: auditDataDir(env) }));
   } catch {
     return null;
   }

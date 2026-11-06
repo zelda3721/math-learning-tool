@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import path from "node:path";
 import { type Knowledge, loadKnowledge } from "@mathtutor/knowledge";
-import { LlmClient, loadLlmConfig } from "@mathtutor/llm-client";
+import { loadLlmConfig } from "@mathtutor/llm-client";
 import { applyDotEnv, loadConfig } from "./config.js";
 import { fetchEngineContract, ContractError } from "./contract.js";
 import { createApp } from "./app.js";
@@ -10,6 +10,7 @@ import { Repo } from "./repo.js";
 import { createQuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { JobStore } from "./ingest/jobs.js";
 import { createPhotoGrader } from "./photoGrader.js";
 import { createTextbookCompiler } from "./textbookCompiler.js";
@@ -20,12 +21,7 @@ import { createSubjectRegistry } from "./subjects.js";
 function buildHintProvider(): HintProvider | null {
   try {
     const config = loadLlmConfig(process.env);
-    const endpoint = config.fast;
-    const client = new LlmClient({
-      baseUrl: endpoint.baseUrl,
-      apiKey: endpoint.apiKey,
-      model: endpoint.model,
-    });
+    const client = createServerLlmClient(config, "fast", { dataDir: auditDataDir(process.env) });
     return {
       async generate(prompt: string): Promise<string> {
         let text = "";
@@ -90,7 +86,7 @@ async function main(): Promise<void> {
     judge: buildAnswerJudge(),
     extraction: buildExtractionProvider(knowledge),
     // 知识编译走 main 端点（本地 oMLX 常驻模型）；这里只建客户端，不预热、不拉模型
-    textbookProvider: createTextbookCompiler(process.env),
+    textbookProvider: createTextbookCompiler(process.env, { dataDir: auditDataDir(process.env) }),
     jobs: new JobStore(db),
     auth: new AuthStore(db),
     photoGrader: (() => {

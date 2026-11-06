@@ -1,4 +1,5 @@
-import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { createServerLlmClient } from "./llm.js";
 import type { ConceptDraft, ConceptExtractionProvider } from "@mathtutor/knowledge";
 
 /**
@@ -30,6 +31,8 @@ export interface TextbookCompilerOptions {
   systemPrompt?: string;
   maxTokens?: number;
   temperature?: number;
+  /** 审计落盘的数据根；省略则不落审计 */
+  dataDir?: string;
 }
 
 export function createTextbookCompiler(
@@ -37,7 +40,7 @@ export function createTextbookCompiler(
   options: TextbookCompilerOptions = {},
 ): ConceptExtractionProvider {
   const config = loadLlmConfig(env);
-  const client = LlmClient.fromEndpoint(config.main);
+  const client = createServerLlmClient(config, "main", { dataDir: options.dataDir });
   const system = options.systemPrompt ?? SYSTEM;
 
   return {

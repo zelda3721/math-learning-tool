@@ -18,7 +18,8 @@
  */
 import type { Knowledge } from "@mathtutor/knowledge";
 import type { Question } from "@mathtutor/schema";
-import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { candidateNodes, snapToGraph } from "./ingest/vocabulary.js";
 
 /**
@@ -135,7 +136,10 @@ export async function runSemanticAudit(
   } = {},
 ): Promise<SemanticAuditResult> {
   const client: AuditChat =
-    opts.chat ?? LlmClient.fromEndpoint(loadLlmConfig(opts.env ?? process.env).fast);
+    opts.chat ??
+    createServerLlmClient(loadLlmConfig(opts.env ?? process.env), "fast", {
+      dataDir: auditDataDir(opts.env ?? process.env),
+    });
   const disputed: AuditVerdict[] = [];
   const dropped = new Set<string>();
   const nameOf = (id: string) => knowledge.index.nodeById.get(id)?.name ?? id;

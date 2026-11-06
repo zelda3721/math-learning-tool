@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   LlmClient,
   LlmHttpError,
+  LocalOnlyViolationError,
+  type LlmAuditEvent,
   type LlmStreamEvent,
   type StreamDone,
 } from "../src/index.js";
@@ -261,5 +263,60 @@ describe("LlmClient.chat", () => {
       tool_call_id: "c1",
       name: "solve",
     });
+  });
+});
+
+describe("LOCAL_ONLY：默认拒绝越界，放行时留审计", () => {
+  it("默认（不传 localOnly）拿到云端地址直接构造失败——默认值在安全的那一侧", () => {
+    expect(() => new LlmClient({ baseUrl: "https://api.example.com/v1", model: "m" })).toThrow(
+      LocalOnlyViolationError,
+    );
+  });
+
+  it("本地与局域网都放行", () => {
+    for (const baseUrl of ["http://localhost:1234/v1", "http://127.0.0.1:8888/v1", "http://192.168.1.9:8000/v1", "http://my-box.local/v1"]) {
+      expect(() => new LlmClient({ baseUrl, model: "m" })).not.toThrow();
+    }
+  });
+
+  it("显式 LOCAL_ONLY=0 才放行云端，且每次请求都记一条审计（不含 apiKey）", async () => {
+    const events: LlmAuditEvent[] = [];
+    const client = new LlmClient({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-secret",
+      model: "cloud-model",
+      localOnly: false,
+      audit: (e) => events.push(e),
+      fetch: async () =>
+        new Response(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "hi" } }] })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    });
+
+    const chunks: string[] = [];
+    for await (const ev of client.chat([{ role: "user", content: "x" }])) {
+      if (ev.type === "text") chunks.push(ev.text);
+    }
+
+    expect(chunks.join("")).toBe("hi");
+    expect(events).toHaveLength(1);
+    expect(events[0]!.baseUrl).toBe("https://api.example.com/v1");
+    expect(events[0]!.model).toBe("cloud-model");
+    expect(JSON.stringify(events[0])).not.toContain("sk-secret");
+  });
+
+  it("本地请求不记审计（否则审计表里全是噪声，越界那几条就看不见了）", async () => {
+    const events: LlmAuditEvent[] = [];
+    const client = new LlmClient({
+      baseUrl: "http://localhost:1234/v1",
+      model: "local",
+      audit: (e) => events.push(e),
+      fetch: async () => new Response(`data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } }),
+    });
+    for await (const _ of client.chat([{ role: "user", content: "x" }])) {
+      // 读空
+    }
+    expect(events).toEqual([]);
   });
 });
