@@ -191,35 +191,104 @@ function definitionsAgree(a: string, b: string): boolean {
 }
 
 /**
+ * 默认并发数。
+ *
+ * 本地常驻模型实测吞吐约 45 token/s（Qwen3.8-Flash-Next，oMLX）。这意味着
+ * **并发给不了额外的吞吐**：总时间下限约等于总 token 数 ÷ 45。并发能省掉的是
+ * 请求之间的空档（prefill 期间 GPU 原本空着），所以收益有限、且很快见顶。
+ *
+ * 同一批 6 章（16963 字）实测：并发 1 → 102.8s，2 → 97.0s，3 → 80.4s，
+ * 4 的两次跑出 56.0s 与 115.8s（噪声压过了并发本身的影响，本地服务同时在干别的）。
+ * 结论：2~3 路把管道填满就够；4 是上限，再往上只会让单请求延迟拉长、更容易撞超时。
+ * 真要整本快起来，杠杆是**每章的输出预算**，不是并发数。
+ */
+export const DEFAULT_COMPILE_CONCURRENCY = 2;
+export const MAX_COMPILE_CONCURRENCY = 4;
+
+export function clampConcurrency(value: unknown, fallback = DEFAULT_COMPILE_CONCURRENCY): number {
+  const n = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(Math.floor(n), MAX_COMPILE_CONCURRENCY);
+}
+
+/** 有界并发 map：结果按输入顺序返回，让后续合并顺序与串行时完全一致 */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]!, index);
+    }
+  };
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * 编译一本书。
  *
  * 顺序：每章先问模型，失败/抽出空就退回离线兜底（如实标 degraded），
  * 然后按规范名合并跨章同名概念，最后把先修名解析成书内边。
+ *
+ * 并发只影响"什么时候拿到草稿"，不影响合并顺序：合并始终按章节顺序做，
+ * 所以并发 1 和并发 3 编出来的产物逐字相同（有测试钉住）。
  */
 export async function compileBook(
   chapters: readonly Chapter[],
-  options: { title?: string; provider?: ConceptExtractionProvider | null } = {},
+  options: {
+    title?: string;
+    provider?: ConceptExtractionProvider | null;
+    /** 同时在飞的模型请求数；默认 2，见 DEFAULT_COMPILE_CONCURRENCY 的理由 */
+    concurrency?: number;
+    /** 每章抽完的回调（进度用；长任务里家长能看见已经编到哪一章） */
+    onChapterDone?: (done: number, total: number, chapterTitle: string) => void;
+  } = {},
 ): Promise<CompiledBook> {
   const bodyChapters = chapters.filter((c) => !c.backMatter);
-  let degraded = false;
+  let done = 0;
+
+  const extracted = await mapWithConcurrency(
+    bodyChapters,
+    clampConcurrency(options.concurrency),
+    async (chapter) => {
+      let drafts: ConceptDraft[] = [];
+      let fellBack = !options.provider;
+      if (options.provider) {
+        try {
+          drafts = sanitizeDrafts(await options.provider.extract({ chapterTitle: chapter.title, text: chapter.text }));
+        } catch {
+          drafts = [];
+        }
+        // 模型不可用、或这一章什么都没抽出来：退回离线兜底，不让链停在这里
+        if (drafts.length === 0) {
+          drafts = compileChapterOffline(chapter);
+          fellBack = true;
+        }
+      } else {
+        drafts = compileChapterOffline(chapter);
+      }
+      done += 1;
+      options.onChapterDone?.(done, bodyChapters.length, chapter.title);
+      return { drafts, fellBack };
+    },
+  );
+
+  // 只要有一章用了兜底，整份产物就是降级的（如实标，不做四舍五入）
+  const degraded = extracted.some((e) => e.fellBack);
 
   const byId = new Map<string, Accumulator>();
   const idOwner = new Map<string, string>();
 
-  for (const chapter of bodyChapters) {
-    let drafts: ConceptDraft[] = [];
-    if (options.provider) {
-      try {
-        drafts = sanitizeDrafts(await options.provider.extract({ chapterTitle: chapter.title, text: chapter.text }));
-      } catch {
-        drafts = [];
-      }
-    }
-    // 模型不可用、或这一章什么都没抽出来：退回离线兜底，不让链停在这里
-    if (drafts.length === 0) {
-      drafts = compileChapterOffline(chapter);
-      degraded = true;
-    }
+  for (let index = 0; index < bodyChapters.length; index++) {
+    const chapter = bodyChapters[index]!;
+    const drafts = extracted[index]?.drafts ?? [];
 
     for (const draft of drafts) {
       const normalized = normalizeConceptName(draft.title);

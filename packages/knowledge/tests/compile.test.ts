@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampConcurrency,
   compileBook,
   conceptIdOf,
   diffCompiled,
@@ -147,6 +148,70 @@ describe("compileBook：编译", () => {
     });
     expect(book.degraded).toBe(true);
     expect(book.concepts.length).toBeGreaterThan(0);
+  });
+});
+
+describe("并发", () => {
+  it("同时在飞的请求数不超过设定值（本地模型 45 token/s，压不住就别谈并发）", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const chapters = Array.from({ length: 6 }, (_, i) =>
+      chapter(`第${i + 1}章`, "分数是把整体平均分成若干份表示这样一份或几份的数。"),
+    );
+
+    const book = await compileBook(chapters, {
+      concurrency: 2,
+      provider: {
+        async extract({ chapterTitle }) {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight -= 1;
+          return [draft(`概念${chapterTitle}`, `${chapterTitle}的定义`)];
+        },
+      },
+    });
+
+    expect(peak).toBe(2);
+    expect(book.concepts).toHaveLength(6);
+  });
+
+  it("并发几路不影响产物：并发 1 与并发 3 编出来的逐字相同", async () => {
+    const chapters = [
+      chapter("第一章 分数", "分数是把整体平均分成若干份表示这样一份或几份的数。"),
+      chapter("第三章 分数的加减", "通分是把异分母分数化成同分母分数。"),
+      chapter("第四章 分数的乘除", "分数乘法用分子乘分子，分母乘分母。"),
+    ];
+    const provider = () => ({
+      async extract({ chapterTitle }: { chapterTitle: string }) {
+        await new Promise((resolve) => setTimeout(resolve, 3));
+        return [
+          draft("通分", `${chapterTitle}里的通分是这么说的`, { prerequisites: ["分数单位"] }),
+          draft("分数单位", `${chapterTitle}里的分数单位是这么说的`),
+        ];
+      },
+    });
+
+    const serial = await compileBook(chapters, { provider: provider(), concurrency: 1 });
+    const parallel = await compileBook(chapters, { provider: provider(), concurrency: 3 });
+    expect(parallel).toEqual(serial);
+  });
+
+  it("并发数被夹在 [1, 4]：本地模型更快不了，只会排队到爆", () => {
+    expect(clampConcurrency(undefined)).toBe(2);
+    expect(clampConcurrency(0)).toBe(2);
+    expect(clampConcurrency("3")).toBe(3);
+    expect(clampConcurrency(9)).toBe(4);
+  });
+
+  it("每章抽完回调一次，进度能报给长任务", async () => {
+    const seen: string[] = [];
+    const chapters = [chapter("第一章", "……"), chapter("第二章", "……")];
+    await compileBook(chapters, {
+      provider: fakeProvider({ 第一章: [draft("通分", "把异分母化成同分母")], 第二章: [draft("约分", "分子分母同除以公因数")] }),
+      onChapterDone: (done, total, title) => seen.push(`${done}/${total} ${title}`),
+    });
+    expect(seen.sort()).toEqual(["1/2 第一章", "2/2 第二章"]);
   });
 });
 

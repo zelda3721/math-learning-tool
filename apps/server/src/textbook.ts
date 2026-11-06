@@ -158,6 +158,13 @@ export function textbookRoutes(state: AppState): Hono {
     const book = await compileBook(chapters, {
       title: title ?? "未命名教材",
       provider: state.textbookProvider ?? null,
+      concurrency: state.config.textbookCompileConcurrency,
+      // 整本书要编十几分钟，写进日志便于判断卡在哪一章（接口本身仍是一次性返回）
+      onChapterDone: (done, total, chapterTitle) => {
+        if (done % 10 === 0 || done === total) {
+          console.log(`[textbook] 编译 ${done}/${total} 章（最近：${chapterTitle}）`);
+        }
+      },
     });
     const saved = saveCompiledBook(state.config.dataDir, book);
 
