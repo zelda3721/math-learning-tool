@@ -28,10 +28,15 @@ export interface Chapter {
 const HEADING_PATTERNS: { name: string; re: RegExp }[] = [
   // 第X章 / 第X单元 / 第X节（中文数字或阿拉伯数字）
   { name: "numbered", re: /^\s*第\s*[0-9一二三四五六七八九十百]+\s*[章单元节讲]\s*[：:.、\s]?\s*\S.{0,30}$/ },
-  // 1.2.3 标题 / 1 标题（纯数字编号开头，冒号或空格分隔）
-  { name: "dotted", re: /^\s*\d+(?:\.\d+){0,3}[.、]?\s+\S.{0,30}$/ },
+  // 1.2.3 标题（多级编号）或「1、标题」（中文顿号）。
+  // **不认「1 空格 文字」**：实测一本真实练习册，练习题的行全是「1 she is」「2 I'm not hungry」，
+  // 松一档就把练习册切成了 96 个"章节"。裸数字编号太常见，不能单独作标题凭据。
+  { name: "dotted", re: /^\s*\d+(?:\.\d+)+[.、]?\s+\S.{0,30}$|^\s*\d+[、．]\s*\S.{0,30}$/ },
   // 一、二、三、标题
   { name: "chinese", re: /^\s*[一二三四五六七八九十]+\s*[、.．]\s*\S.{0,30}$/ },
+  // 英文教材的单元标题：Unit 1 am/is/are、Chapter 3 Fractions、Lesson 12
+  // 实测驱动：拿一本真实的英语语法书跑，原样式把整本书切成了一章
+  { name: "english", re: /^\s*(?:unit|chapter|lesson|part|section)\s+\d+\b.{0,40}$/i },
 ];
 
 /** 标题行的长度上限：更长的多半是正文里的一句话，不是标题 */
