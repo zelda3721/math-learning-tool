@@ -1,5 +1,5 @@
 /**
- * 9 个视图的冒烟：登录态下逐页点进去，确认页面真的渲染出来、且没有未捕获异常。
+ * 10 个视图的冒烟：登录态下逐页点进去，确认页面真的渲染出来、且没有未捕获异常。
  *
  * 这里的"DoD"很朴素：每个视图都能打开、页头在、控制台没有未捕获报错。
  * 引擎是离线降级启动的，所以涉及讲解/视频的接口本来就会失败——那不是断言的失败条件，
@@ -42,6 +42,7 @@ const VIEWS: Record<string, ViewCase> = {
   solve: { nav: '讲解', heading: '讲解' },
   ingest: { nav: '录题', heading: '题库录入' },
   bank: { nav: '题库', heading: '题库' },
+  textbook: { nav: '教材', heading: '教材' },
   parent: { nav: '家长', heading: '家长中心' },
 }
 
@@ -58,10 +59,10 @@ for (const [key, view] of Object.entries(VIEWS)) {
   })
 }
 
-test('家长能看到全部 9 个视图入口，孩子看不到录题/题库/家长', async ({ page, pageErrors }) => {
+test('家长能看到全部 10 个视图入口，孩子看不到录题/题库/教材/家长', async ({ page, pageErrors }) => {
   void pageErrors
   await page.goto('/')
-  const labels = ['练习', '问一道题', '星图', '错题本', '探索', '讲解', '录题', '题库', '家长']
+  const labels = ['练习', '问一道题', '星图', '错题本', '探索', '讲解', '录题', '题库', '教材', '家长']
   for (const label of labels) {
     await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
@@ -75,7 +76,7 @@ test('家长能看到全部 9 个视图入口，孩子看不到录题/题库/家
   await page.getByRole('button', { name: '注册并开始', exact: true }).click()
 
   await expect(page.getByRole('button', { name: '练习', exact: true })).toBeVisible()
-  for (const label of ['录题', '题库', '家长']) {
+  for (const label of ['录题', '题库', '教材', '家长']) {
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveCount(0)
   }
 })
