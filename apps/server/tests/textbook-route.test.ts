@@ -2,56 +2,110 @@ import { describe, expect, it } from "vitest";
 import { makeApp } from "./helpers.js";
 
 /**
- * 教材编译接口：只出提案、不写图谱。
- * 这条约束在接口层的体现：调用之后图谱节点数一个不变。
+ * 教材对齐：从**编译产物**出图谱候选。
+ *
+ * 之前这条路是按章抽点、按章对齐（/propose），和编译产物各走各的——
+ * /confirm 认的是章节标题，编译出来的概念根本接不到排课上。
+ * 现在只有一条链：compile → align → confirm。
  */
 
-async function post(app: ReturnType<typeof makeApp>["app"], url: string, body: unknown) {
+type App = ReturnType<typeof makeApp>["app"];
+
+async function post(app: App, url: string, body: unknown) {
   const res = await app.request(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json() };
+  return { status: res.status, body: (await res.json()) as Record<string, any> };
 }
 
-const PAGES = [
-  { page: 1, text: "第一章 分数的意义\n把一个整体平均分成若干份，表示这样一份或几份的数叫分数。" },
-  { page: 2, text: "分数的分母表示平均分成的份数，分子表示取了多少份。分数也可以看成除法。" },
-];
+async function waitJob(app: App, jobId: string) {
+  for (let i = 0; i < 100; i++) {
+    const job = (await (await app.request(`/api/v1/textbook/compile/${jobId}`)).json()) as Record<string, any>;
+    if (job.status !== "running") return job;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("编译任务没有在预期时间内结束");
+}
 
-describe("POST /api/v1/textbook/propose", () => {
-  it("切出章节与知识点，并给出待确认的候选", async () => {
-    const { app } = makeApp([]);
-    const res = await post(app, "/api/v1/textbook/propose", { title: "数学 五年级上", pages: PAGES });
+/** 造一个"书里就是这么说"的章节 + provider，保证概念能有可定位的出处 */
+function bookFor(nodeName: string) {
+  const sentence = `${nodeName}是指把整体平均分成若干份，表示这样一份或几份的数。`;
+  const pages = [{ page: 1, text: `第一章 ${nodeName}\n${sentence}` }];
+  const provider = {
+    async extract() {
+      return [
+        { title: nodeName, definition: sentence, keyPoints: ["平均分"], prerequisites: [], evidence: sentence },
+        // 编造的引文（够长、能过清洗，但正文里找不到）→ 不该进候选
+        {
+          title: `${nodeName}（模型臆测）`,
+          definition: "随便写的",
+          keyPoints: [],
+          prerequisites: [],
+          evidence: "这句话在书里并不存在，是模型自己写的一段像原文的东西。",
+        },
+      ];
+    },
+  };
+  return { pages, provider };
+}
 
-    expect(res.status).toBe(200);
-    expect(res.body.chapters.length).toBeGreaterThan(0);
-    expect(res.body.items.length).toBeGreaterThan(0);
-    // 每条都是待确认状态，且带候选
-    for (const item of res.body.items) {
-      expect(item.alignment.status).toBe("pending");
-    }
-    expect(res.body.note).toContain("图谱不会被直接修改");
+describe("POST /api/v1/textbook/align", () => {
+  it("从编译产物按概念出候选；出处定位不到的概念不进候选", async () => {
+    // 编译用的 app 自带 provider；align 与它共用同一个 state 与数据目录
+    const compiled = makeApp([]);
+    const state = compiled.state;
+    const nodeName = state.knowledge.graph.nodes[0]!.name;
+    const { pages, provider } = bookFor(nodeName);
+    compiled.state.textbookProvider = provider;
+    const res = await post(compiled.app, "/api/v1/textbook/compile", { title: "数学 五年级上", pages });
+    const job = await waitJob(compiled.app, String(res.body.jobId));
+    expect(job.status).toBe("done");
+
+    // 用同一个 state/数据目录再请求 align
+    const aligned = await post(compiled.app, "/api/v1/textbook/align", { name: "数学 五年级上" });
+    expect(aligned.status).toBe(200);
+    expect(aligned.body.items).toHaveLength(1);
+    expect(aligned.body.items[0].conceptTitle).toBe(nodeName);
+    expect(aligned.body.items[0].status).toBe("pending");
+    // 候选里应当有同名节点
+    expect(aligned.body.items[0].candidates.map((c: { nodeId: string }) => c.nodeId)).toContain(
+      state.knowledge.graph.nodes[0]!.id,
+    );
+    expect(aligned.body.skippedUnverified).toBe(1);
+    expect(aligned.body.note).toContain("图谱不会被直接修改");
   });
 
-  it("图谱一个节点都不增加（只出提案，不写入）", async () => {
-    const { app, state } = makeApp([]);
+  it("图谱一个节点都不增加（只出候选，不写入）", async () => {
+    const compiled = makeApp([]);
+    const state = compiled.state;
+    const nodeName = state.knowledge.graph.nodes[0]!.name;
+    const { pages, provider } = bookFor(nodeName);
+    compiled.state.textbookProvider = provider;
+
     const before = state.knowledge.graph.nodes.length;
-    await post(app, "/api/v1/textbook/propose", { pages: PAGES });
+    const res = await post(compiled.app, "/api/v1/textbook/compile", { title: "数学", pages });
+    await waitJob(compiled.app, String(res.body.jobId));
+    await post(compiled.app, "/api/v1/textbook/align", { name: "数学" });
+
     expect(state.knowledge.graph.nodes.length).toBe(before);
   });
 
-  it("如实标出降级（这一版走离线兜底）", async () => {
+  it("没有编译产物时 404，说清要先 compile", async () => {
     const { app } = makeApp([]);
-    const res = await post(app, "/api/v1/textbook/propose", { pages: PAGES });
-    expect(res.body.degraded).toBe(true);
+    const res = await post(app, "/api/v1/textbook/align", { name: "没有这本书" });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain("/compile");
   });
 
-  it("输入不合法 → 400 且说清要什么", async () => {
+  it("旧的 /propose 已经删掉（同一件事只留一种实现）", async () => {
     const { app } = makeApp([]);
-    const res = await post(app, "/api/v1/textbook/propose", { pages: [] });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain("pages");
+    const res = await app.request("/api/v1/textbook/propose", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pages: [{ page: 1, text: "x" }] }),
+    });
+    expect(res.status).toBe(404);
   });
 });

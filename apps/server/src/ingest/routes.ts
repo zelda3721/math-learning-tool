@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, type Question } from "@mathtutor/schema";
-import { matchOffline, matchProblemTypesOffline, reconstructLines } from "@mathtutor/knowledge";
+import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
+import { extractPdfPages } from "./pdf.js";
 import { checkFigure } from "./figureGate.js";
 import { snapToGraph } from "./vocabulary.js";
 import { boxQuality, classifyFigures, isDanglingLabel } from "./passes.js";
@@ -120,35 +121,13 @@ export function stripDataUrl(content: string): { base64: string; mime: string | 
   return { base64: content.slice(m[0].length), mime: m[1]! };
 }
 
-/** 只留真正带文字的项（pdfjs 的 items 里还混着标记结构项，没有 str/transform） */
-function textItemsOf(items: readonly unknown[]): { str: string; transform: number[] }[] {
-  return items.flatMap((item) => {
-    const it = item as { str?: unknown; transform?: unknown };
-    return typeof it.str === "string" && Array.isArray(it.transform)
-      ? [{ str: it.str, transform: it.transform as number[] }]
-      : [];
-  });
-}
-
-/** PDF 文本层抽取（pdfjs-dist，动态 import 避免拖慢启动）；扫描版返回空串 */
+/** PDF 文本层抽取（按页重建行）；扫描版返回空串 */
 async function extractPdfText(base64: string): Promise<string> {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const data = new Uint8Array(Buffer.from(base64, "base64"));
-  const task = getDocument({ data, disableFontFace: true, useSystemFonts: true });
-  try {
-    const doc = await task.promise;
-    const pages: string[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const tc = await page.getTextContent();
-      // 按视觉行重建，而不是把整页拼成一行——拼成一行会让标题消失在正文里，
-      // 下游的切章规则会全部失效（实测一本 294 页的书因此被判成「整本一章」）
-      pages.push(reconstructLines(textItemsOf(tc.items)).join("\n"));
-    }
-    return pages.join("\n").trim();
-  } finally {
-    await task.destroy();
-  }
+  const pages = await extractPdfPages(base64);
+  return pages
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
 }
 
 export function ingestRoutes(state: AppState): Hono {

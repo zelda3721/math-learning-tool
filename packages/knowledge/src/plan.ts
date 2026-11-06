@@ -16,8 +16,11 @@ import type { GraphIndex } from "./graph.js";
  */
 
 export interface ConfirmedLink {
+  /** 教材里的标题（编译产物里就是概念名） */
   chapterTitle: string;
   nodeId: string;
+  /** 概念 id：课程计划要能回指编译产物里的那一条，否则改天就说不清"这课对应哪个概念" */
+  conceptId?: string;
 }
 
 export interface PlannedLesson {
@@ -26,6 +29,8 @@ export interface PlannedLesson {
   chapterTitle: string;
   nodeId: string;
   nodeName: string;
+  /** 对应的编译产物概念 id（有就带上） */
+  conceptId?: string;
   /** 重排理由：被前置关系推后的，写明被谁推后——否则家长会以为顺序错了 */
   movedBecauseOf: string[];
 }
@@ -109,6 +114,7 @@ export function planCurriculum(
       nodeId,
       nodeName: index.getNode(nodeId)?.name ?? nodeId,
       movedBecauseOf: moved,
+      ...(link.conceptId ? { conceptId: link.conceptId } : {}),
     };
   });
 

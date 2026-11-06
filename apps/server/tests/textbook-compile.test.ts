@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseConceptDrafts } from "../src/textbookCompiler.js";
 import { makeApp } from "./helpers.js";
+import { miniPdfBase64 } from "./pdfFixture.js";
 
 /**
  * 知识编译接口：书 → 概念（跨章合并、带出处），落 data/knowledge/compiled/，
@@ -149,6 +150,79 @@ describe("POST /api/v1/textbook/compile", () => {
     const { app } = makeApp([]);
     const res = await app.request("/api/v1/textbook/compiled/没有这本书");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("全局并发闸", () => {
+  it("两本书同时编译，同时在飞的模型请求数仍是配置的那一个数（不是翻倍）", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const slowProvider = {
+      async extract() {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        inFlight -= 1;
+        return [
+          {
+            title: "通分",
+            definition: "把异分母分数化成同分母分数。",
+            keyPoints: [],
+            prerequisites: [],
+            evidence: "通分是把异分母分数化成同分母分数。",
+          },
+        ];
+      },
+    };
+    const { app, state } = makeApp([], { textbookProvider: slowProvider });
+    const limit = state.config.textbookCompileConcurrency;
+
+    const [a, b] = await Promise.all([
+      post(app, "/api/v1/textbook/compile", { title: "书A", pages: PAGES }),
+      post(app, "/api/v1/textbook/compile", { title: "书B", pages: PAGES }),
+    ]);
+    await Promise.all([waitJob(app, String(a.body.jobId)), waitJob(app, String(b.body.jobId))]);
+
+    expect(peak).toBeLessThanOrEqual(limit);
+    // 两台并发确实发生过（否则这条测试证明不了闸在工作）
+    expect(peak).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("PDF 直接入编译（家长上传的真实路径）", () => {
+  it("传 pdfBase64 就能编，不用前端先切页", async () => {
+    const { app } = makeApp([], { textbookProvider: provider() });
+    const res = await post(app, "/api/v1/textbook/compile", {
+      title: "PDF 教材",
+      pdfBase64: miniPdfBase64("Fraction: a number that names part of a whole."),
+    });
+
+    expect(res.status).toBe(202);
+    const job = await waitJob(app, String(res.body.jobId));
+    expect(job.status).toBe("done");
+    expect(job.result.concepts.length).toBeGreaterThan(0);
+  });
+
+  it("没有文本层的 PDF（扫描版）→ 422 并说清原因，而不是编出空章节", async () => {
+    const { app } = makeApp([]);
+    const res = await post(app, "/api/v1/textbook/compile", {
+      title: "扫描版",
+      pdfBase64: miniPdfBase64(""),
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("扫描版");
+  });
+
+  it("坏 PDF → 400，不抛 500", async () => {
+    const { app } = makeApp([]);
+    const res = await post(app, "/api/v1/textbook/compile", { pdfBase64: Buffer.from("not a pdf").toString("base64") });
+    expect(res.status).toBe(400);
+  });
+
+  it("什么都不给 → 400", async () => {
+    const { app } = makeApp([]);
+    const res = await post(app, "/api/v1/textbook/compile", { title: "空的" });
+    expect(res.status).toBe(400);
   });
 });
 
