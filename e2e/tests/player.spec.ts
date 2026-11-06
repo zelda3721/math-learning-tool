@@ -1,15 +1,5 @@
 import { test, expect } from '@playwright/test'
 
-declare global {
-  interface Window {
-    __playerLab?: {
-      seek(tMs: number): void
-      duration(): number
-      beats(): number
-      svg(): string
-    }
-  }
-}
 
 /**
  * 播放器 DoD 的浏览器侧证据：同一时刻 t 的渲染必须完全一致。

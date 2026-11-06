@@ -11,6 +11,8 @@
  */
 import { ExplainerPlayer, type SceneSpec } from '@mathtutor/explainer-web'
 import { renderMathAtoms } from '../math/katexAtoms'
+import { ClassroomSession } from '@mathtutor/classroom-runtime'
+import { createBeatPlayer } from '../classroom/playerAdapter'
 
 /**
  * 同一个场景里放两条补间路径，缺一不可：
@@ -70,6 +72,15 @@ const player = new ExplainerPlayer(stage, SPEC, {
 })
 
 interface LabHandle {
+    /** 课堂：真播放器 + 真状态机（验"课堂能驱动真实画面"） */
+    classroom: {
+        start(): string
+        beatFinished(): string
+        pauseQuestion(q: string): string
+        resume(): string
+        beatIndex(): number
+        svg(): string
+    }
     seek(tMs: number): void
     duration(): number
     svg(): string
@@ -82,7 +93,17 @@ declare global {
     }
 }
 
+const session = new ClassroomSession(createBeatPlayer(player), player.beatCount)
+
 window.__playerLab = {
+    classroom: {
+        start: () => session.dispatch({ type: 'start' }).phase,
+        beatFinished: () => session.dispatch({ type: 'beat-finished' }).phase,
+        pauseQuestion: (q) => session.dispatch({ type: 'pause-question', question: q }).phase,
+        resume: () => session.dispatch({ type: 'resume' }).phase,
+        beatIndex: () => session.current.beatIndex,
+        svg: () => stage.querySelector('svg')?.outerHTML ?? '',
+    },
     seek: (tMs: number) => player.seek(tMs),
     duration: () => player.duration,
     beats: () => player.beatCount,
