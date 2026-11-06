@@ -11,6 +11,7 @@
  * 见 docs/OPENMAIC_PORT.md 的「依赖锥」一节。
  */
 export * from "./machine.js";
+export * from "./session.js";
 export * from "./action.js";
 export * from "./types.js";
 export * from "./derived-state.js";
