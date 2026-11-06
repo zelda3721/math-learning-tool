@@ -142,6 +142,18 @@ importers:
         specifier: ^5.6
         version: 5.9.3
 
+  packages/classroom-runtime:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
   packages/core:
     dependencies:
       '@mathtutor/schema':
