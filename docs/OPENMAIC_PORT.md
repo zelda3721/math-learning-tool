@@ -2,8 +2,19 @@
 
 > 依据：`docs/PLAN.md` 第八部分（移植清单）与第一部分（"互补，不合并"）。
 > 上游：OpenMAIC v1.4.0 @ `795420c1`（MIT），https://github.com/THU-MAIC/OpenMAIC
-> 上游代码**目前还没有 clone 到本机**（`~/Documents/codes` 下没有）。移植动工前先 clone 并 `git checkout 795420c1`，
-> 下面每一条的行数与路径都以那个提交为准核对一遍——PLAN 里的数字是当时量的，不是承诺。
+> **2026-11-05 已核对**：上游取到本机（`/tmp/openmaic`，blobless，会话结束可弃），`git checkout 795420c1` 成功。
+> 逐项实测下面的数字，**六项全部与 PLAN 记的一致，逐文件分毫不差**（含 generation 那 1258 行的逐文件拆分）。
+> 只有一处路径说法不同：PLAN 写作 `@openmaic/generation`，实际在 `packages/@openmaic/generation/src/`。
+> 许可确认为 MIT，版权行 `Copyright (c) 2026 THU-MAIC`。
+
+取回方式（可直接复用；`--depth 1` 取不到指定提交，必须先有历史）：
+
+```bash
+mkdir -p /tmp/openmaic && cd /tmp/openmaic && git init -q
+git remote add origin https://github.com/THU-MAIC/OpenMAIC
+git fetch --filter=blob:none origin     # 先拿历史
+git checkout 795420c1
+```
 
 ## 为什么要移植，以及边界
 
@@ -17,13 +28,13 @@ importer、`mathml2omml`（LGPL）、GSAP / Hyperframes、云端媒体 provider�
 
 | # | 来源 | 行数 | 去向 | 阶段 | 状态 |
 |---|---|---|---|---|---|
-| 1 | `lib/playback/*` | 1,688 | `packages/classroom-runtime` | 3 | ☐ 未开始 |
-| 2 | `lib/action/engine.ts` | 912 | `packages/classroom-runtime` | 3 | ☐ |
-| 3 | `lib/store/interactive-iframe-pool.ts` | 212 | `packages/widgets` | 3 | ☐ |
+| 1 | `lib/playback/*`（8 个文件） | 1,688（实测一致） | `packages/classroom-runtime` | 3 | ☐ 未开始 |
+| 2 | `lib/action/engine.ts` | 912（实测一致） | `packages/classroom-runtime` | 3 | ☐ |
+| 3 | `lib/store/interactive-iframe-pool.ts` | 212（实测一致） | `packages/widgets` | 3 | ☐ |
 | 4 | `components/scene-renderers/{interactive-renderer,InteractiveIframeHost,InteractiveRuntimeErrorBanner}.tsx` | 按需 | `packages/widgets` | 3 | ☐ |
 | 5 | `components/scene-renderers/quiz-*.tsx` | 按需 | 课堂小测（**改成由服务端判定**） | 3 | ☐ |
-| 6 | `components/whiteboard/*` | 899 | 课堂白板（可选） | 3 | ☐ |
-| 7 | `@openmaic/generation`：`json-repair`、`generation-retry`、`interactive-post-processor`、`interactive-script-validator`、`library-mapper`、`libraries` | 1,258 | `packages/generation` | 3 | ☐ |
+| 6 | `components/whiteboard/*`（3 个文件） | 899（实测一致） | 课堂白板（可选） | 3 | ☐ |
+| 7 | `packages/@openmaic/generation/src/`：`json-repair` 278、`generation-retry` 235、`interactive-post-processor` 252、`interactive-script-validator` 156、`interactive-library-mapper` 250、`interactive-libraries` 87 | 1,258（实测一致） | `packages/generation` | 3 | ☐ |
 | 8 | `@openmaic/generation/templates/{simulation,diagram,game}-content` | 提示词 | 组件自由生成的兜底（**改写为各学科专用版本**） | 3 / 7 | ☐ |
 
 ## 每条移植的验收标准（不是"搬过来了"，是"搬过来还能被信"）
