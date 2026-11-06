@@ -1,6 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { extractKnowledgePoints, proposeAlignment, splitChapters } from "@mathtutor/knowledge";
+import {
+  extractKnowledgePoints,
+  listCurricula,
+  planCurriculum,
+  proposeAlignment,
+  saveCurriculum,
+  splitChapters,
+} from "@mathtutor/knowledge";
+import path from "node:path";
 import type { AppState } from "./app.js";
 
 /**
@@ -71,6 +79,48 @@ export function textbookRoutes(state: AppState): Hono {
       note: "仅为提案：确认后才会写入课程计划，图谱不会被直接修改",
     });
   });
+
+  /**
+   * 确认并排课：家长逐条确认后的对齐结果 → 按先修排序 → 落一份课程计划。
+   *
+   * 写的是 `data/knowledge/curricula/<教材名>.json`，**不碰图谱**：
+   * 图谱是知识结构，课程计划是教学安排，两者寿命不同（换教材时图谱不变、计划全变）。
+   */
+  const ConfirmSchema = z.object({
+    name: z.string().min(1).max(60),
+    lessons: z
+      .array(z.object({ chapterTitle: z.string().min(1), nodeId: z.string().min(1) }))
+      .min(1),
+  });
+
+  app.post("/confirm", async (c) => {
+    const parsed = ConfirmSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 name 与 lessons: [{chapterTitle, nodeId}]" }, 400);
+
+    // 只接受图谱里真的有的节点：确认清单来自前端，前端传错不该让计划里
+    // 出现一个不存在的课
+    const unknown = parsed.data.lessons.filter((l) => !state.knowledge.index.getNode(l.nodeId));
+    if (unknown.length > 0) {
+      return c.json({ error: `图谱里没有这些节点：${unknown.map((u) => u.nodeId).join(", ")}` }, 422);
+    }
+
+    const plan = planCurriculum(state.knowledge.index, parsed.data.lessons);
+    const file = saveCurriculum(state.config.dataDir, {
+      name: parsed.data.name,
+      lessons: plan.lessons,
+      createdAt: new Date().toISOString(),
+    });
+
+    return c.json({
+      name: parsed.data.name,
+      lessons: plan.lessons,
+      // 有环时退回原书顺序：要如实说，否则家长会以为排课成功了
+      cycleDetected: plan.cycleDetected,
+      savedTo: path.basename(file),
+    });
+  });
+
+  app.get("/curricula", (c) => c.json({ curricula: listCurricula(state.config.dataDir) }));
 
   return app;
 }
