@@ -11,6 +11,7 @@ import {
   saveCompiledBook,
   saveCurriculum,
   splitChapters,
+  type SavedCompiledBook,
 } from "@mathtutor/knowledge";
 import path from "node:path";
 import type { AppState } from "./app.js";
@@ -140,7 +141,9 @@ export function textbookRoutes(state: AppState): Hono {
    * 这里先把书编译成**书自己的概念结构**并落盘（JSON 给机器、Markdown 给家长），
    * 对齐图谱是下一步动作。书与书差异再大，也止步于编译产物这一层。
    *
-   * 只写 data/knowledge/compiled/，仍然**不碰图谱**。
+   * **后台任务**，不是同步请求：一本书上百章，本地模型 45 token/s 要十几分钟，
+   * 同步 HTTP 必然先被前端或反向代理掐断。POST 立刻返回 jobId，前端轮询
+   * GET /compile/:jobId 看进度（第几章），编完再从 /compiled/:name 取产物。
    */
   app.post("/compile", async (c) => {
     const parsed = ProposeSchema.safeParse(await c.req.json().catch(() => null));
@@ -155,39 +158,39 @@ export function textbookRoutes(state: AppState): Hono {
     );
     if (chapters.length === 0) return c.json({ error: "没有可切分的内容" }, 422);
 
-    const book = await compileBook(chapters, {
-      title: title ?? "未命名教材",
-      provider: state.textbookProvider ?? null,
-      concurrency: state.config.textbookCompileConcurrency,
-      // 整本书要编十几分钟，写进日志便于判断卡在哪一章（接口本身仍是一次性返回）
-      onChapterDone: (done, total, chapterTitle) => {
-        if (done % 10 === 0 || done === total) {
-          console.log(`[textbook] 编译 ${done}/${total} 章（最近：${chapterTitle}）`);
-        }
-      },
-    });
-    const saved = saveCompiledBook(state.config.dataDir, book);
+    const bookTitle = title ?? "未命名教材";
+    const run = async (onChapterDone?: (done: number, total: number, chapterTitle: string) => void) => {
+      const book = await compileBook(chapters, {
+        title: bookTitle,
+        provider: state.textbookProvider ?? null,
+        concurrency: state.config.textbookCompileConcurrency,
+        onChapterDone,
+      });
+      const saved = saveCompiledBook(state.config.dataDir, book);
+      return compileSummary(book, saved);
+    };
 
-    return c.json({
-      title: book.title,
-      // 只回摘要：一概念一段原文在列表里太大，家长页按概念单独取
-      concepts: book.concepts.map((concept) => ({
-        id: concept.id,
-        title: concept.title,
-        definition: concept.definition,
-        keyPointCount: concept.keyPoints.length,
-        prerequisites: concept.prerequisites,
-        sourceCount: concept.sources.length,
-        conflictCount: concept.conflicts.length,
-      })),
-      links: book.links,
-      unresolvedPrerequisites: book.unresolvedPrerequisites,
-      coverage: book.coverage,
-      degraded: book.degraded,
-      savedTo: path.basename(saved.jsonPath),
-      markdownDir: path.basename(saved.markdownDir),
-      note: "编译产物：只写 data/knowledge/compiled/，图谱不会被修改",
-    });
+    // 没有任务存储（如某些单测装配）时退回同步执行：功能不因此消失
+    if (!state.jobs) {
+      return c.json(await run());
+    }
+
+    const jobs = state.jobs;
+    const jobId = jobs.create(`教材编译 ${bookTitle}`);
+    void run((done, total, chapterTitle) => {
+      jobs.updateProgress(jobId, { stage: "compile", current: done, total, chapter: chapterTitle });
+    })
+      .then((result) => jobs.finish(jobId, result))
+      .catch((err) => jobs.fail(jobId, String(err)));
+
+    return c.json({ jobId, title: bookTitle, chapters: chapters.length, status: "running" }, 202);
+  });
+
+  app.get("/compile/:jobId", (c) => {
+    if (!state.jobs) return c.json({ error: "任务存储未初始化" }, 503);
+    const job = state.jobs.get(c.req.param("jobId"));
+    if (!job) return c.json({ error: "任务不存在" }, 404);
+    return c.json(job);
   });
 
   app.get("/compiled", (c) => c.json({ books: listCompiledBooks(state.config.dataDir) }));
@@ -199,4 +202,35 @@ export function textbookRoutes(state: AppState): Hono {
   });
 
   return app;
+}
+
+/**
+ * 编译产物摘要（任务结果里存的就是这个）。
+ *
+ * 刻意不把每个概念的原文塞进任务结果：一概念一段引文，上百个概念会把
+ * 轮询响应撑到几兆；要看细节走 GET /compiled/:name。
+ */
+function compileSummary(
+  book: Awaited<ReturnType<typeof compileBook>>,
+  saved: SavedCompiledBook,
+): Record<string, unknown> {
+  return {
+    title: book.title,
+    concepts: book.concepts.map((concept) => ({
+      id: concept.id,
+      title: concept.title,
+      definition: concept.definition,
+      keyPointCount: concept.keyPoints.length,
+      prerequisites: concept.prerequisites,
+      sourceCount: concept.sources.length,
+      conflictCount: concept.conflicts.length,
+    })),
+    links: book.links,
+    unresolvedPrerequisites: book.unresolvedPrerequisites,
+    coverage: book.coverage,
+    degraded: book.degraded,
+    savedTo: path.basename(saved.jsonPath),
+    markdownDir: path.basename(saved.markdownDir),
+    note: "编译产物：只写 data/knowledge/compiled/，图谱不会被修改",
+  };
 }

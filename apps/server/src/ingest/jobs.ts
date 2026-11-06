@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { BatchProgress } from "./batch.js";
-
 export interface IngestJob {
   id: string;
   status: "running" | "done" | "failed";
   batchName: string;
-  progress: BatchProgress | Record<string, never>;
+  /** 进度 JSON：形状按任务类型不同（批量抽取 / 教材编译），这里不约束 */
+  progress: Record<string, unknown>;
   result: unknown;
   error: string | null;
   createdAt: string;
@@ -33,7 +32,7 @@ export class JobStore {
     return id;
   }
 
-  updateProgress(id: string, progress: BatchProgress): void {
+  updateProgress(id: string, progress: object): void {
     this.db
       .prepare("UPDATE ingest_jobs SET progress_json = ?, updated_at = ? WHERE id = ?")
       .run(JSON.stringify(progress), new Date().toISOString(), id);
