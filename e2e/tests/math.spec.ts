@@ -13,11 +13,6 @@ async function seek(page: import('@playwright/test').Page, local: number): Promi
   return page.evaluate((p) => window.__mathLab!.seek(p), local)
 }
 
-declare global {
-  interface Window {
-    __mathLab?: { atoms(): number; seek(local: number): number; width(): number }
-  }
-}
 
 test('整条公式被切成多个顶层原子', async ({ page }) => {
   await page.goto(LAB)

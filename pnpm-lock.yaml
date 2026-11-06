@@ -59,6 +59,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@mathtutor/classroom-runtime':
+        specifier: workspace:*
+        version: link:../../packages/classroom-runtime
       '@mathtutor/explainer-web':
         specifier: workspace:*
         version: link:../../packages/explainer-web
