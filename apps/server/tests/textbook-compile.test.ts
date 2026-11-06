@@ -42,7 +42,8 @@ const provider = (definition = "把异分母分数化成同分母分数。") => 
         definition,
         keyPoints: chapterTitle.includes("加减") ? ["最小公倍数"] : ["公分母"],
         prerequisites: [],
-        evidence: `通分是把异分母分数化成同分母分数（${chapterTitle}里的原文）。`,
+        // 引文必须是正文里真实存在的一句，否则会被判成未定位（见下方专门的那条测试）
+        evidence: "通分是把异分母分数化成同分母分数。",
       },
     ];
   },
@@ -83,6 +84,35 @@ describe("POST /api/v1/textbook/compile", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].sourceCount).toBe(2);
     expect(merged[0].keyPointCount).toBe(2);
+    expect(merged[0].verified).toBe(true);
+    // 同一段引文只在一章里真实出现过（另一章讲的是分数的意义），
+    // 所以出处 2 条、可定位 1 条——引文核对是**按来源**判的，不是按概念
+    expect(merged[0].verifiedSourceCount).toBe(1);
+  });
+
+  it("模型编造的引文不算出处：概念标 verified=false，引文条数仍是 1 但可定位条数为 0", async () => {
+    const { app } = makeApp([], {
+      textbookProvider: {
+        async extract() {
+          return [
+            {
+              title: "通分",
+              definition: "把异分母分数化成同分母分数。",
+              keyPoints: [],
+              prerequisites: [],
+              evidence: "通分就是把分子分母同时乘以同一个数。",
+            },
+          ];
+        },
+      },
+    });
+
+    const res = await post(app, "/api/v1/textbook/compile", { title: "数学", pages: PAGES });
+    const job = await waitJob(app, String(res.body.jobId));
+    const concept = job.result.concepts.find((c: { title: string }) => c.title === "通分");
+    expect(concept.verified).toBe(false);
+    expect(concept.verifiedSourceCount).toBe(0);
+    expect(job.result.coverage.verifiedConcepts).toBe(0);
   });
 
   it("没有 provider 也能编译（离线兜底），并如实标 degraded", async () => {

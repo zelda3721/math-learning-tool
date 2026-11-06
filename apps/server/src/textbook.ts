@@ -223,6 +223,9 @@ function compileSummary(
       keyPointCount: concept.keyPoints.length,
       prerequisites: concept.prerequisites,
       sourceCount: concept.sources.length,
+      /** 有可定位原文出处的出处条数：0 表示这个概念只是线索 */
+      verifiedSourceCount: concept.sources.filter((s) => s.verification !== "not_found").length,
+      verified: concept.verified,
       conflictCount: concept.conflicts.length,
     })),
     links: book.links,

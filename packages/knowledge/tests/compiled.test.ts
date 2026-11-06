@@ -14,7 +14,8 @@ const book = {
       definition: "把异分母分数化成同分母分数。",
       keyPoints: ["先找公分母"],
       prerequisites: ["最小公倍数"],
-      sources: [{ chapterTitle: "第三章 分数的加减", fromPage: 41, toPage: 43, quote: "把异分母分数分别化成和原来相等的同分母分数，叫做通分。" }],
+      sources: [{ chapterTitle: "第三章 分数的加减", fromPage: 41, toPage: 43, quote: "把异分母分数分别化成和原来相等的同分母分数，叫做通分。", verification: "exact" as const }],
+      verified: true,
       conflicts: [],
     },
     {
@@ -23,13 +24,14 @@ const book = {
       definition: "把单位一平均分成若干份，表示其中一份的数。",
       keyPoints: [],
       prerequisites: [],
-      sources: [{ chapterTitle: "第一章 分数的意义", fromPage: 2, toPage: 3, quote: "表示其中一份的数，叫分数单位。" }],
+      sources: [{ chapterTitle: "第一章 分数的意义", fromPage: 2, toPage: 3, quote: "表示其中一份的数，叫分数单位。", verification: "exact" as const }],
+      verified: true,
       conflicts: [{ chapterTitle: "附录讲法", fromPage: 300, definition: "分子是一、分母是任意正整数的分数。" }],
     },
   ],
   links: [],
   unresolvedPrerequisites: [],
-  coverage: { chapters: 2, chaptersWithConcepts: 2, concepts: 2 },
+  coverage: { chapters: 2, chaptersWithConcepts: 2, concepts: 2, verifiedConcepts: 2 },
   degraded: false,
 };
 

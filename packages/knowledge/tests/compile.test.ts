@@ -5,6 +5,7 @@ import {
   conceptIdOf,
   diffCompiled,
   normalizeConceptName,
+  verifyQuote,
   type ConceptDraft,
   type ConceptExtractionProvider,
 } from "../src/compile.js";
@@ -14,16 +15,23 @@ function chapter(title: string, text: string, extra: Partial<Chapter> = {}): Cha
   return { title, fromPage: 1, toPage: 1, text, ...extra };
 }
 
+/**
+ * 造一条草稿。evidence 默认就是正文里那句原文——引文核对也参与编译，
+ * 假数据必须"真的出现过"，否则测的就不是合并逻辑而是核对逻辑了。
+ */
 function draft(title: string, definition: string, extra: Partial<ConceptDraft> = {}): ConceptDraft {
   return {
     title,
     definition,
     keyPoints: [],
     prerequisites: [],
-    evidence: `${title}：${definition}（原文一句完整的话）`,
+    evidence: `${title}是把异分母分数化成同分母分数。`,
     ...extra,
   };
 }
+
+/** 各章正文都带上这句话，方便草稿的引文能对上 */
+const CHAPTER_BODY = "通分是把异分母分数化成同分母分数。约分是分子分母同除以公因数。分数单位表示其中一份。";
 
 /** 按章给结果的假 provider：每章返回预设草稿 */
 function fakeProvider(byChapter: Record<string, ConceptDraft[]>): ConceptExtractionProvider {
@@ -49,7 +57,7 @@ describe("概念身份", () => {
     // 构造两个规范化后仍不同、但哈希相同的名字几乎不可能，
     // 这里改为验证不同概念一定拿到不同 id（正常路径的守卫）
     expect(conceptIdOf("通分")).not.toBe(conceptIdOf("约分"));
-    const book = await compileBook([chapter("第一章", "x")], {
+    const book = await compileBook([chapter("第一章", CHAPTER_BODY)], {
       provider: fakeProvider({
         第一章: [draft("通分", "把异分母化成同分母"), draft("约分", "分子分母同除以公因数")],
       }),
@@ -72,7 +80,7 @@ describe("compileBook：编译", () => {
 
   it("跨章的同名概念合并成一条，出处累加而不是各留一条", async () => {
     const book = await compileBook(
-      [chapter("第一章 分数", "……"), chapter("第三章 分数的加减", "……")],
+      [chapter("第一章 分数", CHAPTER_BODY), chapter("第三章 分数的加减", CHAPTER_BODY)],
       {
         provider: fakeProvider({
           "第一章 分数": [draft("通分", "把异分母分数化成同分母分数", { keyPoints: ["找公分母"] })],
@@ -88,7 +96,7 @@ describe("compileBook：编译", () => {
   });
 
   it("同一概念两处定义矛盾时不自动选边：两条都留着并标出冲突", async () => {
-    const book = await compileBook([chapter("第一章 分数", "……"), chapter("附录讲法", "……")], {
+    const book = await compileBook([chapter("第一章 分数", CHAPTER_BODY), chapter("附录讲法", CHAPTER_BODY)], {
       provider: fakeProvider({
         "第一章 分数": [draft("分数单位", "把单位一平均分成若干份，表示其中一份的数")],
         附录讲法: [draft("分数单位", "分子是一、分母是任意正整数的分数")],
@@ -104,7 +112,7 @@ describe("compileBook：编译", () => {
   });
 
   it("先修解析成书内边；解析不到的先修如实列为悬空", async () => {
-    const book = await compileBook([chapter("第一章", "……")], {
+    const book = await compileBook([chapter("第一章", CHAPTER_BODY)], {
       provider: fakeProvider({
         第一章: [
           draft("通分", "把异分母化成同分母", { prerequisites: ["最小公倍数", "约分"] }),
@@ -123,7 +131,7 @@ describe("compileBook：编译", () => {
 
   it("附录不参与编译（答案册不是知识点）", async () => {
     const book = await compileBook(
-      [chapter("第一章", "……"), chapter("Key to Exercises", "95.4 was bad.", { backMatter: true })],
+      [chapter("第一章", CHAPTER_BODY), chapter("Key to Exercises", "95.4 was bad.", { backMatter: true })],
       { provider: fakeProvider({ 第一章: [draft("通分", "把异分母化成同分母")] }) },
     );
     expect(book.coverage.chapters).toBe(1);
@@ -206,7 +214,7 @@ describe("并发", () => {
 
   it("每章抽完回调一次，进度能报给长任务", async () => {
     const seen: string[] = [];
-    const chapters = [chapter("第一章", "……"), chapter("第二章", "……")];
+    const chapters = [chapter("第一章", CHAPTER_BODY), chapter("第二章", CHAPTER_BODY)];
     await compileBook(chapters, {
       provider: fakeProvider({ 第一章: [draft("通分", "把异分母化成同分母")], 第二章: [draft("约分", "分子分母同除以公因数")] }),
       onChapterDone: (done, total, title) => seen.push(`${done}/${total} ${title}`),
@@ -217,10 +225,10 @@ describe("并发", () => {
 
 describe("diffCompiled：两版产物比差异", () => {
   it("能列出新增、消失与字段变化", async () => {
-    const first = await compileBook([chapter("第一章", "……")], {
+    const first = await compileBook([chapter("第一章", CHAPTER_BODY)], {
       provider: fakeProvider({ 第一章: [draft("通分", "把异分母化成同分母")] }),
     });
-    const second = await compileBook([chapter("第一章", "……"), chapter("第二章", "……")], {
+    const second = await compileBook([chapter("第一章", CHAPTER_BODY), chapter("第二章", CHAPTER_BODY)], {
       provider: fakeProvider({
         第一章: [draft("通分", "把异分母分数化成同分母分数", { keyPoints: ["找公分母"] })],
         第二章: [draft("约分", "分子分母同除以公因数")],
@@ -236,10 +244,83 @@ describe("diffCompiled：两版产物比差异", () => {
 
   it("同样的输入编译两次，diff 为空——编译是幂等的", async () => {
     const build = () =>
-      compileBook([chapter("第一章", "……")], {
+      compileBook([chapter("第一章", CHAPTER_BODY)], {
         provider: fakeProvider({ 第一章: [draft("通分", "把异分母化成同分母", { keyPoints: ["找公分母"] })] }),
       });
     const [a, b] = await Promise.all([build(), build()]);
     expect(diffCompiled(a, b)).toEqual({ added: [], removed: [], changed: [] });
+  });
+});
+
+// 教学宪法第 5 条：归因必须有证据。而"证据"得真的在原文里——
+// 模型编一段像原文的话并以「出处：> …」展示给家长，比没有出处更糟。
+describe("引文核对", () => {
+  const CHAPTER_TEXT = "通分是把异分母分数化成同分母分数。约分是分子分母同除以公因数。";
+
+  it("整句对得上就是 exact；碎空格与引号差异不该判错", () => {
+    expect(verifyQuote("通分是把异分母分数化成同分母分数。", CHAPTER_TEXT).verification).toBe("exact");
+    // PDF 字距会把 The 抽成「! e」，模型照抄时也常折行——这些都不是引错
+    expect(verifyQuote("通分是把  异分母 分数化成同分母分数.", CHAPTER_TEXT).verification).toBe("exact");
+  });
+
+  it("只抄对一部分：过半句子能定位 → partial，没到一半 → not_found", () => {
+    const twoOfThree = "通分是把异分母分数化成同分母分数。约分是分子分母同除以公因数。分数单位表示其中一份。";
+    expect(verifyQuote(twoOfThree, CHAPTER_TEXT).verification).toBe("partial");
+    expect(
+      verifyQuote("这句话原文里没有。另一句也没有。约分是分子分母同除以公因数。", CHAPTER_TEXT).verification,
+    ).toBe("not_found");
+  });
+
+  it("PDF 把 Th 抽成「!」时，忠实引文不该被冤枉", () => {
+    // 实机：这本教材的字体把 "The" 抽成 "! e"，模型正确读成 The 后照抄
+    const brokenBook = "! e present simple negative is don't / doesn't + verb";
+    expect(verifyQuote("The present simple negative is don't / doesn't + verb", brokenBook).verification).toBe("exact");
+    // 对称地，编造的引文不会因为这条修复而蒙混：正文里没有的东西还是找不到
+    expect(verifyQuote("The past simple is was / were", brokenBook).verification).toBe("not_found");
+  });
+
+  it("用「…」拼起来的引文最多算 partial：每句都找得到，也不是一段连续的原文", () => {
+    const composed = "通分是把异分母分数化成同分母分数。 ... 约分是分子分母同除以公因数。";
+    expect(verifyQuote(composed, CHAPTER_TEXT).verification).toBe("partial");
+    const partlyFake = "通分是把异分母分数化成同分母分数。 ... 这句话原文里没有哦。";
+    expect(verifyQuote(partlyFake, CHAPTER_TEXT).verification).toBe("partial");
+    const mostlyFake = "这句话原文里没有哦。 ... 通分是把异分母分数化成同分母分数。 ... 还有这句也没有。";
+    expect(verifyQuote(mostlyFake, CHAPTER_TEXT).verification).toBe("not_found");
+  });
+
+  it("模型自己编的引文判 not_found", () => {
+    expect(verifyQuote("通分就是把分子分母同时乘以一个数。", CHAPTER_TEXT).verification).toBe("not_found");
+    // 太短的片段在任何正文里都能撞上，判定没有意义，一律不算数
+    expect(verifyQuote("分数", CHAPTER_TEXT).verification).toBe("not_found");
+  });
+
+  it("编造的出处不会让概念变成有据可查；如实体现为 verified=false", async () => {
+    const book = await compileBook([chapter("第一章 分数", CHAPTER_BODY)], {
+      provider: fakeProvider({
+        "第一章 分数": [
+          draft("通分", "把异分母化成同分母", { evidence: "通分就是把分子分母同时乘以一个数。" }),
+          draft("约分", "分子分母同除以公因数", { evidence: "约分是分子分母同除以公因数。" }),
+        ],
+      }),
+    });
+
+    const fake = book.concepts.find((c) => c.title === "通分")!;
+    expect(fake.verified).toBe(false);
+    expect(fake.sources[0]!.verification).toBe("not_found");
+
+    const real = book.concepts.find((c) => c.title === "约分")!;
+    expect(real.verified).toBe(true);
+    expect(real.sources[0]!.verification).toBe("exact");
+
+    expect(book.coverage.verifiedConcepts).toBe(1);
+  });
+
+  it("离线兜底的引文本身就摘自正文，天然 exact", async () => {
+    const book = await compileBook([chapter("第一章 分数", CHAPTER_BODY)]);
+    expect(book.concepts.length).toBeGreaterThan(0);
+    for (const concept of book.concepts) {
+      expect(concept.sources.every((s) => s.verification === "exact")).toBe(true);
+    }
+    expect(book.coverage.verifiedConcepts).toBe(book.concepts.length);
   });
 });

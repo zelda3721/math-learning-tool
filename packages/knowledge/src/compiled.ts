@@ -47,7 +47,19 @@ export function renderConceptMarkdown(concept: CompiledConcept): string {
   for (const source of concept.sources) {
     lines.push(`- 《${source.chapterTitle}》 p${source.fromPage}–${source.toPage}`);
     const quote = source.quote.trim().replace(/\n+/g, " ");
-    if (quote) lines.push("", `  > ${quote}`, "");
+    // 定位不到的引文**不当引文展示**：把模型改写的话排在 > 后面，
+    // 等于把编造变成引用。这里只如实说它没能定位。
+    if (!quote) continue;
+    if (source.verification === "not_found") {
+      lines.push("", "  （引文未能在原文定位，已不作为出处展示）", "");
+    } else {
+      const note = source.verification === "partial" ? "（部分句子能在原文定位）" : "";
+      lines.push("", `  > ${quote}${note}`, "");
+    }
+  }
+
+  if (!concept.verified) {
+    lines.push("> 这个概念**没有任何一处出处能在原文里定位到**：它只是线索，不能承重。", "");
   }
 
   if (concept.conflicts.length > 0) {
@@ -65,7 +77,7 @@ function renderIndex(book: CompiledBook): string {
   const lines: string[] = [
     `# ${book.title} — 知识编译`,
     "",
-    `概念 ${book.coverage.concepts} 个，覆盖 ${book.coverage.chaptersWithConcepts}/${book.coverage.chapters} 章。`,
+    `概念 ${book.coverage.concepts} 个（${book.coverage.verifiedConcepts} 个有可定位的原文出处），覆盖 ${book.coverage.chaptersWithConcepts}/${book.coverage.chapters} 章。`,
   ];
   if (book.degraded) lines.push("", "> 本次编译有章节退回离线兜底，概念质量低一档。");
   lines.push("", "## 概念", "");
@@ -112,7 +124,12 @@ export function loadCompiledBook(dataDir: string, name: string): CompiledBook | 
       concepts: parsed.concepts,
       links: Array.isArray(parsed.links) ? parsed.links : [],
       unresolvedPrerequisites: Array.isArray(parsed.unresolvedPrerequisites) ? parsed.unresolvedPrerequisites : [],
-      coverage: parsed.coverage ?? { chapters: 0, chaptersWithConcepts: 0, concepts: parsed.concepts.length },
+      coverage: parsed.coverage ?? {
+        chapters: 0,
+        chaptersWithConcepts: 0,
+        concepts: parsed.concepts.length,
+        verifiedConcepts: parsed.concepts.filter((c) => c.verified).length,
+      },
       degraded: parsed.degraded === true,
     };
   } catch {
