@@ -66,6 +66,24 @@ export function initialState(beatCount: number): ClassroomState {
   };
 }
 
+/**
+ * 从断点恢复：直接进入"正在讲第 beatIndex 拍"。
+ *
+ * 不重放历史事件——重放会让所有中间态（包括当时暂停提问的上下文）都跑一遍，
+ * 而那些东西恢复出来未必对。课堂回到的是**位置**，不是过程。
+ */
+export function resumeAt(beatCount: number, beatIndex: number): ClassroomState {
+  const total = Math.max(0, Math.floor(beatCount));
+  const at = Math.max(0, Math.min(Math.max(0, total - 1), Math.floor(beatIndex)));
+  return {
+    phase: total === 0 ? "summary" : "explaining",
+    beatIndex: at,
+    beatCount: total,
+    question: null,
+    lastAnswer: null,
+  };
+}
+
 /** 合法迁移表。UI 要置灰按钮、要防误触，问这里；reducer 自己用它兜底 */
 const ALLOWED: Record<ClassroomPhase, ClassroomEvent["type"][]> = {
   idle: ["start"],
