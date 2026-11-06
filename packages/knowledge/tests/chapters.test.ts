@@ -80,3 +80,52 @@ describe("切章", () => {
     expect(splitChapters([])).toEqual([]);
   });
 });
+
+// 下面这几条全部来自一本真实的 294 页语法书（Essential Grammar in Use）的实测：
+// 每一条都对应一个当时真的把切章搞错的现象。
+describe("真实教材的坑", () => {
+  it("答案行不算标题——编号后面只剩数字/碎片", () => {
+    // 行重建修好之后，练习册的答案行也带着编号冒出来了
+    expect(looksLikeHeading("3.30 4.00 4.15")).toBe(false);
+    expect(looksLikeHeading("1.1 2.1")).toBe(false);
+    expect(looksLikeHeading("5.5 UN IT 8")).toBe(false);
+    expect(looksLikeHeading("1.1 整数")).toBe(true);
+  });
+
+  it("一页上标题过密（答案页/目录页）→ 这一页的标题全部降级为正文", () => {
+    const answerPage = ["95.1 was bad.", "95.2 you bought?", "95.3 Example answers", "96.1 very intelligent", "96.2 I went out", "96.3 she said"].join("\n");
+    const chapters = splitChapters([
+      { page: 1, text: "1.1 整数\n正文" },
+      { page: 2, text: answerPage },
+    ]);
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]!.title).toBe("1.1 整数");
+    expect(chapters[0]!.text).toContain("95.1 was bad.");
+  });
+
+  it("版式把标题拆成几行时能拼回来（「Unit」「1」「am/is/are」→「Unit 1 am/is/are」）", () => {
+    const chapters = splitChapters([
+      { page: 2, text: "Unit\n1\nam/is/are\nA\nI’m 22." },
+      { page: 3, text: "Exercises Unit\n1\nWrite the short form." },
+      { page: 4, text: "Unit\n2\nam/is/are (questions)\nA\nIs your mother at home?" },
+    ]);
+    expect(chapters.map((c) => c.title)).toEqual(["Unit 1 am/is/are", "Unit 2 am/is/are (questions)"]);
+    // 练习页归在前一个单元里，不另起一章
+    expect(chapters[0]!.text).toContain("Write the short form.");
+    expect(chapters[0]!.toPage).toBe(3);
+  });
+
+  it("答案册从「Key to Exercises」起算附录：整段打标记，不切成几十个假章节", () => {
+    const chapters = splitChapters([
+      { page: 2, text: "Unit\n1\nam/is/are\nA\nI’m 22." },
+      { page: 3, text: "Exercises Unit\n1\nWrite the short form." },
+      { page: 274, text: "Key t o Exercises\n95.4 Example answers\n96.1 was bad." },
+      { page: 275, text: "Key to Exercises\n97.4 you bought?\n98.1 said." },
+    ]);
+    expect(chapters.map((c) => c.title)).toEqual(["Unit 1 am/is/are", "Key t o Exercises"]);
+    expect(chapters[1]!.backMatter).toBe(true);
+    expect(chapters[1]!.fromPage).toBe(274);
+    expect(chapters[1]!.toPage).toBe(275);
+    expect(chapters[0]!.backMatter).toBeUndefined();
+  });
+});

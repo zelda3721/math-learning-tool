@@ -7,3 +7,4 @@ export * from "./chapters.js";
 export * from "./extract.js";
 export * from "./plan.js";
 export * from "./curricula.js";
+export * from "./pdfLines.js";

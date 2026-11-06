@@ -46,12 +46,18 @@ export function textbookRoutes(state: AppState): Hono {
     if (chapters.length === 0) return c.json({ error: "没有可切分的内容" }, 422);
 
     /*
-     * 抽取：不传 provider，走离线兜底。
-     * 教材编译是家长触发的长动作，接模型要等抽取提示词定稿；
-     * 现在这版的价值是让人先看见"这本书大概能对上哪些"，而不是直接产出可上课的内容。
+     * 抽取不传 provider，走离线兜底：教材编译是家长触发的长动作，接模型要等抽取提示词定稿；
+     * 这一版的价值是让人先看见"这本书大概能对上哪些"，而不是直接产出可上课的内容。
+     *
+     * 附录（答案册/索引/词汇表）不抽知识点：实测那本语法书从「Key to Exercises」往后
+     * 每行都带题号，抽出来的"知识点"全是答案碎片。仍把它们列给家长看，但标出来。
      */
     const extracted = await Promise.all(
-      chapters.map((chapter) => extractKnowledgePoints(chapter)),
+      chapters.map((chapter) =>
+        chapter.backMatter
+          ? Promise.resolve({ drafts: [], degraded: false })
+          : extractKnowledgePoints(chapter),
+      ),
     );
 
     // 每个知识点单独对齐：整章喂进去匹配到的是"这一章最像哪个节点"，而不是"这个知识点是哪个"
@@ -72,6 +78,7 @@ export function textbookRoutes(state: AppState): Hono {
         title: c2.title,
         fromPage: c2.fromPage,
         toPage: c2.toPage,
+        backMatter: c2.backMatter === true,
       })),
       items,
       // 如实标出降级：这一版全部走离线兜底，家长据此知道自己看的是低一档的候选
