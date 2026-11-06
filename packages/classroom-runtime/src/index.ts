@@ -10,6 +10,7 @@
  * 它依赖音频、zustand store 与 choreography，接触面要先改写成我们自己的形状。
  * 见 docs/OPENMAIC_PORT.md 的「依赖锥」一节。
  */
+export * from "./machine.js";
 export * from "./action.js";
 export * from "./types.js";
 export * from "./derived-state.js";
