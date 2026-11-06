@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { Question } from "@mathtutor/schema";
+import { AttemptSourceSchema, type Question } from "@mathtutor/schema";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { composeToday } from "../composer.js";
 import { getSubjectRegistry, judgeAnswer } from "../subjects.js";
@@ -38,7 +38,7 @@ const SubmitSchema = z.object({
   answer: z.string().max(500),
   hintLevelUsed: z.number().int().min(0).max(3).default(0),
   durationS: z.number().nonnegative().optional(),
-  source: z.enum(["daily", "probe", "variant", "review", "explore"]).default("daily"),
+  source: AttemptSourceSchema.default("daily"),
   queueItemId: z.string().optional(),
   reviewCardId: z.string().optional(),
 });
@@ -97,7 +97,8 @@ export function practiceRoutes(state: AppState): Hono {
     image: z.string().min(1),
     hintLevelUsed: z.number().int().min(0).max(3).default(0),
     durationS: z.number().nonnegative().optional(),
-    source: z.enum(["daily", "probe", "variant", "review", "explore"]).default("daily"),
+    // 直接引用 schema 的枚举：两处各写一份，加来源时必有一处漏掉
+    source: AttemptSourceSchema.default("daily"),
     queueItemId: z.string().optional(),
     reviewCardId: z.string().optional(),
   });

@@ -9,7 +9,21 @@ export const LearnerSchema = z.object({
 });
 export type Learner = z.infer<typeof LearnerSchema>;
 
-export const AttemptSourceSchema = z.enum(["daily", "probe", "variant", "review", "explore"]);
+/**
+ * 这次作答从哪来。
+ *
+ * `classroom` 是课堂里答的题（阶段 3）：它在**教学流程中间**产生，
+ * 与课后练习的区别不只是入口——课堂作答带着"这一拍讲到哪了"的上下文，
+ * 将来做归因时要用到。混进 daily 会把两种证据搅成一种，事后分不开。
+ */
+export const AttemptSourceSchema = z.enum([
+  "daily",
+  "probe",
+  "variant",
+  "review",
+  "explore",
+  "classroom",
+]);
 
 /**
  * 证据的验证等级（教学宪法第 5 条：未经验证的知识不承重）。
