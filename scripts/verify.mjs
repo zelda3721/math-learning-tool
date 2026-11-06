@@ -50,6 +50,13 @@ const steps = [
     skip: skipPython,
   },
   {
+    // 对齐质量：教材概念 → 图谱节点。纯逻辑、毫秒级，所以每次都跑，
+    // 不跟 python 那两步一起跳过——它测的是这条链最要紧的对外承诺。
+    name: 'align(eval)',
+    cmd: 'node',
+    argv: ['scripts/align_eval.mjs'],
+  },
+  {
     name: 'test(engine/pytest)',
     cmd: py,
     argv: ['-m', 'pytest', '-q'],
