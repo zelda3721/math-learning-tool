@@ -17,6 +17,7 @@ export {
   type TimelineFrame,
   type TimelineOptions,
 } from "./timeline.js";
+export { gateBeats, type SemanticCode, type SemanticFinding } from "./gate.js";
 export { BUILTIN_VISUALS, VisualRegistry, defaultVisuals, type VisualDefinition } from "./visuals.js";
 export { atomOpacity, revealedAtoms } from "./formulas.js";
 export { buildChannels, cuesForBeat, intensityAt, revealOpacityAt, stateValueAt, type ChannelCue, type ChannelKind } from "./channels.js";

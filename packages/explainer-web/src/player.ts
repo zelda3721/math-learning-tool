@@ -13,6 +13,7 @@ import { Playhead, buildTimeline, type TimelineFrame } from "./timeline.js";
 import { tweenBarGeometry, tweenPoint, type BarGeometry, type Point } from "./motion.js";
 import { atomOpacity } from "./formulas.js";
 import { defaultVisuals, type VisualRegistry } from "./visuals.js";
+import { gateBeats } from "./gate.js";
 import { buildChannels, intensityAt, revealOpacityAt, stateValueAt, type ChannelCue } from "./channels.js";
 import {
   limitSwaps,
@@ -198,6 +199,18 @@ export class ExplainerPlayer {
       buildTimeline(this.beatCount, { beatMs: opts.beatMs, transitionMs: opts.transitionMs }),
     );
     this.channels = buildChannels(this.beats);
+    /*
+     * 语义门禁在装配时就跑一次：它不是"看着不对劲就提示"，而是把
+     * 「宣称的数量对不上」「说了过程却没搬东西」「验证空框」这三类事直接报出来。
+     * 走既有的 onIssue 通道——和"曲线没算出来"一样，宁可让孩子看到一句提示，
+     * 也不要让一张看着正常、其实什么也没证明的图过关。
+     */
+    if (opts.onIssue) {
+      const gateInput = spec as unknown as { scenes?: { actions?: { op?: string }[] }[] };
+      for (const finding of gateBeats(this.beats, gateInput)) {
+        opts.onIssue({ kind: "semantic", detail: finding.detail });
+      }
+    }
 
     this.root = document.createElement("div");
     this.root.style.cssText = "display:flex;flex-direction:column;gap:10px;width:100%";
