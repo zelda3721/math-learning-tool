@@ -13,7 +13,7 @@ import { sampleFunction } from "../math/sample.js";
 import { buildCoordSystem, unionExtents, type CoordSystem, type Extents } from "../math/coords.js";
 
 export interface SceneIssue {
-  kind: "uncomputable-curve" | "unknown-primitive" | "inconsistent-count";
+  kind: "uncomputable-curve" | "unknown-primitive" | "inconsistent-count" | "semantic";
   detail: string;
   objectId?: string;
 }
