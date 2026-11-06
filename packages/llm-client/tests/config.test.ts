@@ -5,6 +5,7 @@ import {
   DEFAULT_LLM_MODEL,
   isLocalUrl,
   loadLlmConfig,
+  parseLocalOnly,
 } from "../src/index.js";
 
 describe("loadLlmConfig", () => {
@@ -126,5 +127,17 @@ describe("isLocalUrl", () => {
     ["", false],
   ])("%s -> %s", (url, expected) => {
     expect(isLocalUrl(url)).toBe(expected);
+  });
+});
+
+describe("LOCAL_ONLY 解析", () => {
+  it("没写就是开——默认必须是安全的那一侧", () => {
+    expect(parseLocalOnly({})).toBe(true);
+    expect(loadLlmConfig({}).localOnly).toBe(true);
+  });
+
+  it("只有显式 0/false/off/no 才关", () => {
+    for (const raw of ["0", "false", "OFF", "no"]) expect(parseLocalOnly({ LOCAL_ONLY: raw })).toBe(false);
+    for (const raw of ["1", "true", "yes", ""]) expect(parseLocalOnly({ LOCAL_ONLY: raw })).toBe(true);
   });
 });

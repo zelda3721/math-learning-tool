@@ -1,4 +1,5 @@
-import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
 
 /**
  * 拍照作答判卷（P3）：vision 识别手写最终答案 → 交给确定性判卷；
@@ -14,7 +15,7 @@ const SYSTEM = `你是手写数学作业识别器。图片是学生对一道题�
 
 export function createPhotoGrader(env: NodeJS.ProcessEnv = process.env): PhotoGrader {
   const config = loadLlmConfig(env);
-  const client = LlmClient.fromEndpoint(config.vision);
+  const client = createServerLlmClient(config, "vision", { dataDir: auditDataDir(env) });
   return {
     async extractAnswer(base64, mime, questionStem) {
       const messages: ChatMessage[] = [

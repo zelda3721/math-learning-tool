@@ -25,6 +25,7 @@ import { matchOffline, matchProblemTypesOffline, type Knowledge } from "@mathtut
 import { loadSkills, resolveSkill, type Skill } from "@mathtutor/core";
 import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -209,12 +210,7 @@ export function buildSystemPrompt(
 
 function defaultClientFactory(): ExploreClient {
   const config = loadLlmConfig(process.env);
-  const endpoint = config.fast;
-  return new LlmClient({
-    baseUrl: endpoint.baseUrl,
-    apiKey: endpoint.apiKey,
-    model: endpoint.model,
-  });
+  return createServerLlmClient(config, "fast", { dataDir: auditDataDir(process.env) });
 }
 
 function safeParseArgs(argumentsJson: string): Record<string, unknown> {
