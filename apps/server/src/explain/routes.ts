@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
+import { qualityOf, semanticFindingsOf } from "./semantics.js";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -230,6 +231,17 @@ async function runWebJob(
         const structuralWarnings: string[] = [];
         if (spec.visual_objects.length === 0) structuralWarnings.push("无可视对象");
         if (spec.scenes.length === 0) structuralWarnings.push("无讲解拍子");
+        // 语义门禁：结构合格不等于"画对了"。三条反例（宣称数量对不上、
+        // 写了搬运却没搬、清点空组）在生成端就标出来，别等到孩子点了播放。
+        const semanticFindings = structuralWarnings.length === 2 ? [] : semanticFindingsOf(spec);
+        if (semanticFindings.length > 0) {
+          console.warn(
+            `[explain] 语义门禁：${semanticFindings
+              .slice(0, 3)
+              .map((f) => f.detail)
+              .join("；")}`,
+          );
+        }
         if (structuralWarnings.length === 2) {
           problems.push("SceneSpec 为空（无对象且无拍子）");
         } else {
@@ -245,7 +257,7 @@ async function runWebJob(
             engineSessionId: result.plan_id,
             mode: "web",
             specUrl: `/api/v1/explain/specs/${specId}`,
-            quality: structuralWarnings.length ? "acceptable" : "good",
+            quality: qualityOf(structuralWarnings, semanticFindings),
             contractVersion: state.contract?.contract_version ?? "unknown",
             // 确定性构造器会在计划上盖章；LLM 导演写的计划没有这个字段，留空即代表走了模型路径
             groundingSource: groundingSourceOf(spec),
