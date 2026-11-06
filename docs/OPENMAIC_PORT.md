@@ -24,6 +24,34 @@ OpenMAIC 的课堂（播放/动作引擎、可交互场景、生成工具链）�
 不搬：`@openmaic/renderer`（PPT 式画布）、agent-runtime / pbl-v3（依赖 Postgres；PBL 只参考设计）、
 importer、`mathml2omml`（LGPL）、GSAP / Hyperframes、云端媒体 provider。
 
+## ⚠ 移植前的实测：依赖锥远大于清单行数（2026-11-05）
+
+清单里的行数是对的，但**它们不是可以整包搬走的独立模块**。按 import 追下去：
+
+| 模块 | 行数 | 说明 |
+|---|---|---|
+| `lib/playback/types.ts` / `derived-state.ts` / `auto-resume.ts` / `index.ts` | 328 | **纯逻辑**，无外部依赖 |
+| `lib/playback/action-navigation.ts` / `action-resume.ts` | 274 | 只依赖 Action 类型 |
+| `lib/playback/engine.ts` | 939 | 依赖 stage 类型、audio-player、`@/lib/action/engine`、choreography |
+| `lib/playback/cursor.ts` | 147 | 依赖 `@openmaic/storage` |
+| `packages/@openmaic/dsl` | **9,329** | **Action 契约的真身**：`@/lib/types/action` 只是它的 re-export shim |
+| `lib/action/engine.ts` | 912 | 清单里那条 |
+| `lib/store/canvas.ts` + `settings.ts` | 909 | zustand store |
+| `lib/choreography` | 1,147 | |
+| `lib/utils/audio-player.ts` | 359 | |
+
+也就是说：**只搬 `lib/playback`，实际要一路拖到 dsl 的 9,329 行 + 一堆 store/audio**，
+量级约 1.4 万行，不是清单上的「约 5k」。PLAN 的 5k 是**被搬代码**的行数，
+不含它们赖以存在的类型层与运行时依赖。
+
+结论与做法（待推进）：
+- **不整包复制**。上游的 Action DSL 与我们的 SceneSpec 是两套契约，
+  搬过来等于同时养两套；而真正值钱的是那几个算法（播放头推进、断点续学、
+  失败恢复、导航边界判断），它们本身与类型无关。
+- 做法：**只搬纯逻辑，类型层改接我们自己的 SceneSpec**。每个文件头注明
+  `Adapted from OpenMAIC <path> @795420c1 (MIT)`，并在改写处写清为什么改了。
+- 顺序：先纯逻辑（328 行，零依赖，可直接搬 + 接自己的类型）→ 再引擎循环（939 行，需重写 audio 与 store 的接触面）→ 最后才考虑 choreography 这种可选能力。
+
 ## 台账（按阶段，不按上游目录）
 
 | # | 来源 | 行数 | 去向 | 阶段 | 状态 |
