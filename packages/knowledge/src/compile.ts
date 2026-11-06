@@ -39,12 +39,27 @@ export interface ConceptExtractionProvider {
   extract(input: { chapterTitle: string; text: string }): Promise<ConceptDraft[]>;
 }
 
+/**
+ * 引文核对结果。
+ *
+ * 教学宪法第 5 条要求"归因必须有证据"，而证据得**真的在原文里**。
+ * 模型很会写一段像原文的话；那段话一旦以"出处：> ……"的样子展示给家长，
+ * 就比没有出处更糟——它把编造变成了引用。
+ *
+ * - `exact`      整段引文能在正文里定位到（忽略空白与标点差异）
+ * - `partial`    只有一部分句子能定位到
+ * - `not_found`  一句都定位不到：这段引文是模型改写的，不能当引文用
+ */
+export type QuoteVerification = "exact" | "partial" | "not_found";
+
 export interface ConceptSource {
   chapterTitle: string;
   fromPage: number;
   toPage: number;
   /** 原文片段：家长核对与后续对齐都靠它 */
   quote: string;
+  /** 这段引文是否真的出自这一章（见 QuoteVerification） */
+  verification: QuoteVerification;
 }
 
 export interface ConceptConflict {
@@ -62,6 +77,13 @@ export interface CompiledConcept {
   keyPoints: string[];
   prerequisites: string[];
   sources: ConceptSource[];
+  /**
+   * 是否至少有一处出处能在原文里定位到。
+   *
+   * false 意味着这个概念的全部"证据"都是模型改写的——按教学宪法，
+   * 它不能承重：不参与对齐，也只作为线索展示。
+   */
+  verified: boolean;
   /** 只在真的矛盾时非空；主定义保留在 definition 里，冲突方在这里 */
   conflicts: ConceptConflict[];
 }
@@ -77,6 +99,8 @@ export interface CompiledBook {
     chapters: number;
     chaptersWithConcepts: number;
     concepts: number;
+    /** 其中至少有一处出处能定位到原文的（其余只作线索） */
+    verifiedConcepts: number;
   };
   /** 有任何一章退回离线兜底就是 true */
   degraded: boolean;
@@ -102,7 +126,81 @@ export function normalizeConceptName(title: string): string {
   return title
     .toLowerCase()
     .replace(/[\s　]+/g, "")
+    .replace(/[。．]/g, ".")
     .replace(/[（）()【】\[\]{}「」『』《》<>"'“”‘’.,，。、;；:：!！?？·—\-_/\\|~]+/g, "");
+}
+
+/**
+ * 比对用的规范化：去掉空白、统一引号与破折号。
+ *
+ * 为什么要去空白：PDF 抽出来的文本带着字距造成的碎空格（实测「The」会变成「! e」），
+ * 模型照抄时也常顺手把换行折成空格。这些差异不是"引错了"，不该判成未定位。
+ * 但**不做同义改写/语序归一**——那样就等于放过模型自由发挥，而这正是要拦的东西。
+ */
+/**
+ * 比对用的规范化：去掉空白、统一引号与破折号，并修掉一类 PDF 字形错配。
+ *
+ * 为什么要去空白：PDF 抽出来的文本带着字距造成的碎空格，模型照抄时也常顺手把
+ * 换行折成空格。这些差异不是"引错了"，不该判成未定位。
+ *
+ * 为什么修 `!` → `th`：这本真实教材的嵌入字体把 "Th" 映射成了 "!"，
+ * 抽出来是「! e present simple negative」。模型读的时候正确地把它当成 "The"，
+ * 于是**忠实的引文反而判成未定位**（实机：25 条出处里有 6 条这么被冤枉）。
+ * 修法与正文同侧：两边都做同样的替换，所以编造的引文不会因此蒙混过关——
+ * 它得先恰好写成 "Th" 开头、正文里又恰好有对应的字形错配。
+ *
+ * **不做**同义改写、语序归一、相似度阈值：一放进去，"像原文"就能冒充"是原文"，
+ * 而这正是要拦的东西。
+ */
+export function normalizeForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/!\s?(?=[a-z])/g, "th")
+    .replace(/[\s　]+/g, "")
+    // 中英文句号视作同一件事：PDF 抽取与模型转写经常来回换
+    .replace(/[。．]/g, ".")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[—–−]/g, "-");
+}
+
+/** 引文里"够一句"的最小长度：再短的片段几乎必然能在任何正文里撞上，判定没有意义 */
+const MIN_QUOTE_CHARS = 6;
+
+/**
+ * 核对一段引文是否真的出自这一章正文。
+ *
+ * 先整段比对；不行再按句拆开比对——模型经常把三句原文压成两句、只抄其中一句，
+ * 或者用「…」把不相邻的几处拼起来。剩下能定位到的句子比例决定 exact/partial/not_found。
+ */
+export function verifyQuote(
+  quote: string,
+  chapterText: string,
+): { verification: QuoteVerification; matchedSentences: number; totalSentences: number } {
+  const normalizedQuote = normalizeForMatch(quote);
+  const normalizedText = normalizeForMatch(chapterText);
+
+  if (normalizedQuote.length < MIN_QUOTE_CHARS || !normalizedText) {
+    return { verification: "not_found", matchedSentences: 0, totalSentences: 0 };
+  }
+  if (normalizedText.includes(normalizedQuote)) {
+    return { verification: "exact", matchedSentences: 1, totalSentences: 1 };
+  }
+
+  const sentences = quote
+    // 「…」也算句子边界：模型爱用它把不相邻的几处原文拼成一段
+    .split(/[。！？!?;；\n]+|\.{3,}|…+/)
+    .map((s) => normalizeForMatch(s))
+    .filter((s) => s.length >= MIN_QUOTE_CHARS);
+  if (sentences.length === 0) {
+    return { verification: "not_found", matchedSentences: 0, totalSentences: 0 };
+  }
+  const matched = sentences.filter((s) => normalizedText.includes(s)).length;
+  if (matched === 0) return { verification: "not_found", matchedSentences: 0, totalSentences: sentences.length };
+  // 整段没能连续定位，就只能是 partial：即便每一句都找得到，
+  // 这段引文也是把不相邻的几处拼起来的，展示时得说清楚。
+  const verification: QuoteVerification = matched * 2 >= sentences.length ? "partial" : "not_found";
+  return { verification, matchedSentences: matched, totalSentences: sentences.length };
 }
 
 /** 规范名 → 稳定 id（FNV-1a，8 位十六进制）。不依赖任何运行时，重编译结果一致 */
@@ -274,9 +372,14 @@ export async function compileBook(
       } else {
         drafts = compileChapterOffline(chapter);
       }
+      // 核对每段引文是否真的出自这一章：模型编造的"原文"不许当出处用
+      const verified = drafts.map((draft) => ({
+        ...draft,
+        verification: verifyQuote(draft.evidence, chapter.text).verification,
+      }));
       done += 1;
       options.onChapterDone?.(done, bodyChapters.length, chapter.title);
-      return { drafts, fellBack };
+      return { drafts: verified, fellBack };
     },
   );
 
@@ -307,6 +410,7 @@ export async function compileBook(
         fromPage: chapter.fromPage,
         toPage: chapter.toPage,
         quote: draft.evidence,
+        verification: draft.verification,
       };
 
       const existing = byId.get(id);
@@ -321,6 +425,7 @@ export async function compileBook(
             keyPoints: [...draft.keyPoints],
             prerequisites: [...draft.prerequisites],
             sources: [source],
+            verified: source.verification !== "not_found",
             conflicts: [],
           },
         });
@@ -339,6 +444,8 @@ export async function compileBook(
       if (!concept.sources.some((s) => s.chapterTitle === source.chapterTitle && s.quote === source.quote)) {
         concept.sources.push(source);
       }
+      // 新来源能定位到原文，整个概念就从"只是线索"变成"有据可查"
+      if (source.verification !== "not_found") concept.verified = true;
       for (const point of draft.keyPoints) {
         if (!concept.keyPoints.some((p) => normalizeConceptName(p) === normalizeConceptName(point))) {
           concept.keyPoints.push(point);
@@ -382,7 +489,12 @@ export async function compileBook(
     concepts,
     links,
     unresolvedPrerequisites,
-    coverage: { chapters: bodyChapters.length, chaptersWithConcepts, concepts: concepts.length },
+    coverage: {
+      chapters: bodyChapters.length,
+      chaptersWithConcepts,
+      concepts: concepts.length,
+      verifiedConcepts: concepts.filter((c) => c.verified).length,
+    },
     degraded,
   };
 }
