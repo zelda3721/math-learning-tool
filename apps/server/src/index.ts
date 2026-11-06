@@ -12,6 +12,7 @@ import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
 import { JobStore } from "./ingest/jobs.js";
 import { createPhotoGrader } from "./photoGrader.js";
+import { createTextbookCompiler } from "./textbookCompiler.js";
 import { buildAnswerJudge } from "./semanticJudge.js";
 import { AuthStore } from "./auth.js";
 import { createSubjectRegistry } from "./subjects.js";
@@ -88,6 +89,8 @@ async function main(): Promise<void> {
     hintProvider: buildHintProvider(),
     judge: buildAnswerJudge(),
     extraction: buildExtractionProvider(knowledge),
+    // 知识编译走 main 端点（本地 oMLX 常驻模型）；这里只建客户端，不预热、不拉模型
+    textbookProvider: createTextbookCompiler(process.env),
     jobs: new JobStore(db),
     auth: new AuthStore(db),
     photoGrader: (() => {

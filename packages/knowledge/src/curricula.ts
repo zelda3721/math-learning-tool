@@ -25,18 +25,23 @@ export interface CurriculumFile {
 }
 
 /**
- * 名字 → 文件名。
+ * 名字 → 文件名安全片段。
  *
  * 只保留字母数字与中日文，其余折成连字符：教材名里常有空格、括号、冒号，
  * 直接当文件名会在某些系统上炸掉，而以 `.` 开头的名字会变成隐藏文件。
  */
+export function fileSlug(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "untitled"
+  );
+}
+
 export function curriculumFileName(name: string): string {
-  const safe = name
-    .trim()
-    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return `${safe || "curriculum"}.json`;
+  return `${fileSlug(name)}.json`;
 }
 
 function curriculaDir(dataDir: string): string {
