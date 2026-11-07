@@ -133,6 +133,8 @@ export class Repo {
       "queue_items",
       "review_cards",
       "mistakes",
+      // 转写也算学习痕迹：重置一个孩子就该连"他自己说过的话"一起清掉
+      "explore_transcripts",
     ];
     return tables.map((table) => {
       const r = this.db.prepare(`DELETE FROM ${table} WHERE learner_id = ?`).run(learnerId);
@@ -699,6 +701,80 @@ export class Repo {
       .prepare("SELECT id FROM ask_jobs WHERE question_id = ? AND status = 'running' AND learner_id IS ? LIMIT 1")
       .get(questionId, learnerId ?? null);
     return r ? String(r.id) : undefined;
+  }
+
+  // ---- 对话转写（阶段 4；默认关，开不写在一处判断，见 learnerPrefs.recordTranscript） ----
+  /** 写一轮转写。`role='blocked'` 时 content 一律空，只留原因——被拦下的原话不落库 */
+  insertTranscript(t: {
+    learnerId: string;
+    role: "user" | "assistant" | "blocked";
+    content?: string;
+    safetyReason?: string;
+    at?: string;
+  }): void {
+    this.db
+      .prepare(
+        "INSERT INTO explore_transcripts (id, learner_id, ts, role, content, safety_reason) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        randomUUID(),
+        t.learnerId,
+        t.at ?? new Date().toISOString(),
+        t.role,
+        t.role === "blocked" ? "" : (t.content ?? ""),
+        t.safetyReason ?? null,
+      );
+  }
+
+  /** 家长看：倒序（最近的对话在最上面） */
+  listTranscripts(
+    learnerId: string,
+    limit = 200,
+  ): { id: string; ts: string; role: string; content: string; safetyReason: string | null }[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, ts, role, content, safety_reason FROM explore_transcripts WHERE learner_id = ? ORDER BY ts DESC LIMIT ?",
+      )
+      .all(learnerId, limit);
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: String(r.ts),
+      role: String(r.role),
+      content: String(r.content ?? ""),
+      safetyReason: r.safety_reason === null || r.safety_reason === undefined ? null : String(r.safety_reason),
+    }));
+  }
+
+  /** 家长清空：**物理删除**。转写是"家长自己开的录音"，删掉就该真没了 */
+  clearTranscripts(learnerId: string): number {
+    const r = this.db.prepare("DELETE FROM explore_transcripts WHERE learner_id = ?").run(learnerId);
+    return Number(r.changes ?? 0);
+  }
+
+  // ---- AI 判断抽查（宪法第 5 条：ai_unverified 的证据要有人看，但不承重） ----
+  /**
+   * 列 `verification='ai_unverified'` 的作答，供家长抽查。
+   * 不按 needs_review 过滤：这类作答本来就可能不进裁决队列（模型判"对"时
+   * needs_review 是 0），只按 needs_review 筛会让家长一条都看不到。
+   */
+  attemptsByVerification(
+    learnerId: string,
+    verification: Attempt["verification"],
+    limit = 50,
+  ): (Attempt & { at: string })[] {
+    return this.db
+      .prepare("SELECT id FROM attempts WHERE learner_id = ? AND verification = ? ORDER BY at DESC LIMIT ?")
+      .all(learnerId, verification, limit)
+      .map((r) => this.getAttempt(String((r as Record<string, unknown>).id))!)
+      .filter(Boolean);
+  }
+
+  /** 家长推翻一条 AI 判断：只标"需复核"，等他自己给出结论，不在这里改判 */
+  markAttemptNeedsReview(attemptId: string): boolean {
+    const r = this.db
+      .prepare("UPDATE attempts SET needs_review = 1 WHERE id = ? AND parent_verdict IS NULL")
+      .run(attemptId);
+    return Number(r.changes ?? 0) > 0;
   }
 
   // ---- review cards（P3 SM-2） ----

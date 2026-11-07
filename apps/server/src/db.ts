@@ -194,6 +194,20 @@ CREATE TABLE IF NOT EXISTS tutor_memories (
   UNIQUE (learner_id, dedupe_key)
 );
 CREATE INDEX IF NOT EXISTS idx_memories_learner ON tutor_memories(learner_id, updated_at);
+-- 阶段 4 对话转写：家长可查看，**默认关闭**。
+-- 为什么默认关：开放对话里孩子说的话，本来就带着"没人在旁边听"的信任；
+-- 默认录音等于把这份信任换成监控。要看得由家长显式打开，且只存在本机这个库里。
+-- 被安全层拦下的那一轮 role 记 'blocked'、content 留空，只留原因——
+-- 拦下的原话连日志都不留（见 safety.ts），转写里自然也不能有。
+CREATE TABLE IF NOT EXISTS explore_transcripts (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  role TEXT NOT NULL,              -- 'user' | 'assistant' | 'blocked'
+  content TEXT NOT NULL DEFAULT '',
+  safety_reason TEXT               -- 被拦下时的原因/位置（input|output:reason）
+);
+CREATE INDEX IF NOT EXISTS idx_transcripts_learner ON explore_transcripts(learner_id, ts);
 `;
 
 /** 旧库容错迁移（列已存在则跳过；node:sqlite 没有 IF NOT EXISTS 语法） */

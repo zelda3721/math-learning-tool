@@ -34,6 +34,10 @@ export interface ComposedLesson {
     question: LessonQuestion | null
     materialBeats: number
     pauseContext?: string
+    /** 实际生效的模式：请求 generate 也可能拿回 compose */
+    mode?: 'generate' | 'compose'
+    /** 为什么退回 compose（没有就是 null） */
+    degraded?: { reason: string } | null
     note?: string
 }
 
@@ -53,6 +57,10 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
     const text = await res.text()
     const body = text ? (JSON.parse(text) as unknown) : null
     if (!res.ok) {
+        /*
+         * 服务端的 `error` 是给人看的一句话（关掉课堂时是「家长把『课堂』关掉了……」）。
+         * 优先用它：403 是家长的决定，不该在孩子面前显示成「HTTP 403」。
+         */
         const message =
             body && typeof body === 'object' && 'error' in body
                 ? String((body as { error: unknown }).error)
@@ -66,8 +74,14 @@ export function listLessons(): Promise<{ lessons: LessonOption[] }> {
     return json('/classroom/lessons')
 }
 
-export function getLesson(nodeId: string): Promise<ComposedLesson> {
-    return json(`/classroom/lesson?nodeId=${encodeURIComponent(nodeId)}`)
+/**
+ * 拉一节课。
+ *
+ * `generate` 让模型把讲解写出来，`compose` 用离线材料拼。服务端保证 generate
+ * 失败一定退回 compose（响应里的 `mode` 说实际用的是哪种），所以前端不需要自己重试。
+ */
+export function getLesson(nodeId: string, mode: 'generate' | 'compose' = 'compose'): Promise<ComposedLesson> {
+    return json(`/classroom/lesson?nodeId=${encodeURIComponent(nodeId)}&mode=${mode}`)
 }
 
 /** 课堂作答：写进证据链，来源单列为 classroom（和课后练习分得开） */

@@ -4,6 +4,7 @@ import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 import { chatBudgetReport } from "../chatBudget.js";
 import { readProfile, writeProfile } from "../tutorMemory.js";
+import { MODULES, readModules, writeModules, type ModuleState } from "../modules.js";
 import { DEFAULT_DAILY_CHAT_MINUTES } from "@mathtutor/safety";
 
 /**
@@ -178,6 +179,162 @@ export function parentRoutes(state: AppState): Hono {
     const byReason: Record<string, number> = {};
     for (const event of events) byReason[event.reason] = (byReason[event.reason] ?? 0) + 1;
     return c.json({ events, byReason, total: events.length });
+  });
+
+  /**
+   * 对话转写（默认关）。
+   *
+   * 这一整块的存在前提是家长**明确开过**开关：关着的时候库里一条都没有，
+   * 这里也就只能返回空。开关本身跟着返回，省得界面再猜一次当前状态。
+   */
+  app.get("/transcripts", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 200) || 200, 1), 500);
+    return c.json({
+      recording: state.repo.learnerPrefs(learnerId).recordTranscript === true,
+      turns: state.repo.listTranscripts(learnerId, limit),
+      note: "默认不记录；开启后只存在这台机器的本地数据库里，随时可以清空。",
+    });
+  });
+
+  /** 开 / 关转写。关掉之后再打开**不回溯**：没记的那些话找不回来 */
+  app.post("/transcripts/recording", async (c) => {
+    const parsed = z
+      .object({ learnerId: z.string().min(1), enabled: z.boolean() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId 与 enabled" }, 400);
+    if (!state.repo.getLearner(parsed.data.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    state.repo.setLearnerPrefs(parsed.data.learnerId, { recordTranscript: parsed.data.enabled });
+    return c.json({ recording: parsed.data.enabled });
+  });
+
+  /** 清空转写：物理删除。这是家长自己开的记录，删了就该真没了 */
+  app.delete("/transcripts", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    return c.json({ removed: state.repo.clearTranscripts(learnerId) });
+  });
+
+  /**
+   * AI 判断抽查队列：`verification = ai_unverified` 的作答。
+   *
+   * 为什么单列一队，而不是混进原来的判卷抽检：那队是"判不准、等家长给结论"，
+   * 这队是"AI 已经说了话，但那句话没有可复核的依据"。家长看这队不是为了让
+   * 那条证据算数（宪法第 5 条：它永远不算数），而是为了知道 **AI 替孩子说过什么**。
+   */
+  app.get("/ai-judgments", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+
+    // 判卷依据：语义判卷那一步会留一条 ai_judge_accepted 事件（含 why）。
+    // 事件里没有 attemptId（写入时还没落库），退而按「题 id + 孩子答案」对齐——
+    // 同一题同一答案重复作答时可能对上较新那次的理由，能说明"AI 当时凭什么"就够了。
+    const whys = new Map<string, string>();
+    for (const event of state.repo.listEvents(learnerId, "ai_judge_accepted")) {
+      const payload = (event.payload ?? {}) as { questionId?: string; student?: string; why?: string };
+      if (payload.questionId && payload.student && payload.why) {
+        whys.set(`${payload.questionId}|${payload.student}`, payload.why);
+      }
+    }
+    // 家长已经看过/推翻过的：以最近一条审计事件为准
+    const judged = new Map<string, { action: string; note?: string; at: string }>();
+    for (const event of state.repo.listEvents(learnerId, "ai_judgment")) {
+      const payload = (event.payload ?? {}) as { attemptId?: string; action?: string; note?: string };
+      if (payload.attemptId && payload.action) {
+        judged.set(payload.attemptId, { action: payload.action, note: payload.note, at: event.ts });
+      }
+    }
+
+    const items = state.repo.attemptsByVerification(learnerId, "ai_unverified", 50).map((a) => {
+      const question = state.questions.byId.get(a.questionId);
+      const seen = judged.get(a.id);
+      return {
+        attemptId: a.id,
+        questionId: a.questionId,
+        stem: question?.stem.slice(0, 120) ?? a.questionId,
+        studentAnswer: a.answer,
+        correct: a.correct,
+        at: a.at,
+        source: a.source,
+        hintLevelUsed: a.hintLevelUsed,
+        /** 判卷依据：AI 当时给的说明；没有就退回"只有模型判断"这一句 */
+        basis: whys.get(`${a.questionId}|${a.answer}`) ?? "只有模型判断，没有可执行验算或可定位的标准答案",
+        needsReview: a.needsReview,
+        parentVerdict: a.parentVerdict ?? null,
+        /** 家长处理过没有：reviewed=看过，overturn=推翻 */
+        judgement: seen ?? null,
+      };
+    });
+    return c.json({ items, note: "AI 判断的证据不计入掌握度：这里只作练习记录与抽查。" });
+  });
+
+  /**
+   * 家长标记「看过 / 推翻」。
+   *
+   * 两件事都不碰掌握度：宪法第 5 条说 ai_unverified 不承重，推翻它当然也不能
+   * 让它突然承重——推翻只是把这条作答挪回「等家长裁决」的队列，
+   * 由家长自己给出结论（那是 /verdict 的事，那里会按证据等级重新判一次算不算）。
+   */
+  app.post("/ai-judgment", async (c) => {
+    const parsed = z
+      .object({
+        attemptId: z.string().min(1),
+        action: z.enum(["reviewed", "overturn"]),
+        note: z.string().max(200).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 {attemptId, action: reviewed|overturn}" }, 400);
+    const attempt = state.repo.getAttempt(parsed.data.attemptId);
+    if (!attempt) return c.json({ error: "attempt 不存在" }, 404);
+    if (attempt.verification !== "ai_unverified") {
+      return c.json({ error: "这条作答不是 AI 判断，走原来的判卷抽检" }, 409);
+    }
+
+    if (parsed.data.action === "overturn") {
+      state.repo.markAttemptNeedsReview(attempt.id);
+    }
+    state.repo.appendEvent(attempt.learnerId, "ai_judgment", {
+      kind: "ai_judgment",
+      attemptId: attempt.id,
+      action: parsed.data.action,
+      note: parsed.data.note,
+      // 审计要留一句"为什么这么处理"：这条证据不改掌握度
+      verification: attempt.verification,
+    });
+    return c.json({ ok: true, needsReview: parsed.data.action === "overturn" });
+  });
+
+  /** 模块开关：每个孩子一份，缺键=开 */
+  app.get("/modules", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    return c.json({
+      modules: readModules(state.repo, learnerId),
+      catalog: MODULES.map((m) => ({ id: m.id, label: m.label, hint: m.hint })),
+    });
+  });
+
+  app.post("/modules", async (c) => {
+    const parsed = z
+      .object({
+        learnerId: z.string().min(1),
+        modules: z.record(z.string(), z.boolean()),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId 与 modules（{explore: false} 这样的对象）" }, 400);
+    if (!state.repo.getLearner(parsed.data.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+
+    const known = new Set(MODULES.map((m) => m.id));
+    const unknown = Object.keys(parsed.data.modules).filter((k) => !known.has(k));
+    if (unknown.length > 0) return c.json({ error: `没有这些模块：${unknown.join("、")}` }, 422);
+
+    const modules: ModuleState = writeModules(state.repo, parsed.data.learnerId, parsed.data.modules);
+    state.repo.appendEvent(parsed.data.learnerId, "settings", { kind: "modules", modules });
+    return c.json({
+      modules,
+      catalog: MODULES.map((m) => ({ id: m.id, label: m.label, hint: m.hint })),
+    });
   });
 
   /** 今天的对话时长与上限（上限是谁定的也要说清） */

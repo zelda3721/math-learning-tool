@@ -18,6 +18,8 @@ import { createTextbookCompiler } from "./textbookCompiler.js";
 import { buildAnswerJudge } from "./semanticJudge.js";
 import { AuthStore } from "./auth.js";
 import { createSubjectRegistry } from "./subjects.js";
+import { withModuleGate } from "./modules.js";
+import type { AppState } from "./app.js";
 
 function buildHintProvider(): HintProvider | null {
   try {
@@ -77,7 +79,7 @@ async function main(): Promise<void> {
   const repo = new Repo(db);
   const questions = createQuestionStore(config.dataDir, knowledge.index);
 
-  const app = createApp({
+  const state: AppState = {
     config,
     contract,
     knowledge,
@@ -100,7 +102,13 @@ async function main(): Promise<void> {
         return null;
       }
     })(),
-  });
+  };
+  /*
+   * 组合根统一套一层模块闸：家长关掉某个模块后，那一段前缀在进路由之前就 403。
+   * 为什么放在这里而不是 createApp 里：路由装配那一侧不在本次改动范围；
+   * 这一层与 app 的行为完全等价（中间件先跑，再进原 app）。
+   */
+  const app = withModuleGate(createApp(state), state);
   serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     console.log(`MathTutor server listening on http://${info.address}:${info.port}`);
     console.log(`  engine:    ${config.engineUrl} (${contract ? contract.contract_version : "OFFLINE"})`);

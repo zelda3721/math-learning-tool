@@ -23,6 +23,7 @@ import type { PersistedSession, SessionDetail } from './types/agent'
 import { BankPage } from './bank/BankPage'
 import { TextbookPage } from './textbook/TextbookPage'
 import { ClassroomPage } from './classroom/ClassroomPage'
+import { LabPage } from './lab/LabPage'
 
 import {
     GradeSelector,
@@ -46,6 +47,7 @@ type AppView =
     | 'bank'
     | 'textbook'
     | 'classroom'
+    | 'lab'
     | 'parent'
 
 /** 角色导航：孩子只看学习面，家长全量（管理员） */
@@ -62,6 +64,8 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
     { key: 'bank', label: '题库', roles: ['parent'] },
     // 教材编译只给家长：它产出的是"这学期按什么顺序上课"，那是家长的判断
     { key: 'textbook', label: '教材', roles: ['parent'] },
+    // AI 实验台只给家长：能任意写提示词、直接看模型原文，不经过判卷与安全层
+    { key: 'lab', label: 'AI 实验台', roles: ['parent'] },
     { key: 'parent', label: '家长', roles: ['parent'] },
 ]
 
@@ -347,6 +351,12 @@ function AuthedApp() {
             {view === 'textbook' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <TextbookPage />
+                </main>
+            )}
+
+            {view === 'lab' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <LabPage />
                 </main>
             )}
 
