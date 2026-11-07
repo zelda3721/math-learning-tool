@@ -51,6 +51,8 @@ const VIEWS: Record<string, ViewCase> = {
     extra: async (page) => {
       await expect(page.getByText('对话安全与时长')).toBeVisible()
       await expect(page.getByLabel('每天对话分钟数')).toBeVisible()
+      await expect(page.getByText('导师记忆与画像')).toBeVisible()
+      await expect(page.getByLabel('兴趣')).toBeVisible()
     },
   },
 }

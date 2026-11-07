@@ -28,6 +28,7 @@ import { effectiveLearnerId, type AppState } from "./app.js";
 import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
 import { checkChatBudget, recordChatUsage } from "./chatBudget.js";
+import { deriveMemories, profileBlock, readProfile, recallBlock } from "./tutorMemory.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -247,10 +248,27 @@ export async function runExplore(
   const tools = toolsFor(skill);
 
   const learner = state.repo.getLearner(input.learnerId);
+
+  /*
+   * 记忆与被记住的设定拼进 system prompt。
+   * 先派生一次再召回：错因、掌握度随时在变，记忆跟着事实走，
+   * 而不是把某天的判断冻在那里。
+   */
+  try {
+    deriveMemories(state.repo, state.knowledge.index, input.learnerId);
+  } catch {
+    // 派生失败不该让对话挂掉：记忆是锦上添花，不是关键路径
+  }
+  const memory = recallBlock(state.repo, input.learnerId);
+  const profile = profileBlock(readProfile(state.repo, input.learnerId));
+  const systemPrompt = [buildSystemPrompt(state.knowledge, skill, learner?.level, input.nodeId), profile, memory]
+    .filter(Boolean)
+    .join("\n\n");
+
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildSystemPrompt(state.knowledge, skill, learner?.level, input.nodeId),
+      content: systemPrompt,
     },
     ...input.messages.map((m): ChatMessage => ({ role: m.role, content: m.content })),
   ];

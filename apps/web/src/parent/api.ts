@@ -187,3 +187,47 @@ export function fetchLimits(learnerId: string): Promise<ChatLimits> {
 export function postLimits(payload: { learnerId: string; dailyChatMinutes: number | null }): Promise<ChatLimits> {
     return post('/api/v1/parent/limits', payload)
 }
+
+
+// ---- 导师记忆与学习者画像（阶段 4） ----
+
+export interface TutorMemory {
+    id: string
+    kind: string
+    text: string
+    hitCount: number
+    source: string
+    updatedAt: string
+    deletedAt: string | null
+}
+
+export interface LearnerProfile {
+    interests: string[]
+    goals: string[]
+    prefersVisual: boolean | null
+}
+
+export function fetchMemories(learnerId: string, includeDeleted = false): Promise<{ memories: TutorMemory[] }> {
+    return request(
+        `/api/v1/parent/memories?learnerId=${encodeURIComponent(learnerId)}${includeDeleted ? '&includeDeleted=1' : ''}`,
+    )
+}
+
+export function deleteMemory(learnerId: string, id: string): Promise<{ removed: boolean; remaining: number }> {
+    return request(`/api/v1/parent/memories/${encodeURIComponent(id)}?learnerId=${encodeURIComponent(learnerId)}`, {
+        method: 'DELETE',
+    })
+}
+
+export function fetchProfile(learnerId: string): Promise<LearnerProfile> {
+    return request(`/api/v1/parent/profile?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+export function postProfile(payload: {
+    learnerId: string
+    interests?: string[]
+    goals?: string[]
+    prefersVisual?: boolean | null
+}): Promise<LearnerProfile> {
+    return post('/api/v1/parent/profile', payload)
+}

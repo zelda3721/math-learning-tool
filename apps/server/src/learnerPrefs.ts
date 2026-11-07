@@ -14,6 +14,10 @@ export interface LearnerPrefs {
   dailyChatMinutes?: number;
   /** 家长显式关掉的模块 */
   disabledModules?: string[];
+  /** 学习者画像：兴趣（出题素材）、目标、更吃图形还是式子 */
+  interests?: string[];
+  goals?: string[];
+  prefersVisual?: boolean | null;
 }
 
 export function readLearnerPrefs(db: DatabaseSync, learnerId: string): LearnerPrefs {

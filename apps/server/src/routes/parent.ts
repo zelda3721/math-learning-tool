@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 import { chatBudgetReport } from "../chatBudget.js";
+import { readProfile, writeProfile } from "../tutorMemory.js";
 import { DEFAULT_DAILY_CHAT_MINUTES } from "@mathtutor/safety";
 
 /**
@@ -201,6 +202,49 @@ export function parentRoutes(state: AppState): Hono {
       dailyChatMinutes: parsed.data.dailyChatMinutes ?? undefined,
     });
     return c.json(chatBudgetReport(state.repo, parsed.data.learnerId));
+  });
+
+  /**
+   * 导师记住的东西：一条一条列出来，每条都写着它是怎么来的。
+   *
+   * `includeDeleted` 让家长能看到"我删过什么"——删除是软删除，
+   * 审计上留痕，但召回一律不再用它。
+   */
+  app.get("/memories", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const includeDeleted = c.req.query("includeDeleted") === "1";
+    return c.json({ memories: state.repo.listMemories(learnerId, { includeDeleted }) });
+  });
+
+  app.delete("/memories/:id", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const removed = state.repo.forgetMemory(learnerId, c.req.param("id"));
+    if (!removed) return c.json({ error: "没有这条记忆（可能已删）" }, 404);
+    return c.json({ removed: true, remaining: state.repo.listMemories(learnerId).length });
+  });
+
+  /** 学习者画像：兴趣、目标、更吃图形还是式子。全部手填，不猜。 */
+  app.get("/profile", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    return c.json(readProfile(state.repo, learnerId));
+  });
+
+  app.post("/profile", async (c) => {
+    const parsed = z
+      .object({
+        learnerId: z.string().min(1),
+        interests: z.array(z.string().max(20)).max(8).optional(),
+        goals: z.array(z.string().max(30)).max(5).optional(),
+        prefersVisual: z.boolean().nullable().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId 与 interests/goals/prefersVisual" }, 400);
+    if (!state.repo.getLearner(parsed.data.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    const { learnerId, ...patch } = parsed.data;
+    return c.json(writeProfile(state.repo, learnerId, patch));
   });
 
   /**
