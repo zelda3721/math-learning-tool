@@ -70,6 +70,15 @@ const HEADING_PATTERNS: { name: string; re: RegExp; ok?: (line: string) => boole
 const MAX_HEADING_CHARS = 40;
 
 /**
+ * 标题**片段**的长度上限，比整行标题宽。
+ *
+ * 实测驱动：那本语法书里 `Unit`／`18 How long have you … ? (present perfect 4)`
+ * 被版式拆成两行，后半段 41 字——按 40 字卡会被当成正文，整个单元就此消失（115 个单元丢掉 11 个）。
+ * 片段只在紧跟「Unit/Chapter」这种结构性词之后才吸收，最多两行，所以放宽到 60 是安全的。
+ */
+const MAX_TITLE_FRAGMENT_CHARS = 60;
+
+/**
  * 编号后面必须跟着文字才算标题。
  *
  * 反例全是真实练习册里的行：`3.30 4.00 4.15`（答案是时间）、`1.1 2.1`（题号列）、
@@ -93,7 +102,7 @@ export function looksLikeHeading(line: string): boolean {
 
 /** 跨行的标题片段：短、不像一句话、不像 A/B/C 小节标签 */
 function isHeadingFragment(line: string): boolean {
-  if (line.length > MAX_HEADING_CHARS) return false;
+  if (line.length > MAX_TITLE_FRAGMENT_CHARS) return false;
   if (/[：:。；;]$/.test(line)) return false;
   if (/^[A-H](?:\s|$)/.test(line)) return false;
   return true;
@@ -209,11 +218,18 @@ function splitBodyChapters(pages: readonly PageText[], fallbackTitle: string): C
   return chapters;
 }
 
-/** 把片段并进标题：单元号紧跟结构词（「Unit」+「46」→「Unit 46」），其余按出现顺序追加 */
+/**
+ * 把片段并进标题。
+ *
+ * 单元号可能出现在片段的**任意一行**——实测 `Unit`／`is it … ? have you … ?`／`44 (questions 1)`
+ * 三行才凑成「Unit 44 is it … ? have you … ?」。所以带编号的片段一律把编号提到结构词后面，
+ * 其余内容按出现顺序接上；已经编好号的标题不再插第二遍。
+ */
 function joinTitleFragment(title: string, fragment: string): string {
-  if (/^\d+$/.test(fragment)) {
-    const parts = title.split(/\s+/);
-    return [parts[0], fragment, ...parts.slice(1)].join(" ");
+  const parts = title.split(/\s+/);
+  const leading = /^(\d+)\s*(.*)$/.exec(fragment.trim());
+  if (leading && !/^\d+$/.test(parts[1] ?? "")) {
+    return [parts[0], leading[1], ...parts.slice(1), leading[2]].filter(Boolean).join(" ");
   }
   return `${title} ${fragment}`;
 }

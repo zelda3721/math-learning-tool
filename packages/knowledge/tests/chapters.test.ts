@@ -115,6 +115,21 @@ describe("真实教材的坑", () => {
     expect(chapters[0]!.toPage).toBe(3);
   });
 
+  it("标题片段可以长到 60 字、编号夹在中间也能归位（实测 Unit 44／113 的版式）", () => {
+    // 实测：那本语法书里编号和标题的其余部分被拆到不同的行，后半段 41–50 字。
+    // 卡在 40 字会让整个单元消失（115 个单元丢 11 个）。
+    const chapters = splitChapters([
+      { page: 88, text: "Unit\nis it … ? have you … ? do they … ? etc.\n44 (questions 1)\nA\nDo you work?" },
+      { page: 89, text: "Unit\n113\nlisten to … , look at … etc. (verb + preposition)\nA\nask for …" },
+    ]);
+    expect(chapters.map((c) => c.title)).toEqual([
+      "Unit 44 is it … ? have you … ? do they … ? etc. (questions 1)",
+      "Unit 113 listen to … , look at … etc. (verb + preposition)",
+    ]);
+    // 片段吸收不能把正文吃进标题
+    expect(chapters[0]!.text).toContain("Do you work?");
+  });
+
   it("答案册从「Key to Exercises」起算附录：整段打标记，不切成几十个假章节", () => {
     const chapters = splitChapters([
       { page: 2, text: "Unit\n1\nam/is/are\nA\nI’m 22." },

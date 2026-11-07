@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "node --watch --experimental-strip-types src/index.ts",
     "start": "node dist/index.js",
+    "build:grammar": "node build-english-grammar.mjs",
     "test": "vitest run"
   },
   "dependencies": {
