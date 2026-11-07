@@ -21,6 +21,12 @@ declare global {
         svg(): string
       }
     }
+    /** 英语画面实验台（english-lab.html）：句子 + 词卡 */
+    __englishLab?: {
+      seek(tMs: number): void
+      duration(): number
+      svg(): string
+    }
     __mathLab?: { atoms(): number; seek(local: number): number; width(): number }
   }
 }

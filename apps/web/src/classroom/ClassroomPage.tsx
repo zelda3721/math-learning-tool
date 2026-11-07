@@ -26,9 +26,28 @@ import { beatChangeToEvent, createBeatPlayer } from './playerAdapter'
  * 判卷在服务端 /practice/submit 完成。
  */
 
+/** 学科显示名：`en` 是英语学科包的 id，`english` 是图谱里节点的写法 */
+const SUBJECT_LABEL: Record<string, string> = { math: '数学', en: '英语', english: '英语' }
+
+/**
+ * 按学科分组。
+ *
+ * 不加分组时，英语课会沉在几十个数学知识点下面——不是"排在后面"，是**翻不到**。
+ * 组的先后按后端给的顺序（后端已按学段排过），这里只负责分开。
+ */
+function groupBySubject(options: LessonOption[]): [string, LessonOption[]][] {
+    const groups = new Map<string, LessonOption[]>()
+    for (const option of options) {
+        const key = option.subject || 'math'
+        const list = groups.get(key)
+        if (list) list.push(option)
+        else groups.set(key, [option])
+    }
+    return [...groups.entries()]
+}
+
 /** 浏览器存储：课堂运行时不认识 localStorage，这里给它一个最小的实现 */
-const browserStore: ProgressStore = {
-    get: (key) => {
+const browserStore: ProgressStore = {    get: (key) => {
         try {
             return window.localStorage.getItem(key)
         } catch {
@@ -172,10 +191,13 @@ export function ClassroomPage() {
                             disabled={busy}
                         >
                             <option value="">选一个知识点…</option>
-                            {options.map((option) => (
-                                <option key={option.nodeId} value={option.nodeId}>
-                                    {option.name}（{option.questionCount} 道题可问）
-                                </option>
+                            {groupBySubject(options).map(([subject, list]) => (                                <optgroup key={subject} label={SUBJECT_LABEL[subject] ?? subject}>
+                                    {list.map((option) => (
+                                        <option key={option.nodeId} value={option.nodeId}>
+                                            {option.name}（{option.questionCount} 道题可问）
+                                        </option>
+                                    ))}
+                                </optgroup>
                             ))}
                         </select>
                     </label>

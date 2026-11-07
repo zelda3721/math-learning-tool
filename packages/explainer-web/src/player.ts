@@ -29,9 +29,11 @@ import {
 import {
   layoutFlowed,
   type PlacedBar,
+  type PlacedCard,
   type PlacedExtent,
   type PlacedFigure,
   type PlacedLabel,
+  type PlacedSentence,
   type PlacedUnits,
 } from "./render/layout.js";
 import { renderSolved } from "./figure/render.js";
@@ -788,6 +790,8 @@ export class ExplainerPlayer {
       if (item.kind === "bar") this.paintBar(item);
       else if (item.kind === "extent") this.paintExtent(item);
       else if (item.kind === "label") this.paintLabel(item);
+      else if (item.kind === "sentence") this.paintSentence(item);
+      else if (item.kind === "card") this.paintCard(item);
       else if (item.kind === "figure") this.paintFigure(item);
       else this.paintUnits(item, nextPos);
       this.groupNodes.set(
@@ -952,6 +956,76 @@ export class ExplainerPlayer {
       l.placeholder ? `［${l.text}］` : l.text,
       l.at.x, l.at.y, 12, l.placeholder ? C.inkFaint : C.ink, "start", 400,
     );
+  }
+
+  /**
+   * 英语句子：整句居中，正在练的那一段加底色并加粗。
+   *
+   * 高亮只用**原文里的字符区间**（布局层算好的），所以句子里本来有的撇号、
+   * 省略号都原样保留；找不到那一段就整句平着画，绝不去猜"大概是这个"。
+   */
+  private paintSentence(s: PlacedSentence): void {
+    const cx = s.box.x + s.box.w / 2;
+    const t = el("text", {
+      x: cx,
+      y: s.baseline,
+      "font-size": s.fontSize,
+      fill: C.ink,
+      "text-anchor": "middle",
+      "font-family": "Georgia, 'Times New Roman', serif",
+    }) as SVGTextElement;
+
+    const spans = [...s.highlights].sort((a, b) => a.start - b.start);
+    let at = 0;
+    const add = (piece: string, strong: boolean): void => {
+      if (!piece) return;
+      const ts = el("tspan", strong ? { "font-weight": 700, fill: C.beam } : {}) as SVGTSpanElement;
+      ts.textContent = piece;
+      if (strong) ts.setAttribute("text-decoration", "underline");
+      t.appendChild(ts);
+    };
+    for (const span of spans) {
+      if (span.start < at || span.end > s.text.length) continue; // 区间重叠/越界：跳过，不猜
+      add(s.text.slice(at, span.start), false);
+      add(s.text.slice(span.start, span.end), true);
+      at = span.end;
+    }
+    add(s.text.slice(at), false);
+    this.svg.appendChild(t);
+  }
+
+  /** 词汇卡：正面词 + 背面释义，卡片边框只围住这一张卡，不做装饰 */
+  private paintCard(c: PlacedCard): void {
+    const g = el("g");
+    g.appendChild(
+      el("rect", {
+        x: c.box.x + 8,
+        y: c.box.y,
+        width: Math.max(0, c.box.w - 16),
+        height: c.box.h,
+        rx: 14,
+        fill: C.paper,
+        stroke: C.rule,
+        "stroke-width": 1.5,
+      }),
+    );
+    const cx = c.box.x + c.box.w / 2;
+    const head = el("text", {
+      x: cx, y: c.headBaseline, "font-size": c.headSize, fill: C.beam,
+      "text-anchor": "middle", "font-weight": 600,
+      "font-family": "Georgia, 'Times New Roman', serif",
+    }) as SVGTextElement;
+    head.textContent = c.head;
+    g.appendChild(head);
+    if (c.sub !== undefined && c.subBaseline !== undefined) {
+      const sub = el("text", {
+        x: cx, y: c.subBaseline, "font-size": c.subSize, fill: C.ink,
+        "text-anchor": "middle",
+      }) as SVGTextElement;
+      sub.textContent = c.sub;
+      g.appendChild(sub);
+    }
+    this.svg.appendChild(g);
   }
 
   /** 集：可数的记号。组身份 = 形状 × 颜色，被换过类别的记号换形状但不换位置 */

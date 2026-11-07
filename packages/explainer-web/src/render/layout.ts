@@ -24,6 +24,8 @@ import type {
   MagnitudeShape,
   ExtentShape,
   LabelShape,
+  SentenceShape,
+  CardShape,
   FigureShape,
 } from "./scene.js";
 
@@ -115,7 +117,39 @@ export interface PlacedFigure {
   emphasis?: boolean;
 }
 
-export type Placed = PlacedUnits | PlacedBar | PlacedExtent | PlacedLabel | PlacedFigure;
+/** 一句英文（其中一段是这节课练的形式）：自己占一行，字号按句子长短定 */
+export interface PlacedSentence {
+  kind: "sentence";
+  id: string;
+  text: string;
+  highlights: { start: number; end: number }[];
+  box: Box;
+  /** 基线 y：一行文字画在这里 */
+  baseline: number;
+  fontSize: number;
+}
+
+/** 词汇卡：正面词、背面释义 */
+export interface PlacedCard {
+  kind: "card";
+  id: string;
+  head: string;
+  sub?: string;
+  box: Box;
+  headBaseline: number;
+  subBaseline?: number;
+  headSize: number;
+  subSize: number;
+}
+
+export type Placed =
+  | PlacedUnits
+  | PlacedBar
+  | PlacedExtent
+  | PlacedLabel
+  | PlacedSentence
+  | PlacedCard
+  | PlacedFigure;
 
 export interface LayoutResult {
   items: Placed[];
@@ -205,12 +239,16 @@ export function layoutFlowed(
   const unitGroups: UnitsShape[] = [];
   const extents: ExtentShape[] = [];
   const labels: LabelShape[] = [];
+  const sentences: SentenceShape[] = [];
+  const cards: CardShape[] = [];
   const figures: FigureShape[] = [];
   for (const s of shapes) {
     if (s.kind === "magnitude") bars.push(s);
     else if (s.kind === "units") unitGroups.push(s);
     else if (s.kind === "extent") extents.push(s);
     else if (s.kind === "label") labels.push(s);
+    else if (s.kind === "sentence") sentences.push(s);
+    else if (s.kind === "card") cards.push(s);
     else if (s.kind === "figure") figures.push(s);
   }
 
@@ -386,6 +424,47 @@ export function layoutFlowed(
     cursorY = placedUnits.reduce((m, p) => Math.max(m, p.box.y + p.box.h), cursorY) + GAP_Y;
   }
 
+  // ── 英语：句子与词卡 ──
+  // 一句话是这一拍的主角，占满一整行、居中；宽度不够就缩字号，绝不截断——
+  // 截断的例句教不了语法（少一个词，句子表达的意思就变了）。
+  for (const s of sentences) {
+    const size = fitFont(s.text, usableW, 34, 16);
+    const h = Math.round(size * 1.6);
+    const box: Box = { x: PAD_X, y: cursorY, w: usableW, h };
+    items.push({
+      kind: "sentence",
+      id: s.id,
+      text: s.text,
+      highlights: s.highlights,
+      box,
+      baseline: cursorY + Math.round(h / 2 + size * 0.35),
+      fontSize: size,
+    });
+    cursorY += h + GAP_Y;
+  }
+
+  for (const c of cards) {
+    const headSize = 40;
+    const subSize = 20;
+    const h = subSize > 0 && c.sub ? 116 : 88;
+    const box: Box = { x: PAD_X, y: cursorY, w: usableW, h };
+    const placed: PlacedCard = {
+      kind: "card",
+      id: c.id,
+      head: c.head,
+      box,
+      headBaseline: cursorY + Math.round(h / 2) + (c.sub ? -4 : 14),
+      headSize,
+      subSize,
+    };
+    if (c.sub !== undefined) {
+      placed.sub = c.sub;
+      placed.subBaseline = cursorY + Math.round(h / 2) + 30;
+    }
+    items.push(placed);
+    cursorY += h + GAP_Y;
+  }
+
   // ── 纯标签：自己一行，不与任何内容抢位置 ──
   for (const l of labels) {
     const placed: PlacedLabel = { kind: "label", id: l.id, text: l.text, at: { x: PAD_X, y: cursorY + 14 } };
@@ -397,8 +476,21 @@ export function layoutFlowed(
   return { items, usedHeight: Math.max(0, cursorY - top) };
 }
 
-function placeUnitGroups(
-  groups: UnitsShape[],
+/**
+ * 字号收缩：给定一行文字和可用宽度，取能放下的最大字号。
+ *
+ * 宽度按字符估算（中日韩**全角 1em**、其余约 0.55em），不做真实排版——
+ * 布局层必须是纯函数、能单测，量文字宽度要碰 DOM。估算偏保守（宁可小一号），
+ * 因为"小一点但完整"永远好过"大一点但被裁掉半句"。
+ */
+function fitFont(text: string, maxWidth: number, max: number, min: number): number {
+  const factor = (ch: string): number => (/[　-鿿＀-￯]/.test(ch) ? 1 : 0.55);
+  const emWidth = [...text].reduce((sum, ch) => sum + factor(ch), 0) || 1;
+  const fits = Math.floor(maxWidth / emWidth);
+  return Math.max(min, Math.min(max, fits));
+}
+
+function placeUnitGroups(  groups: UnitsShape[],
   ctx: {
     r: number;
     startY: number;

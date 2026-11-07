@@ -58,6 +58,12 @@ export const BUILTIN_VISUALS: VisualDefinition[] = [
   { primitive: "riemann_rects", plotted: true },
   { primitive: "limit_approach", plotted: true },
   { primitive: "composition_chain", plotted: true },
+  /**
+   * 英语图元（与 `subjects/english` 学科包登记的同一批名字）。
+   * 它们既不在坐标系里，也不是可数量：一句话就是一句话，一张卡就是一张卡。
+   */
+  { primitive: "en.vocab_card", subject: "en" },
+  { primitive: "en.sentence_highlight", subject: "en" },
 ];
 
 export class VisualRegistry {
