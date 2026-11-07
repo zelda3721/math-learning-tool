@@ -11,7 +11,7 @@ import {
 import { useLearner } from '../learner/LearnerContext'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
 import { getLesson, listLessons, submitClassroomAnswer, type ComposedLesson, type LessonOption } from './api'
-import { beatChangeToEvent, createBeatPlayer } from './playerAdapter'
+import { createClassroomBridge } from './playerAdapter'
 
 /**
  * 课堂页：一节 compose 课，从开场讲到提问、答完回到原处、最后小结。
@@ -133,16 +133,23 @@ export function ClassroomPage() {
         const stage = stageRef.current
         if (!stage || !lesson) return
         playerRef.current?.destroy()
-        playerRef.current = new ExplainerPlayer(stage, lesson.scene as unknown as SceneSpec, {
+        /*
+         * 桥要在播放器之后建（它需要那个实例），而播放器又需要桥的回调——
+         * 用一个可空变量接上：回调只会在渲染时被调用，那时桥已经建好了。
+         */
+        let bridge: ReturnType<typeof createClassroomBridge> | null = null
+        const player = new ExplainerPlayer(stage, lesson.scene as unknown as SceneSpec, {
             autoPlay: false,
             controls: false,
             // 课堂按拍走，不按秒走：转场给一点，孩子才看得见"翻页了"
             transitionMs: 240,
             // 播放器自己往前走时（将来接了 TTS），也走同一条事件：
             // 课堂的状态和画面任何时候都只有一份来源
-            onBeatChange: beatChangeToEvent((event) => dispatch(event)),
+            onBeatChange: (index, total) => bridge?.onBeatChange(index, total),
         })
-        const session = new ClassroomSession(createBeatPlayer(playerRef.current), lesson.scene.scenes.length)
+        playerRef.current = player
+        bridge = createClassroomBridge(player, (event) => dispatch(event))
+        const session = new ClassroomSession(bridge.beatPlayer, lesson.scene.scenes.length)
         sessionRef.current = session
         setState(session.current as ClassroomState)
         return () => {
