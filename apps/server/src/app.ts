@@ -30,6 +30,7 @@ import { crossSubjectMembers, SUBJECT_LABEL } from "@mathtutor/knowledge";
 import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
 import { plannerRoutes } from "./routes/planner.js";
+import { widgetRoutes } from "./routes/widgets.js";
 import { usageRoutes } from "./routes/usage.js";
 import type { SubjectRegistry } from "@mathtutor/core";
 
@@ -225,6 +226,7 @@ export function createApp(state: AppState): Hono {
   });
   app.route("/api/v1/usage", usageRoutes(state));
   app.route("/api/v1/planner", plannerRoutes(state));
+  app.route("/api/v1/widgets", widgetRoutes(state));
   app.route("/api/v1/notes", notesRoutes(state));
 
   // 引擎透传（SSE 流式）

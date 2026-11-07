@@ -8,7 +8,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
-import { Button, Card, MathText, PageHeader } from '../ui'
+import { Badge, Button, Card, MathText, PageHeader } from '../ui'
+import { fetchWidgetForNode, postWidgetTrace, type WidgetForNode } from '../widgets/api'
+import { WidgetHost, type WidgetTraceDraft } from '../widgets/WidgetHost'
+import { WidgetFollowUp } from '../widgets/WidgetFollowUp'
 
 interface AtlasNodeLite {
     id: string
@@ -86,6 +89,16 @@ export function ExplorePage() {
     const [noteNotice, setNoteNotice] = useState<string | null>(null)
     const [notes, setNotes] = useState<ResearchNote[]>([])
 
+    /*
+     * 动手组件：选中的知识点有没有配套组件，由服务端按知识点决定（widgetForNode）。
+     * 没有就整块不显示——给一个不相干的组件，比不给更让人困惑。
+     * 记下"这份数据属于哪个节点"：换了节点但新数据还没回来时，宁可先不画，
+     * 也不能把上一个知识点的组件摆在新的知识点下面。
+     */
+    const [widgetInfo, setWidgetInfo] = useState<{ nodeId: string; info: WidgetForNode } | null>(null)
+    /** 孩子点了「我看明白了」之后才有值：它决定收尾题出不出现（同样记住属于哪个节点） */
+    const [widgetTrace, setWidgetTrace] = useState<{ nodeId: string; draft: WidgetTraceDraft } | null>(null)
+
     const chatEndRef = useRef<HTMLDivElement | null>(null)
 
     // 图谱节点 + 掌握度
@@ -126,6 +139,46 @@ export function ExplorePage() {
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }, [turns, sending])
+
+    // 选中节点 → 问服务端这个知识点配哪个组件（best-effort：失败就当没有）
+    useEffect(() => {
+        if (!nodeId) return
+        let cancelled = false
+        void fetchWidgetForNode(nodeId).then((info) => {
+            // 拉不到就当这个知识点没有动手环节（fetchWidgetForNode 已经把失败收成 null）
+            if (!cancelled) setWidgetInfo(info ? { nodeId, info } : null)
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [nodeId])
+
+    /** 只有"这份组件数据确实是当前节点的"才用，避免换节点时把旧的组件摆过来 */
+    const currentWidget = widgetInfo && widgetInfo.nodeId === nodeId ? widgetInfo.info : null
+    /** 同理：收尾题只属于点击时那个节点 */
+    const currentTrace = widgetTrace && widgetTrace.nodeId === nodeId ? widgetTrace.draft : null
+
+    /**
+     * 「我看明白了」→ 先把收尾题摆出来，再默默记一次探索。
+     *
+     * 顺序是故意的：trace 只是给家长回看用的痕迹，写失败不该把已经出现的题收走。
+     * 服务端会用 replayWidget 重放操作、以重放结果为准，所以这里只如实上报操作序列。
+     */
+    const finishWidget = useCallback(
+        (draft: WidgetTraceDraft) => {
+            setWidgetTrace({ nodeId, draft })
+            const widget = currentWidget?.widget
+            if (!learnerId || !nodeId || !widget) return
+            void postWidgetTrace({
+                learnerId,
+                nodeId,
+                widget: widget.kind,
+                actions: draft.actions,
+                finalState: draft.finalState,
+            }).catch(() => undefined)
+        },
+        [learnerId, nodeId, currentWidget]
+    )
 
     const nameOf = useMemo(() => new Map(nodes.map((n) => [n.id, n.name])), [nodes])
 
@@ -328,6 +381,40 @@ export function ExplorePage() {
                     </p>
                 )}
             </div>
+
+            {/*
+              动手试一试：服务端认得出这个知识点的配套组件才出现。
+              没有组件（或没有收尾题）时整块不渲染——空卡片只会让人以为加载失败了。
+            */}
+            {currentWidget?.widget && (
+                <div className="plate p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                            <h3 className="text-section">动手试一试 · {currentWidget.widget.title}</h3>
+                            <p className="mt-1 text-sm text-ink-soft">{currentWidget.widget.prompt}</p>
+                            {currentWidget.note && (
+                                <p className="mt-1 text-xs text-ink-faint">{currentWidget.note}</p>
+                            )}
+                        </div>
+                        <Badge tone="beam">边玩边想</Badge>
+                    </div>
+                    {/* key 带上节点：换知识点就换一台新组件，别让孩子接着拨上一个的旋钮 */}
+                    <WidgetHost
+                        key={`${nodeId}:${currentWidget.widget.kind}`}
+                        spec={currentWidget.widget}
+                        onDone={finishWidget}
+                    />
+                    {currentTrace && currentWidget.question && learnerId && (
+                        <div className="border-t border-rule pt-3">
+                            <WidgetFollowUp
+                                key={currentWidget.question.questionId}
+                                question={currentWidget.question}
+                                learnerId={learnerId}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* 聊天区 */}
             <div className="plate p-4 space-y-3">
