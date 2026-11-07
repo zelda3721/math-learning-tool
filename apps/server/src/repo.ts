@@ -202,6 +202,72 @@ export class Repo {
       .run(row.learnerId, row.nodeId, row.p, row.evidenceN, row.lastEvidenceAt);
   }
 
+  // ---- 导师长期记忆（可解释、可删、只存本地） ----
+  /**
+   * 记一条记忆。同一 `dedupeKey` 已有则累加计数并刷新时间——
+   * 一件事反复发生不代表要记十条，记一条、数次数才是人读得懂的形态。
+   */
+  rememberMemory(input: {
+    learnerId: string;
+    kind: string;
+    text: string;
+    dedupeKey: string;
+    source: string;
+  }): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO tutor_memories (id, learner_id, kind, text, dedupe_key, hit_count, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT(learner_id, dedupe_key) DO UPDATE SET
+           text = excluded.text,
+           hit_count = tutor_memories.hit_count + 1,
+           updated_at = excluded.updated_at,
+           deleted_at = NULL`,
+      )
+      .run(randomUUID(), input.learnerId, input.kind, input.text, input.dedupeKey, input.source, now, now);
+  }
+
+  /** 召回：默认只给还在用的（软删除的一律不出现） */
+  listMemories(learnerId: string, opts: { includeDeleted?: boolean } = {}): {
+    id: string;
+    kind: string;
+    text: string;
+    hitCount: number;
+    source: string;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string | null;
+  }[] {
+    const rows = (
+      opts.includeDeleted
+        ? this.db.prepare("SELECT * FROM tutor_memories WHERE learner_id = ? ORDER BY updated_at DESC").all(learnerId)
+        : this.db
+            .prepare(
+              "SELECT * FROM tutor_memories WHERE learner_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC",
+            )
+            .all(learnerId)
+    ) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      kind: String(r.kind),
+      text: String(r.text),
+      hitCount: Number(r.hit_count ?? 1),
+      source: String(r.source),
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at),
+      deletedAt: r.deleted_at === null || r.deleted_at === undefined ? null : String(r.deleted_at),
+    }));
+  }
+
+  /** 家长删记忆：软删除，召回立刻不再出现 */
+  forgetMemory(learnerId: string, id: string): boolean {
+    const result = this.db
+      .prepare("UPDATE tutor_memories SET deleted_at = ? WHERE learner_id = ? AND id = ? AND deleted_at IS NULL")
+      .run(new Date().toISOString(), learnerId, id);
+    return Number(result.changes ?? 0) > 0;
+  }
+
   // ---- events（append-only；mastery 是它的可重放投影） ----
   appendEvent(learnerId: string, type: string, payload: unknown): void {
     this.db

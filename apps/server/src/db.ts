@@ -177,6 +177,23 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
   result_json TEXT,
   error TEXT
 );
+-- 阶段 4 导师长期记忆：导师"记住了什么"必须可解释、可删、只存在本地。
+-- 软删除（deleted_at）而不是物理删除：家长删掉之后，召回一律过滤掉它，
+-- 但审计上仍留着"这里曾经有一条记忆、什么时候被删的"。
+CREATE TABLE IF NOT EXISTS tutor_memories (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  kind TEXT NOT NULL,               -- 'struggle'（卡住的）| 'strength'（拿手的）| 'preference'（偏好）| 'goal'（目标）
+  text TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,         -- 同一件事只留一条：重复出现时更新计数，不堆成一串
+  hit_count INTEGER NOT NULL DEFAULT 1,
+  source TEXT NOT NULL,             -- 'derived'（从作答/错因派生）| 'profile'（孩子/家长手填）
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (learner_id, dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS idx_memories_learner ON tutor_memories(learner_id, updated_at);
 `;
 
 /** 旧库容错迁移（列已存在则跳过；node:sqlite 没有 IF NOT EXISTS 语法） */

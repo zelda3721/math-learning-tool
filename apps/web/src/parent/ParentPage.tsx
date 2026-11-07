@@ -5,6 +5,7 @@ import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { Badge, Button, ErrorState, LoadingState, PageHeader } from '../ui'
 import { ChildrenPanel } from './ChildrenPanel'
 import { SafetyPanel } from './SafetyPanel'
+import { MemoryPanel } from './MemoryPanel'
 import {
     ApiError,
     fetchParentSummary,
@@ -606,6 +607,7 @@ export function ParentPage() {
                 <RecentMistakes items={summary.recentMistakes} onCorrected={handleMistakeCorrected} />
                 <TrendChart trend={summary.trend} />
                 {learnerId && <SafetyPanel learnerId={learnerId} />}
+                {learnerId && <MemoryPanel learnerId={learnerId} />}
                 <ExplanationSources rows={summary.explanationSources ?? []} />
             </div>
         )
