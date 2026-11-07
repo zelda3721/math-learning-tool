@@ -1,0 +1,26 @@
+{
+  "id": "r-a1-at-the-supermarket",
+  "title": "At the Supermarket",
+  "level": "A1",
+  "text": "On Saturday morning, Lily goes to the supermarket with her mother. The supermarket is big and bright. First they buy bread, milk and six eggs. Lily wants ice cream, but her mother says no. Then they go to the fruit corner. Bananas are cheap today, so they buy two kilos. The apples are expensive, so they buy only three. At the door, Lily carries the heavy bag. Her mother smiles and gives her one small chocolate. They walk home together and talk about dinner.",
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "When does Lily go to the supermarket?",
+      "answer": "On Saturday morning / Saturday morning / Saturday",
+      "evidence": "On Saturday morning, Lily goes to the supermarket with her mother."
+    },
+    {
+      "id": "q2",
+      "prompt": "How many eggs do they buy?",
+      "answer": "Six / 6 / six eggs",
+      "evidence": "First they buy bread, milk and six eggs."
+    },
+    {
+      "id": "q3",
+      "prompt": "Why do they buy only three apples?",
+      "answer": "The apples are expensive / apples are expensive / expensive",
+      "evidence": "The apples are expensive, so they buy only three."
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "r-a1-my-school-day",
+  "title": "My School Day",
+  "level": "A1",
+  "text": "I am Tom. I get up at seven o'clock every morning. I have bread and milk for breakfast. Then I walk to school with my sister. Our school is near the park. My first lesson is English at eight thirty. I like English because my teacher tells funny stories. At noon I eat rice and vegetables in the school dining room. School finishes at four o'clock. After school, I play football with my friends.",
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "What time does Tom get up?",
+      "answer": "At seven o'clock / 7:00 / seven o'clock / seven",
+      "evidence": "I get up at seven o'clock every morning."
+    },
+    {
+      "id": "q2",
+      "prompt": "Who does Tom walk to school with?",
+      "answer": "His sister / sister",
+      "evidence": "Then I walk to school with my sister."
+    },
+    {
+      "id": "q3",
+      "prompt": "When does school finish?",
+      "answer": "At four o'clock / 4:00 / four o'clock",
+      "evidence": "School finishes at four o'clock."
+    }
+  ]
+}

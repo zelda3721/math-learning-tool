@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { checkChatBudget } from "../chatBudget.js";
 import { planToday } from "../planner.js";
+import { loadVocabulary, vocabBatch } from "../vocabulary.js";
+import { moduleEnabled } from "../modules.js";
 
 /**
  * 每日计划：把"今天还剩多少分钟"变成"今天做什么"。
@@ -19,12 +21,20 @@ export function plannerRoutes(state: AppState): Hono {
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
 
     const budget = checkChatBudget(state.repo, learnerId);
+    /*
+     * 英语那块只在家长开着英语模块时才算进来：关掉了还排"学几个词"，
+     * 孩子点进去只会撞上 403。
+     */
+    const vocab = moduleEnabled(state.repo, learnerId, "english")
+      ? vocabBatch(state.repo, learnerId, loadVocabulary())
+      : null;
     const plan = planToday({
       repo: state.repo,
       index: state.knowledge.index,
       store: state.questions,
       learnerId,
       budgetMinutes: budget.remainingMinutes,
+      ...(vocab ? { english: { due: vocab.reviews.length, newWords: vocab.newWords.length } } : {}),
     });
 
     return c.json({ plan, budget });

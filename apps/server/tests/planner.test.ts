@@ -76,6 +76,32 @@ describe("每天怎么排", () => {
   });
 });
 
+describe("英语那一块", () => {
+  it("有到期词或新词就排一小块，并且不与数学抢光预算", () => {
+    const { repo, state } = makeApp([q("q1")]);
+    const learner = repo.createLearner("小测", "elementary_upper");
+    const plan = planToday({
+      repo, index: state.knowledge.index, store: state.questions,
+      learnerId: learner.id, budgetMinutes: 30, english: { due: 4, newWords: 6 },
+    });
+    const english = plan.blocks.find((b) => b.kind === "english");
+    expect(english).toBeTruthy();
+    expect(english!.title).toContain("复习 4 个词");
+    // 数学那块还在，两条线谁也没挤掉谁
+    expect(plan.blocks.some((b) => b.kind === "practice")).toBe(true);
+  });
+
+  it("没词可练就不排（不为了一个空学科编出一块空地）", () => {
+    const { repo, state } = makeApp([q("q1")]);
+    const learner = repo.createLearner("小测", "elementary_upper");
+    const plan = planToday({
+      repo, index: state.knowledge.index, store: state.questions,
+      learnerId: learner.id, budgetMinutes: 30, english: { due: 0, newWords: 0 },
+    });
+    expect(plan.blocks.some((b) => b.kind === "english")).toBe(false);
+  });
+});
+
 describe("下一节学什么", () => {
   it("先修没点亮就不冒险往前跳", () => {
     const { repo, state } = makeApp([q("q1")]);

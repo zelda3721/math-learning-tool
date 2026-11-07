@@ -18,7 +18,7 @@ import type { Repo } from "./repo.js";
  * 不是"今天用 20 分钟"。
  */
 
-export type PlanBlockKind = "review" | "lesson" | "practice" | "explore";
+export type PlanBlockKind = "review" | "lesson" | "english" | "practice" | "explore";
 
 export interface PlanBlock {
   kind: PlanBlockKind;
@@ -42,6 +42,8 @@ export interface DailyPlan {
 const MINUTES_PER_REVIEW = 3;
 const MINUTES_PER_LESSON = 8;
 const MINUTES_PER_EXPLORE = 5;
+/** 一次英语练习（几个词或一篇短文）的估计时长 */
+const MINUTES_PER_ENGLISH = 6;
 /** 至少留这么多给练习，否则这节课就只有复习、没有新东西 */
 const MIN_PRACTICE_MINUTES = 4;
 
@@ -52,6 +54,11 @@ export function planToday(args: {
   learnerId: string;
   /** 今天还剩多少分钟（时长闸算出来的，不是上限） */
   budgetMinutes: number;
+  /**
+   * 英语那边今天有多少活（到期词 + 新词）。
+   * 不传就当没有——规划器不该为了一个还没配内容的学科编出一块空地。
+   */
+  english?: { due: number; newWords: number };
 }): DailyPlan {
   const { repo, index, store, learnerId, budgetMinutes } = args;
   const blocks: PlanBlock[] = [];
@@ -89,6 +96,19 @@ export function planToday(args: {
     left -= MINUTES_PER_LESSON;
   } else if (lesson) {
     notes.push(`「${lesson.name}」今天排不进来了，明天先上它`);
+  }
+
+  // ②b 英语：有到期的词或新词就排一小块（它和数学是两条线，谁也别挤掉谁）
+  const englishDue = (args.english?.due ?? 0) + (args.english?.newWords ?? 0);
+  if (englishDue > 0 && left >= MINUTES_PER_ENGLISH + MIN_PRACTICE_MINUTES) {
+    blocks.push({
+      kind: "english",
+      minutes: MINUTES_PER_ENGLISH,
+      title: `英语：复习 ${args.english?.due ?? 0} 个词、学 ${args.english?.newWords ?? 0} 个新词`,
+      reason: "词要天天见，间隔开才记得住",
+      subject: "en",
+    });
+    left -= MINUTES_PER_ENGLISH;
   }
 
   // ③ 练习：把剩下的时间给题，但至少留一点点探索的余地（如果本来就不多就全给练习）

@@ -778,7 +778,14 @@ export class Repo {
   }
 
   // ---- review cards（P3 SM-2） ----
-  upsertReviewCard(learnerId: string, targetKind: "question" | "node", targetId: string, nextReviewAt: string): void {
+  /**
+   * 建/重置一张复习卡。
+   *
+   * targetKind 是开放的：`question` / `node` 走组卷器，`vocab` / `reading`
+   * 是英语那两条线（词与读物不是图谱节点，进度单独记）。类型放宽是有意的——
+   * 每加一条学习线都来改一次签名，等于把"这里会长新东西"写死在类型里。
+   */
+  upsertReviewCard(learnerId: string, targetKind: string, targetId: string, nextReviewAt: string): void {
     this.db
       .prepare(
         `INSERT INTO review_cards (id, learner_id, target_kind, target_id, stage, next_review_at, created_at)
@@ -813,17 +820,31 @@ export class Repo {
   dueReviewCards(learnerId: string, limit: number): ReviewCardRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?
+        `SELECT * FROM review_cards WHERE learner_id = ? AND target_kind IN ('question','node')
+         AND mastered_at IS NULL AND next_review_at <= ?
          ORDER BY next_review_at LIMIT ?`,
       )
       .all(learnerId, new Date().toISOString(), limit)
       .map((r) => this.rowToReviewCard(r as Record<string, unknown>));
   }
 
+  /**
+   * 按 targetKind 列复习卡（vocab / reading 这些词与读物不是图谱节点，自己一条线）。
+   * 与 dueReviewCards 分开：那种"到期的题"会被组卷器直接拿去出题，
+   * 混进 vocab 卡就会让组卷器拿到一个查不到的 question id。
+   */
+  listReviewCardsByKind(learnerId: string, targetKind: string): ReviewCardRow[] {
+    return this.db
+      .prepare("SELECT * FROM review_cards WHERE learner_id = ? AND target_kind = ?")
+      .all(learnerId, targetKind)
+      .map((r) => this.rowToReviewCard(r as Record<string, unknown>));
+  }
+
+  /** 到期复习只数题：词汇与阅读有自己的入口，不该占"今天有几道复习题"这个数 */
   countDueReviews(learnerId: string): number {
     const r = this.db
       .prepare(
-        "SELECT COUNT(*) AS n FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?",
+        "SELECT COUNT(*) AS n FROM review_cards WHERE learner_id = ? AND target_kind IN ('question','node') AND mastered_at IS NULL AND next_review_at <= ?",
       )
       .get(learnerId, new Date().toISOString());
     return Number(r?.n ?? 0);

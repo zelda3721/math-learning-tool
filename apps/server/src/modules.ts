@@ -31,6 +31,12 @@ export const MODULES: ModuleSpec[] = [
     hint: "孩子可以和导师自由讨论一个知识点（不喂答案，只引导）。",
   },
   {
+    id: "english",
+    label: "英语学习",
+    blockedReply: "家长把「英语」关掉了。想练单词和读短文的话，先跟家长说一声。",
+    hint: "词汇卡（SM-2 复习）与分级阅读，全部本地内容、不经过模型。",
+  },
+  {
     id: "classroom",
     label: "AI 课堂",
     blockedReply: "家长把「课堂」关掉了。想上课的话，先跟家长说一声。",
