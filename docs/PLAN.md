@@ -148,6 +148,8 @@ subjects/<subject>/
 | 写作 | 按量规给出反馈（结构、词汇、语法）；两次评分做一致性检查；家长可抽查 | ai_unverified，不计入掌握度 |
 | 口语 | AI 口语对练（见 5.2） | ai_unverified，不计入掌握度 |
 
+**语法主线来自教材本身**：`subjects/english/grammar.graph.json` 由 `Essential Grammar in Use` 的 115 个单元确定性生成（`pnpm --filter @mathtutor/server build:grammar`，不调用模型）。单元标题即语法点、单元顺序即学习顺序，每个节点带页码出处，可翻回原书核对。语法是单学科内容，**不与数学节点连边**——跨学科连接只出现在真正需要两科一起用的地方（见第八部分）。
+
 ### 5.2 AI 口语对练
 
 - **形式**：情景角色扮演（自我介绍、点餐、问路、购物、讲一个故事、描述图片），AI 扮演语伴；难度按 CEFR 等级调整。

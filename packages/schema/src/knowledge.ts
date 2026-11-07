@@ -69,7 +69,14 @@ const RawNodeSchema = z
     applications: z.array(ApplicationSchema).default([]),
     misconceptions: z.array(z.union([z.string(), MisconceptionSchema])).default([]),
     keywords: z.array(z.string()).optional(),
-    status: z.enum(["ai-generated", "ai-bridge", "verified"]).default("ai-generated"),
+    /**
+     * 内容来源与核对状态。
+     *
+     * `extracted` = **从教材原文确定性抽取**（可翻回页码核对），既不是模型编的
+     * （`ai-generated`），也还没经过人逐条核对（`verified`）。英语语法主线就是这一类：
+     * 单元标题、顺序、页码都来自书本身，脚本跑一百遍结果一样。
+     */
+    status: z.enum(["ai-generated", "ai-bridge", "extracted", "verified"]).default("ai-generated"),
     sources: z.array(SourceSchema).default([]),
   })
   .passthrough();

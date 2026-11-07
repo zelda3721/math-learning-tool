@@ -11,4 +11,10 @@ import { fileURLToPath } from "node:url";
  */
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
-export const SUBJECT_GRAPH_PATHS: string[] = [path.join(repoRoot, "subjects", "english", "graph.json")];
+export const SUBJECT_GRAPH_PATHS: string[] = [
+  path.join(repoRoot, "subjects", "english", "graph.json"),
+  // 英语语法主线：由教材（Essential Grammar in Use）的单元结构确定性生成，
+  // 生成脚本 apps/server/build-english-grammar.mjs。它和上面的「数学英语词汇」
+  // 是同一学科的两条线，各自成节点，不与数学节点连边——单学科的知识就单独学。
+  path.join(repoRoot, "subjects", "english", "grammar.graph.json"),
+];

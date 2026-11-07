@@ -10,13 +10,16 @@ import { JobStore } from "../src/ingest/jobs.js";
 import { createQuestionStore, contentHashOf, type QuestionStore } from "../src/questions.js";
 import { createApp, type AppState } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { SUBJECT_GRAPH_PATHS } from "../src/subjectGraphs.js";
 
 export const knowledge: Knowledge = loadKnowledge({
   graphPath: fileURLToPath(new URL("../../../data/knowledge/graph.json", import.meta.url)),
   problemsPath: fileURLToPath(new URL("../../../data/knowledge/problems.json", import.meta.url)),
   linksPath: fileURLToPath(new URL("../../../data/knowledge/links.json", import.meta.url)),
-  // 英语图一起加载：跨学科连接要按 id 找得到对面，测试也得在同样的形态下跑
-  subjectGraphPaths: [fileURLToPath(new URL("../../../subjects/english/graph.json", import.meta.url))],
+  // 学科图一起加载：跨学科连接要按 id 找得到对面。
+  // 用与服务器同一份清单（SUBJECT_GRAPH_PATHS），否则测试会在"少加载一个学科图"
+  // 的形态下跑，实体上过的悬挂检查在测试里过不了、或反之。
+  subjectGraphPaths: SUBJECT_GRAPH_PATHS,
 });
 
 /** 取真实图谱里的节点 id，保证 fixture 题目通过悬挂检查 */

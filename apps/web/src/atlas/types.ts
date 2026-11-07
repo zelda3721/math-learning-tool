@@ -73,7 +73,7 @@ export interface KnowledgeNode {
   /** 题目定位用的关键词/别名（离线匹配）；可选，缺省时从名称/简介派生 */
   keywords?: string[]
 
-  /** 'ai-generated' | 'ai-bridge' | 'verified' … 内容校验状态 */
+  /** 'ai-generated' | 'ai-bridge' | 'extracted' | 'verified' … 内容来源与核对状态 */
   status?: string
   sources?: Source[]
 }
