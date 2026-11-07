@@ -145,3 +145,45 @@ export function postCorrectMistake(payload: {
 }): Promise<{ ok: boolean }> {
     return post('/api/v1/parent/correct-mistake', payload)
 }
+
+
+// ---- 内容安全与时长（阶段 4） ----
+
+export interface SafetyEvent {
+    at: string
+    /** 「孩子输入」/「模型输出」 */
+    where: string
+    /** 「拦下」/「转移话题」 */
+    action: string
+    reason: string
+}
+
+export interface SafetyReport {
+    events: SafetyEvent[]
+    byReason: Record<string, number>
+    total: number
+}
+
+export interface ChatLimits {
+    learnerId: string
+    allowed: boolean
+    usedMinutes: number
+    limitMinutes: number
+    remainingMinutes: number
+    /** 上限是家长设的还是按学段默认 */
+    source: 'parent' | 'default'
+    defaults: Record<string, number>
+}
+
+export function fetchSafety(learnerId: string): Promise<SafetyReport> {
+    return request(`/api/v1/parent/safety?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+export function fetchLimits(learnerId: string): Promise<ChatLimits> {
+    return request(`/api/v1/parent/limits?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+/** `dailyChatMinutes: null` = 恢复按学段默认 */
+export function postLimits(payload: { learnerId: string; dailyChatMinutes: number | null }): Promise<ChatLimits> {
+    return post('/api/v1/parent/limits', payload)
+}

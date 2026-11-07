@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { readLearnerPrefs, writeLearnerPrefs } from "./learnerPrefs.js";
 import { randomUUID } from "node:crypto";
 import type { Attempt, EducationLevel, Learner } from "@mathtutor/schema";
 
@@ -37,6 +38,15 @@ export class Repo {
   listLearners(): Learner[] {
     const rows = this.db.prepare("SELECT id, name, level FROM learners ORDER BY created_at").all();
     return rows.map((r) => ({ id: String(r.id), name: String(r.name), level: r.level as EducationLevel }));
+  }
+
+  /** 学习者偏好（`learners.prefs_json`）：时长上限、被关掉的模块等 */
+  learnerPrefs(id: string): import("./learnerPrefs.js").LearnerPrefs {
+    return readLearnerPrefs(this.db, id);
+  }
+
+  setLearnerPrefs(id: string, patch: import("./learnerPrefs.js").LearnerPrefs): void {
+    writeLearnerPrefs(this.db, id, patch);
   }
 
   getLearner(id: string): Learner | undefined {

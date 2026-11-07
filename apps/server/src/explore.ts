@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
 import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
+import { checkChatBudget, recordChatUsage } from "./chatBudget.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -320,6 +321,24 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
     if (!parsed.success) return c.json({ error: "需要 learnerId 与 messages" }, 400);
     parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
 
+    /*
+     * 时长闸：**开始前**拦，不聊到一半掐断。
+     * 半句话被截断对孩子是最糟的体验，而且他不知道自己错在哪；
+     * 提前说"今天的时间用完了，明天再来"才是能理解的。
+     */
+    const budget = checkChatBudget(state.repo, parsed.data.learnerId);
+    if (!budget.allowed) {
+      return c.json(
+        {
+          reply: `今天的对话时间用完了（每天 ${budget.limitMinutes} 分钟）。想继续的话，可以去做几道题，或者明天再来找我。`,
+          toolTrace: [],
+          safety: { action: "block", reason: "time-budget" },
+          budget,
+        },
+        429,
+      );
+    }
+
     // 安全前置：拦下的话**根本不会送到模型**——不给它"被说服"的机会
     const lastUser = [...parsed.data.messages].reverse().find((m) => m.role === "user");
     if (lastUser) {
@@ -333,7 +352,10 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
       }
     }
 
+    const startedAt = Date.now();
     const result = await runExplore(state, parsed.data, clientFactory);
+    // 只给"真的跑过模型"的那一轮记账：被安全层拦下的、报错的，不该消耗孩子的额度
+    recordChatUsage(state.repo, parsed.data.learnerId, (Date.now() - startedAt) / 1000);
     // 输出侧只拦确定的泄露；拦下就整段换成固定话术（半截改写更让人困惑）
     const out = screenModelOutput(state.repo, parsed.data.learnerId, result.reply);
     if (out.blocked) {
