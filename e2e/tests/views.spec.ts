@@ -44,7 +44,15 @@ const VIEWS: Record<string, ViewCase> = {
   ingest: { nav: '录题', heading: '题库录入' },
   bank: { nav: '题库', heading: '题库' },
   textbook: { nav: '教材', heading: '教材' },
-  parent: { nav: '家长', heading: '家长中心' },
+  parent: {
+    nav: '家长',
+    heading: '家长中心',
+    // 阶段 4 的面板：家长要能看见孩子被拦下过什么、能改每天能聊多久
+    extra: async (page) => {
+      await expect(page.getByText('对话安全与时长')).toBeVisible()
+      await expect(page.getByLabel('每天对话分钟数')).toBeVisible()
+    },
+  },
 }
 
 for (const [key, view] of Object.entries(VIEWS)) {

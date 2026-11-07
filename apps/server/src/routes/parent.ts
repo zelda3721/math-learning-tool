@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
+import { chatBudgetReport } from "../chatBudget.js";
+import { DEFAULT_DAILY_CHAT_MINUTES } from "@mathtutor/safety";
 
 /**
  * 家长只读聚合 + 裁决通道（P3，设计 §04 元认知视图）：
@@ -146,6 +148,59 @@ export function parentRoutes(state: AppState): Hono {
     const learnerId = c.req.query("learnerId");
     if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ count: 0 });
     return c.json({ count: state.repo.pendingReviewAttempts(learnerId, 200).length });
+  });
+
+  /**
+   * 孩子被安全层拦下过什么、为什么。
+   *
+   * 只回"什么时候、哪一类、拦还是转移"，**不回原话**：家长需要的是知情与判断，
+   * 不是把孩子的每一句试探都存档——那既没必要，也把日志变成了新的泄露面。
+   */
+  app.get("/safety", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+
+    const events = state.repo
+      .listEvents(learnerId, "safety")
+      .slice(-50)
+      .reverse()
+      .map((event) => {
+        const payload = (event.payload ?? {}) as { where?: string; action?: string; reason?: string };
+        return {
+          at: event.ts,
+          where: payload.where === "output" ? "模型输出" : "孩子输入",
+          action: payload.action === "block" ? "拦下" : "转移话题",
+          reason: payload.reason ?? "unknown",
+        };
+      });
+
+    const byReason: Record<string, number> = {};
+    for (const event of events) byReason[event.reason] = (byReason[event.reason] ?? 0) + 1;
+    return c.json({ events, byReason, total: events.length });
+  });
+
+  /** 今天的对话时长与上限（上限是谁定的也要说清） */
+  app.get("/limits", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    return c.json({
+      ...chatBudgetReport(state.repo, learnerId),
+      defaults: DEFAULT_DAILY_CHAT_MINUTES,
+    });
+  });
+
+  /** 家长改每日对话时长；`null` 表示恢复按学段默认 */
+  app.post("/limits", async (c) => {
+    const parsed = z
+      .object({ learnerId: z.string().min(1), dailyChatMinutes: z.number().int().min(0).max(240).nullable() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 learnerId 与 dailyChatMinutes（0..240，或 null 恢复默认）" }, 400);
+    if (!state.repo.getLearner(parsed.data.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+
+    state.repo.setLearnerPrefs(parsed.data.learnerId, {
+      dailyChatMinutes: parsed.data.dailyChatMinutes ?? undefined,
+    });
+    return c.json(chatBudgetReport(state.repo, parsed.data.learnerId));
   });
 
   /**
