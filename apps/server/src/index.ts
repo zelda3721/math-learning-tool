@@ -11,6 +11,7 @@ import { createQuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { createLlmExtractionProvider, type ExtractionProvider } from "./ingest/extraction.js";
 import { auditDataDir, createServerLlmClient } from "./llm.js";
+import { SUBJECT_GRAPH_PATHS } from "./subjectGraphs.js";
 import { JobStore } from "./ingest/jobs.js";
 import { createPhotoGrader } from "./photoGrader.js";
 import { createTextbookCompiler } from "./textbookCompiler.js";
@@ -69,6 +70,8 @@ async function main(): Promise<void> {
     graphPath: path.join(config.dataDir, "knowledge", "graph.json"),
     problemsPath: path.join(config.dataDir, "knowledge", "problems.json"),
     linksPath: path.join(config.dataDir, "knowledge", "links.json"),
+    // 其他学科的图谱并进同一张图：星图、掌握度、跨学科连接都按 id 互相找得到
+    subjectGraphPaths: SUBJECT_GRAPH_PATHS,
   });
   const db = openDb(config.dataDir);
   const repo = new Repo(db);

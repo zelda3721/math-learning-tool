@@ -14,6 +14,9 @@ import { loadConfig } from "../src/config.js";
 export const knowledge: Knowledge = loadKnowledge({
   graphPath: fileURLToPath(new URL("../../../data/knowledge/graph.json", import.meta.url)),
   problemsPath: fileURLToPath(new URL("../../../data/knowledge/problems.json", import.meta.url)),
+  linksPath: fileURLToPath(new URL("../../../data/knowledge/links.json", import.meta.url)),
+  // 英语图一起加载：跨学科连接要按 id 找得到对面，测试也得在同样的形态下跑
+  subjectGraphPaths: [fileURLToPath(new URL("../../../subjects/english/graph.json", import.meta.url))],
 });
 
 /** 取真实图谱里的节点 id，保证 fixture 题目通过悬挂检查 */

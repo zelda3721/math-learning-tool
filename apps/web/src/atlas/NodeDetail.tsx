@@ -1,7 +1,7 @@
 // 节点详情浮层（精简版）：name / summary / 前置 chips / 演化 chips
 // chip 点击 → 跳转选中对应节点
 // P1b：status 徽章（未核验/已核验）+「标记已核验」入口 + 命中题数
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { Badge, Button } from '../ui'
 import type { GraphIndex } from './graphIndex'
 import type { KnowledgeNode } from './types'
@@ -30,6 +30,81 @@ interface NodeDetailProps {
 }
 
 const chipStyle = (color: string) => ({ '--c': color }) as CSSProperties
+
+/** 跨学科连接：一条边在别的学科里怎么用（来自 data/knowledge/links.json） */
+interface CrossSubjectMember {
+    nodeId: string
+    nodeName: string
+    subject: string
+    subjectLabel: string
+    type: string
+    note: string
+    source?: string
+}
+
+const LINK_TYPE_LABEL: Record<string, string> = {
+    applies: '用得上',
+    analogy: '想得通',
+    prerequisite: '先学会',
+    evolves: '接着长',
+}
+
+/**
+ * 跨学科这一段只在拿得到数据时显示（离线快照没有它）。
+ * 显示的是 links.json 里手写的具体说明——"哪一步用上、错了会错在哪"，
+ * 而不是"这两科有关系"这种谁都能说的话。
+ */
+function CrossSubject({ nodeId, onJump, hasNode }: { nodeId: string; onJump: (id: string) => void; hasNode: (id: string) => boolean }) {
+    const [members, setMembers] = useState<CrossSubjectMember[] | null>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        fetch(`/api/v1/atlas/cross-subject?nodeId=${encodeURIComponent(nodeId)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((body: { members?: CrossSubjectMember[] } | null) => {
+                if (!cancelled) setMembers(body?.members ?? [])
+            })
+            .catch(() => {
+                if (!cancelled) setMembers([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [nodeId])
+
+    if (!members || members.length === 0) return null
+
+    return (
+        <section className="mt-4">
+            <h3 className="eyebrow mb-2">在别的学科里怎么用</h3>
+            <ul className="space-y-2">
+                {members.map((member) => (
+                    <li key={`${member.nodeId}-${member.type}`} className="rounded-[8px] bg-paper px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone={member.subject === 'english' ? 'sky' : 'beam'}>{member.subjectLabel}</Badge>
+                            {hasNode(member.nodeId) ? (
+                                <button
+                                    type="button"
+                                    className="text-sm font-semibold text-ink hover:text-beam"
+                                    onClick={() => onJump(member.nodeId)}
+                                >
+                                    {member.nodeName} →
+                                </button>
+                            ) : (
+                                <span className="text-sm font-semibold text-ink">{member.nodeName}</span>
+                            )}
+                            <span className="text-[11px] text-ink-faint">
+                                {LINK_TYPE_LABEL[member.type] ?? member.type}
+                            </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-ink-soft">{member.note}</p>
+                        {member.source && <p className="mt-0.5 text-[11px] text-ink-faint">依据：{member.source}</p>}
+                    </li>
+                ))}
+            </ul>
+        </section>
+    )
+}
 
 export function NodeDetail({
     gi,
@@ -141,6 +216,8 @@ export function NodeDetail({
                     {verifyError && <span className="text-[11px] text-wrong">{verifyError}</span>}
                 </div>
             )}
+
+            <CrossSubject nodeId={id} onJump={onJump} hasNode={(nodeId) => Boolean(gi.getNode(nodeId))} />
 
             {prereqs.length > 0 && (
                 <section className="mt-4">
