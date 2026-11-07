@@ -57,6 +57,12 @@ const steps = [
     argv: ['scripts/align_eval.mjs'],
   },
   {
+    // 内容安全红队：纯规则、不调模型，所以每次都跑（阶段 4 的硬前置）
+    name: 'safety(eval)',
+    cmd: 'node',
+    argv: ['scripts/safety_eval.mjs'],
+  },
+  {
     name: 'test(engine/pytest)',
     cmd: py,
     argv: ['-m', 'pytest', '-q'],

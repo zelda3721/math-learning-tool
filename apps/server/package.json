@@ -18,6 +18,7 @@
     "@mathtutor/explainer-web": "workspace:*",
     "@mathtutor/knowledge": "workspace:*",
     "@mathtutor/llm-client": "workspace:^",
+    "@mathtutor/safety": "workspace:*",
     "@mathtutor/schema": "workspace:*",
     "@mathtutor/subject-english": "workspace:*",
     "@mathtutor/subject-math": "workspace:*",

@@ -26,6 +26,7 @@ import { loadSkills, resolveSkill, type Skill } from "@mathtutor/core";
 import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
 import { auditDataDir, createServerLlmClient } from "./llm.js";
+import { screenLearnerInput, screenModelOutput } from "./safety.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -318,7 +319,30 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
     const parsed = ChatSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId 与 messages" }, 400);
     parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
+
+    // 安全前置：拦下的话**根本不会送到模型**——不给它"被说服"的机会
+    const lastUser = [...parsed.data.messages].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      const gate = screenLearnerInput(state.repo, parsed.data.learnerId, lastUser.content);
+      if (gate.blocked) {
+        return c.json({
+          reply: gate.reply,
+          toolTrace: [],
+          safety: { action: gate.verdict.action, reason: gate.verdict.reason ?? null },
+        });
+      }
+    }
+
     const result = await runExplore(state, parsed.data, clientFactory);
+    // 输出侧只拦确定的泄露；拦下就整段换成固定话术（半截改写更让人困惑）
+    const out = screenModelOutput(state.repo, parsed.data.learnerId, result.reply);
+    if (out.blocked) {
+      return c.json({
+        reply: out.reply,
+        toolTrace: result.toolTrace,
+        safety: { action: out.verdict.action, reason: out.verdict.reason ?? null },
+      });
+    }
     return c.json(result);
   });
 
