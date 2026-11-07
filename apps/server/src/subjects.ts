@@ -29,6 +29,15 @@ export function getSubjectRegistry(): SubjectRegistry {
  * 退到 "math" 而不是抛错：题库里存在 nodeIds 为空的临时题（提问生成的题），
  * 那些题历史上就是按数学判的，改成报错等于让一条能用得通的路突然坏掉。
  */
+/**
+ * 图谱里的 `subject` 写法 → 学科包 id。
+ *
+ * 英语图历史上写的是 `"english"`（节点 id 前缀 `en:`），而学科包 id 是 `"en"`。
+ * 不认这个别名，英语题按节点归属解析出的学科是 `"english"`，注册表里查不到，
+ * 于是每道英语题都落到"没有判卷器、交给家长"——语法题接进来也判不了。
+ */
+const SUBJECT_ID_ALIASES: Record<string, string> = { english: "en" };
+
 export function subjectOf(
   question: Pick<Question, "nodeIds"> & { answerLang?: Question["answerLang"] },
   knowledge: Knowledge,
@@ -40,18 +49,23 @@ export function subjectOf(
   if (question.answerLang === "en") return "en";
   for (const nodeId of question.nodeIds) {
     const node = knowledge.index.getNode(nodeId);
-    if (node) return node.subject;
+    if (node) return SUBJECT_ID_ALIASES[node.subject] ?? node.subject;
   }
   return "math";
 }
 
-/** 题型 → 内核 itemType id（`math.numeric` / `en.vocab-card` …） */
+/** 题型 → 内核 itemType id（`math.numeric` / `en.gap-fill` …） */
 export function itemTypeOf(
   subject: string,
   question: Pick<Question, "answerType"> & { answerLang?: Question["answerLang"] },
 ): string {
   // 英文作答的题不是数学那种 numeric/expression，走英语包里的文本类题型
   if (question.answerLang === "en") return "en.vocab-card";
+  /*
+   * 英语题（语法填空、单句改错）的答案是文字，题型只有一种落点：
+   * `en.gap-fill`。它的参考答案支持 `is / 's` 这种多写法，判起来仍是完全确定的。
+   */
+  if (subject === "en") return "en.gap-fill";
   return `${subject}.${question.answerType}`;
 }
 
