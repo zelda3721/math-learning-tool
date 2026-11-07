@@ -4,8 +4,8 @@
  */
 import { useEffect, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
-import { Badge, Button, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
-import { fetchLitCount, fetchNextStep, fetchToday, type NextStep, type TodayItem } from './api'
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
+import { fetchLitCount, fetchNextStep, fetchPlan, fetchToday, type DailyPlan, type NextStep, type TodayItem } from './api'
 import { LearnerGate, LearnerSwitcher } from './LearnerGate'
 import { QuestionCard, type QuestionRecord } from './QuestionCard'
 import { SessionSummary } from './SessionSummary'
@@ -30,6 +30,7 @@ export function PracticePage() {
     const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
     const [nextStep, setNextStep] = useState<NextStep | null>(null)
     const [litCount, setLitCount] = useState<number | null>(null)
+    const [plan, setPlan] = useState<DailyPlan | null>(null)
 
     // 换人后回到起点，避免题组串档
     useEffect(() => {
@@ -44,11 +45,15 @@ export function PracticePage() {
         let cancelled = false
         setNextStep(null)
         setLitCount(null)
+        setPlan(null)
         void fetchNextStep(learnerId).then((r) => {
             if (!cancelled) setNextStep(r)
         })
         void fetchLitCount(learnerId).then((r) => {
             if (!cancelled) setLitCount(r)
+        })
+        void fetchPlan(learnerId).then((r) => {
+            if (!cancelled) setPlan(r)
         })
         return () => {
             cancelled = true
@@ -88,6 +93,31 @@ export function PracticePage() {
         <div className="space-y-2">
             <PageHeader title="今日练习" subtitle="每天一小组，把星图一颗颗点亮" />
             <LearnerSwitcher disabled={inSession} />
+
+            {/* 今天的安排：复习几张、上哪节课、做多少题。排不出来就整块不显示，
+                练习页不该因为计划接口挂了就空着 */}
+            {phase.kind === 'idle' && plan && plan.blocks.length > 0 && (
+                <Card className="p-4 max-w-lg mx-auto space-y-2">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-ink">今天的安排</h3>
+                        <span className="text-xs text-ink-faint numeric">约 {plan.totalMinutes} 分钟</span>
+                    </div>
+                    <ul className="space-y-1.5">
+                        {plan.blocks.map((b) => (
+                            <li key={`${b.kind}-${b.title}`} className="flex items-start gap-2 text-sm">
+                                <Badge tone={b.kind === 'review' ? 'beam' : b.kind === 'lesson' ? 'sky' : 'slate'}>
+                                    {b.kind === 'review' ? '复习' : b.kind === 'lesson' ? '新课' : b.kind === 'practice' ? '练习' : '探索'}
+                                </Badge>
+                                <div className="min-w-0">
+                                    <span className="font-semibold text-ink">{b.title}</span>
+                                    <span className="text-ink-faint"> · {b.reason}</span>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                    {plan.note && <p className="text-xs text-ink-faint">{plan.note}</p>}
+                </Card>
+            )}
 
             {phase.kind === 'idle' && (
                 <div className="plate p-10 max-w-lg mx-auto text-center space-y-5">

@@ -6,6 +6,9 @@ import { Badge, Button, ErrorState, LoadingState, PageHeader } from '../ui'
 import { ChildrenPanel } from './ChildrenPanel'
 import { SafetyPanel } from './SafetyPanel'
 import { MemoryPanel } from './MemoryPanel'
+import { ModulesPanel } from './ModulesPanel'
+import { TranscriptPanel } from './TranscriptPanel'
+import { AiJudgmentPanel } from './AiJudgmentPanel'
 import {
     ApiError,
     fetchParentSummary,
@@ -601,12 +604,15 @@ export function ParentPage() {
                     </div>
                 )}
                 <VerdictQueue items={summary.pendingVerdicts} onResolved={handleVerdictResolved} />
+                {learnerId && <AiJudgmentPanel learnerId={learnerId} />}
                 <Struggles summary={summary} />
                 <WeakNodes summary={summary} />
                 <MistakePatterns summary={summary} />
                 <RecentMistakes items={summary.recentMistakes} onCorrected={handleMistakeCorrected} />
                 <TrendChart trend={summary.trend} />
                 {learnerId && <SafetyPanel learnerId={learnerId} />}
+                {learnerId && <TranscriptPanel learnerId={learnerId} />}
+                {learnerId && <ModulesPanel learnerId={learnerId} />}
                 {learnerId && <MemoryPanel learnerId={learnerId} />}
                 <ExplanationSources rows={summary.explanationSources ?? []} />
             </div>

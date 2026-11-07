@@ -434,3 +434,32 @@ export async function fetchNodeNames(learnerId: string): Promise<Record<string, 
         return {}
     }
 }
+
+/** 今天的安排（GET /planner/today）：复习几张、上哪节课、做多少题 */
+export interface PlanBlock {
+    kind: 'review' | 'lesson' | 'practice' | 'explore'
+    minutes: number
+    title: string
+    reason: string
+    nodeId?: string
+    subject?: string
+}
+
+export interface DailyPlan {
+    blocks: PlanBlock[]
+    totalMinutes: number
+    leftMinutes: number
+    note?: string
+}
+
+/** best-effort：排不出来就不显示这块，别把练习页顶掉。 */
+export async function fetchPlan(learnerId: string): Promise<DailyPlan | null> {
+    try {
+        const res = await fetch(`/api/v1/planner/today?learnerId=${encodeURIComponent(learnerId)}`)
+        if (!res.ok) return null
+        const body = (await res.json()) as { plan?: DailyPlan }
+        return body.plan ?? null
+    } catch {
+        return null
+    }
+}

@@ -29,6 +29,8 @@ import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
 import { checkChatBudget } from "./chatBudget.js";
 import { deriveMemories, profileBlock, readProfile, recallBlock } from "./tutorMemory.js";
+import { moduleBlockedBody, moduleEnabled } from "./modules.js";
+import { transcriptRecorder } from "./transcripts.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -340,6 +342,20 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
     parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
 
     /*
+     * 模块开关：家长关掉「探索对话」就整个入口挡掉，403 + 一句孩子看得懂的话。
+     * 挡在服务端而不是只把入口藏起来——藏起来只是没给门，换个客户端照样进。
+     */
+    if (!moduleEnabled(state.repo, parsed.data.learnerId, "explore")) {
+      return c.json(moduleBlockedBody("explore"), 403);
+    }
+
+    /*
+     * 转写开关：家长没开就是空操作（见 transcripts.ts）。
+     * 在这里取一次，整个请求共用一个判断——中途改设置不该让一轮对话只记一半。
+     */
+    const transcript = transcriptRecorder(state.repo, parsed.data.learnerId);
+
+    /*
      * 时长闸：**开始前**拦，不聊到一半掐断。
      * 半句话被截断对孩子是最糟的体验，而且他不知道自己错在哪；
      * 提前说"今天的时间用完了，明天再来"才是能理解的。
@@ -369,6 +385,8 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
     for (const message of [...userMessages].reverse()) {
       const gate = screenLearnerInput(state.repo, parsed.data.learnerId, message.content);
       if (gate.blocked) {
+        // 被拦下的一轮只留"拦下了 + 原因"，原话不进转写（也不进 safety 事件）
+        transcript.blocked("input", gate.verdict.reason);
         return c.json({
           reply: gate.reply,
           toolTrace: [],
@@ -386,13 +404,22 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
      */
     // 输出侧只拦确定的泄露；拦下就整段换成固定话术（半截改写更让人困惑）
     const out = screenModelOutput(state.repo, parsed.data.learnerId, result.reply);
+    /*
+     * 转写只记**这一轮新说的话**：客户端每次把整段历史发上来，
+     * 把 messages 全写一遍等于同一句话存十遍。所以只取最后一条 user
+     * （孩子刚问的那一句）和这一轮的回话。
+     */
+    const asked = [...parsed.data.messages].reverse().find((m) => m.role === "user");
+    if (asked) transcript.turn("user", asked.content);
     if (out.blocked) {
+      transcript.blocked("output", out.verdict.reason);
       return c.json({
         reply: out.reply,
         toolTrace: result.toolTrace,
         safety: { action: out.verdict.action, reason: out.verdict.reason ?? null },
       });
     }
+    transcript.turn("assistant", out.reply);
     return c.json(result);
   });
 

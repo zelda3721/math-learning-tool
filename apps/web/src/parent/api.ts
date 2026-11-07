@@ -231,3 +231,94 @@ export function postProfile(payload: {
 }): Promise<LearnerProfile> {
     return post('/api/v1/parent/profile', payload)
 }
+
+
+// ---- 对话转写（阶段 4：默认关，家长显式打开） ----
+
+export interface TranscriptTurn {
+    id: string
+    ts: string
+    /** user / assistant 是原话；blocked 表示这一轮被安全层拦下（没有原话） */
+    role: 'user' | 'assistant' | 'blocked' | string
+    content: string
+    /** blocked 行的原因，形如 input:contact-request */
+    safetyReason: string | null
+}
+
+export interface TranscriptReport {
+    recording: boolean
+    turns: TranscriptTurn[]
+    note?: string
+}
+
+export function fetchTranscripts(learnerId: string, limit = 200): Promise<TranscriptReport> {
+    return request(
+        `/api/v1/parent/transcripts?learnerId=${encodeURIComponent(learnerId)}&limit=${limit}`,
+    )
+}
+
+/** 开 / 关转写。关掉再打开**不回溯**：没记的那些话找不回来。 */
+export function postTranscriptRecording(payload: { learnerId: string; enabled: boolean }): Promise<{
+    recording: boolean
+}> {
+    return post('/api/v1/parent/transcripts/recording', payload)
+}
+
+export function deleteTranscripts(learnerId: string): Promise<{ removed: number }> {
+    return request(`/api/v1/parent/transcripts?learnerId=${encodeURIComponent(learnerId)}`, {
+        method: 'DELETE',
+    })
+}
+
+
+// ---- AI 判断抽查（宪法第 5 条：ai_unverified 只作记录，不计掌握度） ----
+
+export interface AiJudgmentItem {
+    attemptId: string
+    questionId: string
+    stem: string
+    studentAnswer: string
+    correct: boolean
+    at: string
+    source: string
+    hintLevelUsed: number
+    /** 判卷依据：AI 当时给的理由；没有就明说"只有模型判断" */
+    basis: string
+    needsReview: boolean
+    parentVerdict: 'correct' | 'incorrect' | null
+    judgement: { action: string; note?: string; at: string } | null
+}
+
+export function fetchAiJudgments(learnerId: string): Promise<{ items: AiJudgmentItem[]; note?: string }> {
+    return request(`/api/v1/parent/ai-judgments?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+export function postAiJudgment(payload: {
+    attemptId: string
+    action: 'reviewed' | 'overturn'
+    note?: string
+}): Promise<{ ok: boolean; needsReview: boolean }> {
+    return post('/api/v1/parent/ai-judgment', payload)
+}
+
+
+// ---- 模块开关（家长可以整块关掉） ----
+
+export interface ModuleCatalogEntry {
+    id: string
+    label: string
+    hint: string
+}
+
+export interface ModuleState {
+    modules: Record<string, boolean>
+    catalog: ModuleCatalogEntry[]
+}
+
+export function fetchModules(learnerId: string): Promise<ModuleState> {
+    return request(`/api/v1/parent/modules?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+export function postModules(payload: { learnerId: string; modules: Record<string, boolean> }): Promise<ModuleState> {
+    return post('/api/v1/parent/modules', payload)
+}

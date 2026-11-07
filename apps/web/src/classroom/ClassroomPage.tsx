@@ -83,6 +83,8 @@ export function ClassroomPage() {
     const [verdict, setVerdict] = useState<{ correct: boolean; answer?: string } | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
+    /** 讲课模式：AI 生成优先，离线组课永远可用（服务端保证退得回来） */
+    const [mode, setMode] = useState<'generate' | 'compose'>('generate')
 
     const stageRef = useRef<HTMLDivElement | null>(null)
     const playerRef = useRef<ExplainerPlayer | null>(null)
@@ -103,7 +105,7 @@ export function ClassroomPage() {
         setError(null)
         setBusy(true)
         try {
-            const next = await getLesson(nodeId)
+            const next = await getLesson(nodeId, mode)
             setLesson(next)
             setPicked(nodeId)
             setVerdict(null)
@@ -115,7 +117,7 @@ export function ClassroomPage() {
         } finally {
             setBusy(false)
         }
-    }, [])
+    }, [mode])
 
     const dispatch = useCallback(
         (event: Parameters<ClassroomSession['dispatch']>[0]) => {
@@ -255,6 +257,18 @@ export function ClassroomPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="text-lg font-semibold text-ink">{lesson.nodeName}</h3>
                         <div className="flex items-center gap-2">
+                            {/* 这节课是谁讲的要说清楚：模型写的和离线拼的，孩子有知情权 */}
+                            <Badge tone={lesson.mode === 'generate' ? 'beam' : 'slate'}>
+                                {lesson.mode === 'generate' ? 'AI 讲解' : '离线组课'}
+                            </Badge>
+                            <button
+                                type="button"
+                                onClick={() => setMode((m) => (m === 'generate' ? 'compose' : 'generate'))}
+                                className="text-xs text-ink-faint hover:text-beam underline decoration-dotted underline-offset-2"
+                                title="切换讲解方式，下一节生效"
+                            >
+                                {mode === 'generate' ? '改用离线组课' : '改用 AI 讲解'}
+                            </button>
                             <Badge tone="sky">{state ? PHASE_LABEL[state.phase] : '还没开始'}</Badge>
                             <span className="text-xs text-ink-faint numeric">
                                 {state ? `${state.beatIndex + 1} / ${state.beatCount}` : ''}

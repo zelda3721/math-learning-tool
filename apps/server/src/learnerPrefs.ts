@@ -14,6 +14,18 @@ export interface LearnerPrefs {
   dailyChatMinutes?: number;
   /** 家长显式关掉的模块 */
   disabledModules?: string[];
+  /**
+   * 家长逐个模块的开关（`{ explore: false }` 之类的**覆盖值**）。
+   * 缺键 = 默认开：不开的模块才写进来，这样以后新增模块不必给每个孩子补一条记录。
+   * 与 `disabledModules` 的区别：那个字段从来没被读过，且只能表达"关"；
+   * 这里用显式的 true/false，是因为家长会来回关开，只有"关"的集合画不出这个状态。
+   */
+  modules?: Record<string, boolean>;
+  /**
+   * 是否把探索对话的轮次写进本地库供家长查看。**默认 false**。
+   * 默认关的理由写在 db.ts 的 explore_transcripts 注释里：不用"默认记录"换便利。
+   */
+  recordTranscript?: boolean;
   /** 学习者画像：兴趣（出题素材）、目标、更吃图形还是式子 */
   interests?: string[];
   goals?: string[];

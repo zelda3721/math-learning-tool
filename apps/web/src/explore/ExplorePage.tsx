@@ -179,6 +179,15 @@ export function ExplorePage() {
                 setBudgetBlocked(true)
                 return
             }
+            if (res.status === 403) {
+                /*
+                 * 家长关掉了「探索对话」。403 是**家长的决定**，不是故障，
+                 * 所以照服务端给的那句话说出来——「HTTP 403」对孩子等于什么都没说。
+                 */
+                const body = (await res.json().catch(() => null)) as { error?: string } | null
+                setChatError(body?.error ?? '家长把这个功能关掉了，想用的话先跟家长说一声。')
+                return
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const body = (await res.json()) as {
                 reply: string
