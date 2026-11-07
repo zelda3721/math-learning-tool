@@ -252,7 +252,9 @@ describe("模块开关", () => {
     };
     expect(initial.modules.explore).toBe(true);
     expect(initial.modules.classroom).toBe(true);
-    expect(initial.catalog.map((m) => m.id)).toEqual(["explore", "classroom"]);
+    // 清单随模块增加而变：这里只锁"默认全开"，不把模块数量写死
+    expect(initial.catalog.map((m) => m.id)).toContain("explore");
+    expect(initial.catalog.map((m) => m.id)).toContain("classroom");
 
     const off = await postJson(app, "/api/v1/parent/modules", {
       learnerId: learner.id,

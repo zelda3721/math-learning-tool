@@ -24,6 +24,7 @@ import { BankPage } from './bank/BankPage'
 import { TextbookPage } from './textbook/TextbookPage'
 import { ClassroomPage } from './classroom/ClassroomPage'
 import { LabPage } from './lab/LabPage'
+import { EnglishPage } from './english/EnglishPage'
 
 import {
     GradeSelector,
@@ -47,6 +48,7 @@ type AppView =
     | 'bank'
     | 'textbook'
     | 'classroom'
+    | 'english'
     | 'lab'
     | 'parent'
 
@@ -55,6 +57,9 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
     { key: 'practice', label: '练习', roles: ['parent', 'child'] },
     // 课堂是孩子学习面的一部分：讲—停—问—回到原处，两种角色都能上
     { key: 'classroom', label: '课堂', roles: ['parent', 'child'] },
+    // 英语是孩子的日常作业面（词汇 + 分级阅读），家长也要能进来查看/陪读；
+    // 家长把它关掉时页面自己会说"家长把英语关掉了"，不在导航里藏起来
+    { key: 'english', label: '英语', roles: ['parent', 'child'] },
     { key: 'ask', label: '问一道题', roles: ['parent', 'child'] },
     { key: 'atlas', label: '星图', roles: ['parent', 'child'] },
     { key: 'mistakes', label: '错题本', roles: ['parent', 'child'] },
@@ -345,6 +350,12 @@ function AuthedApp() {
             {view === 'classroom' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <ClassroomPage />
+                </main>
+            )}
+
+            {view === 'english' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <EnglishPage />
                 </main>
             )}
 

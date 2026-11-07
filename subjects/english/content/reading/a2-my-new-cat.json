@@ -1,0 +1,26 @@
+{
+  "id": "r-a2-my-new-cat",
+  "title": "My New Cat",
+  "level": "A2",
+  "text": "Two months ago, my aunt found a small grey cat near her office. Nobody knew who the owner was, so my aunt asked our family to take the cat home. We called her Misty because she is grey like a cloudy sky. At first Misty was afraid of everything. She hid under my bed for three days and did not eat much. My mother bought some fish and a soft bed for her. Now Misty sleeps next to my pillow every night. She loves to sit on the kitchen table and watch me do homework. Every morning she waits at the door and says goodbye to me with a small sound. I feed her at seven, before I leave for school.",
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Who found the cat?",
+      "answer": "My aunt / my aunt / aunt",
+      "evidence": "Two months ago, my aunt found a small grey cat near her office."
+    },
+    {
+      "id": "q2",
+      "prompt": "Why did the family call the cat Misty?",
+      "answer": "She is grey / because she is grey / grey like a cloudy sky",
+      "evidence": "We called her Misty because she is grey like a cloudy sky."
+    },
+    {
+      "id": "q3",
+      "prompt": "How long did Misty hide under the bed?",
+      "answer": "Three days / 3 days / for three days",
+      "evidence": "She hid under my bed for three days and did not eat much."
+    }
+  ]
+}

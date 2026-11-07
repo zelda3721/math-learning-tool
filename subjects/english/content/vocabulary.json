@@ -1,39 +1,770 @@
 [
   {
+    "id": "w-school",
+    "zh": "学校",
+    "en": "school",
+    "cefr": "A1",
+    "example": "I walk to school with my sister every morning.",
+    "topic": "school"
+  },
+  {
+    "id": "w-teacher",
+    "zh": "老师",
+    "en": "teacher",
+    "cefr": "A1",
+    "example": "My teacher writes new words on the board.",
+    "topic": "school"
+  },
+  {
+    "id": "w-book",
+    "zh": "书",
+    "en": "book",
+    "cefr": "A1",
+    "example": "I read a book for twenty minutes every night.",
+    "topic": "school"
+  },
+  {
+    "id": "w-pencil",
+    "zh": "铅笔",
+    "en": "pencil",
+    "cefr": "A1",
+    "example": "Please write your name with a pencil before class.",
+    "topic": "school"
+  },
+  {
+    "id": "w-homework",
+    "zh": "作业",
+    "en": "homework",
+    "cefr": "A1",
+    "example": "I finish my homework before I watch TV.",
+    "topic": "school"
+  },
+  {
+    "id": "w-classroom",
+    "zh": "教室",
+    "en": "classroom",
+    "cefr": "A1",
+    "example": "Our classroom has a big window and a green board.",
+    "topic": "school"
+  },
+  {
+    "id": "w-lesson",
+    "zh": "课",
+    "en": "lesson",
+    "cefr": "A1",
+    "example": "Our English lesson starts at eight thirty every morning.",
+    "topic": "school"
+  },
+  {
+    "id": "w-mother",
+    "zh": "妈妈",
+    "en": "mother",
+    "cefr": "A1",
+    "example": "My mother makes breakfast for us every morning.",
+    "topic": "family"
+  },
+  {
+    "id": "w-father",
+    "zh": "爸爸",
+    "en": "father",
+    "cefr": "A1",
+    "example": "My father reads the newspaper after dinner every evening.",
+    "topic": "family"
+  },
+  {
+    "id": "w-sister",
+    "zh": "姐妹",
+    "en": "sister",
+    "cefr": "A1",
+    "example": "My little sister likes drawing cats and flowers.",
+    "topic": "family"
+  },
+  {
+    "id": "w-brother",
+    "zh": "兄弟",
+    "en": "brother",
+    "cefr": "A1",
+    "example": "My brother is taller than me and plays basketball.",
+    "topic": "family"
+  },
+  {
+    "id": "w-grandmother",
+    "zh": "奶奶",
+    "en": "grandmother",
+    "cefr": "A1",
+    "example": "My grandmother tells me a story before bed.",
+    "topic": "family"
+  },
+  {
+    "id": "w-family",
+    "zh": "家庭",
+    "en": "family",
+    "cefr": "A1",
+    "example": "There are five people in my family, including me.",
+    "topic": "family"
+  },
+  {
     "id": "w-apple",
     "zh": "苹果",
     "en": "apple",
     "cefr": "A1",
-    "example": "I ate an apple after lunch."
+    "example": "I ate a red apple after lunch today.",
+    "topic": "food"
   },
   {
-    "id": "w-library",
-    "zh": "图书馆",
-    "en": "library",
+    "id": "w-bread",
+    "zh": "面包",
+    "en": "bread",
     "cefr": "A1",
-    "example": "She borrowed two books from the library."
+    "example": "We buy fresh bread from the bakery on Saturday.",
+    "topic": "food"
   },
   {
-    "id": "w-season",
-    "zh": "季节",
-    "en": "season",
-    "cefr": "A2",
-    "example": "Spring is my favourite season."
-  },
-  {
-    "id": "w-borrow",
-    "zh": "借入",
-    "en": "borrow",
-    "cefr": "A2",
-    "example": "May I borrow your ruler?"
-  },
-  {
-    "id": "g-present-simple-third",
-    "zh": "他每天走路去上学。",
-    "en": "He goes to school on foot every day.",
+    "id": "w-milk",
+    "zh": "牛奶",
+    "en": "milk",
     "cefr": "A1",
-    "itemType": "en.gap-fill",
-    "gapSentence": "He ____ to school on foot every day.",
-    "reference": "goes"
+    "example": "I drink a glass of milk every night.",
+    "topic": "food"
+  },
+  {
+    "id": "w-egg",
+    "zh": "鸡蛋",
+    "en": "egg",
+    "cefr": "A1",
+    "example": "My mother cooks an egg for me each morning.",
+    "topic": "food"
+  },
+  {
+    "id": "w-rice",
+    "zh": "米饭",
+    "en": "rice",
+    "cefr": "A1",
+    "example": "We eat rice and vegetables for dinner every day.",
+    "topic": "food"
+  },
+  {
+    "id": "w-water",
+    "zh": "水",
+    "en": "water",
+    "cefr": "A1",
+    "example": "Please drink some water after you run in the park.",
+    "topic": "food"
+  },
+  {
+    "id": "w-banana",
+    "zh": "香蕉",
+    "en": "banana",
+    "cefr": "A1",
+    "example": "The monkey in the zoo is eating a banana.",
+    "topic": "food"
+  },
+  {
+    "id": "w-breakfast",
+    "zh": "早饭",
+    "en": "breakfast",
+    "cefr": "A1",
+    "example": "I eat breakfast with my family at seven.",
+    "topic": "food"
+  },
+  {
+    "id": "w-morning",
+    "zh": "早上",
+    "en": "morning",
+    "cefr": "A1",
+    "example": "I do my homework in the morning on Sundays.",
+    "topic": "time"
+  },
+  {
+    "id": "w-afternoon",
+    "zh": "下午",
+    "en": "afternoon",
+    "cefr": "A1",
+    "example": "We play football in the afternoon after class.",
+    "topic": "time"
+  },
+  {
+    "id": "w-evening",
+    "zh": "傍晚",
+    "en": "evening",
+    "cefr": "A1",
+    "example": "My family watches TV together in the evening.",
+    "topic": "time"
+  },
+  {
+    "id": "w-night",
+    "zh": "夜晚",
+    "en": "night",
+    "cefr": "A1",
+    "example": "I go to bed at nine o'clock every night.",
+    "topic": "time"
+  },
+  {
+    "id": "w-today",
+    "zh": "今天",
+    "en": "today",
+    "cefr": "A1",
+    "example": "Today is Tuesday, so I have a music lesson.",
+    "topic": "time"
+  },
+  {
+    "id": "w-tomorrow",
+    "zh": "明天",
+    "en": "tomorrow",
+    "cefr": "A1",
+    "example": "We will visit the zoo tomorrow with our teacher.",
+    "topic": "time"
+  },
+  {
+    "id": "w-hour",
+    "zh": "小时",
+    "en": "hour",
+    "cefr": "A1",
+    "example": "The film starts in half an hour, at seven.",
+    "topic": "time"
+  },
+  {
+    "id": "w-shop",
+    "zh": "商店",
+    "en": "shop",
+    "cefr": "A1",
+    "example": "There is a small shop near my house.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-money",
+    "zh": "钱",
+    "en": "money",
+    "cefr": "A1",
+    "example": "I keep my money in a small red box.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-cheap",
+    "zh": "便宜的",
+    "en": "cheap",
+    "cefr": "A1",
+    "example": "These apples are very cheap in the autumn.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-expensive",
+    "zh": "贵的",
+    "en": "expensive",
+    "cefr": "A1",
+    "example": "That big bicycle is too expensive for me.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-buy",
+    "zh": "买",
+    "en": "buy",
+    "cefr": "A1",
+    "example": "I want to buy a present for my mother.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-weather",
+    "zh": "天气",
+    "en": "weather",
+    "cefr": "A1",
+    "example": "The weather is cold and rainy this morning.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-sunny",
+    "zh": "晴朗的",
+    "en": "sunny",
+    "cefr": "A1",
+    "example": "It is sunny, so we can play outside today.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-rain",
+    "zh": "雨",
+    "en": "rain",
+    "cefr": "A1",
+    "example": "We stayed at home because of the rain.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-snow",
+    "zh": "雪",
+    "en": "snow",
+    "cefr": "A1",
+    "example": "The children made a big snowman in the snow.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-wind",
+    "zh": "风",
+    "en": "wind",
+    "cefr": "A1",
+    "example": "The wind blew my hat off in the park.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-cold",
+    "zh": "冷的",
+    "en": "cold",
+    "cefr": "A1",
+    "example": "Wear a warm coat because it is very cold.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-cat",
+    "zh": "猫",
+    "en": "cat",
+    "cefr": "A1",
+    "example": "My cat sleeps on the sofa all afternoon.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-dog",
+    "zh": "狗",
+    "en": "dog",
+    "cefr": "A1",
+    "example": "The black dog runs after the red ball.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-bird",
+    "zh": "鸟",
+    "en": "bird",
+    "cefr": "A1",
+    "example": "A small bird is singing in the tree.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-fish",
+    "zh": "鱼",
+    "en": "fish",
+    "cefr": "A1",
+    "example": "We saw many fish in the clear river.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-rabbit",
+    "zh": "兔子",
+    "en": "rabbit",
+    "cefr": "A1",
+    "example": "The white rabbit has long ears and red eyes.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-elephant",
+    "zh": "大象",
+    "en": "elephant",
+    "cefr": "A1",
+    "example": "The elephant is the biggest animal in the zoo.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-bus",
+    "zh": "公共汽车",
+    "en": "bus",
+    "cefr": "A1",
+    "example": "I take the bus to school when it rains.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-bike",
+    "zh": "自行车",
+    "en": "bike",
+    "cefr": "A1",
+    "example": "My father bought me a new blue bike.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-car",
+    "zh": "汽车",
+    "en": "car",
+    "cefr": "A1",
+    "example": "Our car is old, but it still runs well.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-train",
+    "zh": "火车",
+    "en": "train",
+    "cefr": "A1",
+    "example": "The train to Beijing leaves at nine every morning.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-walk",
+    "zh": "走路",
+    "en": "walk",
+    "cefr": "A1",
+    "example": "I walk to the library after lunch on Fridays.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-station",
+    "zh": "车站",
+    "en": "station",
+    "cefr": "A1",
+    "example": "We waited for the train at the station.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-swim",
+    "zh": "游泳",
+    "en": "swim",
+    "cefr": "A1",
+    "example": "I learn to swim in the river every summer.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-sing",
+    "zh": "唱歌",
+    "en": "sing",
+    "cefr": "A1",
+    "example": "We sing an English song before class starts.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-dance",
+    "zh": "跳舞",
+    "en": "dance",
+    "cefr": "A1",
+    "example": "My sister and I dance in the living room.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-football",
+    "zh": "足球",
+    "en": "football",
+    "cefr": "A1",
+    "example": "We play football in the park after school.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-music",
+    "zh": "音乐",
+    "en": "music",
+    "cefr": "A1",
+    "example": "I listen to music with my headphones after dinner.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-hand",
+    "zh": "手",
+    "en": "hand",
+    "cefr": "A1",
+    "example": "Please wash your hands before you eat dinner.",
+    "topic": "body"
+  },
+  {
+    "id": "w-eye",
+    "zh": "眼睛",
+    "en": "eye",
+    "cefr": "A1",
+    "example": "She has big brown eyes like her mother.",
+    "topic": "body"
+  },
+  {
+    "id": "w-head",
+    "zh": "头",
+    "en": "head",
+    "cefr": "A1",
+    "example": "He put his red hat on his head.",
+    "topic": "body"
+  },
+  {
+    "id": "w-hair",
+    "zh": "头发",
+    "en": "hair",
+    "cefr": "A1",
+    "example": "My sister has long black hair and a red ribbon.",
+    "topic": "body"
+  },
+  {
+    "id": "w-subject",
+    "zh": "科目",
+    "en": "subject",
+    "cefr": "A2",
+    "example": "Maths is my favourite subject at school this term.",
+    "topic": "school"
+  },
+  {
+    "id": "w-dictionary",
+    "zh": "词典",
+    "en": "dictionary",
+    "cefr": "A2",
+    "example": "I look up new words in my dictionary.",
+    "topic": "school"
+  },
+  {
+    "id": "w-exam",
+    "zh": "考试",
+    "en": "exam",
+    "cefr": "A2",
+    "example": "We have a maths exam on Friday morning.",
+    "topic": "school"
+  },
+  {
+    "id": "w-cousin",
+    "zh": "表兄弟姐妹",
+    "en": "cousin",
+    "cefr": "A2",
+    "example": "My cousin and I play chess every weekend.",
+    "topic": "family"
+  },
+  {
+    "id": "w-neighbour",
+    "zh": "邻居",
+    "en": "neighbour",
+    "cefr": "A2",
+    "example": "Our neighbour has two cats and a small dog.",
+    "topic": "family"
+  },
+  {
+    "id": "w-guest",
+    "zh": "客人",
+    "en": "guest",
+    "cefr": "A2",
+    "example": "We have a guest for dinner this evening.",
+    "topic": "family"
+  },
+  {
+    "id": "w-vegetable",
+    "zh": "蔬菜",
+    "en": "vegetable",
+    "cefr": "A2",
+    "example": "Eat some vegetables with your rice and fish.",
+    "topic": "food"
+  },
+  {
+    "id": "w-sandwich",
+    "zh": "三明治",
+    "en": "sandwich",
+    "cefr": "A2",
+    "example": "I made a cheese sandwich for lunch today.",
+    "topic": "food"
+  },
+  {
+    "id": "w-soup",
+    "zh": "汤",
+    "en": "soup",
+    "cefr": "A2",
+    "example": "Hot soup is very good on a cold day.",
+    "topic": "food"
+  },
+  {
+    "id": "w-delicious",
+    "zh": "美味的",
+    "en": "delicious",
+    "cefr": "A2",
+    "example": "The cake my mother made was really delicious.",
+    "topic": "food"
+  },
+  {
+    "id": "w-bottle",
+    "zh": "瓶子",
+    "en": "bottle",
+    "cefr": "A2",
+    "example": "Please bring a bottle of water to the game.",
+    "topic": "food"
+  },
+  {
+    "id": "w-weekend",
+    "zh": "周末",
+    "en": "weekend",
+    "cefr": "A2",
+    "example": "I visit my grandparents every weekend in summer.",
+    "topic": "time"
+  },
+  {
+    "id": "w-calendar",
+    "zh": "日历",
+    "en": "calendar",
+    "cefr": "A2",
+    "example": "There is a big calendar on our kitchen wall.",
+    "topic": "time"
+  },
+  {
+    "id": "w-late",
+    "zh": "迟到的",
+    "en": "late",
+    "cefr": "A2",
+    "example": "Hurry up, or we will be late for school.",
+    "topic": "time"
+  },
+  {
+    "id": "w-early",
+    "zh": "早的",
+    "en": "early",
+    "cefr": "A2",
+    "example": "She gets up early to catch the first bus.",
+    "topic": "time"
+  },
+  {
+    "id": "w-market",
+    "zh": "市场",
+    "en": "market",
+    "cefr": "A2",
+    "example": "We buy fresh fruit at the market on Sundays.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-bill",
+    "zh": "账单",
+    "en": "bill",
+    "cefr": "A2",
+    "example": "The bill for our dinner was thirty yuan.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-change",
+    "zh": "零钱",
+    "en": "change",
+    "cefr": "A2",
+    "example": "I got fifty yuan in change from the shop.",
+    "topic": "shopping"
+  },
+  {
+    "id": "w-storm",
+    "zh": "暴风雨",
+    "en": "storm",
+    "cefr": "A2",
+    "example": "A big storm came last night and blew down a tall tree.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-temperature",
+    "zh": "温度",
+    "en": "temperature",
+    "cefr": "A2",
+    "example": "The temperature is low, so wear your warm coat.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-foggy",
+    "zh": "有雾的",
+    "en": "foggy",
+    "cefr": "A2",
+    "example": "Drive slowly because it is foggy this morning.",
+    "topic": "weather"
+  },
+  {
+    "id": "w-feed",
+    "zh": "喂",
+    "en": "feed",
+    "cefr": "A2",
+    "example": "I feed my rabbit before I go to school.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-pet",
+    "zh": "宠物",
+    "en": "pet",
+    "cefr": "A2",
+    "example": "My pet is a small white mouse called Snowy.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-farm",
+    "zh": "农场",
+    "en": "farm",
+    "cefr": "A2",
+    "example": "We saw cows and sheep on the farm.",
+    "topic": "animals"
+  },
+  {
+    "id": "w-ticket",
+    "zh": "车票",
+    "en": "ticket",
+    "cefr": "A2",
+    "example": "I bought two tickets for the night train.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-map",
+    "zh": "地图",
+    "en": "map",
+    "cefr": "A2",
+    "example": "Look at the map to find the station.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-airport",
+    "zh": "机场",
+    "en": "airport",
+    "cefr": "A2",
+    "example": "My uncle met us at the airport with his car.",
+    "topic": "transport"
+  },
+  {
+    "id": "w-draw",
+    "zh": "画画",
+    "en": "draw",
+    "cefr": "A2",
+    "example": "I like to draw animals in my notebook.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-collect",
+    "zh": "收集",
+    "en": "collect",
+    "cefr": "A2",
+    "example": "I collect stamps and coins from many different countries.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-chess",
+    "zh": "国际象棋",
+    "en": "chess",
+    "cefr": "A2",
+    "example": "My father taught me to play chess last winter.",
+    "topic": "hobbies"
+  },
+  {
+    "id": "w-shoulder",
+    "zh": "肩膀",
+    "en": "shoulder",
+    "cefr": "A2",
+    "example": "My left shoulder hurts after the long swim.",
+    "topic": "body"
+  },
+  {
+    "id": "w-tooth",
+    "zh": "牙齿",
+    "en": "tooth",
+    "cefr": "A2",
+    "example": "My tooth hurts, so I will see the dentist.",
+    "topic": "body"
+  },
+  {
+    "id": "w-stomach",
+    "zh": "肚子",
+    "en": "stomach",
+    "cefr": "A2",
+    "example": "My stomach hurts because I ate too much.",
+    "topic": "body"
+  },
+  {
+    "id": "w-nervous",
+    "zh": "紧张的",
+    "en": "nervous",
+    "cefr": "A2",
+    "example": "I feel nervous before I speak to the class.",
+    "topic": "feelings"
+  },
+  {
+    "id": "w-proud",
+    "zh": "自豪的",
+    "en": "proud",
+    "cefr": "A2",
+    "example": "My parents are proud of my hard work.",
+    "topic": "feelings"
+  },
+  {
+    "id": "w-boring",
+    "zh": "无聊的",
+    "en": "boring",
+    "cefr": "A2",
+    "example": "This film is boring, so I want to read my book.",
+    "topic": "feelings"
   }
 ]
