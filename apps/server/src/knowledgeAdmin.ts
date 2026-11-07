@@ -1,7 +1,10 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { GraphSchema, LinksFileSchema, type Question, type Source } from "@mathtutor/schema";
-import { lint, loadKnowledge, type Knowledge } from "@mathtutor/knowledge";
+import { lint, loadKnowledge, mergeSubjectGraphs, type Knowledge } from "@mathtutor/knowledge";
+import { GraphSchema as GraphSchemaForMerge } from "@mathtutor/schema";
+import { readFileSync as readForMerge } from "node:fs";
+import { SUBJECT_GRAPH_PATHS } from "./subjectGraphs.js";
 import type { QuestionStore } from "./questions.js";
 
 /**
@@ -97,7 +100,15 @@ export function verifyNode(
   if (!candidate.success) {
     return { ok: false, error: `修改后 schema 校验失败: ${candidate.error.issues[0]?.message}` };
   }
-  const report = lint(candidate.data, [], readLinks(dataDir));
+  /*
+   * lint 要看得到**所有学科**的节点：连接表里已经有 en: 节点，
+   * 只拿数学图去查会把每条跨学科连接都判成悬挂，于是核验永远过不去。
+   * 写回文件的仍然只有本学科的图。
+   */
+  const extraGraphs = SUBJECT_GRAPH_PATHS.filter((file) => existsSync(file)).map((file) =>
+    GraphSchemaForMerge.parse(JSON.parse(readForMerge(file, "utf8"))),
+  );
+  const report = lint(mergeSubjectGraphs(candidate.data, extraGraphs), [], readLinks(dataDir));
   if (report.errors.length) {
     node.status = before.status;
     node.sources = before.sources;
@@ -108,6 +119,7 @@ export function verifyNode(
     graphPath,
     problemsPath: path.join(dataDir, "knowledge", "problems.json"),
     linksPath: path.join(dataDir, "knowledge", "links.json"),
+    subjectGraphPaths: SUBJECT_GRAPH_PATHS,
   });
   return { ok: true, knowledge };
 }

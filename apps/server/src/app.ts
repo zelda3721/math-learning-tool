@@ -25,6 +25,7 @@ import { askRoutes } from "./ask.js";
 import { bankRoutes } from "./bank.js";
 import { textbookRoutes } from "./textbook.js";
 import { classroomRoutes } from "./classroom/routes.js";
+import { crossSubjectMembers, SUBJECT_LABEL } from "@mathtutor/knowledge";
 import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
 import type { SubjectRegistry } from "@mathtutor/core";
@@ -164,6 +165,25 @@ export function createApp(state: AppState): Hono {
       graph: state.knowledge.graph,
       problemTypes: state.knowledge.problemTypes,
       mastery,
+    });
+  });
+
+  /**
+   * 跨学科：这个知识点在别的学科里怎么用。
+   *
+   * 只回**两边节点都存在**的连接——点不开的链接比没有更糟。
+   * note 是 links.json 里手写的具体说明（哪一步用上、错了会错在哪），
+   * 不是现场生成的套话。
+   */
+  app.get("/api/v1/atlas/cross-subject", (c) => {
+    const nodeId = c.req.query("nodeId");
+    if (!nodeId) return c.json({ error: "需要 nodeId" }, 400);
+    if (!state.knowledge.index.getNode(nodeId)) return c.json({ error: "图谱里没有这个节点" }, 404);
+    const members = crossSubjectMembers(state.knowledge.index, state.knowledge.links, nodeId);
+    return c.json({
+      nodeId,
+      members: members.map((m) => ({ ...m, subjectLabel: SUBJECT_LABEL[m.subject] ?? m.subject })),
+      note: "跨学科连接来自 data/knowledge/links.json：每条都写明在哪一步用上",
     });
   });
 

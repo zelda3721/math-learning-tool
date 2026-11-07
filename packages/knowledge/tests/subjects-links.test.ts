@@ -120,11 +120,13 @@ describe("真实知识层", () => {
       graphPath: fileURLToPath(new URL("../../../data/knowledge/graph.json", import.meta.url)),
       problemsPath: fileURLToPath(new URL("../../../data/knowledge/problems.json", import.meta.url)),
       linksPath: fileURLToPath(new URL("../../../data/knowledge/links.json", import.meta.url)),
+      // 英语图一起加载：连接表里已经有 en: 节点了，只读数学图会把它们全判成悬挂
+      subjectGraphPaths: [fileURLToPath(new URL("../../../subjects/english/graph.json", import.meta.url))],
     });
     const report = lint(k.graph, k.problemTypes, k.links);
     expect(report.errors).toEqual([]);
-    // 现有节点全是数学
-    expect(new Set(k.graph.nodes.map((n) => n.subject))).toEqual(new Set(["math"]));
+    // 数学与英语都在图里，跨学科连接才有落点
+    expect(new Set(k.graph.nodes.map((n) => n.subject))).toEqual(new Set(["math", "english"]));
     expect(report.stats.links).toBe(k.links.length);
   });
 });

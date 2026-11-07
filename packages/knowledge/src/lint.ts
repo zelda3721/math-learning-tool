@@ -18,6 +18,13 @@ export interface LintReport {
  * 图谱/题型结构不变量校验（移植自 math-wiki scripts/lib/lint.mjs）。
  * 既当只读报告，也当 ingest 管线的闸门：errors 非空即拒绝写入。
  */
+/** 学科 id 前缀的简写登记表（PLAN 里用的就是 en: 这种写法） */
+export const SUBJECT_PREFIX_ALIASES: Record<string, string[]> = {
+  english: ["en"],
+  physics: ["phys"],
+  chemistry: ["chem"],
+};
+
 export function lint(g: Graph, problems: ProblemType[] = [], links: KnowledgeLink[] = []): LintReport {
   const byId = new Map(g.nodes.map((n) => [n.id, n]));
   const ids = new Set(byId.keys());
@@ -106,9 +113,14 @@ export function lint(g: Graph, problems: ProblemType[] = [], links: KnowledgeLin
   // ── 学科命名空间 ──
   // 现有节点 id 一律不改（掌握度数据按 id 存着），但**新学科**的 id 必须带学科前缀，
   // 否则两门学科的 "present-simple" 迟早会撞在一起，而撞了之后没法自动分辨谁是谁。
+  //
+  // 前缀可以是学科全名，也可以是登记过的简写（PLAN 里举的例子就是 `en:`）。
+  // 只认全名会把计划里的写法判成错，而"按计划写"不该报错。
   for (const n of g.nodes) {
-    if (n.subject !== "math" && !n.id.startsWith(`${n.subject}:`)) {
-      errors.push(`学科前缀缺失: ${n.id}（subject=${n.subject} 应以 ${n.subject}: 开头）`);
+    if (n.subject === "math") continue;
+    const prefixes = [n.subject, ...(SUBJECT_PREFIX_ALIASES[n.subject] ?? [])];
+    if (!prefixes.some((p) => n.id.startsWith(`${p}:`))) {
+      errors.push(`学科前缀缺失: ${n.id}（subject=${n.subject} 应以 ${prefixes.map((p) => `${p}:`).join(" 或 ")} 开头）`);
     }
   }
 
