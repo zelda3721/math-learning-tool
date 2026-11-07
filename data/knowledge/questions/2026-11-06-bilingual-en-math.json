@@ -2,7 +2,8 @@
   {
     "id": "bi-money-change-01",
     "nodeIds": [
-      "decimal"
+      "decimal",
+      "en:money-words"
     ],
     "level": "elementary_upper",
     "difficulty": 2,
@@ -19,7 +20,8 @@
   {
     "id": "bi-length-km-01",
     "nodeIds": [
-      "length-mass-units"
+      "length-mass-units",
+      "en:measurement-words"
     ],
     "level": "elementary_upper",
     "difficulty": 2,
@@ -36,7 +38,8 @@
   {
     "id": "bi-percent-discount-01",
     "nodeIds": [
-      "ratio-percent"
+      "ratio-percent",
+      "en:percent-discount"
     ],
     "level": "elementary_upper",
     "difficulty": 3,

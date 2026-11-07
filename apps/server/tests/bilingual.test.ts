@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { QuestionSchema, type Question } from "@mathtutor/schema";
 import { createSubjectRegistry, judgeAnswer } from "../src/subjects.js";
-import { makeApp } from "./helpers.js";
+import { knowledge, makeApp } from "./helpers.js";
+import { bilingualIssues } from "../src/questions.js";
 
 /**
  * 双语题：读懂英文题面 → 算 → 用英语说出结论。
@@ -114,3 +115,86 @@ describe("证据落两科", () => {
         expect(rows.every((row) => row.evidenceN >= 1)).toBe(true);
     });
 });
+
+
+describe("不硬凑融合", () => {
+    it("单学科题（没有英文题面、没有英语节点）不受影响", async () => {
+        const pureMath = QuestionSchema.parse({
+            id: "pure-math-01",
+            nodeIds: ["fraction"],
+            level: "elementary_upper",
+            stem: "把一张纸平均分成 4 份，每份是几分之几？",
+            answer: "1/4",
+            answerType: "expression",
+            difficulty: 2,
+            contentHash: "x",
+            source: { role: "manual" },
+            status: "verified",
+        });
+        expect(bilingualIssues(pureMath, knowledgeLike().index)).toEqual([]);
+
+        const pureEnglish = QuestionSchema.parse({
+            id: "pure-en-01",
+            nodeIds: ["en:fraction-words"],
+            level: "elementary_upper",
+            stem: "3/4 用英语怎么说？",
+            answer: "three quarters",
+            answerType: "expression",
+            answerLang: "en",
+            difficulty: 2,
+            contentHash: "y",
+            source: { role: "manual" },
+            status: "verified",
+        });
+        // 纯英语专项题：挂了英语节点、也用了英语，规矩不拦它
+        expect(bilingualIssues(pureEnglish, knowledgeLike().index)).toEqual([]);
+    });
+
+    it("挂着英文题面却没有英语节点 → 判为「翻译了一遍」，不算融合", () => {
+        const translated = QuestionSchema.parse({
+            id: "translated-01",
+            nodeIds: ["decimal"],
+            level: "elementary_upper",
+            stem: "一支笔 2.75 元，付 5 元找零多少？",
+            stemEn: "A pen costs $2.75. You pay $5. How much change?",
+            answer: "2.25",
+            answerType: "numeric",
+            difficulty: 2,
+            contentHash: "z",
+            source: { role: "manual" },
+            status: "verified",
+        });
+        const issues = bilingualIssues(translated, knowledgeLike().index);
+        expect(issues).toHaveLength(1);
+        expect(issues[0]).toContain("没有英语知识点");
+    });
+
+    it("挂了英语节点却既没英文题面也没要求英文作答 → 那个节点不该在这道题上", () => {
+        const decorated = QuestionSchema.parse({
+            id: "decorated-01",
+            nodeIds: ["decimal", "en:money-words"],
+            level: "elementary_upper",
+            stem: "一支笔 2.75 元，付 5 元找零多少？",
+            answer: "2.25",
+            answerType: "numeric",
+            difficulty: 2,
+            contentHash: "w",
+            source: { role: "manual" },
+            status: "verified",
+        });
+        const issues = bilingualIssues(decorated, knowledgeLike().index);
+        expect(issues).toHaveLength(1);
+        expect(issues[0]).toContain("却没有英文题面");
+    });
+
+    it("种子里那 6 道都说得通（每道英文的都有对应的英语节点）", () => {
+        for (const q of seeded) {
+            expect(bilingualIssues(q, knowledgeLike().index), q.id).toEqual([]);
+            if (q.stemEn) expect(q.nodeIds.some((id) => id.startsWith("en:"))).toBe(true);
+        }
+    });
+});
+
+function knowledgeLike() {
+    return knowledge;
+}

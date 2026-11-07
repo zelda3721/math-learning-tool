@@ -9,7 +9,7 @@ import { snapToGraph } from "./vocabulary.js";
 import { boxQuality, classifyFigures, isDanglingLabel } from "./passes.js";
 import { storeFigure } from "../figures.js";
 import type { AppState } from "../app.js";
-import { appendQuestions, contentHashOf, practiceReady } from "../questions.js";
+import { appendQuestions, bilingualIssues, contentHashOf, practiceReady } from "../questions.js";
 import { deriveAnswerType } from "@mathtutor/subject-math";
 import { reviewQuestion } from "../knowledgeAdmin.js";
 import { offlineTextDrafts, type ExtractedDraft } from "./extraction.js";
@@ -59,6 +59,10 @@ const ConfirmQuestionSchema = z.object({
   figureImage: z.string().optional(),
   /** 【解析】里那张图：老师画的解法图，只在讲解时用 */
   analysisImage: z.string().optional(),
+  /** 双语题的英文题面（可选：单学科题不该有） */
+  stemEn: z.string().optional(),
+  /** 答案要用英语写出来（词汇/短语类） */
+  answerLang: z.enum(["zh", "en"]).optional(),
 });
 
 const ConfirmSchema = z.object({
@@ -342,6 +346,19 @@ export function ingestRoutes(state: AppState): Hono {
         issues.push({ index: i, problem: `悬挂知识点 ${badNodes.join(",")}，题目未入库` });
         continue;
       }
+      /*
+       * 双语规矩：有英文就要有英语知识点。挂着英文题面却不关联任何英语节点，
+       * 英文那部分既不判也不进证据——那不是融合，是把中文题干翻译了一遍。
+       * 单学科题不会被这条碰到：没有英文题面、没有英语节点，一切照旧。
+       */
+      const bilingual = bilingualIssues(
+        { id: `第 ${i + 1} 道`, nodeIds: q.nodeIds, stemEn: q.stemEn, answerLang: q.answerLang } as Question,
+        state.knowledge.index,
+      );
+      if (bilingual.length) {
+        issues.push({ index: i, problem: `${bilingual[0]}，题目未入库` });
+        continue;
+      }
       let problemTypeId = q.problemTypeId;
       if (problemTypeId && !state.knowledge.problemTypes.some((p) => p.id === problemTypeId)) {
         issues.push({ index: i, problem: `未知题型 ${problemTypeId}，已清除该字段` });
@@ -368,6 +385,8 @@ export function ingestRoutes(state: AppState): Hono {
         nodeIds: q.nodeIds,
         level: q.level,
         stem: q.stem,
+        ...(q.stemEn ? { stemEn: q.stemEn } : {}),
+        ...(q.answerLang ? { answerLang: q.answerLang } : {}),
         options: q.options,
         answer: q.answer,
         // 模型标的类型不可信（实测 120 道里 19 道标错），按答案本身推
