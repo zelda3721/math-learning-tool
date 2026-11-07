@@ -11,6 +11,8 @@ export interface LessonOption {
     nodeId: string
     name: string
     stage: string
+    /** 学科：界面按它分组（英语课不分组就永远排在数学课后面，翻不到） */
+    subject: string
     questionCount: number
 }
 

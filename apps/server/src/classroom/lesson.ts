@@ -3,6 +3,18 @@ import type { GraphIndex } from "@mathtutor/knowledge";
 import { buildPauseContext, redactAnswers } from "@mathtutor/core";
 import { practiceReady, type QuestionStore } from "../questions.js";
 import type { Question } from "@mathtutor/schema";
+import { composeGrammarLesson } from "./englishLesson.js";
+
+/**
+ * 这是不是一节语法单元课。
+ *
+ * 认 id 前缀 `en:grammar-`，而不是"英语学科的节点"：英语图里还有一类
+ * 「数学里的英语说法」词汇节点（`en:money-words` 等），那是**跨学科**内容，
+ * 按数学课的方式讲（它讲的是用法与数量关系），不该套语法课的拍序。
+ */
+export function isGrammarNode(node: Pick<KnowledgeNode, "id" | "subject">): boolean {
+  return node.id.startsWith("en:grammar-");
+}
 
 /**
  * 组课（compose 模式）：知识节点 + 题库 → 一节可以离线讲完的课。
@@ -107,6 +119,9 @@ export function composeLesson(
 ): ComposedLesson | null {
     const node: KnowledgeNode | undefined = index.getNode(nodeId)
     if (!node) return null
+    // 英语语法单元讲的是"这个形式长什么样"，不是"这个结论怎么来的"：
+    // 拍序、图元、能不能剔答案都不一样，所以各自组各自的课（见 englishLesson.ts）
+    if (isGrammarNode(node)) return composeGrammarLesson(node, store)
 
     const question = pickLessonQuestion(store, nodeId)
     const answers = lessonAnswers(question)
@@ -178,18 +193,26 @@ export function pauseContextFor(lesson: ComposedLesson): string {
 export function availableLessons(
     index: GraphIndex,
     store: QuestionStore,
-    limit = 24,
-): { nodeId: string; name: string; stage: string; questionCount: number }[] {
-    const out: { nodeId: string; name: string; stage: string; questionCount: number }[] = []
+    limit = 200,
+): { nodeId: string; name: string; stage: string; subject: string; questionCount: number }[] {
+    const out: { nodeId: string; name: string; stage: string; subject: string; questionCount: number }[] = []
     for (const node of index.graph.nodes) {
         const count = (store.byNode.get(node.id) ?? []).filter(practiceReady).length
         if (count === 0) continue
-        out.push({ nodeId: node.id, name: node.name, stage: node.stage, questionCount: count })
+        // subject 跟着课走：界面要按学科分组，否则英语课永远排在数学课后面，翻不到
+        out.push({ nodeId: node.id, name: node.name, stage: node.stage, subject: node.subject, questionCount: count })
     }
-    // 先给孩子最小学段的（课堂从低年级开始最稳），同段按题量多的在前
-    const order = ["elementary_lower", "elementary_upper", "middle", "high", "advanced"]
+    /*
+     * 先给孩子最小学段的（课堂从低年级开始最稳），同段按题量多的在前。
+     *
+     * 学段顺序取**图谱里声明的 order**，不写死一张表：写死的那张表用的是题目难度词
+     * （`elementary_lower`…），而节点的学段是 `primary / junior / senior / university`，
+     * 两套词一个都对不上——于是所有课排到同一个等级，英语语法那种后来的学科稳定沉底。
+     */
+    const stageOrder = new Map<string, number>((index.graph.stages ?? []).map((s) => [s.id, s.order]))
+    const rank = (stage: string): number => stageOrder.get(stage) ?? Number.MAX_SAFE_INTEGER
     out.sort((a, b) => {
-        const byStage = (order.indexOf(a.stage) + 1 || 99) - (order.indexOf(b.stage) + 1 || 99)
+        const byStage = rank(a.stage) - rank(b.stage)
         if (byStage !== 0) return byStage
         return b.questionCount - a.questionCount
     })
