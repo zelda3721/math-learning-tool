@@ -70,6 +70,12 @@ for (const [key, view] of Object.entries(VIEWS)) {
   })
 }
 
+/**
+ * ⚠️ 这条用例**会吊销家长会话**（它真的点了退出登录、再注册孩子）。
+ * 冒烟的每个用例都带着 auth.setup 存下的同一个 cookie，所以这条只能最后跑。
+ * 规矩：任何依赖家长会话的用例，文件名要排在 views 之前（冒烟按文件名顺序执行）。
+ * 已经踩过一次：新加的 explore-widgets 排在 views 后面，一跑就掉回登录页。
+ */
 test('家长能看到全部 10 个视图入口，孩子看不到录题/题库/教材/家长', async ({ page, pageErrors }) => {
   void pageErrors
   await page.goto('/')

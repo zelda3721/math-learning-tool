@@ -37,6 +37,9 @@ importers:
       '@mathtutor/subject-math':
         specifier: workspace:*
         version: link:../../subjects/math
+      '@mathtutor/widgets':
+        specifier: workspace:*
+        version: link:../../packages/widgets
       hono:
         specifier: ^4.6.14
         version: 4.13.1
@@ -68,6 +71,9 @@ importers:
       '@mathtutor/explainer-web':
         specifier: workspace:*
         version: link:../../packages/explainer-web
+      '@mathtutor/widgets':
+        specifier: workspace:*
+        version: link:../../packages/widgets
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.3.3(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
@@ -244,6 +250,18 @@ importers:
       vitest:
         specifier: ^2
         version: 2.1.9(@types/node@24.13.3)(lightningcss@1.32.0)
+
+  packages/widgets:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
   subjects/english:
     dependencies:
