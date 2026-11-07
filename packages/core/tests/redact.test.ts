@@ -4,6 +4,9 @@ import { REDACTED, buildPauseContext, leaksAnswer, redactAnswers } from "../src/
 /**
  * 防喂答案（宪法第 2 条）。不是"提示模型别说答案"——那种要求靠不住，
  * 模型会换个说法。这里做的是硬剔除：上下文送进去之前，答案就已经不在了。
+ *
+ * 这一份原本在 classroom-runtime 里。挪到内核是因为课堂提问、教材组课、
+ * 将来的口语纠错都要用它，两边各写一份迟早出现"这边剔了那边没剔"。
  */
 
 describe("剔除答案", () => {
