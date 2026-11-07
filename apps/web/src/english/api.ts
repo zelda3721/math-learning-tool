@@ -152,6 +152,8 @@ export function postVocabAnswer(payload: {
     wordId: string
     answer: string
     direction: VocabDirection
+    /** 「再记一次」的重写：服务端据此不推进 SM-2（进度不动） */
+    retry?: boolean
 }): Promise<VocabAnswerResult> {
     return postJson<VocabAnswerResult>('/api/v1/en/vocabulary/answer', payload)
 }

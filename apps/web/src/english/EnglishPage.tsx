@@ -178,6 +178,13 @@ function VocabTab({
         example?: string
     } | null>(null)
     const [submitting, setSubmitting] = useState(false)
+    /**
+     * 这张卡是不是"看过答案之后再写一次"。
+     *
+     * 重写这一次的"对"不是提取出来的，所以上报时要标 retry=True，
+     * 让服务端**不要**拿它推进 SM-2——不然等于用开卷考试的成绩决定什么时候复习。
+     */
+    const [retryingCard, setRetryingCard] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -208,6 +215,7 @@ function VocabTab({
                 wordId: task.card.id,
                 answer: trimmed,
                 direction: task.direction,
+                ...(retryingCard ? { retry: true } : {}),
             })
             setSession((s) => vocabReducer(s, { type: 'answered', correct: res.correct }))
             setFeedback({ correct: res.correct, reference: res.reference, example: res.example })
@@ -223,9 +231,11 @@ function VocabTab({
         setAnswer('')
         setFeedback(null)
         setError(null)
+        setRetryingCard(false)
     }
 
     const retry = () => {
+        setRetryingCard(true)
         setSession((s) => vocabReducer(s, { type: 'retry' }))
         setAnswer('')
         setFeedback(null)
@@ -270,7 +280,10 @@ function VocabTab({
                             明天这些词会再来一遍——再认出来一次，才算真的记住。
                         </p>
                     )}
-                    <p className="text-xs text-ink-faint">{today.note}</p>
+                    {session.queue.length === 0 && (
+                        /* 没词可练时，上面那块统计说的也是同一句话，这里再说一次是为了不让人以为页面坏了 */
+                        <p className="text-xs text-ink-faint">{today.note}</p>
+                    )}
                     <div className="flex flex-wrap justify-center gap-2 pt-2">
                         <Button variant="secondary" onClick={onReload}>
                             看一眼今天的词
