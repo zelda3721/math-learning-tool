@@ -15,6 +15,9 @@ function sanitize(q: Question) {
   return {
     id: q.id,
     stem: q.stem,
+    // 双语题的英文题面与作答语言：题面本身就是要做题的材料，必须下发
+    stemEn: q.stemEn,
+    answerLang: q.answerLang,
     options: q.options,
     answerType: q.answerType,
     difficulty: q.difficulty,

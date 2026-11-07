@@ -10,6 +10,10 @@ export type MasteryBand = 'dim' | 'glow' | 'lit'
 export interface PracticeQuestion {
     id: string
     stem: string
+    /** 双语题的英文题面：先读英文，中文当退路 */
+    stemEn?: string
+    /** 答案要用英语写出来的题 */
+    answerLang?: 'zh' | 'en'
     /** 几何题的配图规格（点线角 + 约束）；坐标由前端解算并逐条回代验证后才画 */
     /** 原题原图的文件名，走 /api/v1/figures/:name 取 */
     figureImage?: string

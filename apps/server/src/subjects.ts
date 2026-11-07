@@ -29,7 +29,15 @@ export function getSubjectRegistry(): SubjectRegistry {
  * 退到 "math" 而不是抛错：题库里存在 nodeIds 为空的临时题（提问生成的题），
  * 那些题历史上就是按数学判的，改成报错等于让一条能用得通的路突然坏掉。
  */
-export function subjectOf(question: Pick<Question, "nodeIds">, knowledge: Knowledge): string {
+export function subjectOf(
+  question: Pick<Question, "nodeIds"> & { answerLang?: Question["answerLang"] },
+  knowledge: Knowledge,
+): string {
+  /*
+   * 答案必须用英文写出来的题，按英语判：判的是"你会不会用英语表达"，
+   * 而不是"这个数算得对不对"。判卷器不同，证据等级也不同（reference）。
+   */
+  if (question.answerLang === "en") return "en";
   for (const nodeId of question.nodeIds) {
     const node = knowledge.index.getNode(nodeId);
     if (node) return node.subject;
@@ -38,7 +46,12 @@ export function subjectOf(question: Pick<Question, "nodeIds">, knowledge: Knowle
 }
 
 /** 题型 → 内核 itemType id（`math.numeric` / `en.vocab-card` …） */
-export function itemTypeOf(subject: string, question: Pick<Question, "answerType">): string {
+export function itemTypeOf(
+  subject: string,
+  question: Pick<Question, "answerType"> & { answerLang?: Question["answerLang"] },
+): string {
+  // 英文作答的题不是数学那种 numeric/expression，走英语包里的文本类题型
+  if (question.answerLang === "en") return "en.vocab-card";
   return `${subject}.${question.answerType}`;
 }
 
