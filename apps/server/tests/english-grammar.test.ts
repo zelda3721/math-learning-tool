@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { GraphSchema, LinksFileSchema } from "@mathtutor/schema";
+import { GraphSchema, LinksFileSchema, QuestionSchema, type Question } from "@mathtutor/schema";
 import { SUBJECT_GRAPH_PATHS } from "../src/subjectGraphs.js";
+import { createSubjectRegistry, itemTypeOf, judgeAnswer, subjectOf } from "../src/subjects.js";
+import { bilingualIssues, loadQuestionFiles } from "../src/questions.js";
+import { knowledge } from "./helpers.js";
 
 /**
  * 英语语法主线（由教材单元结构确定性生成）。
@@ -61,5 +64,54 @@ describe("英语语法图", () => {
 
   it("服务器加载清单里有它（少挂一处，界面上就看不到这条主线）", () => {
     expect(SUBJECT_GRAPH_PATHS.some((file) => file.endsWith("grammar.graph.json"))).toBe(true);
+  });
+});
+
+const bankPath = fileURLToPath(
+  new URL("../../../data/knowledge/questions/2026-11-06-english-grammar.json", import.meta.url),
+);
+const bank: Question[] = (JSON.parse(readFileSync(bankPath, "utf8")) as unknown[]).map((raw) =>
+  QuestionSchema.parse(raw),
+);
+
+describe("英语语法题能判、也能进库", () => {
+  const registry = createSubjectRegistry();
+
+  it("题挂在语法节点上，按学科归属解析成英语，题型是语法填空", () => {
+    for (const q of bank) {
+      expect(subjectOf(q, knowledge), q.id).toBe("en");
+      expect(itemTypeOf("en", q), q.id).toBe("en.gap-fill");
+    }
+  });
+
+  it("单学科英语题不被双语规矩拦（全是英语节点，不需要再挂英文题面）", () => {
+    for (const q of bank) expect(bilingualIssues(q, knowledge.index), q.id).toEqual([]);
+  });
+
+  it("题库加载零问题：没有悬挂知识点、没有重复", () => {
+    const { questions, issues } = loadQuestionFiles(
+      fileURLToPath(new URL("../../../data/knowledge/questions", import.meta.url)),
+      knowledge.index,
+    );
+    expect(issues).toEqual([]);
+    expect(questions.length).toBeGreaterThanOrEqual(bank.length);
+  });
+
+  it("判卷走 en.gap-fill：大小写与句末标点不影响，写错就是错", async () => {
+    const q = bank.find((x) => x.id === "en-grammar-01")!;
+    const right = await judgeAnswer(registry, knowledge, q, "AM ");
+    expect(right).toMatchObject({ correct: true, method: "accepted-set", verification: "reference" });
+    const wrong = await judgeAnswer(registry, knowledge, q, "is");
+    expect(wrong.correct).toBe(false);
+    expect(wrong.feedback).toContain("am");
+  });
+
+  it("参考答案写了几种写法，就认几种（don't like / do not like）", async () => {
+    const q = bank.find((x) => x.stem.includes("coffee"))!;
+    for (const answer of ["don't like", "Do not like.", "DON'T LIKE"]) {
+      const verdict = await judgeAnswer(registry, knowledge, q, answer);
+      expect(verdict.correct, answer).toBe(true);
+    }
+    expect((await judgeAnswer(registry, knowledge, q, "not like")).correct).toBe(false);
   });
 });
