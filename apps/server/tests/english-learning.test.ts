@@ -206,6 +206,56 @@ describe("接口", () => {
     expect(right.evidence).toContain("seven o'clock");
   });
 
+  it("重答（再记一次）不推进 SM-2：看过答案后的\"对\"不能当排期依据", async () => {
+    const { app, repo } = makeApp([]);
+    const learner = repo.createLearner("小测", "elementary_upper");
+    const call = (body: Record<string, unknown>) =>
+      app.request("/api/v1/en/vocabulary/answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ learnerId: learner.id, wordId: "w-apple", direction: "zh2en", ...body }),
+      });
+
+    // 先答错：进度记下这一次，排到明天
+    const wrong = (await (await call({ answer: "banana" })).json()) as { progress: { stage: number } };
+    expect(wrong.progress.stage).toBe(0);
+
+    // 再记一次答对：判卷说对，但进度不动（progress 为 null，明确不是"升级"）
+    const retry = (await (await call({ answer: "apple", retry: true })).json()) as {
+      correct: boolean;
+      progress: unknown;
+      retry: boolean;
+    };
+    expect(retry.correct).toBe(true);
+    expect(retry.retry).toBe(true);
+    expect(retry.progress).toBeNull();
+
+    // 事件里标了 retry，家长回看能分辨"这次是照着答案写的"
+    const events = repo.listEvents(learner.id, "vocab-answer");
+    expect(events.some((e) => (e.payload as { retry?: boolean }).retry === true)).toBe(true);
+  });
+
+  it("阅读接口也受模块开关管：关掉英语，列表与作答都 403", async () => {
+    writeFileSync(path.join(dir, "reading", "a1-test.json"), JSON.stringify({
+      id: "r-a1-test", title: "A Test", level: "A1",
+      text: "Tom gets up at seven o'clock.",
+      questions: [{ id: "q1", prompt: "What time?", answer: "seven", evidence: "Tom gets up at seven o'clock." }],
+    }), "utf8");
+    const { app, repo } = makeApp([]);
+    const learner = repo.createLearner("小测", "elementary_upper");
+    repo.setLearnerPrefs(learner.id, { modules: { english: false } });
+
+    const list = await app.request(`/api/v1/en/reading/list?learnerId=${learner.id}`);
+    expect(list.status).toBe(403);
+
+    const answer = await app.request("/api/v1/en/reading/answer", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ learnerId: learner.id, passageId: "r-a1-test", questionId: "q1", answer: "seven" }),
+    });
+    expect(answer.status).toBe(403);
+  });
+
   it("家长关掉英语模块：入口 403，且说的话孩子看得懂", async () => {
     const { app, repo } = makeApp([]);
     const learner = repo.createLearner("小测", "elementary_upper");

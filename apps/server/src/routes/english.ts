@@ -21,6 +21,14 @@ const VocabAnswerSchema = z.object({
   wordId: z.string().min(1),
   answer: z.string().max(120),
   direction: z.enum(["en2zh", "zh2en"]).optional(),
+  /**
+   * 答错后「再记一次」的重答。
+   *
+   * 重答**不推进 SM-2**：孩子刚看过参考答案，这一次的"对"不是提取出来的，
+   * 拿它当间隔排期的依据，等于用开卷考试的成绩决定什么时候再复习。
+   * 判卷照常返回，进度停在答错那一步（明天再来）。
+   */
+  retry: z.boolean().optional(),
 });
 
 const ReadingAnswerSchema = z.object({
@@ -69,7 +77,11 @@ export function englishRoutes(state: AppState): Hono {
 
     const direction = body.direction ?? (card.id.charCodeAt(card.id.length - 1) % 2 === 0 ? "en2zh" : "zh2en");
     const verdict = judgeVocab(card, direction, body.answer);
-    const progress = recordVocabAnswer(state.repo, body.learnerId, card.id, verdict.correct);
+    const progress =
+      body.retry === true
+        ? // 重答只看这次写对没有，不动排期
+          null
+        : recordVocabAnswer(state.repo, body.learnerId, card.id, verdict.correct);
 
     // 只记"答了什么词、对没对"，不把孩子的拼写原样存进事件里（词表卡不是判卷证据链）
     state.repo.appendEvent(body.learnerId, "vocab-answer", {
@@ -77,6 +89,7 @@ export function englishRoutes(state: AppState): Hono {
       direction,
       correct: verdict.correct,
       verification: "reference",
+      ...(body.retry === true ? { retry: true } : {}),
     });
 
     return c.json({
@@ -84,6 +97,7 @@ export function englishRoutes(state: AppState): Hono {
       reference: verdict.reference,
       verification: "reference",
       progress,
+      retry: body.retry === true,
       // 答错时给例句：词要放回句子里才记得住
       example: verdict.correct ? undefined : card.example,
     });
@@ -93,6 +107,12 @@ export function englishRoutes(state: AppState): Hono {
     const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     if (!learnerId) return c.json({ error: "需要 learnerId" }, 400);
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    /*
+     * 模块开关要在**每个**入口生效，不能只挡词汇。
+     * 只挡一个的结果是：家长关掉了英语，孩子从阅读那条路照样学，
+     * 而家长以为自己关上了——比没有开关更糟。
+     */
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
 
     const answered = new Map<string, Set<string>>();
     for (const event of state.repo.listEvents(learnerId, "reading-answer")) {
@@ -131,6 +151,7 @@ export function englishRoutes(state: AppState): Hono {
     const body = parsed.data;
     body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
     if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    if (!moduleEnabled(state.repo, body.learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
 
     const passage = reading.passages.find((p) => p.id === body.passageId);
     if (!passage) return c.json({ error: "没有这篇读物" }, 404);
