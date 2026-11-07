@@ -28,6 +28,7 @@ interface ViewCase {
 
 const VIEWS: Record<string, ViewCase> = {
   practice: { nav: '练习', heading: '今日练习' },
+  classroom: { nav: '课堂', heading: '课堂' },
   ask: { nav: '问一道题', heading: '问一道题' },
   atlas: {
     nav: '星图',
@@ -62,7 +63,7 @@ for (const [key, view] of Object.entries(VIEWS)) {
 test('家长能看到全部 10 个视图入口，孩子看不到录题/题库/教材/家长', async ({ page, pageErrors }) => {
   void pageErrors
   await page.goto('/')
-  const labels = ['练习', '问一道题', '星图', '错题本', '探索', '讲解', '录题', '题库', '教材', '家长']
+  const labels = ['练习', '课堂', '问一道题', '星图', '错题本', '探索', '讲解', '录题', '题库', '教材', '家长']
   for (const label of labels) {
     await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible()
   }

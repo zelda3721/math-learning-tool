@@ -24,6 +24,7 @@ import { exploreRoutes } from "./explore.js";
 import { askRoutes } from "./ask.js";
 import { bankRoutes } from "./bank.js";
 import { textbookRoutes } from "./textbook.js";
+import { classroomRoutes } from "./classroom/routes.js";
 import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
 import type { SubjectRegistry } from "@mathtutor/core";
@@ -180,6 +181,7 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/bank", bankRoutes(state));
   // 教材编译（家长专属）：PDF 文本 → 章节 → 知识点 → 图谱候选，只出提案
   app.route("/api/v1/textbook", textbookRoutes(state));
+  app.route("/api/v1/classroom", classroomRoutes(state));
 
   /**
    * 题目原图。**不设家长门**——孩子做题时看的就是这张图，

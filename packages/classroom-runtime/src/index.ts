@@ -13,7 +13,7 @@
 export * from "./machine.js";
 export * from "./session.js";
 export * from "./persistence.js";
-export * from "./redact.js";
+// 防喂答案（redact）已挪到 @mathtutor/core：课堂不是它唯一的用户
 export * from "./degrade.js";
 export * from "./action.js";
 export * from "./types.js";

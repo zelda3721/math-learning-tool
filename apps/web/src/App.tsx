@@ -20,6 +20,7 @@ import { FreeExplainPanel } from './solve/FreeExplainPanel'
 import type { PersistedSession, SessionDetail } from './types/agent'
 import { BankPage } from './bank/BankPage'
 import { TextbookPage } from './textbook/TextbookPage'
+import { ClassroomPage } from './classroom/ClassroomPage'
 
 import {
     GradeSelector,
@@ -42,11 +43,14 @@ type AppView =
     | 'ingest'
     | 'bank'
     | 'textbook'
+    | 'classroom'
     | 'parent'
 
 /** 角色导航：孩子只看学习面，家长全量（管理员） */
 const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[] = [
     { key: 'practice', label: '练习', roles: ['parent', 'child'] },
+    // 课堂是孩子学习面的一部分：讲—停—问—回到原处，两种角色都能上
+    { key: 'classroom', label: '课堂', roles: ['parent', 'child'] },
     { key: 'ask', label: '问一道题', roles: ['parent', 'child'] },
     { key: 'atlas', label: '星图', roles: ['parent', 'child'] },
     { key: 'mistakes', label: '错题本', roles: ['parent', 'child'] },
@@ -207,7 +211,7 @@ function AuthedApp() {
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             {/* 统一顶栏：贴合纸面的横轨 —— logo · 角色导航 · 用户区 */}
             <header className="top-rail sticky top-0 z-50 mb-6">
-                <div className="mx-auto max-w-6xl px-4 md:px-6 h-16 md:h-[4.5rem] flex items-center gap-3">
+                <div className="mx-auto max-w-6xl px-4 md:px-6 min-h-16 md:min-h-[4.5rem] py-2 flex items-center gap-3">
                     {/* 标识锁定：方章 + 字标，口号在字标正下方另起一行。
                         排成一行时它把顶栏挤出了横向滚动条——竖排比横排窄一截，
                         顶栏也随之加高到 72px 容下两行。 */}
@@ -219,6 +223,8 @@ function AuthedApp() {
                             <span className="font-bold text-lg text-ink tracking-tight">
                                 Math<span className="text-beam">Tutor</span>
                             </span>
+                            {/* 口号在窄屏让位给导航（原本 lg 就显示）：11 个入口在
+                                1280 宽时已经装不下一行，口号与入口抢的正是同一段横向空间 */}
                             <span
                                 className="hidden lg:block text-[11px] text-ink-faint whitespace-nowrap mt-1"
                                 aria-hidden="true"
@@ -228,36 +234,38 @@ function AuthedApp() {
                         </div>
                     </div>
 
-                    {/* min-w-0 是关键：flex 子项默认 min-width:auto，装不下时会把整条顶栏
-                        撑宽而不是让 overflow-x-auto 生效——那正是横向滚动条的来源。 */}
-                    <nav className="flex-1 min-w-0 flex items-center justify-center gap-1 overflow-x-auto">
+                    {/* 装不下时**换行**，不横向滚动：入口是用来点的，滚到屏幕外等于没有。
+                        之前用 overflow-x-auto + justify-center，溢出时最左边那颗按钮会被
+                        推到导航区之外、压在 logo 底下——看着还在，实际点不动
+                        （实机：加了「课堂」之后「练习」正好撞上）。 */}
+                    <nav className="flex-1 min-w-0 flex flex-wrap items-center justify-center gap-1">
                         {navItems.map(({ key, label }) => (
-                            <button
-                                key={key}
-                                type="button"
-                                onClick={() => setView(key)}
-                                className={`px-3.5 md:px-4 py-1.5 rounded-[10px] text-sm font-semibold whitespace-nowrap transition-colors ${
-                                    view === key
-                                        ? 'bg-beam text-white'
-                                        : 'text-ink-soft hover:text-ink hover:bg-paper'
-                                }`}
-                            >
-                                {label}
-                                {/* 有作答等着家长判，导航上就得看得见——
-                                    不然孩子那句"已交给家长确认"就没有下文了 */}
-                                {key === 'parent' && pendingVerdicts > 0 && (
-                                    <span
-                                        className={`ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold numeric ${
-                                            view === key
-                                                ? 'bg-white/25 text-white'
-                                                : 'bg-wrong text-white'
-                                        }`}
-                                    >
-                                        {pendingVerdicts}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setView(key)}
+                                    className={`px-3.5 md:px-4 py-1.5 rounded-[10px] text-sm font-semibold whitespace-nowrap transition-colors ${
+                                        view === key
+                                            ? 'bg-beam text-white'
+                                            : 'text-ink-soft hover:text-ink hover:bg-paper'
+                                    }`}
+                                >
+                                    {label}
+                                    {/* 有作答等着家长判，导航上就得看得见——
+                                        不然孩子那句"已交给家长确认"就没有下文了 */}
+                                    {key === 'parent' && pendingVerdicts > 0 && (
+                                        <span
+                                            className={`ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold numeric ${
+                                                view === key
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-wrong text-white'
+                                            }`}
+                                        >
+                                            {pendingVerdicts}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
                     </nav>
 
                     <div className="flex items-center gap-2 shrink-0">
@@ -322,6 +330,12 @@ function AuthedApp() {
             {view === 'bank' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <BankPage />
+                </main>
+            )}
+
+            {view === 'classroom' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <ClassroomPage />
                 </main>
             )}
 
