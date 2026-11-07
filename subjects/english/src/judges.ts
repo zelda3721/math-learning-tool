@@ -23,9 +23,20 @@ export const ITEM_TYPES: ItemTypeDef[] = [
   },
 ];
 
-/** 判卷用的规范化：只收拾大小写、首尾空白与连续空格；**不纠正拼写错误** */
+/**
+ * 判卷用的规范化：收拾大小写、首尾空白、连续空格与**句末标点**；
+ * **不纠正拼写错误，也不合并单复数**。
+ *
+ * 句末标点必须去掉：孩子答 `three quarters.` 与答 `three quarters` 是同一件事，
+ * 因为一个句号判错只会教他"别写标点"。而 `quarter` 与 `quarters` 仍然算不一样——
+ * 单复数本身就是这道题要考的东西（见下面词汇卡的注释）。
+ */
 export function normalizeEnglish(raw: string): string {
-  return raw.trim().toLowerCase().replace(/\s+/g, " ");
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.。!！?？,，;；'"“”‘’]+|[\s.。!！?？,，;；'"“”‘’]+$/g, "");
 }
 
 /**

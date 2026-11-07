@@ -134,6 +134,21 @@ export const QuestionSchema = z.object({
   nodeIds: z.array(z.string()),
   level: z.enum(["elementary_lower", "elementary_upper", "middle", "high", "advanced"]),
   stem: z.string(),
+  /**
+   * 英文题面（双语题）。
+   *
+   * 同一道题给两种语言，不是两套课程并排：孩子先读英文题面，用它把数读出来、
+   * 把关系想清楚，再动笔算——这一步就是「综合运用」。中文题干留着当退路：
+   * 读不懂英文时不该整道题都做不了。
+   */
+  stemEn: z.string().optional(),
+  /**
+   * 作答语言：`en` 时按英语判卷（词汇/短语类，如 three quarters）。
+   *
+   * 不靠猜：一道题的题面有英文、答案却仍然是数字，那是"读英文算数学"；
+   * 只有答案本身要用英文写出来，才轮到英语判卷器。
+   */
+  answerLang: z.enum(["zh", "en"]).optional(),
   options: z.array(z.string()).optional(),
   answer: z.string(),
   answerType: z.enum(["numeric", "expression", "steps"]),

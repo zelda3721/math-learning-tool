@@ -10,6 +10,7 @@ import {
     type MasteryChange,
     type TodayItem,
 } from './api'
+import { Badge } from '../ui'
 import { SlotBadge } from './badges'
 import { DiagnosisCard } from './DiagnosisCard'
 import { ExplanationView } from './ExplanationView'
@@ -297,7 +298,20 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {/* 题干 */}
             {/* 题干里带 LaTeX（分数、根号、角度）是常事——不走渲染，
                 孩子看到的就是 `50\frac{1}{4}` 这样的源码 */}
-            <p className="stem"><MathText>{q.stem}</MathText></p>
+            {/* 双语题：英文题面在前，中文在后当退路。先读英文再用母语确认，
+                这一步才是「综合运用」；中文藏起来会让读不懂的孩子整题卡住 */}
+            {q.stemEn && (
+                <div className="mb-2">
+                    <p className="stem"><MathText>{q.stemEn}</MathText></p>
+                    <p className="mt-1 text-xs text-ink-faint">
+                        <Badge tone="sky">英文题面</Badge>
+                        {q.answerLang === 'en' && <span className="ml-2">用英语作答</span>}
+                    </p>
+                </div>
+            )}
+            <p className={q.stemEn ? 'stem text-sm text-ink-soft' : 'stem'}>
+                <MathText>{q.stem}</MathText>
+            </p>
 
             {/* 配图：几何题的图是题面的一部分，没有它读不懂题 */}
             {/* 原图优先：孩子看的应当是讲义上那张图本身。
