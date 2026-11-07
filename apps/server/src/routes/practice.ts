@@ -8,6 +8,8 @@ import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../m
 import { makeHint } from "../hint.js";
 import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
+import { practiceReady } from "../questions.js";
+import { checkChatBudget } from "../chatBudget.js";
 import { advanceReviewCard, ensureReviewCard } from "../review.js";
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（不喂答案从协议层做起） */
@@ -61,6 +63,20 @@ export function practiceRoutes(state: AppState): Hono {
     const { count } = parsed.data;
     const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    /*
+     * 时长上限在**开始一组练习之前**拦：聊完再做题也一样算使用时间。
+     * 拦在入口而不是每条 submit 上——半组题被掐断，孩子只会以为自己出错了。
+     */
+    const budget = checkChatBudget(state.repo, learnerId);
+    if (!budget.allowed) {
+      return c.json(
+        {
+          error: `今天的时间用完了（每天 ${budget.limitMinutes} 分钟）。明天再来，或者先去和家长说一声。`,
+          budget,
+        },
+        429,
+      );
+    }
     const composed = composeToday(state.questions, state.knowledge.index, state.repo, learnerId, { count });
     return c.json({
       items: composed.map((item) => ({
@@ -235,6 +251,15 @@ export function practiceRoutes(state: AppState): Hono {
       }
     }
     const pending = result.method === "pending";
+    /*
+     * 题目本身可不可信，和"判卷判得准不准"是两件事，但都会让一条证据作废。
+     *
+     * `answerUnverified`（参考答案是模型自己算的、还没人核对）的题，本该由
+     * practiceReady 挡在选题那一侧；可这条路由按 id 取题，绕过了选题。所以在这里
+     * 再挡一次：作答照常记录（孩子做过的痕迹不能丢），但**不进掌握度、不推进 SM-2**，
+     * 一律进家长抽检。少了这一句，变式题那条路上漏标的题会直接从侧门点亮节点。
+     */
+    const untrustedQuestion = !practiceReady(question);
     const attempt = state.repo.insertAttempt({
       learnerId: body.learnerId,
       questionId: body.questionId,
@@ -243,7 +268,7 @@ export function practiceRoutes(state: AppState): Hono {
       hintLevelUsed: body.hintLevelUsed as 0 | 1 | 2 | 3,
       source: body.source,
       durationS: body.durationS,
-      needsReview: pending || !result.hasJudge,
+      needsReview: pending || !result.hasJudge || untrustedQuestion,
       verification: result.verification,
     });
     if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
@@ -251,11 +276,12 @@ export function practiceRoutes(state: AppState): Hono {
     /*
      * 一条证据到底算不算数，**只在这里判一次**。
      *
-     * 不算数的两种情形：判不准（pending，等家长裁决）、以及只有 AI 判断
-     * （ai_unverified）。两者都不进掌握度、不推进 SM-2、不回填探针证据——
+     * 不算数的三种情形：判不准（pending，等家长裁决）、只有 AI 判断
+     * （ai_unverified）、以及题目自己的参考答案没人核对过（untrustedQuestion）。
+     * 三者都不进掌握度、不推进 SM-2、不回填探针证据——
      * 否则"不算数的证据"会从侧门把知识推动了，只是看不见而已。
      */
-    const counted = !pending && countsTowardMastery(attempt.verification);
+    const counted = !pending && !untrustedQuestion && countsTowardMastery(attempt.verification);
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
     if (counted) {
       for (const nodeId of question.nodeIds) {
@@ -302,7 +328,7 @@ export function practiceRoutes(state: AppState): Hono {
       attemptId: attempt.id,
       correct: result.correct,
       method: result.method,
-      needsReview: pending,
+      needsReview: pending || !result.hasJudge || untrustedQuestion,
       // 让界面能如实标注"AI 判断，未验证"，而不是悄悄给一个对勾
       verification: attempt.verification,
       countedTowardMastery: counted,

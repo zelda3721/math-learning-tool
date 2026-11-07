@@ -9,11 +9,18 @@ import { appendQuestions, contentHashOf, practiceReady } from "./questions.js";
 /**
  * 变式题供给（宪法第 1、3 条的执行机制，设计 §06）：
  * ① 题库检索（variantOf 组 / 同题型 / 同节点，难度相近，没做对过）
- * ② LLM 参数化改造（限 numeric/expression；生成题入库标 generated，进家长抽检）
+ * ② LLM 参数化改造（限 numeric/expression）。**只做得进抽检队列的候选，
+ *    不能当场当成交式门的凭据**：模型给自己的答案，没人核对过就不算数
+ *    （见 answerUnverified 那一段）。核对过之后它才是一道正常题。
  * ③ 都不可用 → null（调用方把点亮推迟到复习队列）
  */
 
 export type VariantResult =
+  /**
+   * `generated` 仅表示"这道题来自模型生成"这个来历，**它不会作为变式门的凭据下发**：
+   * 生成的题答案还没人核对，practiceReady 不放行，见下方 ②。
+   * 保留这个取值的用途是给调用方区分"题库原题"与"模型出的题"（抽检、统计）。
+   */
   | { kind: "bank" | "generated"; question: Question }
   | { kind: "none" };
 
@@ -78,13 +85,32 @@ export async function getVariant(args: {
             source: { role: "generated" },
             variantOf: original.id,
             contentHash: contentHashOf(parsed.stem, parsed.answer),
+            /*
+             * 答案是模型自己算的，**必须标出来**。
+             *
+             * 这条线是本模块最容易走错的一步：变式题存在的意义就是"做对才算懂"，
+             * 而它的参考答案如果没人核对过，"做对"这个判定本身就悬空——
+             * 孩子会被一个算错的参考值判错，掌握度却按这次作答改写。
+             * 同一条规矩在抽题那边已经守着了（见 questions.ts 的 practiceReady），
+             * 这里以前漏了：入库时不标 answerUnverified，判卷器就一律按 executable
+             * 记账，等于让模型的算术去点亮节点。
+             *
+             * 标上之后 practiceReady 会挡住它：这孩子今天的点亮走 ③（推迟到复习卡），
+             * 题目留在库里等家长核对，核对过才发得出去。
+             */
+            answerUnverified: true,
             status: "extracted", // 生成题进家长抽检（初期全量复核，设计 §10）
           });
           if (candidate.success) {
             const { written } = appendQuestions(dataDir, "generated-variants", [candidate.data], store);
             if (written.length) {
               store.reload();
-              return { kind: "generated", question: candidate.data };
+              // 只进家长抽检队列，不当成交式门的凭据：这道题今天不给这个孩子。
+              repo.appendEvent(learnerId, "variant_generated", {
+                questionId: candidate.data.id,
+                variantOf: original.id,
+                why: "答案由模型给出、尚无核对，不进变式门",
+              });
             }
           }
         }

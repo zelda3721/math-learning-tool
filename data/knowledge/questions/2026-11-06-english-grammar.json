@@ -55,9 +55,9 @@
     "level": "elementary_upper",
     "difficulty": 2,
     "stem": "改成问句，填第一个词：___ you married?",
-    "answer": "Are / is",
+    "answer": "Are",
     "answerType": "expression",
-    "contentHash": "58255a465a51d506",
+    "contentHash": "f5fc34e5a560df67",
     "status": "extracted",
     "source": {
       "role": "manual"

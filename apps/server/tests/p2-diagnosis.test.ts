@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildChain, diagnoseMistake, backfillProbeEvidence } from "../src/diagnosis.js";
 import { getVariant } from "../src/variant.js";
 import { knowledge, makeApp, makeQuestion, NODE_A } from "./helpers.js";
+import { practiceReady } from "../src/questions.js";
 
 /** 找一个有前置链的节点做 fixture：node -> prereq */
 const nodeWithPrereq = knowledge.graph.nodes.find((n) => n.prerequisites.length > 0)!;
@@ -123,7 +124,7 @@ describe("getVariant supply chain", () => {
     if (result.kind !== "none") expect(result.question.id).toBe("v2");
   });
 
-  it("generates via LLM when bank empty; generated question lands in store as extracted", async () => {
+  it("模型生成的变式题进库等抽检，但**不拿它当变式门的凭据**", async () => {
     const env = makeApp([makeQuestion({ id: "solo", nodeIds: [NODE_A], stem: "孤题：3+4=?", answer: "7" })]);
     const learner = env.repo.createLearner("生成生", "elementary_upper");
     const genLlm = { generate: async () => '{"stem":"小狗有 5 根骨头，又得到 4 根，现在有几根？","answer":"9"}' };
@@ -132,13 +133,17 @@ describe("getVariant supply chain", () => {
       learnerId: learner.id, questionId: "solo",
     });
     if ("error" in result) throw new Error(result.error);
-    expect(result.kind).toBe("generated");
-    if (result.kind !== "none") {
-      expect(result.question.variantOf).toBe("solo");
-      const stored = env.store.byId.get(result.question.id)!;
-      expect(stored.status).toBe("extracted"); // 进家长抽检
-      expect(stored.source.role).toBe("generated");
-    }
+    /*
+     * 生成的答案是模型自己算的，没人核对过（见 variant.ts 的 answerUnverified）。
+     * 拿它判孩子"做对没做对"，等于让模型的算术去点亮节点，所以当场降级到复习队列。
+     */
+    expect(result.kind).toBe("none");
+
+    const generated = env.store.all.find((q) => q.source.role === "generated")!;
+    expect(generated.variantOf).toBe("solo");
+    expect(generated.status).toBe("extracted"); // 进家长抽检
+    expect(generated.answerUnverified).toBe(true);
+    expect(practiceReady(generated)).toBe(false);
   });
 
   it("degrades to review queue when nothing available", async () => {

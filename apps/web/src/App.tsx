@@ -7,6 +7,8 @@ import { useAgentRun } from './hooks/useAgentRun'
 import { SLOGAN } from './brand'
 import { useAuth } from './auth/AuthContext'
 import { useLearner } from './learner/LearnerContext'
+import { useActiveUsage } from './usage/useActiveUsage'
+import { UsageBadge } from './usage/UsageBadge'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
@@ -113,6 +115,8 @@ function AuthedApp() {
     const role = user?.role ?? 'child'
     const navItems = NAV_ITEMS.filter((item) => item.roles.includes(role))
     const { learner } = useLearner()
+    // 使用时长：只在标签页可见时计时，服务端按真实流逝封顶（见 routes/usage.ts）
+    const usage = useActiveUsage(learner?.id)
     // 待批改只对家长有意义——孩子不该给自己判卷
     const pendingVerdicts = usePendingVerdicts(role === 'parent', learner?.id)
 
@@ -269,6 +273,7 @@ function AuthedApp() {
                     </nav>
 
                     <div className="flex items-center gap-2 shrink-0">
+                        <UsageBadge usage={usage} role={role} />
                         {view === 'solve' && (
                             <button
                                 type="button"
