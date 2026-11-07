@@ -206,6 +206,12 @@ export class Repo {
   /**
    * 记一条记忆。同一 `dedupeKey` 已有则累加计数并刷新时间——
    * 一件事反复发生不代表要记十条，记一条、数次数才是人读得懂的形态。
+   *
+   * **删过的条目不再复活**（`WHERE tutor_memories.deleted_at IS NULL`）。
+   * 记忆是每轮对话前重新派生的，UPSERT 里那个 `deleted_at = NULL` 曾让家长删掉的记忆
+   * 下一次对话就原样回来——"删了就真的不再被召回"这条承诺当场作废。
+   * 现在墓碑挡住后续写入：数据再怎么证明同一件事，它也不会重新出现。
+   * 家长要恢复某条记忆，只能靠新增一条不同的记忆，不能靠"删错"来碰运气。
    */
   rememberMemory(input: {
     learnerId: string;
@@ -222,8 +228,8 @@ export class Repo {
          ON CONFLICT(learner_id, dedupe_key) DO UPDATE SET
            text = excluded.text,
            hit_count = tutor_memories.hit_count + 1,
-           updated_at = excluded.updated_at,
-           deleted_at = NULL`,
+           updated_at = excluded.updated_at
+         WHERE tutor_memories.deleted_at IS NULL`,
       )
       .run(randomUUID(), input.learnerId, input.kind, input.text, input.dedupeKey, input.source, now, now);
   }

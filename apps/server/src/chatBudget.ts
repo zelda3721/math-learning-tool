@@ -3,9 +3,19 @@ import type { EducationLevel } from "@mathtutor/schema";
 import type { Repo } from "./repo.js";
 
 /**
- * 每日对话时长的记账与闸。
+ * 每日使用时长的记账与闸。
  *
- * 记法是「每轮对话结束后写一条 `chat-usage` 事件」，而不是维护一张累计表：
+ * **记的是孩子的使用时间，不是模型的推理时间。**
+ * 早先每轮对话结束后记的是 `Date.now() - startedAt`，那是服务端等模型的时间：
+ * 孩子盯着屏幕一小时，可能只被记成几十秒，上限永远也到不了。现在由前端的
+ * 活跃心跳上报（只在标签页可见时计时），服务端按真实流逝时间封顶，见
+ * `recordActiveUsage` 与 `routes/usage.ts`。
+ *
+ * 事件类型的沿革：`chat-usage` 是心跳之前的旧记录（那时只记对话），
+ * `active-usage` 是现在的记录。两者都算进"今天用了多少"——升级当天的旧记录
+ * 不该凭空消失；写入只有 `active-usage` 一条路，不会重复计。
+ *
+ * 记法是「一段时间写一条事件」，而不是维护一张累计表：
  * - 事件本身就是审计（家长看得到"今天几点聊了多久"），累计表只有一个数字，
  *   说不清是怎么攒出来的；
  * - 跨天边界靠事件时间戳自然处理，不需要半夜跑一个清零任务；
@@ -47,15 +57,17 @@ export function chatLimitOf(repo: Repo, learnerId: string): { limitMinutes: numb
 
 /** 今天已用掉的秒数（四舍五入到分钟只用于展示，判定按秒） */
 export function usedChatSecondsToday(repo: Repo, learnerId: string, now = new Date()): number {
-  const since = startOfToday(now);
-  return repo
-    .listEvents(learnerId, "chat-usage")
-    .filter((event) => new Date(event.ts).getTime() >= since)
-    .reduce((sum, event) => {
+  const sinceMs = startOfToday(now);
+  let total = 0;
+  for (const type of ["chat-usage", "active-usage"]) {
+    for (const event of repo.listEvents(learnerId, type)) {
+      if (new Date(event.ts).getTime() < sinceMs) continue;
       const payload = event.payload as { seconds?: unknown } | null;
       const seconds = typeof payload?.seconds === "number" ? payload.seconds : 0;
-      return sum + Math.max(0, seconds);
-    }, 0);
+      total += Math.max(0, seconds);
+    }
+  }
+  return total;
 }
 
 export function checkChatBudget(repo: Repo, learnerId: string, now = new Date()): ChatBudget {
@@ -65,11 +77,38 @@ export function checkChatBudget(repo: Repo, learnerId: string, now = new Date())
   return { allowed, usedMinutes, limitMinutes, remainingMinutes: Math.round(remainingMinutes * 10) / 10, source };
 }
 
-/** 记一轮对话的时长。**只记时长，不记内容**：内容该留的地方在对话本身。 */
+/** 记一轮对话的时长（旧口径：只有对话那条线在记，保留给既有调用与审计）。 */
 export function recordChatUsage(repo: Repo, learnerId: string, seconds: number): void {
   const rounded = Math.max(0, Math.round(seconds));
   if (rounded === 0) return;
   repo.appendEvent(learnerId, "chat-usage", { seconds: rounded });
+}
+
+/**
+ * 心跳报上来的**使用时间**（毫秒精度到秒）。
+ *
+ * 为什么不直接信客户端：孩子（或者只是页面卡住重发）能把 seconds 报成任何数。
+ * 所以每个孩子记一个上次上报的时刻，这次最多认"真实流逝了多久"——
+ * 空闲时页面不计时，报上来的本来就小于流逝时间；而想多报也超不过墙上时钟。
+ * 上限 300 秒一条，防止一次补报把半天算成一天。
+ */
+const lastReportAt = new Map<string, number>();
+
+export function recordActiveUsage(
+  repo: Repo,
+  learnerId: string,
+  seconds: number,
+  nowMs = Date.now(),
+): { recorded: number; rejected: boolean } {
+  const last = lastReportAt.get(learnerId);
+  const elapsed = last === undefined ? Infinity : (nowMs - last) / 1000;
+  // 首次上报没有参照，按一个心跳周期放行
+  const ceiling = last === undefined ? 120 : Math.min(300, Math.max(0, elapsed) * 1.5 + 10);
+  const wanted = Math.max(0, seconds);
+  const recorded = Math.min(wanted, ceiling);
+  lastReportAt.set(learnerId, nowMs);
+  if (recorded >= 1) repo.appendEvent(learnerId, "active-usage", { seconds: Math.round(recorded) });
+  return { recorded: Math.round(recorded), rejected: wanted > ceiling + 1 };
 }
 
 /** 家长页要看的：今天聊了多久、还剩多少、上限是谁定的 */

@@ -115,3 +115,36 @@ describe("英语语法题能判、也能进库", () => {
     expect((await judgeAnswer(registry, knowledge, q, "not like")).correct).toBe(false);
   });
 });
+
+describe("判卷的两个真错判（审查抓到的）", () => {
+  const registry = createSubjectRegistry();
+  const bank = loadQuestionFiles(
+    fileURLToPath(new URL("../../../data/knowledge/questions", import.meta.url)),
+    knowledge.index,
+  ).questions.filter((q) => q.id.startsWith("en-") || q.id.startsWith("bi-"));
+  it("智能标点打的 don’t 不该被判错", async () => {
+    const q = bank.find((x) => x.stem.includes("coffee"))!;
+    const verdict = await judgeAnswer(registry, knowledge, q, "don’t like");
+    expect(verdict.correct).toBe(true);
+  });
+
+  it("只写一个 s 不能算对 's（首尾撇号不再被剥掉）", async () => {
+    const { gapFillJudge } = await import("@mathtutor/subject-english");
+    expect(gapFillJudge.judge({ reference: "is / 's", response: "s", itemType: "en.gap-fill" }).correct).toBe(false);
+    expect(gapFillJudge.judge({ reference: "is / 's", response: "'s", itemType: "en.gap-fill" }).correct).toBe(true);
+  });
+
+  it("问句第一词是 Are，填 is 就是错（题库里参考答案曾写成 Are / is）", async () => {
+    const q = bank.find((x) => x.id === "en-grammar-04")!;
+    expect(q.answer).toBe("Are");
+    expect((await judgeAnswer(registry, knowledge, q, "is")).correct).toBe(false);
+    expect((await judgeAnswer(registry, knowledge, q, "ARE")).correct).toBe(true);
+  });
+
+  it("双语题用英文作答时，另一种正确说法也认（three fourths）", async () => {
+    const q = bank.find((x) => x.id === "bi-fraction-words-01")!;
+    expect((await judgeAnswer(registry, knowledge, q, "three fourths")).correct).toBe(true);
+    expect((await judgeAnswer(registry, knowledge, q, "three quarters")).correct).toBe(true);
+    expect((await judgeAnswer(registry, knowledge, q, "three")).correct).toBe(false);
+  });
+});

@@ -90,3 +90,44 @@ describe("语法课组课", () => {
     expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
   });
 });
+
+describe("泄题的例句不能出现在提问之前", () => {
+  const { store } = tempFixtureEnv(grammarQuestions);
+
+  it("同一句话的例句会被认出来（旧防线的 includes 永远不成立）", async () => {
+    const { revealsQuestion } = await import("../src/classroom/englishLesson.js");
+    const q = grammarQuestions.find((x) => x.id === "en-grammar-02")!;
+    expect(revealsQuestion("My name is Lisa.", q)).toBe(true);
+    expect(revealsQuestion("She's eating.", q)).toBe(false);
+  });
+
+  it("每个语法节点的课里，提问那一拍之前都不出现会泄题的例句", async () => {
+    const { revealsQuestion } = await import("../src/classroom/englishLesson.js");
+    let checked = 0;
+    for (const nodeId of grammarQuestions.flatMap((q) => q.nodeIds)) {
+      const lesson = composeLesson(nodeId, knowledge.index, store);
+      if (!lesson || lesson.pauseBeatIndex < 0) continue;
+      checked += 1;
+      // 用这节课**真正问到的那道题**判断：同一个节点常有好几道题，讲的是其中一道
+      const asked = lesson.question!;
+      const question = { ...grammarQuestions.find((q) => q.nodeIds.includes(nodeId))!, stem: asked.stem };
+      for (const obj of lesson.scene.visual_objects) {
+        const id = obj.id;
+        // 这个图元在哪一拍登场
+        const beat = lesson.scene.scenes.findIndex((s) => s.actions.some((a) => "target" in a && a.target === id));
+        if (beat < 0 || beat > lesson.pauseBeatIndex) continue;
+        const text = (obj.params as { text?: string }).text ?? "";
+        expect(revealsQuestion(text, question), `${nodeId} 的「${text}」出现在提问之前`).toBe(false);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("只有泄题例句的节点：先问，答完再给例句", async () => {
+    const lesson = composeLesson(GRAMMAR_NODE, knowledge.index, store);
+    const check = lesson!.scene.scenes.findIndex((s) => s.role === "check");
+    expect(check).toBeGreaterThanOrEqual(0);
+    // 提问之后仍要有例句（那是对答案，不是把课砍成空白）
+    expect(lesson!.scene.scenes.length).toBeGreaterThan(check + 1);
+  });
+});

@@ -63,10 +63,10 @@
     "difficulty": 2,
     "stemEn": "How do you write 3/4 in English words?",
     "stem": "3/4 用英语怎么说？（答案用英文写）",
-    "answer": "three quarters",
+    "answer": "three quarters / three fourths",
     "answerType": "expression",
     "answerLang": "en",
-    "contentHash": "127341fd6fb135f4",
+    "contentHash": "2c1acb14d3e276ab",
     "status": "verified",
     "source": {
       "role": "manual"
@@ -82,10 +82,10 @@
     "difficulty": 2,
     "stemEn": "A book costs $3.50. Read the price out in English words.",
     "stem": "一本书 3.50 美元，这个价格用英语怎么读？（答案用英文写）",
-    "answer": "three dollars fifty",
+    "answer": "three dollars fifty / three dollars and fifty cents / three fifty",
     "answerType": "expression",
     "answerLang": "en",
-    "contentHash": "5e3a8f2384f5b1df",
+    "contentHash": "344e20fec734d65c",
     "status": "verified",
     "source": {
       "role": "manual"
@@ -101,10 +101,10 @@
     "difficulty": 2,
     "stemEn": "The bus leaves at 8:30. Write the time in English.",
     "stem": "公交车 8:30 出发，这个时间用英语怎么写？（答案用英文写）",
-    "answer": "half past eight",
+    "answer": "half past eight / eight thirty",
     "answerType": "expression",
     "answerLang": "en",
-    "contentHash": "f35159e53019d0d8",
+    "contentHash": "2d932c532703c1ac",
     "status": "verified",
     "source": {
       "role": "manual"

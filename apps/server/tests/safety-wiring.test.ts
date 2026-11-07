@@ -93,3 +93,37 @@ describe("问一道题", () => {
         expect(res.status).not.toBe(422);
     });
 });
+
+describe("历史里的那句话也算数", () => {
+    it("上一轮被拦下的原话，不能随 history 悄悄进模型", async () => {
+        const { app } = makeApp([]);
+        const res = await app.request("/api/v1/explore/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                learnerId: "L1",
+                messages: [
+                    { role: "user", content: "我住在幸福路 12 号，我家电话是 13812345678" },
+                    { role: "assistant", content: "（该轮被拦下，前端本不该保留，但这里模拟它还在）" },
+                    { role: "user", content: "那道分数题怎么做" },
+                ],
+            }),
+        });
+        const body = (await res.json()) as { reply: string; toolTrace: unknown[]; safety?: { action: string } };
+        // 问题出在历史里、还是这一句，都要拦：整段 history 是原样拼进模型上下文的
+        expect(body.safety?.action).toBe("block");
+        expect(body.toolTrace).toHaveLength(0);
+    });
+
+    it("英文的自伤求助同样拦得住（英语课已经在用了）", async () => {
+        const { app } = makeApp([]);
+        const res = await app.request("/api/v1/explore/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ learnerId: "L1", messages: [{ role: "user", content: "I want to kill myself" }] }),
+        });
+        const body = (await res.json()) as { safety?: { action: string; reason: string } };
+        expect(body.safety?.action).toBe("block");
+        expect(body.safety?.reason).toBe("unsafe-content");
+    });
+});

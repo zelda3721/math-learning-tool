@@ -32,11 +32,20 @@ export const ITEM_TYPES: ItemTypeDef[] = [
  * 单复数本身就是这道题要考的东西（见下面词汇卡的注释）。
  */
 export function normalizeEnglish(raw: string): string {
-  return raw
+  const unified = raw
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/^[\s.。!！?？,，;；'"“”‘’]+|[\s.。!！?？,，;；'"“”‘’]+$/g, "");
+    // 撇号先统一：手机和 Mac 的智能标点会把 don't 打成 don’t，
+    // 两个字形是同一个词，不统一就会把正确答案判错
+    .replace(/[‘’´`]/g, "'")
+    .replace(/\s+/g, " ");
+  // 首尾要剥掉的是**句末标点与成对引号**，不包括撇号本身。
+  // 早先一刀把首尾的 ' 也剥了，于是参考答案 `'s` 退化成 `s`，孩子只写一个 s 就判对。
+  const trimmed = unified
+    .replace(/^[\s.。!！?？,，;；]+|[\s.。!！?？,，;；]+$/g, "")
+    .replace(/^["“”]+|["“”]+$/g, "")
+    .replace(/^「|」$/g, "");
+  return trimmed;
 }
 
 /**
@@ -55,7 +64,14 @@ export const vocabJudge: Judge = {
       // 没有参考答案就不是这道题——宁可交给家长，也不要凭空判一个对错
       return { correct: false, method: "pending", verification: "reference", feedback: "这道卡还没有参考答案" };
     }
-    const ok = normalizeEnglish(response) === normalizeEnglish(reference);
+    // 参考答案可以给多个可接受写法（`three quarters / three fourths`），用 `/` 分隔。
+    // 双语题的答案是英文短语，只认一种写法会把"另一个正确说法"判错，而这条证据
+    // 还挂着数学节点——错判会连带扣数学的掌握度。
+    const accepted = (reference ?? "")
+      .split("/")
+      .map((s) => normalizeEnglish(s))
+      .filter(Boolean);
+    const ok = accepted.includes(normalizeEnglish(response));
     return {
       correct: ok,
       method: "exact",

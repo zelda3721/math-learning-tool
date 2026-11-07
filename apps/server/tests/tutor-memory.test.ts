@@ -49,13 +49,42 @@ describe("记忆的读与写", () => {
         expect(withDeleted[0]!.deletedAt).toBeTruthy();
     });
 
-    it("同一条删两次：第二次返回 false，接口据此回 404", () => {
-        const { repo } = makeApp([]);
+    it("同一条删两次：第二次返回 false，接口据此回 404", () => {        const { repo } = makeApp([]);
         const id = learner(repo);
         repo.rememberMemory({ learnerId: id, kind: "goal", text: "想学会通分", dedupeKey: "g", source: "profile" });
         const [memory] = repo.listMemories(id);
         expect(repo.forgetMemory(id, memory!.id)).toBe(true);
         expect(repo.forgetMemory(id, memory!.id)).toBe(false);
+    });
+    it("删掉的记忆不会被下一轮派生复活（墓碑挡住重写）", () => {
+        const { repo, state } = makeApp([]);
+        const id = learner(repo);
+        for (let i = 0; i < 2; i++) {
+            repo.insertMistake({
+                id: `m${i}`,
+                attemptId: `a${i}`,
+                learnerId: id,
+                questionId: `q${i}`,
+                surface: "concept",
+                rootNodeId: NODE_A,
+                misconceptionId: undefined,
+                chain: [],
+                confidence: 0.8,
+                eligible: true,
+            });
+        }
+        deriveMemories(repo, state.knowledge.index, id);
+        const [memory] = repo.listMemories(id);
+        expect(repo.forgetMemory(id, memory!.id)).toBe(true);
+
+        // 下一轮对话前照常重新派生：同一批事实还在，但这条记忆不该回来
+        deriveMemories(repo, state.knowledge.index, id);
+        deriveMemories(repo, state.knowledge.index, id);
+
+        expect(repo.listMemories(id)).toHaveLength(0);
+        expect(recallBlock(repo, id)).toBe("");
+        // 审计上仍保留"曾有一条、何时被删"
+        expect(repo.listMemories(id, { includeDeleted: true })[0]!.deletedAt).toBeTruthy();
     });
 });
 

@@ -26,6 +26,14 @@ interface ChatTurn {
     content: string
     /** assistant 回合的工具足迹（「查了：xxx」小字） */
     toolTrace?: { name: string; summary: string }[]
+    /**
+     * 这一轮被安全层拦下了。
+     *
+     * 被拦的话**不能留在 history 里**：下一轮整段 history 会原样送给模型，
+     * 上一轮那句"我住幸福路 12 号"就绕过了当轮拦住（服务端也会再查一遍历史，
+     * 那是第二道防线，不是留着原话的理由）。界面上仍显示它，让孩子知道自己说过什么。
+     */
+    blocked?: boolean
 }
 
 interface ResearchNote {
@@ -68,6 +76,8 @@ export function ExplorePage() {
     const [input, setInput] = useState('')
     const [sending, setSending] = useState(false)
     const [chatError, setChatError] = useState<string | null>(null)
+    /** 今天的时间用完了：输入框不再让人白输一段话再被拒 */
+    const [budgetBlocked, setBudgetBlocked] = useState(false)
 
     const [noteOpen, setNoteOpen] = useState(false)
     const [noteTitle, setNoteTitle] = useState('')
@@ -141,7 +151,10 @@ export function ExplorePage() {
     const send = useCallback(async () => {
         const content = input.trim()
         if (!content || sending || !learnerId) return
-        const history = turns.map((t) => ({ role: t.role, content: t.content }))
+        // 被拦下的轮次不进上下文：拦下的东西不该有机会被模型"说服"
+        const history = turns
+            .filter((t) => !t.blocked)
+            .map((t) => ({ role: t.role, content: t.content }))
         setTurns((prev) => [...prev, { role: 'user', content }])
         setInput('')
         setSending(true)
@@ -156,13 +169,28 @@ export function ExplorePage() {
                     messages: [...history, { role: 'user', content }],
                 }),
             })
+            if (res.status === 429) {
+                /*
+                 * 时长用完是**正常结局**，不是错误：给一句能读懂的话，
+                 * 不是「HTTP 429」。之前这里把它当异常抛，孩子看到的是一串编号。
+                 */
+                const body = (await res.json().catch(() => null)) as { error?: string } | null
+                setChatError(body?.error ?? '今天的时间用完了，明天再来。')
+                setBudgetBlocked(true)
+                return
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const body = (await res.json()) as {
                 reply: string
                 toolTrace?: { name: string; summary: string }[]
+                safety?: { action: string; reason: string | null }
             }
+            const blocked = body.safety?.action === 'block'
             setTurns((prev) => [
-                ...prev,
+                // 被拦下时把这条 user 回合标住：它只在界面上留下，不再进上下文
+                ...prev.map((t, i) =>
+                    blocked && i === prev.length - 1 && t.role === 'user' ? { ...t, blocked } : t
+                ),
                 { role: 'assistant', content: body.reply, toolTrace: body.toolTrace },
             ])
         } catch (err) {
@@ -201,6 +229,16 @@ export function ExplorePage() {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ learnerId, nodeId, title, contentMd }),
             })
+            if (res.status === 429) {
+                /*
+                 * 时长用完是**正常结局**，不是错误：给一句能读懂的话，
+                 * 不是「HTTP 429」。之前这里把它当异常抛，孩子看到的是一串编号。
+                 */
+                const body = (await res.json().catch(() => null)) as { error?: string } | null
+                setChatError(body?.error ?? '今天的时间用完了，明天再来。')
+                setBudgetBlocked(true)
+                return
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             setNoteOpen(false)
             setNoteNotice('已记下！好的发现值得被记住。')
@@ -327,10 +365,11 @@ export function ExplorePage() {
                     <input
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="说说你的好奇…"
+                        placeholder={budgetBlocked ? '今天的时间用完了，明天再来聊' : '说说你的好奇…'}
+                        disabled={budgetBlocked}
                         className="input-hero flex-1 min-w-0"
                     />
-                    <Button type="submit" disabled={sending || !input.trim()}>
+                    <Button type="submit" disabled={sending || !input.trim() || budgetBlocked}>
                         发送
                     </Button>
                 </form>

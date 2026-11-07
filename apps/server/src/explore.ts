@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
 import { auditDataDir, createServerLlmClient } from "./llm.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
-import { checkChatBudget, recordChatUsage } from "./chatBudget.js";
+import { checkChatBudget } from "./chatBudget.js";
 import { deriveMemories, profileBlock, readProfile, recallBlock } from "./tutorMemory.js";
 
 // ---------------------------------------------------------------------------
@@ -357,10 +357,17 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
       );
     }
 
-    // 安全前置：拦下的话**根本不会送到模型**——不给它"被说服"的机会
-    const lastUser = [...parsed.data.messages].reverse().find((m) => m.role === "user");
-    if (lastUser) {
-      const gate = screenLearnerInput(state.repo, parsed.data.learnerId, lastUser.content);
+    /*
+     * 安全前置：拦下的话**根本不会送到模型**——不给它"被说服"的机会。
+     *
+     * 要查的不只是最后一句。历史整段由客户端提交、原样拼进模型上下文，
+     * 所以上一轮被拦下的那句话，这一轮会随着 history 一起进模型：
+     * "拦下的话不进模型"于是只对当轮成立。这里把历史里的每一条用户消息都过一遍
+     * （纯规则，不花钱），命中就当轮拦下并回同一句话术。
+     */
+    const userMessages = parsed.data.messages.filter((m) => m.role === "user");
+    for (const message of [...userMessages].reverse()) {
+      const gate = screenLearnerInput(state.repo, parsed.data.learnerId, message.content);
       if (gate.blocked) {
         return c.json({
           reply: gate.reply,
@@ -370,10 +377,13 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
       }
     }
 
-    const startedAt = Date.now();
     const result = await runExplore(state, parsed.data, clientFactory);
-    // 只给"真的跑过模型"的那一轮记账：被安全层拦下的、报错的，不该消耗孩子的额度
-    recordChatUsage(state.repo, parsed.data.learnerId, (Date.now() - startedAt) / 1000);
+    /*
+     * 这里曾经记 `Date.now() - startedAt`——那是**模型的推理耗时**。
+     * 孩子聊了一个小时可能只被记几十秒，上限永远碰不到；模型慢的时候，
+     * 孩子反而"被用掉了时间"。使用时长现在由前端的活跃心跳记账
+     * （见 routes/usage.ts），这里不再写。
+     */
     // 输出侧只拦确定的泄露；拦下就整段换成固定话术（半截改写更让人困惑）
     const out = screenModelOutput(state.repo, parsed.data.learnerId, result.reply);
     if (out.blocked) {
