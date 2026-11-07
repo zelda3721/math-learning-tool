@@ -25,6 +25,9 @@ importers:
       '@mathtutor/llm-client':
         specifier: workspace:^
         version: link:../../packages/llm-client
+      '@mathtutor/safety':
+        specifier: workspace:*
+        version: link:../../packages/safety
       '@mathtutor/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -206,6 +209,18 @@ importers:
         version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
 
   packages/llm-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.32.0)
+
+  packages/safety:
     devDependencies:
       '@types/node':
         specifier: ^22

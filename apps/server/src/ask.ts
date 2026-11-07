@@ -6,6 +6,7 @@ import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } from "@mathtutor/schema";
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { effectiveLearnerId, type AppState } from "./app.js";
+import { screenLearnerInput } from "./safety.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
 import { figureDataUrl, storeFigure } from "./figures.js";
 import { latexToPlainText } from "./latexText.js";
@@ -322,6 +323,19 @@ export function askRoutes(state: AppState): Hono {
     if (learnerId && !state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const problem = parsed.data.problem.trim();
     if (problem.length < 4) return c.json({ error: "题目太短了，把题目完整写下来" }, 400);
+
+    /*
+     * 安全前置：拦下的话不进解题链路（也就不进模型）。
+     * 这里用 422 而不是 200：孩子该看见"这句话我不能接"，
+     * 而不是一个假装成功的任务号。
+     */
+    const gate = screenLearnerInput(state.repo, learnerId, problem);
+    if (gate.blocked) {
+      return c.json(
+        { error: gate.reply, safety: { action: gate.verdict.action, reason: gate.verdict.reason ?? null } },
+        422,
+      );
+    }
 
     // 配图先落盘（同步、快）：图有问题当场报错，别等几分钟解题后才失败
     let figureImageName: string | undefined;

@@ -1,0 +1,25 @@
+{
+  "name": "@mathtutor/safety",
+  "version": "0.1.0",
+  "description": "内容安全：话题白名单/隐私与自伤拦截/要答案诱导/每日时长（纯规则，不调用模型）",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}
