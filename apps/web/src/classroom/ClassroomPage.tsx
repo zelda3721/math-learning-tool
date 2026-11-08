@@ -81,6 +81,11 @@ export function ClassroomPage() {
     const [resumeFrom, setResumeFrom] = useState<number | null>(null)
     const [answer, setAnswer] = useState('')
     const [verdict, setVerdict] = useState<{ correct: boolean; answer?: string } | null>(null)
+    /** 提问拍上答过的拍号：答完回到原处就不再被同一道题拦住 */
+    const [pauseAnswered, setPauseAnswered] = useState<number[]>([])
+    /** 连错两次后明确放弃的拍号（留痕的是"他放弃过"，不是悄悄放过） */
+    const [pauseSkipped, setPauseSkipped] = useState<number[]>([])
+    const [pauseTriesMap, setPauseTriesMap] = useState<Record<number, number>>({})
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
     /** 讲课模式：AI 生成优先，离线组课永远可用（服务端保证退得回来） */
@@ -101,6 +106,15 @@ export function ClassroomPage() {
     }, [])
 
     /** 开一节课：拉内容、装播放器、接状态机；有进度就问一句要不要接着上次 */
+    /*
+     * 断点续学的键带上孩子：早先只有 nodeId，同一台平板上两个孩子上下机，
+     * 后一个会从"前一个停的那一拍"开始——这就是阶段 3 DoD 里"孩子间隔离"没做到的地方。
+     */
+    const progressKey = useCallback(
+        (nodeId: string) => (learner ? `${learner.id}:${nodeId}` : nodeId),
+        [learner],
+    )
+
     const openLesson = useCallback(async (nodeId: string) => {
         setError(null)
         setBusy(true)
@@ -110,14 +124,18 @@ export function ClassroomPage() {
             setPicked(nodeId)
             setVerdict(null)
             setAnswer('')
-            const saved = loadProgress(browserStore, nodeId, next.scene.scenes.length)
+            // 提问拍的"答过/放弃过"跟着课重置
+            setPauseAnswered([])
+            setPauseSkipped([])
+            setPauseTriesMap({})
+            const saved = loadProgress(browserStore, progressKey(nodeId), next.scene.scenes.length)
             setResumeFrom(saved ? saved.beatIndex : null)
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
         } finally {
             setBusy(false)
         }
-    }, [mode])
+    }, [mode, progressKey])
 
     const dispatch = useCallback(
         (event: Parameters<ClassroomSession['dispatch']>[0]) => {
@@ -125,9 +143,9 @@ export function ClassroomPage() {
             if (!session) return
             const next = session.dispatch(event)
             setState(next as ClassroomState)
-            if (lesson) saveProgress(browserStore, lesson.nodeId, next as ClassroomState)
+            if (lesson) saveProgress(browserStore, progressKey(lesson.nodeId), next as ClassroomState)
         },
-        [lesson],
+        [lesson, progressKey],
     )
 
     // 内容一到就装播放器：scene 是数据，播放器只是把它画出来
@@ -172,6 +190,12 @@ export function ClassroomPage() {
                 answer,
             })
             setVerdict({ correct: result.correct, answer: result.correct ? undefined : result.correctAnswer })
+            // 这一拍答过了：回到原处之后不该再被同一道题拦住
+            if (state) {
+                const beat = state.beatIndex
+                setPauseAnswered((prev) => (prev.includes(beat) ? prev : [...prev, beat]))
+                setPauseTriesMap((prev) => ({ ...prev, [beat]: (prev[beat] ?? 0) + 1 }))
+            }
             dispatch({ type: 'answer', correct: result.correct })
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
@@ -181,7 +205,16 @@ export function ClassroomPage() {
     }
 
     const narration = state && lesson ? lesson.narrations[state.beatIndex] ?? '' : ''
-    const atPause = lesson !== null && state?.beatIndex === lesson.pauseBeatIndex && state.phase === 'explaining'
+    /*
+     * 提问拍不可跳过（宪法第 1 条：理解由行为验证）。
+     *
+     * 早先这一拍上"讲完了，继续"一直在：一路点下去就能下课，提问拍等于没有。
+     * 现在走到这一拍只留「做一道题看看」；答过（或连错两次后明确放弃）才放行。
+     */
+    const atPauseBeat = lesson !== null && state?.beatIndex === lesson.pauseBeatIndex
+    const pauseSettled = state ? pauseAnswered.includes(state.beatIndex) || pauseSkipped.includes(state.beatIndex) : false
+    const atPause = atPauseBeat && state?.phase === 'explaining' && Boolean(lesson?.question) && !pauseSettled
+    const pauseTries = state ? (pauseTriesMap[state.beatIndex] ?? 0) : 0
 
     return (
         <div className="space-y-6">
@@ -242,6 +275,9 @@ export function ClassroomPage() {
                             onClick={() => {
                                 dispatch({ type: 'start' })
                                 setResumeFrom(null)
+                                setPauseAnswered([])
+                                setPauseSkipped([])
+                                setPauseTriesMap({})
                             }}
                         >
                             从头开始
@@ -289,12 +325,27 @@ export function ClassroomPage() {
 
                         {state?.phase === 'explaining' && (
                             <>
-                                <Button variant="secondary" onClick={() => dispatch({ type: 'beat-finished' })}>
-                                    讲完了，继续
-                                </Button>
+                                {/* 提问拍上不给"继续"：先做题 */}
+                                {!atPause && (
+                                    <Button variant="secondary" onClick={() => dispatch({ type: 'beat-finished' })}>
+                                        讲完了，继续
+                                    </Button>
+                                )}
                                 {atPause && lesson.question && (
                                     <Button onClick={() => dispatch({ type: 'pause-question', question: lesson.question!.stem })}>
                                         做一道题看看
+                                    </Button>
+                                )}
+                                {/* 连错两次给一条说明白了的退路，但不留默认可走的门 */}
+                                {atPause && pauseTries >= 2 && (
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => {
+                                            setPauseSkipped((prev) => [...prev, state.beatIndex])
+                                            dispatch({ type: 'beat-finished' })
+                                        }}
+                                    >
+                                        先往下讲，回头再练这道
                                     </Button>
                                 )}
                             </>
@@ -305,7 +356,11 @@ export function ClassroomPage() {
                         )}
 
                         {state?.phase === 'done' && (
-                            <div className="text-sm text-ink-soft">这节课到这里。刚才那道题也算进了你的学习记录。</div>
+                            <div className="text-sm text-ink-soft">
+                                {verdict
+                                    ? '这节课到这里。刚才那道题已经记进你的学习记录。'
+                                    : '这节课到这里。这节课没有做题，所以学习记录里没有新增。'}
+                            </div>
                         )}
                     </div>
 

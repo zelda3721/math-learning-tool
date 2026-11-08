@@ -56,6 +56,8 @@ test('课堂页：语法课的题是填空，答完能回到原来那一拍', as
     await next.click()
   }
   await expect(pauseButton).toBeVisible()
+  // 提问拍不可跳过：「讲完了，继续」在这一拍上不该存在（宪法第 1 条）
+  await expect(page.getByRole('button', { name: '讲完了，继续' })).toHaveCount(0)
   await pauseButton.click()
 
   await page.getByPlaceholder('写下你的答案').fill('am')
