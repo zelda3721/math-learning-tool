@@ -4,7 +4,7 @@
 // 这是作者定的顺序，比我们编一套"语法主线"可信。切章 + 取每单元正文首段做说明，
 // 全程纯逻辑，跑一次几十秒。产物 subjects/english/grammar.graph.json 已入库，
 // 只有换了教材或改了切章规则时才需要重跑：pnpm --filter @mathtutor/server build:grammar
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { reconstructLines, splitChapters } from "@mathtutor/knowledge";
@@ -13,6 +13,18 @@ const repoRoot = new URL("../../", import.meta.url);
 const PDF = fileURLToPath(new URL("Essential Grammar in Use.pdf", repoRoot));
 const OUT = fileURLToPath(new URL("subjects/english/grammar.graph.json", repoRoot));
 
+/*
+ * 教材原件受版权保护，**不在仓库里**（.gitignore 挡掉了 *.pdf）。
+ * 生成产物 subjects/english/grammar.graph.json 已经提交，运行时只读它；
+ * 只有想从自己手里的那本书重新生成时才需要这份 PDF——把它放在仓库根目录即可。
+ */
+if (!existsSync(PDF)) {
+  console.error(
+    `找不到教材 PDF：${PDF}\n` +
+      "它受版权保护，不随仓库分发。subjects/english/grammar.graph.json 已经是生成好的结果，正常使用不需要重跑这个脚本。",
+  );
+  process.exit(1);
+}
 const data = new Uint8Array(readFileSync(PDF));
 const doc = await getDocument({ data, disableFontFace: true, useSystemFonts: true }).promise;
 const pages = [];

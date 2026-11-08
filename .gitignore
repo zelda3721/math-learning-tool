@@ -38,6 +38,13 @@ ENV/
 !/data/bench/
 !/data/figure_bench/
 !/data/golden/
+# 安全红队用例：pnpm verify 的一步，干净克隆没有它就跑不过。用例都是合成样本（占位号码），不含真实个人信息
+!/data/red-team/
+
+# 受版权保护的教材原件（PDF）不进仓库：只提交从它确定性抽出的结构（subjects/english/grammar.graph.json）
+*.pdf
+# 运行时产生的 Manim 旧产物与评审视频不是源码
+/services/video-engine/media/
 /services/video-engine/data/
 *.sqlite
 *.sqlite-shm
