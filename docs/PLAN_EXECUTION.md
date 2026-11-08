@@ -27,6 +27,19 @@ PLAN 的 DoD 大多是工程指标（测试、延迟、拦截率）。一个阶�
 | 8 跨学科探索 | 🚧 15% | links.json 13 条、双语题、星图跨学科详情 | PBL 项目、统一探究流程、费曼模式、给 AI 挑错、AI 素养课 |
 | 9 引擎编排迁 TS | ⬜ | — | solve/verify/direct 对拍迁移，worker 只留纯计算 |
 
+## 本次推进（2026-11-08 第十轮：把语法做成英语页的一等入口 + 真栈走查）
+
+- **英语语法入口**：`GET /api/v1/en/grammar/units`（115 个单元，来自教材，带题数与一句话说明）、
+  `GET /api/v1/en/grammar/unit/:id`（讲解入口 + 题面，答案不下发）。英语页新增「语法」tab：
+  搜单元 → 学这一单元（跳课堂按节点开课，课堂支持一次性预选）→ 做两道题确认。
+  做题走既有 `/practice/submit`（`verification=reference`），不造第二条判卷通路。
+- **真栈走查**（独立数据目录 `DATA_DIR=/tmp/mt-smoke`，不是 e2e 沙箱）：家长建号 → 孩子注册 →
+  今日组卷（6 题摸底，跨知识点）→ 错答 → L1 提示（真实模型返回）→ 错因自述 → 答对计证据 →
+  变式 → 下一步建议；英语词汇（判卷 + SM-2）、分级阅读、口语（开情景 → 一轮对话 → 表达小结）、
+  课堂组课；家长端 summary / independence / speaking 全部走通。
+- 顺手修：`/practice/submit|today|hint|submit-photo` 的 `learnerId` 改为可选（孩子会话自带），
+  缺参时的报错从 zod 的 `Required` 换成能看懂的一句话。
+
 ## 本次推进（2026-11-07 第九轮：阶段 5 口语对练落地）
 
 - **compute-worker 语音**：`/api/v1/asr`（faster-whisper，热态约 230ms）、`/api/v1/tts`
