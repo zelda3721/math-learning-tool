@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { budgetBlockedPayload } from "../chatBudget.js";
 import { z } from "zod";
 import { widgetForNode, widgetOf, replayWidget, type WidgetAction } from "@mathtutor/widgets";
 import { effectiveLearnerId, type AppState } from "../app.js";
@@ -43,6 +44,12 @@ export function widgetRoutes(state: AppState): Hono {
     if (!nodeId) return c.json({ error: "需要 nodeId" }, 400);
     const node = state.knowledge.index.getNode(nodeId);
     if (!node) return c.json({ error: "知识点不存在" }, 404);
+    // 动手探索也占孩子的使用时间，也受同一个闸管
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (learnerId && state.repo.getLearner(learnerId)) {
+      const blocked = budgetBlockedPayload(state.repo, learnerId);
+      if (blocked) return c.json(blocked, 429);
+    }
 
     const widget = widgetForNode(node);
     const question = pickLessonQuestion(state.questions, nodeId);

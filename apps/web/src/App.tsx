@@ -8,7 +8,7 @@ import { SLOGAN } from './brand'
 import { useAuth } from './auth/AuthContext'
 import { useLearner } from './learner/LearnerContext'
 import { useActiveUsage } from './usage/useActiveUsage'
-import { UsageBadge } from './usage/UsageBadge'
+import { UsageBadge, UsageExhaustedBanner } from './usage/UsageBadge'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
@@ -311,6 +311,13 @@ function AuthedApp() {
                     </div>
                 </div>
             </header>
+
+            {/* 时间用完：服务端各入口都会拦，这里把同一句话摆出来，别让孩子一个个撞 */}
+            {role === 'child' && (
+                <div className="w-full max-w-5xl mx-auto px-4 pt-4 empty:hidden">
+                    <UsageExhaustedBanner usage={usage} role={role} />
+                </div>
+            )}
 
             {view === 'practice' && (
                 <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">

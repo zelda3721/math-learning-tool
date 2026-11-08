@@ -63,11 +63,17 @@ export async function makeHint(
   question: Question,
   level: 1 | 2 | 3,
   lastWrongAnswer?: string,
+  /**
+   * 模型输出过安全层（返回 true = 拦下）。
+   * 提示也是模型说的话、也会直接进孩子的眼睛——它不该是唯一没过安检的出口。
+   */
+  blockedBySafety?: (text: string) => boolean,
 ): Promise<{ hint: string; source: "llm" | "static" }> {
   if (provider) {
     try {
       const text = (await provider.generate(buildHintPrompt(question, level, lastWrongAnswer))).trim();
-      if (text && !leaksAnswer(text, question)) return { hint: text, source: "llm" };
+      const unsafe = text && blockedBySafety ? blockedBySafety(text) : false;
+      if (text && !unsafe && !leaksAnswer(text, question)) return { hint: text, source: "llm" };
       // 泄漏或空输出：一次重试的价值低（同题同提示词大概率复现），直接静态兜底
     } catch {
       // fall through to static

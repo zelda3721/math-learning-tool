@@ -38,3 +38,22 @@ export function UsageBadge({ usage, role }: { usage: ActiveUsage; role: string }
         </div>
     )
 }
+
+/**
+ * 时间用完时的整页提示（孩子端）。
+ *
+ * 服务端已经在各个入口返回 429 并给了话；这里把同一句话摆在最上面，
+ * 免得孩子一个入口一个入口去撞墙——"前后端都生效"说的就是这件事：
+ * 后端拦得住，前端也说得出。
+ */
+export function UsageExhaustedBanner({ usage, role }: { usage: ActiveUsage; role: string }) {
+    if (role === 'parent') return null
+    const { budget } = usage
+    if (!budget) return null
+    if (budget.allowed && budget.remainingMinutes > 0) return null
+    return (
+        <div className="rounded-[10px] border border-rule bg-paper px-4 py-3 text-sm text-ink-soft">
+            今天的时间用完了（每天 {budget.limitMinutes} 分钟）。明天再来，或者去和家长说一声。
+        </div>
+    )
+}

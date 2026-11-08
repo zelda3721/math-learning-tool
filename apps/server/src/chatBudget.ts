@@ -111,6 +111,24 @@ export function recordActiveUsage(
   return { recorded: Math.round(recorded), rejected: wanted > ceiling + 1 };
 }
 
+/**
+ * 时间用完了的统一响应体（各入口共用，话是给孩子看的）。
+ *
+ * 为什么不做成中间件：入口的语义不一样（开始一组练习 vs 开一节课 vs 查一次词），
+ * 但"用完了"这句话必须只有一份——四处各写一句，迟早有一处变成状态码。
+ */
+export function budgetBlockedPayload(
+  repo: Repo,
+  learnerId: string,
+): { error: string; budget: ChatBudget } | null {
+  const budget = checkChatBudget(repo, learnerId);
+  if (budget.allowed) return null;
+  return {
+    error: `今天的时间用完了（每天 ${budget.limitMinutes} 分钟）。明天再来，或者先去和家长说一声。`,
+    budget,
+  };
+}
+
 /** 家长页要看的：今天聊了多久、还剩多少、上限是谁定的 */
 export function chatBudgetReport(repo: Repo, learnerId: string): ChatBudget & { learnerId: string } {
   return { learnerId, ...checkChatBudget(repo, learnerId) };
