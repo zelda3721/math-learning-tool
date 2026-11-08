@@ -866,6 +866,87 @@ export class Repo {
     return r ? String(r.id) : undefined;
   }
 
+  // ---- 英语口语对练（阶段 5） ----
+  createSpeakingSession(learnerId: string, scenarioId: string): string {
+    const id = randomUUID();
+    this.db
+      .prepare("INSERT INTO speaking_sessions (id, learner_id, scenario_id, started_at) VALUES (?, ?, ?, ?)")
+      .run(id, learnerId, scenarioId, new Date().toISOString());
+    return id;
+  }
+
+  getSpeakingSession(id: string): { id: string; learnerId: string; scenarioId: string; startedAt: string; endedAt: string | null } | undefined {
+    const r = this.db.prepare("SELECT * FROM speaking_sessions WHERE id = ?").get(id);
+    if (!r) return undefined;
+    return {
+      id: String(r.id),
+      learnerId: String(r.learner_id),
+      scenarioId: String(r.scenario_id),
+      startedAt: String(r.started_at),
+      endedAt: r.ended_at === null || r.ended_at === undefined ? null : String(r.ended_at),
+    };
+  }
+
+  endSpeakingSession(id: string): void {
+    this.db.prepare("UPDATE speaking_sessions SET ended_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  }
+
+  /** 每一轮对练：role=blocked 时不留原话（和探索对话同一条纪律） */
+  insertSpeakingTurn(t: {
+    sessionId: string;
+    learnerId: string;
+    role: "child" | "tutor" | "blocked";
+    text?: string;
+    latencyMs?: number;
+    safetyReason?: string;
+  }): void {
+    this.db
+      .prepare(
+        "INSERT INTO speaking_turns (id, session_id, learner_id, ts, role, text, latency_ms, safety_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        randomUUID(),
+        t.sessionId,
+        t.learnerId,
+        new Date().toISOString(),
+        t.role,
+        t.role === "blocked" ? "" : (t.text ?? ""),
+        t.latencyMs ?? null,
+        t.safetyReason ?? null,
+      );
+  }
+
+  listSpeakingTurns(sessionId: string): { ts: string; role: string; text: string; latencyMs: number | null; safetyReason: string | null }[] {
+    const rows = this.db
+      .prepare("SELECT ts, role, text, latency_ms, safety_reason FROM speaking_turns WHERE session_id = ? ORDER BY ts")
+      .all(sessionId);
+    return rows.map((r) => ({
+      ts: String(r.ts),
+      role: String(r.role),
+      text: String(r.text ?? ""),
+      latencyMs: r.latency_ms === null || r.latency_ms === undefined ? null : Number(r.latency_ms),
+      safetyReason: r.safety_reason === null || r.safety_reason === undefined ? null : String(r.safety_reason),
+    }));
+  }
+
+  /** 家长看：最近的几次对练（不带内容，内容按 session 单独取） */
+  listSpeakingSessions(learnerId: string, limit = 20): { id: string; scenarioId: string; startedAt: string; endedAt: string | null; turns: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT s.id, s.scenario_id, s.started_at, s.ended_at,
+                (SELECT COUNT(*) FROM speaking_turns t WHERE t.session_id = s.id) AS turns
+         FROM speaking_sessions s WHERE s.learner_id = ? ORDER BY s.started_at DESC LIMIT ?`,
+      )
+      .all(learnerId, limit);
+    return rows.map((r) => ({
+      id: String(r.id),
+      scenarioId: String(r.scenario_id),
+      startedAt: String(r.started_at),
+      endedAt: r.ended_at === null || r.ended_at === undefined ? null : String(r.ended_at),
+      turns: Number(r.turns ?? 0),
+    }));
+  }
+
   // ---- 对话转写（阶段 4；默认关，开不写在一处判断，见 learnerPrefs.recordTranscript） ----
   /** 写一轮转写。`role='blocked'` 时 content 一律空，只留原因——被拦下的原话不落库 */
   insertTranscript(t: {
