@@ -5,6 +5,7 @@ import { judgeVocab, loadVocabulary, recordVocabAnswer, vocabBatch, type VocabCa
 import { judgeReading, loadReading, publicPassage } from "../reading.js";
 import { moduleBlockedBody, moduleEnabled } from "../modules.js";
 import { budgetBlockedPayload } from "../chatBudget.js";
+import { practiceReady } from "../questions.js";
 
 /**
  * 英语学习入口：词汇（SM-2）与分级阅读。
@@ -104,6 +105,54 @@ export function englishRoutes(state: AppState): Hono {
       retry: body.retry === true,
       // 答错时给例句：词要放回句子里才记得住
       example: verdict.correct ? undefined : card.example,
+    });
+  });
+
+  /*
+   * 语法单元：英语的第三条线，和词汇、阅读并列。
+   *
+   * 单元来自教材本身（grammar.graph.json，115 个单元，标题即语法点、顺序即学习顺序，
+   * 每个节点带页码出处）。这里只做"有哪些单元、哪个有题可做"的目录，
+   * 讲课走已有的课堂（en:grammar-* 节点），做题走已有的 /practice/submit——
+   * 不再造第二条判卷通路。
+   */
+  app.get("/grammar/units", (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const units = state.knowledge.graph.nodes
+      .filter((n) => n.id.startsWith("en:grammar-"))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((n) => ({
+        id: n.id,
+        name: n.name,
+        stage: n.stage,
+        order: n.order ?? 0,
+        questionCount: (state.questions.byNode.get(n.id) ?? []).filter((q) => practiceReady(q)).length,
+        // 一句话说清这单元要学什么（教材对照页里那句）
+        summary: n.summary,
+      }));
+    return c.json({ units });
+  });
+
+  /** 一个语法单元：讲解入口 + 可练的题（题面下发，答案不下发） */
+  app.get("/grammar/unit/:id", (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const node = state.knowledge.index.getNode(c.req.param("id"));
+    if (!node || !node.id.startsWith("en:grammar-")) return c.json({ error: "没有这个语法单元" }, 404);
+    const questions = (state.questions.byNode.get(node.id) ?? []).filter((q) => practiceReady(q)).slice(0, 8);
+    return c.json({
+      unit: { id: node.id, name: node.name, stage: node.stage, summary: node.summary, whatIsIt: node.whatIsIt },
+      questions: questions.map((q) => ({
+        id: q.id,
+        stem: q.stem,
+        options: q.options,
+        answerType: q.answerType,
+      })),
+      // 课堂能不能开这节课（没材料时如实说，而不是给一个点不动的按钮）
+      lessonAvailable: Boolean(state.knowledge.index.getNode(node.id)),
     });
   });
 

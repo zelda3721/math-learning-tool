@@ -17,6 +17,7 @@ import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { Badge, Button, EmptyState, ErrorState, Lightline, LoadingState, PageHeader } from '../ui'
 import { SpeakingTab } from './SpeakingTab'
+import { GrammarTab } from './GrammarTab'
 import {
     fetchPassage,
     fetchReadingList,
@@ -46,7 +47,7 @@ import {
     type VocabSession,
 } from './logic'
 
-type Tab = 'vocab' | 'reading' | 'speaking'
+type Tab = 'vocab' | 'reading' | 'grammar' | 'speaking'
 
 /** 今日词卡的加载状态：403（家长关掉）要单独站出来，它不是一个错误 */
 type TodayState =
@@ -113,6 +114,7 @@ export function EnglishPage() {
                             [
                                 ['vocab', '词汇'],
                                 ['reading', '阅读'],
+                                ['grammar', '语法'],
                                 ['speaking', '开口说'],
                             ] as const
                         ).map(([key, label]) => (
@@ -152,6 +154,7 @@ export function EnglishPage() {
                     )}
 
                     {tab === 'reading' && <ReadingTab learnerId={learnerId} />}
+                    {tab === 'grammar' && <GrammarTab learnerId={learnerId} />}
                     {tab === 'speaking' && <SpeakingTab learnerId={learnerId} />}
                 </>
             )}

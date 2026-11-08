@@ -105,6 +105,20 @@ export function ClassroomPage() {
         })()
     }, [])
 
+    // 一次性预选：带着"要上哪节课"跳进来时自动打开它，然后把这个键清掉
+    useEffect(() => {
+        let wanted: string | null = null
+        try {
+            wanted = window.localStorage.getItem(PREFILL_KEY)
+            if (wanted) window.localStorage.removeItem(PREFILL_KEY)
+        } catch {
+            /* 存储不可用时按普通进入处理 */
+        }
+        if (wanted) void openLesson(wanted)
+        // openLesson 依赖 mode；这里只在挂载后跑一次，切换模式不该重新预选
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
     /** 开一节课：拉内容、装播放器、接状态机；有进度就问一句要不要接着上次 */
     /*
      * 断点续学的键带上孩子：早先只有 nodeId，同一台平板上两个孩子上下机，
@@ -114,6 +128,13 @@ export function ClassroomPage() {
         (nodeId: string) => (learner ? `${learner.id}:${nodeId}` : nodeId),
         [learner],
     )
+
+    /*
+     * 从别的模块跳过来时带的"要开哪一节课"（比如英语页的「听老师讲这一课」）。
+     * 用一个一次性的 localStorage 键：跳转发生在两个视图之间，
+     * 走 URL 会把这页的其他状态也带进历史记录里。
+     */
+    const PREFILL_KEY = 'mathtutor:classroom:prefill'
 
     const openLesson = useCallback(async (nodeId: string) => {
         setError(null)
