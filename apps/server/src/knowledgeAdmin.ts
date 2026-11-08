@@ -35,7 +35,14 @@ export interface CoverageReport {
   uncoveredByStage: Record<string, string[]>;
   /** 核验候选：命中题数最多但尚未 verified 的前 20 节点（验收指标） */
   topUnverified: CoverageRow[];
-  totals: { nodes: number; covered: number; verifiedNodes: number; questions: number };
+  /**
+   * 原图丢了、已被排除出组卷的题。
+   *
+   * 题库里有"如图"题却找不到图（58 道），孩子拿到手是一道读不懂的题。
+   * 这些题不进组卷，但必须有人看得见——否则"能做的题怎么少了"永远没人知道为什么。
+   */
+  figureMissing: string[];
+  totals: { nodes: number; covered: number; verifiedNodes: number; questions: number; usableQuestions: number };
 }
 
 export function buildCoverage(knowledge: Knowledge, store: QuestionStore): CoverageReport {
@@ -66,11 +73,13 @@ export function buildCoverage(knowledge: Knowledge, store: QuestionStore): Cover
     nodes: rows.sort((a, b) => b.questionCount - a.questionCount),
     uncoveredByStage,
     topUnverified,
+    figureMissing: [...store.figureMissing],
     totals: {
       nodes: rows.length,
       covered: rows.filter((r) => r.questionCount > 0).length,
       verifiedNodes: rows.filter((r) => r.status === "verified").length,
       questions: store.all.length,
+      usableQuestions: store.all.length - store.figureMissing.size,
     },
   };
 }

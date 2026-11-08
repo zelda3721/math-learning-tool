@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   });
   const db = openDb(config.dataDir);
   const repo = new Repo(db);
-  const questions = createQuestionStore(config.dataDir, knowledge.index);
+  const questions = createQuestionStore(config.dataDir, knowledge.index, config.figuresDir);
 
   const state: AppState = {
     config,

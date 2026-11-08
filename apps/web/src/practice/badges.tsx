@@ -12,6 +12,8 @@ const SLOT_META: Record<Slot, { label: string; tone: BadgeTone }> = {
     new: { label: '新题', tone: 'beam' },
     challenge: { label: '挑战', tone: 'slate' },
     asked: { label: '我问的', tone: 'beam' },
+    // 新孩子的摸底组：不是新知识，是先看看他会到哪儿
+    placement: { label: '摸底', tone: 'slate' },
 }
 
 export function SlotBadge({ slot }: { slot: Slot }) {
