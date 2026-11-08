@@ -3,6 +3,7 @@ import { Button, MathText } from '../ui'
 import {
     diagnoseAttempt,
     fetchHint,
+    postReflection,
     submitAnswer,
     submitPhoto,
     type DiagnosisResult,
@@ -97,6 +98,18 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
     const fileRef = useRef<HTMLInputElement | null>(null)
     const [photoEnabled, setPhotoEnabled] = useState(!photoUnavailable)
     const [photoSubmitting, setPhotoSubmitting] = useState(false)
+    /*
+     * 元认知两问（P1：从"拦"转向"养"）：
+     * ① 答错后先说说自己觉得错在哪，再看系统归因——把"我错了"变成"我错在哪一步"；
+     * ② 第一次见就零提示做对时，请他讲讲怎么想的。
+     * 两句都是孩子自己的话：不计掌握度、不判对错，只是留痕给家长看会不会讲。
+     */
+    const [guessAsked, setGuessAsked] = useState(false)
+    const [guessDone, setGuessDone] = useState(false)
+    const [whyAsked, setWhyAsked] = useState(false)
+    const [whyText, setWhyText] = useState('')
+    const [whyDone, setWhyDone] = useState(false)
+    const [reflecting, setReflecting] = useState(false)
 
     // 换题时整体重置（key 由父组件保证，这里兜底同步计时起点）
     useEffect(() => {
@@ -140,10 +153,12 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                         ? { kind: 'correct-unverified' }
                         : { kind: 'correct' },
                 )
+                if (result.askWhy && !whyDone) setWhyAsked(true)
             } else {
                 lastWrongRef.current = trimmed
                 lastAttemptIdRef.current = result.attemptId ?? undefined
                 setFeedback({ kind: 'wrong', canHint: result.hintAvailable })
+                if (!guessDone) setGuessAsked(true)
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
@@ -258,6 +273,48 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
         if (e.key === 'Enter') {
             e.preventDefault()
             void handleSubmit()
+        }
+    }
+
+    /** 错后自述：选一个最像的原因（保存不阻塞任何流程，失败了也不打断） */
+    const sendGuess = async (guess: 'reading' | 'calculation' | 'procedure' | 'concept' | 'unknown') => {
+        if (reflecting) return
+        setReflecting(true)
+        try {
+            await postReflection({
+                learnerId,
+                questionId: q.id,
+                attemptId: lastAttemptIdRef.current,
+                kind: 'error-guess',
+                guess,
+            })
+        } catch {
+            /* 元认知记录失败不该挡住孩子做题 */
+        } finally {
+            setReflecting(false)
+            setGuessDone(true)
+            setGuessAsked(false)
+        }
+    }
+
+    /** 第一次就做对之后：说说怎么想的（可以跳过） */
+    const sendWhy = async () => {
+        if (reflecting) return
+        setReflecting(true)
+        try {
+            await postReflection({
+                learnerId,
+                questionId: q.id,
+                attemptId: lastAttemptIdRef.current,
+                kind: 'self-explain',
+                text: whyText.trim(),
+            })
+        } catch {
+            /* 同上 */
+        } finally {
+            setReflecting(false)
+            setWhyDone(true)
+            setWhyAsked(false)
         }
     }
 
@@ -402,6 +459,57 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {feedback?.kind === 'wrong' && (
                 <div className="rounded-[10px] bg-wrong-wash border border-wrong/25 px-4 py-3 text-wrong font-semibold">
                     {wrongExhausted ? '还是不太对，这道题先放一放。' : '再想想，你可以改一改答案再交。'}
+                </div>
+            )}
+            {/* 错后先自述：说出自己觉得错在哪，再看系统的归因（不计分，也不判对错） */}
+            {guessAsked && feedback?.kind === 'wrong' && (
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 space-y-2">
+                    <p className="text-sm text-ink-soft font-medium">先说说：你觉得这次错在哪？</p>
+                    <div className="flex flex-wrap gap-2">
+                        {(
+                            [
+                                ['reading', '我没读懂题'],
+                                ['calculation', '我算错了'],
+                                ['procedure', '方法记混了'],
+                                ['concept', '规则还没想明白'],
+                                ['unknown', '说不上来'],
+                            ] as const
+                        ).map(([guess, label]) => (
+                            <Button
+                                key={guess}
+                                size="sm"
+                                variant="secondary"
+                                disabled={reflecting}
+                                onClick={() => void sendGuess(guess)}
+                            >
+                                {label}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {/* 第一次见就做对了：请他讲讲怎么想的（可以跳过） */}
+            {whyAsked && !whyDone && finished && (
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 space-y-2">
+                    <p className="text-sm text-ink-soft font-medium">
+                        是你自己第一次就做对的——要不要说说你是怎么想的？说给别人听，记得更牢。
+                    </p>
+                    <textarea
+                        value={whyText}
+                        onChange={(e) => setWhyText(e.target.value)}
+                        rows={3}
+                        maxLength={500}
+                        placeholder="比如：我先看出一共有几份，再算每一份是多少……"
+                        className="w-full px-3 py-2 text-sm text-ink bg-plate border border-rule rounded-[10px]"
+                    />
+                    <div className="flex gap-2">
+                        <Button size="sm" onClick={() => void sendWhy()} disabled={reflecting || !whyText.trim()}>
+                            记下来
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setWhyAsked(false)} disabled={reflecting}>
+                            先不了
+                        </Button>
+                    </div>
                 </div>
             )}
             {error && (

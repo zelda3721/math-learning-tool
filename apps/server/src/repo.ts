@@ -233,11 +233,18 @@ export class Repo {
     return this.maxHintLevel(learnerId, questionId) >= 3;
   }
 
-  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */
-  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
+  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
     const r = this.db.prepare("SELECT id, kind, question_id FROM queue_items WHERE id = ?").get(id);
     if (!r) return undefined;
     return { id: String(r.id), kind: String(r.kind), questionId: String(r.question_id) };
+  }
+
+  /** 这个孩子一共提过几次题库外的题（家长端"独立性"看板要的数） */
+  countAskJobs(learnerId: string): number {
+    const r = this.db
+      .prepare("SELECT COUNT(*) AS n FROM ask_jobs WHERE learner_id = ?")
+      .get(learnerId);
+    return Number((r as { n?: number } | undefined)?.n ?? 0);
   }
 
   getAttempt(id: string): (Attempt & { at: string; actor?: string }) | undefined {

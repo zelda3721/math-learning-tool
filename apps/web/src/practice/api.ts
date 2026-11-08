@@ -66,6 +66,8 @@ export interface SubmitResult {
     trial?: boolean
     /** 同一道题同一天重复作答：照常记录，但不计入证据 */
     repeat?: boolean
+    /** 第一次见这道题就零提示做对了：这时请他讲讲思路最有价值 */
+    askWhy?: boolean
     hintAvailable: boolean
     mastery: MasteryChange[]
     review?: ReviewProgress
@@ -240,6 +242,21 @@ export function submitAnswer(payload: {
     source?: 'daily' | 'probe' | 'variant' | 'review' | 'explore'
 }): Promise<SubmitResult> {
     return post('/api/v1/practice/submit', payload)
+}
+
+/**
+ * 元认知记录：错后先猜自己错在哪、（第一次就做对时）说说怎么想的。
+ * 这是孩子自己的话——不计掌握度、不算对错，但家长看得到他会不会讲。
+ */
+export function postReflection(payload: {
+    learnerId: string
+    questionId: string
+    attemptId?: string
+    kind: 'error-guess' | 'self-explain'
+    guess?: 'reading' | 'calculation' | 'procedure' | 'concept' | 'unknown'
+    text?: string
+}): Promise<{ ok: boolean }> {
+    return post('/api/v1/practice/reflection', payload)
 }
 
 /** 学生「下一步」一句话建议（GET /practice/next-step） */

@@ -12,6 +12,7 @@ import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
 import { practiceReady } from "../questions.js";
 import { checkChatBudget } from "../chatBudget.js";
+import { screenLearnerInput } from "../safety.js";
 import { advanceReviewCard, ensureReviewCard } from "../review.js";
 
 /**
@@ -86,6 +87,26 @@ const HintSchema = z.object({
   questionId: z.string(),
   level: z.number().int().min(1).max(3),
   lastWrongAnswer: z.string().max(500).optional(),
+});
+
+/**
+ * 元认知通道（P1：从"拦"转向"养"）。
+ *
+ * 孩子先说出自己的想法，再看系统的归因——**先说的那句是证据，但不是分数**。
+ * 它记成 `reflection` 事件：`ai_unverified`（这是自由表达，判不了对错），
+ * 所以不进掌握度、不点亮星、不推进 SM-2。它的用处有两个：
+ * ① 让孩子把"我错了"变成"我错在哪一步"；
+ * ② 让家长看见孩子是不是在依赖 AI（先自述再看讲解，和直接看解析是两种人）。
+ */
+const ReflectionSchema = z.object({
+  learnerId: z.string(),
+  questionId: z.string(),
+  attemptId: z.string().optional(),
+  /** error-guess = 错后先猜自己错在哪种环节；self-explain = 答对后说说怎么想的 */
+  kind: z.enum(["error-guess", "self-explain"]),
+  /** 与归因结果的 surface 同一套取值，界面才比得起来 */
+  guess: z.enum(["reading", "calculation", "procedure", "concept", "unknown"]).optional(),
+  text: z.string().max(500).optional(),
 });
 
 export function practiceRoutes(state: AppState): Hono {
@@ -342,6 +363,8 @@ export function practiceRoutes(state: AppState): Hono {
      */
     const untrustedQuestion = !practiceReady(question);
     const actor = callerActor(c);
+    // 这道题是不是孩子第一次见：第一次就自己答对，是最值得问"你是怎么想的"的时刻
+    const seenBefore = state.repo.attemptedQuestionIds(body.learnerId).has(body.questionId);
     /*
      * 同一道题同一天最多认「一次错」和「一次对」。
      *
@@ -445,6 +468,12 @@ export function practiceRoutes(state: AppState): Hono {
       // 家长试做、同题重交：都不算证据，界面该说出来，而不是装作无事发生
       trial: actor === "parent",
       repeat: repeatSameDay,
+      /*
+       * 值得请他讲一讲思路的时刻：第一次见这道题就零提示做对了。
+       * 这不是考试，是让他把自己的想法说出来——那句话是元认知证据，
+       * 不进掌握度（自由表达判不了对错），但家长看得到他会不会讲。
+       */
+      askWhy: counted && result.correct && !seenBefore && body.hintLevelUsed === 0 && actor === "child",
       hintAvailable: !result.correct && !pending && body.hintLevelUsed < 3,
       mastery: masteryChanges,
       review,
@@ -471,6 +500,32 @@ export function practiceRoutes(state: AppState): Hono {
       return c.json({ kind: "none", message: "暂无合适的变式题，已排进明天的复习队列——明天做对同类题一样点亮。" });
     }
     return c.json({ kind: result.kind, question: sanitize(result.question) });
+  });
+
+  // 元认知通道：错后先猜、答对后说说怎么想的（ai_unverified，不进掌握度）
+  app.post("/reflection", async (c) => {
+    const parsed = ReflectionSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "参数错误" }, 400);
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
+    if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    if (!state.questions.byId.get(parsed.data.questionId)) return c.json({ error: "题目不存在" }, 404);
+    const text = parsed.data.text?.trim();
+    if (text) {
+      // 自由输入过一遍安检：孩子写下的话会进家长可见的记录，也可能被检索
+      const screen = screenLearnerInput(state.repo, learnerId, text);
+      if (screen.blocked) return c.json({ error: screen.reply, safety: screen.verdict }, 422);
+    }
+    if (!text && !parsed.data.guess) return c.json({ error: "写一句或者选一个" }, 400);
+    state.repo.appendEvent(learnerId, "reflection", {
+      questionId: parsed.data.questionId,
+      attemptId: parsed.data.attemptId,
+      kind: parsed.data.kind,
+      guess: parsed.data.guess,
+      text: text?.slice(0, 500),
+      // 明确写下来：这是孩子自己的话，判不了对错，别让下游把它当证据
+      verification: "ai_unverified",
+    });
+    return c.json({ ok: true });
   });
 
   app.post("/hint", async (c) => {
