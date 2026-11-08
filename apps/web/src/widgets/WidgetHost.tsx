@@ -38,6 +38,15 @@ export function WidgetHost({ spec, onDone }: Props) {
    */
   const [actions, setActions] = useState<WidgetAction[]>([])
   const [kind, setKind] = useState(spec.kind)
+  /*
+   * 先动手、再给结论。
+   *
+   * 早先 spec.insight（这个组件要揭示的那条关系）一开始就写在画面下方——
+   * "自己发现"于是变成了"先读结论"。现在它要等孩子操作过、并且自己说了一句
+   * "发现了什么"才出现（说不出来也可以看，但要自己点一下，不装作没看懂）。
+   */
+  const [discovered, setDiscovered] = useState(false)
+  const [guess, setGuess] = useState('')
 
   // 换了一个组件（kind 变了）就从头开始：上一台机器的操作对这台没有意义。
   // 父组件正常会用 key 重新挂载；这里是兜底，防止被复用成"串味"的组件。
@@ -47,6 +56,7 @@ export function WidgetHost({ spec, onDone }: Props) {
   }
 
   const { state, note } = useMemo(() => replayActions(spec, actions), [spec, actions])
+  const interacted = actions.some((a) => a.op !== 'reset')
 
   const dispatch = useCallback((action: WidgetAction) => {
     setActions((prev) => appendAction(prev, action))
@@ -82,8 +92,39 @@ export function WidgetHost({ spec, onDone }: Props) {
 
       <div className="rounded-[10px] border border-rule bg-paper px-4 py-3 space-y-1">
         <p className="text-sm font-semibold text-ink">{summarizeWidget(spec, state)}</p>
-        <p className="text-xs text-ink-soft leading-relaxed">{spec.insight}</p>
+        {discovered ? (
+          <>
+            <p className="text-xs text-ink-soft leading-relaxed">{spec.insight}</p>
+            {guess.trim() && (
+              <p className="text-xs text-ink-faint">你说的是：「{guess.trim()}」——和上面这句对得上吗？</p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-ink-faint">答案先不写在这儿：动手试一试，你会看见一条规律。</p>
+        )}
       </div>
+
+      {/* 操作过才问他发现了什么：没动手就问，等于让他猜答案 */}
+      {!discovered && interacted && (
+        <div className="rounded-[10px] border border-rule bg-paper px-4 py-3 space-y-2">
+          <p className="text-sm text-ink-soft font-medium">试了几次，你发现了什么？</p>
+          <input
+            value={guess}
+            onChange={(e) => setGuess(e.target.value)}
+            maxLength={200}
+            placeholder="比如：每行几个 × 有几行，就是一共几个"
+            className="w-full px-3 py-2 text-sm text-ink bg-plate border border-rule rounded-[10px]"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setDiscovered(true)} disabled={!guess.trim()}>
+              说出来，再看结论
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setDiscovered(true)}>
+              还没想好，先看结论
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => onDone({ actions, finalState: state })}>我看明白了，做题</Button>

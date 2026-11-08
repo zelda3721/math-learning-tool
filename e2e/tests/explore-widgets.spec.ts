@@ -37,6 +37,10 @@ test('探索页：选中知识点 → 动手组件能操作 → 收尾题出现'
     expect(after).not.toBe(before)
   }
 
+  // 先动手、再给结论：试过之后才出现"你发现了什么"，结论还没写出来
+  await page.getByRole('button', { name: '还没想好，先看结论' }).click()
+  await expect(host.getByText('答案先不写在这儿', { exact: false })).toHaveCount(0)
+
   // 「我看明白了」→ 收尾题那一段出现
   await page.getByRole('button', { name: '我看明白了，做题' }).click()
   await expect(page.getByText('收尾题 · 动手不算分，这道题算')).toBeVisible({ timeout: 10_000 })
