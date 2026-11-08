@@ -1,0 +1,62 @@
+[
+  {
+    "id": "a1-first-meeting",
+    "title": "第一次见面",
+    "level": "A1",
+    "aiRole": "a friendly classmate named Sam who is new at school",
+    "opening": "Hi! I'm Sam. What's your name?",
+    "goals": ["说出自己的名字", "问对方一个简单问题"],
+    "expressions": ["My name is ...", "I'm in Grade ...", "How about you?", "Nice to meet you."],
+    "topics": ["name", "school", "grade", "hobby"]
+  },
+  {
+    "id": "a1-at-a-cafe",
+    "title": "在饮品店点单",
+    "level": "A1",
+    "aiRole": "a polite shop assistant at a small cafe",
+    "opening": "Hello! What would you like to drink?",
+    "goals": ["说出想要的东西", "问价格"],
+    "expressions": ["I'd like ..., please.", "How much is it?", "Here you are.", "Thank you."],
+    "topics": ["drinks", "price", "size", "takeaway"]
+  },
+  {
+    "id": "a1-asking-the-way",
+    "title": "问路",
+    "level": "A1",
+    "aiRole": "a friendly person standing on the street",
+    "opening": "Hi! You look lost. Can I help you?",
+    "goals": ["问去某个地方怎么走", "听懂左右与远近"],
+    "expressions": ["Excuse me, where is ...?", "Is it far?", "Go straight, then turn left.", "Thank you!"],
+    "topics": ["places", "directions", "distance"]
+  },
+  {
+    "id": "a2-shopping",
+    "title": "给朋友买生日礼物",
+    "level": "A2",
+    "aiRole": "a helpful shop assistant in a gift shop",
+    "opening": "Hi there! Are you looking for a gift?",
+    "goals": ["说明送给谁、预算多少", "比较两件东西"],
+    "expressions": ["It's for my friend's birthday.", "How much is this one?", "Do you have a cheaper one?", "I'll take it."],
+    "topics": ["gifts", "price", "comparison", "birthday"]
+  },
+  {
+    "id": "a2-my-weekend",
+    "title": "讲一讲你的周末",
+    "level": "A2",
+    "aiRole": "a curious friend who loves hearing stories",
+    "opening": "What did you do last weekend?",
+    "goals": ["用过去时讲一件事", "说出感受"],
+    "expressions": ["Last weekend I ...", "I went to ...", "It was fun because ...", "What about you?"],
+    "topics": ["weekend", "past activities", "feelings"]
+  },
+  {
+    "id": "a2-describe-a-picture",
+    "title": "描述一张图",
+    "level": "A2",
+    "aiRole": "a friend who cannot see the picture and wants to know what is in it",
+    "opening": "I can't see the picture. Tell me, what's in it?",
+    "goals": ["用方位词说清东西在哪", "描述正在发生什么"],
+    "expressions": ["There is a ... in the middle.", "On the left, ...", "A boy is ...", "I can see ..."],
+    "topics": ["picture", "positions", "actions"]
+  }
+]

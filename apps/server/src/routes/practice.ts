@@ -71,9 +71,11 @@ function sanitize(q: Question) {
   };
 }
 
-const TodaySchema = z.object({ learnerId: z.string(), count: z.number().int().min(3).max(8).optional() });
+const TodaySchema = z.object({ learnerId: z.string().optional(), count: z.number().int().min(3).max(8).optional() });
 const SubmitSchema = z.object({
-  learnerId: z.string(),
+  // 孩子会话由服务端决定学习者，所以 learnerId 可以是可选的；
+  // 家长/调试才需要显式传（缺了就给一句能看懂的话，别回一个 zod 的 Required）
+  learnerId: z.string().optional(),
   questionId: z.string(),
   answer: z.string().max(500),
   hintLevelUsed: z.number().int().min(0).max(3).default(0),
@@ -83,7 +85,7 @@ const SubmitSchema = z.object({
   reviewCardId: z.string().optional(),
 });
 const HintSchema = z.object({
-  learnerId: z.string(),
+  learnerId: z.string().optional(),
   questionId: z.string(),
   level: z.number().int().min(1).max(3),
   lastWrongAnswer: z.string().max(500).optional(),
@@ -114,9 +116,10 @@ export function practiceRoutes(state: AppState): Hono {
 
   app.post("/today", async (c) => {
     const parsed = TodaySchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "需要 learnerId" }, 400);
+    if (!parsed.success) return c.json({ error: "参数错误" }, 400);
     const { count } = parsed.data;
-    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
+    if (!learnerId) return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 400);
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
     /*
      * 时长上限在**开始一组练习之前**拦：聊完再做题也一样算使用时间。
@@ -166,7 +169,7 @@ export function practiceRoutes(state: AppState): Hono {
 
   // 拍照作答判卷（P3）：vision 识别手写 → 确定性判卷；低置信度进家长抽检
   const PhotoSchema = z.object({
-    learnerId: z.string(),
+    learnerId: z.string().optional(),
     questionId: z.string(),
     /** 图片 base64（可带 data URL 前缀） */
     image: z.string().min(1),
@@ -182,9 +185,11 @@ export function practiceRoutes(state: AppState): Hono {
     const parsed = PhotoSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId/questionId/image" }, 400);
     const body = parsed.data;
-    body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
+    const photoLearner = effectiveLearnerId(c, state, body.learnerId);
+    if (!photoLearner) return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 400);
+    const photoLearnerId: string = photoLearner;
     if (!state.photoGrader) return c.json({ error: "拍照判卷需配置 vision LLM 端点" }, 501);
-    if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    if (!state.repo.getLearner(photoLearnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
     const registry = state.subjects ?? getSubjectRegistry();
@@ -205,13 +210,13 @@ export function practiceRoutes(state: AppState): Hono {
     const needsReview = !extracted.confident || result.method === "pending" || !result.hasJudge;
     // 两条提交路径同一套纪律：家长试做不进证据、同题同日只认第一次
     const actor = callerActor(c);
-    const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(body.learnerId, body.questionId) : { correct: 0, wrong: 0 };
+    const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(photoLearnerId, body.questionId) : { correct: 0, wrong: 0 };
     const repeatSameDay = actor === "child" && (result.correct ? todayCounts.correct > 0 : todayCounts.wrong > 0);
     const queueKind = body.queueItemId ? state.repo.getQueueItem(body.queueItemId)?.kind : undefined;
     const source: typeof body.source =
       queueKind === "probe" ? "probe" : body.source === "probe" ? "daily" : body.source;
     const attempt = state.repo.insertAttempt({
-      learnerId: body.learnerId,
+      learnerId: photoLearnerId,
       questionId: body.questionId,
       answer: extracted.answer,
       correct: result.correct,
@@ -233,10 +238,10 @@ export function practiceRoutes(state: AppState): Hono {
       !repeatSameDay &&
       practiceReady(question);
     if (counted) {
-      const viewed = state.repo.viewedAnalysisBefore(body.learnerId, body.questionId, attempt.at);
-      const stats = loadEvidenceStats(state.repo, state.questions, body.learnerId);
+      const viewed = state.repo.viewedAnalysisBefore(photoLearnerId, body.questionId, attempt.at);
+      const stats = loadEvidenceStats(state.repo, state.questions, photoLearnerId);
       question.nodeIds.forEach((nodeId, index) => {
-        const current = state.repo.getMastery(body.learnerId, nodeId);
+        const current = state.repo.getMastery(photoLearnerId, nodeId);
         const next = applyAttempt(
           current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
           result.correct,
@@ -244,7 +249,7 @@ export function practiceRoutes(state: AppState): Hono {
           (viewed ? MASTERY_PARAMS.afterAnalysisGainFactor : 1) * (index === 0 ? 1 : 0.5),
         );
         const row = {
-          learnerId: body.learnerId,
+          learnerId: photoLearnerId,
           nodeId,
           p: next.p,
           evidenceN: next.evidenceN,
@@ -253,11 +258,11 @@ export function practiceRoutes(state: AppState): Hono {
         state.repo.upsertMastery(row);
         masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
       });
-      if (source === "probe") backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
+      if (source === "probe") backfillProbeEvidence(state.repo, photoLearnerId, question, result.correct);
       if (body.reviewCardId) review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
-      else if (!result.correct && source === "daily") ensureReviewCard(state.repo, body.learnerId, body.questionId);
+      else if (!result.correct && source === "daily") ensureReviewCard(state.repo, photoLearnerId, body.questionId);
     }
-    state.repo.appendEvent(body.learnerId, "attempt", {
+    state.repo.appendEvent(photoLearnerId, "attempt", {
       attemptId: attempt.id,
       questionId: body.questionId,
       correct: result.correct,
@@ -285,8 +290,10 @@ export function practiceRoutes(state: AppState): Hono {
     const parsed = SubmitSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     const body = parsed.data;
-    body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
-    if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    const resolved = effectiveLearnerId(c, state, body.learnerId);
+    if (!resolved) return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 400);
+    const learnerId: string = resolved;
+    if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
     const question = state.questions.byId.get(body.questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
     const registry = state.subjects ?? getSubjectRegistry();
@@ -316,7 +323,7 @@ export function practiceRoutes(state: AppState): Hono {
          * 而是"理解由行为验证"的本意（宪法第 1 条）。
          */
         result = { correct: true, method: "numeric", verification: "ai_unverified", hasJudge: true };
-        state.repo.appendEvent(body.learnerId, "ai_judge_accepted", {
+        state.repo.appendEvent(learnerId, "ai_judge_accepted", {
           questionId: body.questionId,
           student: body.answer,
           reference: question.answer,
@@ -338,7 +345,7 @@ export function practiceRoutes(state: AppState): Hono {
      * 家长看得到孩子说「不会」，但这个动作既不扣分也不占掉今天的证据名额。
      */
     if (looksLikeGiveUp(body.answer) && !result.correct) {
-      state.repo.appendEvent(body.learnerId, "giveup", { questionId: body.questionId, answer: body.answer });
+      state.repo.appendEvent(learnerId, "giveup", { questionId: body.questionId, answer: body.answer });
       return c.json({
         attemptId: null,
         correct: false,
@@ -364,7 +371,7 @@ export function practiceRoutes(state: AppState): Hono {
     const untrustedQuestion = !practiceReady(question);
     const actor = callerActor(c);
     // 这道题是不是孩子第一次见：第一次就自己答对，是最值得问"你是怎么想的"的时刻
-    const seenBefore = state.repo.attemptedQuestionIds(body.learnerId).has(body.questionId);
+    const seenBefore = state.repo.attemptedQuestionIds(learnerId).has(body.questionId);
     /*
      * 同一道题同一天最多认「一次错」和「一次对」。
      *
@@ -372,7 +379,7 @@ export function practiceRoutes(state: AppState): Hono {
      * ② 同一道题重交「对」也不再刷成新证据——测到的是记忆，不是理解。
      * 重复作答照常记录（孩子做过什么不能丢），但不进掌握度、不推进 SM-2。
      */
-    const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(body.learnerId, body.questionId) : { correct: 0, wrong: 0 };
+    const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(learnerId, body.questionId) : { correct: 0, wrong: 0 };
     const repeatSameDay = actor === "child" && (result.correct ? todayCounts.correct > 0 : todayCounts.wrong > 0);
     /*
      * 探针的来源由**服务端**按队列项判定，不信客户端传的 source。
@@ -384,7 +391,7 @@ export function practiceRoutes(state: AppState): Hono {
     const source: typeof body.source =
       queueKind === "probe" ? "probe" : body.source === "probe" ? "daily" : body.source;
     const attempt = state.repo.insertAttempt({
-      learnerId: body.learnerId,
+      learnerId: learnerId,
       questionId: body.questionId,
       answer: body.answer,
       correct: result.correct,
@@ -411,10 +418,10 @@ export function practiceRoutes(state: AppState): Hono {
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
     if (counted) {
       // 作答前看过这道题的解析：那一次答对是回忆，不是理解，增益打折（扣分照旧）
-      const viewed = state.repo.viewedAnalysisBefore(body.learnerId, body.questionId, attempt.at);
-      const stats = loadEvidenceStats(state.repo, state.questions, body.learnerId);
+      const viewed = state.repo.viewedAnalysisBefore(learnerId, body.questionId, attempt.at);
+      const stats = loadEvidenceStats(state.repo, state.questions, learnerId);
       question.nodeIds.forEach((nodeId, index) => {
-        const current = state.repo.getMastery(body.learnerId, nodeId);
+        const current = state.repo.getMastery(learnerId, nodeId);
         const next = applyAttempt(
           current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
           result.correct,
@@ -423,7 +430,7 @@ export function practiceRoutes(state: AppState): Hono {
           (viewed ? MASTERY_PARAMS.afterAnalysisGainFactor : 1) * (index === 0 ? 1 : 0.5),
         );
         const row = {
-          learnerId: body.learnerId,
+          learnerId: learnerId,
           nodeId,
           p: next.p,
           evidenceN: next.evidenceN,
@@ -433,7 +440,7 @@ export function practiceRoutes(state: AppState): Hono {
         masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
       });
     }
-    state.repo.appendEvent(body.learnerId, "attempt", {
+    state.repo.appendEvent(learnerId, "attempt", {
       attemptId: attempt.id,
       questionId: body.questionId,
       correct: result.correct,
@@ -446,7 +453,7 @@ export function practiceRoutes(state: AppState): Hono {
 
     // 探针作答回填归因证据（宪法第 4 条：探针是证据，图遍历只是假设）
     if (source === "probe" && counted) {
-      backfillProbeEvidence(state.repo, body.learnerId, question, result.correct);
+      backfillProbeEvidence(state.repo, learnerId, question, result.correct);
     }
 
     // SM-2 推进（复习卡作答）；日常答错自动入复习（宪法第 3 条）
@@ -454,7 +461,7 @@ export function practiceRoutes(state: AppState): Hono {
     if (body.reviewCardId && counted) {
       review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
     } else if (counted && !result.correct && source === "daily") {
-      ensureReviewCard(state.repo, body.learnerId, body.questionId);
+      ensureReviewCard(state.repo, learnerId, body.questionId);
     }
 
     return c.json({
@@ -532,7 +539,8 @@ export function practiceRoutes(state: AppState): Hono {
     const parsed = HintSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "参数错误" }, 400);
     const { questionId, level, lastWrongAnswer } = parsed.data;
-    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
+    if (!learnerId) return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 400);
     const question = state.questions.byId.get(questionId);
     if (!question) return c.json({ error: "题目不存在" }, 404);
     /*

@@ -216,6 +216,32 @@ export function parentRoutes(state: AppState): Hono {
     return c.json({ items });
   });
 
+  /**
+   * 英语口语对练的记录。**内容受家长自己的"记录对话"开关管**（和探索对话同一把锁）：
+   * 关着就只回"哪天练了几轮"，不回孩子说了什么。
+   */
+  app.get("/speaking", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const recording = state.repo.learnerPrefs(learnerId).recordTranscript === true;
+    const sessions = state.repo.listSpeakingSessions(learnerId, 10).map((s) => ({
+      id: s.id,
+      scenarioId: s.scenarioId,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      turnCount: s.turns,
+      turns: recording
+        ? state.repo.listSpeakingTurns(s.id).map((t) => ({
+            ts: t.ts,
+            role: t.role,
+            text: t.role === "blocked" ? "" : t.text,
+            latencyMs: t.latencyMs,
+          }))
+        : [],
+    }));
+    return c.json({ recording, sessions });
+  });
+
   app.get("/pending-count", (c) => {
     const learnerId = c.req.query("learnerId");
     if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ count: 0 });

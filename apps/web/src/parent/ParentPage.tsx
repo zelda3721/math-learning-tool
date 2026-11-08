@@ -8,6 +8,7 @@ import { SafetyPanel } from './SafetyPanel'
 import { MemoryPanel } from './MemoryPanel'
 import { ModulesPanel } from './ModulesPanel'
 import { IndependencePanel } from './IndependencePanel'
+import { SpeakingPanel } from './SpeakingPanel'
 import { TranscriptPanel } from './TranscriptPanel'
 import { AiJudgmentPanel } from './AiJudgmentPanel'
 import {
@@ -614,6 +615,7 @@ export function ParentPage() {
                 <TrendChart trend={summary.trend} />
                 {learnerId && <SafetyPanel learnerId={learnerId} />}
                 {learnerId && <TranscriptPanel learnerId={learnerId} />}
+                {learnerId && <SpeakingPanel learnerId={learnerId} />}
                 {learnerId && <ModulesPanel learnerId={learnerId} />}
                 {learnerId && <MemoryPanel learnerId={learnerId} />}
                 <ExplanationSources rows={summary.explanationSources ?? []} />

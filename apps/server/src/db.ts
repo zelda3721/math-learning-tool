@@ -208,6 +208,26 @@ CREATE TABLE IF NOT EXISTS explore_transcripts (
   safety_reason TEXT               -- 被拦下时的原因/位置（input|output:reason）
 );
 CREATE INDEX IF NOT EXISTS idx_transcripts_learner ON explore_transcripts(learner_id, ts);
+-- 英语口语对练：一次对练一个 session，每一轮单独一行（家长开启记录时才写内容）
+CREATE TABLE IF NOT EXISTS speaking_sessions (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  scenario_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_speaking_sessions ON speaking_sessions(learner_id, started_at);
+CREATE TABLE IF NOT EXISTS speaking_turns (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  learner_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  role TEXT NOT NULL,              -- 'child' | 'tutor' | 'blocked'
+  text TEXT NOT NULL DEFAULT '',
+  latency_ms INTEGER,
+  safety_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_speaking_turns ON speaking_turns(session_id, ts);
 `;
 
 /** 旧库容错迁移（列已存在则跳过；node:sqlite 没有 IF NOT EXISTS 语法） */
