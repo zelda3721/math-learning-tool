@@ -23,6 +23,7 @@ import type { PhotoGrader } from "./photoGrader.js";
 import { ingestRoutes } from "./ingest/routes.js";
 import { exploreRoutes } from "./explore.js";
 import { askRoutes } from "./ask.js";
+import { speakingRoutes } from "./speaking.js";
 import { bankRoutes } from "./bank.js";
 import { textbookRoutes } from "./textbook.js";
 import { classroomRoutes } from "./classroom/routes.js";
@@ -208,6 +209,8 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/explore", exploreRoutes(state));
   // 自由提问（题库外的题）：转成临时题目，走和练习页一样的纪律（不喂答案）
   app.route("/api/v1/ask", askRoutes(state));
+  // 英语口语对练：本地 ASR + 本地 TTS，全链路不出本机
+  app.route("/api/v1/speaking", speakingRoutes(state));
   // 题库管理（家长专属）：列出全部题、就地修改、删除、整批撤回
   app.route("/api/v1/bank", bankRoutes(state));
   // 教材编译（家长专属）：PDF 文本 → 章节 → 知识点 → 图谱候选，只出提案
