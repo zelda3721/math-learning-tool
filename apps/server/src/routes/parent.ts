@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 import { loadEvidenceStats } from "../evidence.js";
+import { buildIndependenceReport } from "../independence.js";
 import { chatBudgetReport } from "../chatBudget.js";
 import { readProfile, writeProfile } from "../tutorMemory.js";
 import { MODULES, readModules, writeModules, type ModuleState } from "../modules.js";
@@ -149,6 +150,72 @@ export function parentRoutes(state: AppState): Hono {
    * 得自己想起来去翻。判不准转人工是对的，但转过去之后没人知道，
    * 等于这道题就这么悬着了。
    */
+  /**
+   * 「孩子是在自己学，还是在依赖 AI」——家长端最缺的一组数字。
+   *
+   * 只做统计，不做评价：新题首答靠自己做对的比例、提示深度分布、
+   * 看了几次解析、问过几次题库外的题、重复交了几次、自己讲过几次思路。
+   * 口径来自已有记录，不额外让模型判任何东西。
+   */
+  app.get("/independence", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const events = state.repo.listEvents(learnerId);
+    let repeats = 0;
+    let selfExplain = 0;
+    let errorGuess = 0;
+    for (const e of events) {
+      const payload = e.payload as { repeatSameDay?: unknown; kind?: unknown } | null;
+      if (e.type === "attempt" && payload?.repeatSameDay === true) repeats++;
+      if (e.type === "reflection") {
+        if (payload?.kind === "self-explain") selfExplain++;
+        else if (payload?.kind === "error-guess") errorGuess++;
+      }
+    }
+    const report = buildIndependenceReport({
+      attempts: state.repo.attemptsForEvidence(learnerId),
+      questions: state.questions,
+      analysisViews: state.repo.analysisViews(learnerId),
+      askCount: state.repo.countAskJobs(learnerId),
+      repeats,
+      reflections: { selfExplain, errorGuess },
+    });
+    return c.json({ learnerId, ...report });
+  });
+
+  /**
+   * 孩子的自述（元认知记录）：错后先猜自己错在哪、答对后说说怎么想的。
+   *
+   * 一律标 `ai_unverified`——那是孩子自己的话，判不了对错，也绝不进掌握度。
+   * 家长看的是"他会不会讲"，而不是"讲得对不对"。
+   */
+  app.get("/reflections", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const items = state.repo
+      .listEvents(learnerId, "reflection")
+      .slice(-30)
+      .reverse()
+      .map((e) => {
+        const p = e.payload as {
+          questionId?: unknown;
+          kind?: unknown;
+          guess?: unknown;
+          text?: unknown;
+        } | null;
+        return {
+          at: e.ts,
+          questionId: typeof p?.questionId === "string" ? p.questionId : undefined,
+          questionStem:
+            typeof p?.questionId === "string" ? state.questions.byId.get(p.questionId)?.stem : undefined,
+          kind: p?.kind === "self-explain" ? "self-explain" : "error-guess",
+          guess: typeof p?.guess === "string" ? p.guess : undefined,
+          text: typeof p?.text === "string" ? p.text : undefined,
+        };
+      });
+    return c.json({ items });
+  });
+
   app.get("/pending-count", (c) => {
     const learnerId = c.req.query("learnerId");
     if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ count: 0 });

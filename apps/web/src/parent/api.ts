@@ -322,3 +322,40 @@ export function fetchModules(learnerId: string): Promise<ModuleState> {
 export function postModules(payload: { learnerId: string; modules: Record<string, boolean> }): Promise<ModuleState> {
     return post('/api/v1/parent/modules', payload)
 }
+
+
+// ---- 独立性（孩子是在自己学，还是在依赖 AI） ----
+
+export interface IndependenceReport {
+    learnerId: string
+    attempts: number
+    firstSeenQuestions: number
+    independentFirstCorrect: number
+    /** 0~1；没有新题数据时是 null */
+    independentRate: number | null
+    /** 用了 0/1/2/3 级提示的作答数 */
+    hintDistribution: [number, number, number, number]
+    analysisViews: number
+    askCount: number
+    repeats: number
+    selfExplain: number
+    errorGuess: number
+    verdict: string
+}
+
+export function fetchIndependence(learnerId: string): Promise<IndependenceReport> {
+    return request(`/api/v1/parent/independence?learnerId=${encodeURIComponent(learnerId)}`)
+}
+
+export interface ReflectionItem {
+    at: string
+    questionId?: string
+    questionStem?: string
+    kind: 'self-explain' | 'error-guess'
+    guess?: string
+    text?: string
+}
+
+export function fetchReflections(learnerId: string): Promise<{ items: ReflectionItem[] }> {
+    return request(`/api/v1/parent/reflections?learnerId=${encodeURIComponent(learnerId)}`)
+}

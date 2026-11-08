@@ -7,6 +7,7 @@ import { ChildrenPanel } from './ChildrenPanel'
 import { SafetyPanel } from './SafetyPanel'
 import { MemoryPanel } from './MemoryPanel'
 import { ModulesPanel } from './ModulesPanel'
+import { IndependencePanel } from './IndependencePanel'
 import { TranscriptPanel } from './TranscriptPanel'
 import { AiJudgmentPanel } from './AiJudgmentPanel'
 import {
@@ -605,6 +606,7 @@ export function ParentPage() {
                 )}
                 <VerdictQueue items={summary.pendingVerdicts} onResolved={handleVerdictResolved} />
                 {learnerId && <AiJudgmentPanel learnerId={learnerId} />}
+                {learnerId && <IndependencePanel learnerId={learnerId} />}
                 <Struggles summary={summary} />
                 <WeakNodes summary={summary} />
                 <MistakePatterns summary={summary} />
