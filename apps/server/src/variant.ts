@@ -5,6 +5,7 @@ import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { appendQuestions, contentHashOf, practiceReady } from "./questions.js";
+import { findVariantQuestion } from "./variantMatch.js";
 
 /**
  * 变式题供给（宪法第 1、3 条的执行机制，设计 §06）：
@@ -48,18 +49,19 @@ export async function getVariant(args: {
     Math.abs(q.difficulty - original.difficulty) <= 1 &&
     q.answerType !== "steps";
 
-  // ① 题库检索：variantOf 同组 > 同题型 > 同节点
+  /*
+   * ① 题库检索：variantOf 同组 > **题干骨架相同** > 同题型 > 措辞相近 > 同节点。
+   *
+   * 骨架这一档是不用标注也能判的：把数字换成占位符后长得一样，就是"换个数会不会"。
+   * 实测库里 variantOf 全空、problemTypeId 只有 5 道，原来的三档检索实际上
+   * 每次都落到"同节点任意一道题"——那不是变式，是另一道题。
+   */
   const group = variantGroup(original);
   const fromGroup = store.all.find((q) => usable(q) && variantGroup(q) === group);
   if (fromGroup) return { kind: "bank", question: fromGroup };
-  if (original.problemTypeId) {
-    const fromType = store.all.find((q) => usable(q) && q.problemTypeId === original.problemTypeId);
-    if (fromType) return { kind: "bank", question: fromType };
-  }
-  for (const nodeId of original.nodeIds) {
-    const fromNode = (store.byNode.get(nodeId) ?? []).find(usable);
-    if (fromNode) return { kind: "bank", question: fromNode };
-  }
+  const pool = [...new Set(original.nodeIds.flatMap((id) => store.byNode.get(id) ?? []))];
+  const matched = findVariantQuestion(original, pool, usable);
+  if (matched) return { kind: "bank", question: matched };
 
   // ② LLM 参数化改造：换数字/情境，答案必须可确定性判卷
   if (llm && original.answerType !== "steps") {
