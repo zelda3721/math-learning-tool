@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings, setup_logging
 from ..config.dependencies import get_database, get_file_archive
-from .routes import chat, contract, figure, grades, health, plan, problems, sessions, skills, videos
+from .routes import chat, contract, figure, grades, health, plan, problems, sessions, skills, speech, videos
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["Sessions"])
     app.include_router(videos.router, prefix="/api/v1/media", tags=["Videos"])
     app.include_router(figure.router, prefix="/api/v1/figure", tags=["Figure"])
+    # 语音：本地识别与本地合成（PLAN D2：worker 只做纯计算，不调 LLM、不存数据）
+    app.include_router(speech.router, prefix="/api/v1", tags=["Speech"])
 
     return app
 
