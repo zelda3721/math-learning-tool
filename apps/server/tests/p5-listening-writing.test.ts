@@ -123,7 +123,7 @@ describe("听力", () => {
     expect(JSON.stringify(res.body)).not.toContain("On Saturday morning");
   });
 
-  it("答题：答完才给原文依据", async () => {
+  it("答题：答对才给原文依据；答错三次才给参考答案", async () => {
     const env = makeEnv();
     const { child, learnerId } = await withChild(env);
     const list = await child.call("GET", `/api/v1/en/listening/list?learnerId=${learnerId}`);
@@ -138,8 +138,25 @@ describe("听力", () => {
     });
     expect(wrong.status).toBe(200);
     expect(wrong.body.correct).toBe(false);
-    expect(wrong.body.evidence.length).toBeGreaterThan(0);
-    expect(wrong.body.reference).toBeTruthy();
+    // 前两次答错只说「再听一遍」，不给原文和答案——给了就等于把听力变成阅读
+    expect(wrong.body.retry).toBe(true);
+    expect(wrong.body.evidence).toBeUndefined();
+    expect(wrong.body.reference).toBeUndefined();
+
+    const answer = () =>
+      child.call("POST", "/api/v1/en/listening/answer", {
+        learnerId,
+        passageId: id,
+        questionId: q.id,
+        answer: "definitely wrong",
+      });
+    await answer();
+    const third = await answer();
+    expect(third.body.correct).toBe(false);
+    expect(third.body.retry).toBeFalsy();
+    expect(third.body.reference).toBeTruthy();
+    // 原文那一句只在答对时给：同一篇里它可能顺带答了别的题
+    expect(third.body.evidence).toBeUndefined();
   });
 });
 

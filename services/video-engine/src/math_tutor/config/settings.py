@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     """Application configuration"""
 
     # API Settings
-    api_host: str = "0.0.0.0"
+    # 默认只绑本机：compute-worker 无鉴权，只该被同机网关访问（对抗审查 D-01）。
+    # 容器部署或确需局域网直连时，显式设 API_HOST=0.0.0.0。
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
     api_debug: bool = False
 

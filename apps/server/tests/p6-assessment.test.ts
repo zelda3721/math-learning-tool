@@ -81,10 +81,22 @@ describe("测评流程", () => {
     expect(answer.body.recorded).toBe(true);
     expect(answer.body).not.toHaveProperty("correct");
 
+    // 只答一道就想交卷：不到一半，拒（不然跳过难题就能刷高正确率）
+    const tooFew = await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
+    expect(tooFew.status).toBe(409);
+
+    const total = start.body.questions.length as number;
+    const half = Math.ceil(total / 2);
+    for (const other of start.body.questions.slice(1, half)) {
+      await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, { learnerId, questionId: other.id, answer: "999" });
+    }
     const fin = await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
     expect(fin.status).toBe(200);
-    expect(fin.body.summary.answered).toBe(1);
+    expect(fin.body.summary.answered).toBe(half);
     expect(fin.body.summary.correct).toBe(0);
+    // 没答的那一半算进分母、按没答对算
+    expect(fin.body.summary.skipped).toBe(total - half);
+    expect(fin.body.summary.rate).toBe(0);
     expect(fin.body.summary.items[0].reference).toBeTruthy();
   });
 
@@ -104,18 +116,40 @@ describe("测评流程", () => {
     expect(env.state.repo.getMastery(learnerId, NODE_A)).toBeUndefined();
   });
 
-  it("交卷后再作答 → 409", async () => {
+  it("同一题再答 → 409；交卷后再作答 → 410（前端据此去看结果，而不是当成已记下）", async () => {
     const env = makeEnv();
     const { child, learnerId } = await withChild(env);
     const start = await child.call("POST", "/api/v1/assessment/start", { kind: "pre", learnerId });
-    const q = start.body.questions[0];
-    await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
+    const questions = start.body.questions as { id: string }[];
+    const q = questions[0]!;
+    for (const item of questions) {
+      await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, { learnerId, questionId: item.id, answer: "10" });
+    }
+    const dup = await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, { learnerId, questionId: q.id, answer: "11" });
+    expect(dup.status).toBe(409);
+    const fin = await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
+    expect(fin.status).toBe(200);
     const again = await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, {
       learnerId,
       questionId: q.id,
       answer: "10",
     });
-    expect(again.status).toBe(409);
+    expect(again.status).toBe(410);
+  });
+
+  it("并发两次交同一题：只记先到的那次", async () => {
+    const env = makeEnv();
+    const { learnerId } = await withChild(env);
+    const id = env.state.repo.createAssessment(learnerId, "pre", [NODE_A], ["a0"]);
+    expect(env.state.repo.answerAssessmentItem(id, "a0", "1", true)).toBe(true);
+    expect(env.state.repo.answerAssessmentItem(id, "a0", "2", false)).toBe(false);
+    const item = env.state.repo.listAssessmentItems(id)[0]!;
+    expect(item.answer).toBe("1");
+    expect(item.correct).toBe(true);
+    // 判不准存 NULL
+    const id2 = env.state.repo.createAssessment(learnerId, "pre", [NODE_A], ["a0"]);
+    env.state.repo.answerAssessmentItem(id2, "a0", "x", null);
+    expect(env.state.repo.listAssessmentItems(id2)[0]!.correct).toBeNull();
   });
 
   it("孩子不能碰别人的测评", async () => {
@@ -186,12 +220,11 @@ describe("家长端测评对比", () => {
     const env = makeEnv();
     const { parent, child, learnerId } = await withChild(env);
     const start = await child.call("POST", "/api/v1/assessment/start", { kind: "pre", learnerId });
-    await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, {
-      learnerId,
-      questionId: start.body.questions[0].id,
-      answer: "10",
-    });
-    await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
+    for (const item of start.body.questions as { id: string }[]) {
+      await child.call("POST", `/api/v1/assessment/${start.body.id}/answer`, { learnerId, questionId: item.id, answer: "10" });
+    }
+    const fin = await child.call("POST", `/api/v1/assessment/${start.body.id}/finish`, { learnerId });
+    expect(fin.status).toBe(200);
 
     const res = await parent.call("GET", `/api/v1/parent/assessments?learnerId=${learnerId}`);
     expect(res.status).toBe(200);

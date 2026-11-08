@@ -164,8 +164,11 @@ export function fetchReadingList(learnerId: string): Promise<ReadingList> {
     )
 }
 
-export function fetchPassage(id: string): Promise<Passage> {
-    return request<Passage>(`/api/v1/en/reading/passage?id=${encodeURIComponent(id)}`)
+/** 读原文要带 learnerId：服务端按它过英语模块开关和每日时长（孩子会话会自动补上，家长会话必须带） */
+export function fetchPassage(id: string, learnerId: string): Promise<Passage> {
+    return request<Passage>(
+        `/api/v1/en/reading/passage?id=${encodeURIComponent(id)}&learnerId=${encodeURIComponent(learnerId)}`,
+    )
 }
 
 export function postReadingAnswer(payload: {

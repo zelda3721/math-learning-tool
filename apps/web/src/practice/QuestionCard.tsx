@@ -18,6 +18,7 @@ import { ExplanationView } from './ExplanationView'
 import { VariantGate } from './VariantGate'
 import { QuestionFigure } from './QuestionFigure'
 import { QuestionImage } from './QuestionImage'
+import { canSkipPending } from '../english/uiLogic'
 
 export interface QuestionRecord {
     questionId: string
@@ -456,6 +457,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             {feedback?.kind === 'pending' && (
                 <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
                     这道题判不准，已经记下来给家长确认。你可以再答一次，或者要个提示。
+                    {hintLevel === 0 && '看过一级提示之后，才可以先跳过这题。'}
                 </div>
             )}
             {feedback?.kind === 'nudge' && (
@@ -589,8 +591,9 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                         )}
                     </Button>
                 )}
-                {/* 判不准时给一个说明白了的退路：跳过，且这次算"待确认" */}
-                {feedback?.kind === 'pending' && (
+                {/* 判不准时给一个说明白了的退路：跳过，且这次算"待确认"。
+                    但至少要过一级提示才给——不然"随便写点判不准的 → 跳过"又成了零代价的跳题捷径（A-04） */}
+                {canSkipPending(feedback?.kind, hintLevel) && (
                     <Button size="lg" variant="ghost" onClick={() => onDone(makeRecord(false))}>
                         先跳过这题
                     </Button>

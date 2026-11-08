@@ -13,9 +13,14 @@ import { ErrorState, LoadingState } from '../ui'
 interface Session {
     id: string
     kind: 'pre' | 'post' | 'retention'
+    subject?: 'math' | 'english'
     answered: number
     total: number
     correct: number
+    /** 判不准的题（没有判卷器）：不算对也不算错 */
+    pending?: number
+    /** 交卷时没答的题：算进分母 */
+    skipped?: number
     rate: number | null
 }
 
@@ -26,12 +31,19 @@ interface Comparison {
     overall: { beforeRate: number | null; afterRate: number | null }
 }
 
-interface Report {
-    sessions: Session[]
+interface SubjectReport {
     preToPost: Comparison | null
     postToRetention: Comparison | null
     next: { kind: string; why: string; dueAt?: string } | null
 }
+
+interface Report extends SubjectReport {
+    sessions: Session[]
+    /** 按学科分开：数学的前测和英语的后测放在一起比没有意义。旧服务端没有这个字段时按顶层（数学）显示 */
+    bySubject?: Partial<Record<'math' | 'english', SubjectReport>>
+}
+
+const SUBJECT_LABEL: Record<'math' | 'english', string> = { math: '数学', english: '英语' }
 
 const KIND_LABEL: Record<string, string> = { pre: '前测', post: '后测', retention: '保持率' }
 
@@ -67,40 +79,52 @@ export function AssessmentPanel({ learnerId }: { learnerId: string }) {
                 <span className="text-xs text-ink-faint">{report.sessions.length} 份</span>
             </div>
 
-            {report.sessions.length === 0 ? (
+            {report.sessions.length === 0 && (
                 <p className="text-sm text-ink-faint">
                     还没有做过测评。孩子在练习页会看到「前测」的入口——做完它，之后才说得清学到了什么。
                 </p>
-            ) : (
-                <ul className="space-y-2">
-                    {report.sessions.map((s) => (
-                        <li key={s.id} className="flex items-center justify-between gap-3 rounded-[10px] border border-rule bg-plate px-3 py-2 text-sm">
-                            <span className="font-semibold text-ink">{KIND_LABEL[s.kind] ?? s.kind}</span>
-                            <span className="text-ink-faint numeric">
-                                {s.answered}/{s.total} 道 · 对 {s.correct} · {pct(s.rate)}
-                            </span>
-                        </li>
-                    ))}
-                </ul>
             )}
 
-            {report.preToPost && (
-                <ComparisonRow title="前测 → 后测" cmp={report.preToPost} />
-            )}
-            {report.postToRetention && (
-                <ComparisonRow title="后测 → 保持率" cmp={report.postToRetention} />
-            )}
-
-            {report.next && (
-                <p className="text-xs text-ink-faint">
-                    下一份：{KIND_LABEL[report.next.kind] ?? report.next.kind}
-                    {report.next.dueAt
-                        ? `（${report.next.dueAt.slice(0, 10)} 之后可以让孩子做）`
-                        : '——现在就可以做'}
-                </p>
-            )}
+            {(['math', 'english'] as const).map((subject) => {
+                const sub: SubjectReport | undefined =
+                    report.bySubject?.[subject] ?? (subject === 'math' ? report : undefined)
+                const mine = report.sessions.filter((s) => (s.subject ?? 'math') === subject)
+                if (!sub || (mine.length === 0 && !sub.next)) return null
+                return (
+                    <div key={subject} className="space-y-2">
+                        <h3 className="text-sm font-semibold text-ink">{SUBJECT_LABEL[subject]}</h3>
+                        {mine.length > 0 && (
+                            <ul className="space-y-2">
+                                {mine.map((s) => (
+                                    <li
+                                        key={s.id}
+                                        className="flex items-center justify-between gap-3 rounded-[10px] border border-rule bg-plate px-3 py-2 text-sm"
+                                    >
+                                        <span className="font-semibold text-ink">{KIND_LABEL[s.kind] ?? s.kind}</span>
+                                        <span className="text-ink-faint numeric">
+                                            {s.answered}/{s.total} 道 · 对 {s.correct}
+                                            {s.skipped ? ` · 没答 ${s.skipped}` : ''}
+                                            {s.pending ? ` · 待判 ${s.pending}` : ''} · {pct(s.rate)}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {sub.preToPost && <ComparisonRow title="前测 → 后测" cmp={sub.preToPost} />}
+                        {sub.postToRetention && <ComparisonRow title="后测 → 保持率" cmp={sub.postToRetention} />}
+                        {sub.next && (
+                            <p className="text-xs text-ink-faint">
+                                下一份：{KIND_LABEL[sub.next.kind] ?? sub.next.kind}
+                                {sub.next.dueAt
+                                    ? `（${sub.next.dueAt.slice(0, 10)} 之后可以让孩子做）`
+                                    : '——现在就可以做'}
+                            </p>
+                        )}
+                    </div>
+                )
+            })}
             <p className="text-xs text-ink-faint">
-                测评单独记账，不算进掌握度：它测的是会不会，不是练了多少。
+                测评单独记账，不算进掌握度：它测的是会不会，不是练了多少。正确率的分母含没答的题（跳过难题刷不高正确率）。
             </p>
         </section>
     )

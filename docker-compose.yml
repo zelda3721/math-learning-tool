@@ -2,8 +2,11 @@ services:
   backend:
     build: ./services/video-engine
     ports:
-      - "8000:8000"
+      # 只映射到宿主机回环：引擎没有鉴权，不该对局域网敞开（网关容器走内部网络连它）
+      - "127.0.0.1:8000:8000"
     environment:
+      # 容器里必须听 0.0.0.0：引擎代码默认只听 127.0.0.1，那样别的容器连不进来
+      - API_HOST=0.0.0.0
       # Core LLM (defaults to LMStudio on the host)
       - LLM_API_BASE=${LLM_API_BASE:-http://host.docker.internal:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-lm-studio}

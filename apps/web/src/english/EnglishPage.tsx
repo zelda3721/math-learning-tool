@@ -540,13 +540,13 @@ function PassageView({
         setLoading(true)
         setError(null)
         try {
-            setPassage(await fetchPassage(passageId))
+            setPassage(await fetchPassage(passageId, learnerId))
         } catch (err) {
             setError(explainEnglishFailure(err))
         } finally {
             setLoading(false)
         }
-    }, [passageId])
+    }, [passageId, learnerId])
 
     useEffect(() => {
         void load()

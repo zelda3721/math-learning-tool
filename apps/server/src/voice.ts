@@ -17,6 +17,19 @@ export async function engineJson(state: AppState, pathname: string, body: unknow
   });
 }
 
+/**
+ * 是不是一段真的 wav（RIFF....WAVE 头）。
+ *
+ * 引擎的 TTS 走 API 通路时可能回 mp3、回一段 JSON 错误、甚至回 200 的空壳——
+ * 只看 `res.ok` 和长度不为零，听力就会把这种东西当音频写进缓存，
+ * 之后这篇听力永远播不出声，而且不会再重新合成。头不对就当没合成出来。
+ */
+export function isWav(buf: Buffer): boolean {
+  // 只看 12 字节头不够：200 回一个光头没有 data 块的壳子也能过，单段听力会把它原样写进缓存
+  const parsed = parseWav(buf);
+  return parsed !== null && parsed.data.length > 0;
+}
+
 /** 合成一段话；返回 base64 wav 与耗时。失败返回 null——文字照给，不让孩子面对错误码 */
 export async function synthesizeSpeech(
   state: AppState,
@@ -28,7 +41,7 @@ export async function synthesizeSpeech(
     const res = await engineJson(state, "/api/v1/tts", { text, ...opts }, 30_000);
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0) return null;
+    if (!isWav(buf)) return null;
     return { base64: buf.toString("base64"), ms: Date.now() - started };
   } catch {
     return null;
@@ -130,5 +143,8 @@ export async function synthesizeLongSpeech(
     if (!res) return null;
     buffers.push(Buffer.from(res.base64, "base64"));
   }
-  return { base64: concatWav(buffers).toString("base64"), ms: Date.now() - started };
+  const merged = concatWav(buffers);
+  // 拼不出合法 wav（各段 data 块都解析不出来）也算失败，不交一段空音频
+  if (!isWav(merged)) return null;
+  return { base64: merged.toString("base64"), ms: Date.now() - started };
 }

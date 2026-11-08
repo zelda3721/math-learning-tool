@@ -9,6 +9,7 @@ import { moduleBlockedBody, moduleEnabled } from "./modules.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
 import type { HintProvider } from "./hint.js";
 import { engineJson, synthesizeSpeech } from "./voice.js";
+import { containsMathAnswer } from "./writing.js";
 
 /**
  * 英语口语对练（PLAN 阶段 5）。
@@ -78,7 +79,8 @@ export function speakingPrompt(scenario: SpeakingScenario, history: { role: "chi
 2. 孩子说错了时用 recast：在你的回复里自然地重复一遍正确说法，**不要点名批评，不要解释语法**。
 3. 孩子用中文求助时：先用中文给半句提示（例如"你可以说：I would like…"），不要把整句答案给全；然后用英语问一句。
 4. 不打分、不评价发音、不输出列表或标题、不切换话题到情景之外。
-5. 只输出你要说给孩子的那句话本身。
+5. 只用英语对话，不做数学题、不回答作业；孩子问算术或作业题时，用英语把话题带回情景。
+6. 只输出你要说给孩子的那句话本身。
 
 对话记录：
 ${lines.join("\n") || "（还没有开始）"}`;
@@ -100,9 +102,13 @@ export function summarizeSession(
   return { turns: turns.filter((t) => t.role === "child").length, used, tryNext, childWords };
 }
 
+/** 可调语速：0.7（慢）–1.2（稍快）。超出这个范围孩子听不清或听着像机器，直接拒绝 */
+const Speed = z.number().min(0.7).max(1.2).optional();
+
 const SessionSchema = z.object({
   learnerId: z.string().optional(),
   scenarioId: z.string().optional(),
+  speed: Speed,
 });
 
 const TurnSchema = z.object({
@@ -111,10 +117,53 @@ const TurnSchema = z.object({
   /** 录音（data URL 或裸 base64）。测试/降级时可以只传 text */
   audio: z.string().optional(),
   text: z.string().max(1000).optional(),
+  speed: Speed,
 });
+
+/** 模型在口语里算起了数学题时换上的话（用英语把话题带回情景，不把结果念出来） */
+export const SPEAKING_OFF_TOPIC_REPLY = "Let's keep practising English together. What would you like to say next?";
+
+/**
+ * 最近 N 轮的延迟分位（纯计算，最近邻秩法）。
+ * 一轮从孩子说完到听到回复的总时长；口语对练"卡不卡"看的是 P90 而不是平均。
+ */
+export function latencyPercentiles(values: number[]): { n: number; p50: number | null; p90: number | null } {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  const pick = (q: number): number | null =>
+    sorted.length === 0 ? null : sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)]!;
+  return { n: sorted.length, p50: pick(0.5), p90: pick(0.9) };
+}
+
+const speedOpt = (speed: number | undefined): { speed?: number } => (speed === undefined ? {} : { speed });
 
 export function speakingRoutes(state: AppState): Hono {
   const app = new Hono();
+
+  /*
+   * 本轮对话的文本只放内存。
+   *
+   * 「记录对话」开关关着（默认）时，speaking_turns 只落 role / 延迟，不落原话——
+   * 孩子说的话是他的隐私，家长没打开记录就不该有一份全文躺在库里。
+   * 但模型要上下文、结束时的小结要数用到的表达，所以本轮文本在内存里留到 /end 为止。
+   * 设上限：会话不调 /end 就丢下的情况很常见，不能让它无限长。
+   */
+  const live = new Map<string, { role: "child" | "tutor"; text: string }[]>();
+  const LIVE_LIMIT = 200;
+  const remember = (sessionId: string, role: "child" | "tutor", text: string): void => {
+    const turns = live.get(sessionId) ?? [];
+    turns.push({ role, text });
+    live.delete(sessionId);
+    live.set(sessionId, turns);
+    while (live.size > LIVE_LIMIT) live.delete(live.keys().next().value!);
+  };
+  /** 内存里没有（服务重启过）就退回库里的——打开了记录时库里才有文本 */
+  const historyOf = (sessionId: string): { role: "child" | "tutor"; text: string }[] =>
+    live.get(sessionId) ??
+    state.repo
+      .listSpeakingTurns(sessionId)
+      .filter((t) => (t.role === "child" || t.role === "tutor") && t.text)
+      .map((t) => ({ role: t.role as "child" | "tutor", text: t.text }));
+  const recording = (learnerId: string): boolean => state.repo.learnerPrefs(learnerId).recordTranscript === true;
 
   /** 口语入口的两道闸：模块（英语）+ 每日时长 */
   const gate = (c: Context, learnerId: string): Response | undefined => {
@@ -147,8 +196,14 @@ export function speakingRoutes(state: AppState): Hono {
     // 不指定就挑一个——孩子第一次打开不该面对一个空下拉框
     const scenario = (parsed.data.scenarioId && all.find((s) => s.id === parsed.data.scenarioId)) || all[0]!;
     const sessionId = state.repo.createSpeakingSession(learnerId, scenario.id);
-    state.repo.insertSpeakingTurn({ sessionId, learnerId, role: "tutor", text: scenario.opening });
-    const audio = await synthesizeSpeech(state, scenario.opening);
+    state.repo.insertSpeakingTurn({
+      sessionId,
+      learnerId,
+      role: "tutor",
+      ...(recording(learnerId) ? { text: scenario.opening } : {}),
+    });
+    remember(sessionId, "tutor", scenario.opening);
+    const audio = await synthesizeSpeech(state, scenario.opening, speedOpt(parsed.data.speed));
     return c.json({
       sessionId,
       scenario: { id: scenario.id, title: scenario.title, level: scenario.level, goals: scenario.goals, expressions: scenario.expressions },
@@ -200,17 +255,24 @@ export function speakingRoutes(state: AppState): Hono {
       });
       return c.json({ heard, blocked: true, reply: screen.reply, audio: null });
     }
-    state.repo.insertSpeakingTurn({ sessionId: session.id, learnerId, role: "child", text: heard });
+    // 服务重启过、内存里没有这一场：先把库里已有的轮次接回来，不然模型只看得到这一句，小结也少算
+    if (!live.has(session.id)) live.set(session.id, historyOf(session.id));
+    const keepText = recording(learnerId);
+    state.repo.insertSpeakingTurn({
+      sessionId: session.id,
+      learnerId,
+      role: "child",
+      ...(keepText ? { text: heard } : {}),
+      ...(asrMs > 0 ? { latencyMs: asrMs } : {}),
+    });
+    remember(session.id, "child", heard);
 
     // 3) 导师回复（模型）；没有模型就诚实说"现在说不出话"，而不是假装在聊
     const llm: HintProvider | null = state.hintProvider;
     if (!llm) {
       return c.json({ heard, error: "现在没有可用的模型，口语对练暂时开不了", code: "no-model" }, 503);
     }
-    const history = state.repo
-      .listSpeakingTurns(session.id)
-      .filter((t) => t.role === "child" || t.role === "tutor")
-      .map((t) => ({ role: t.role as "child" | "tutor", text: t.text }));
+    const history = historyOf(session.id);
     let reply = "";
     const llmStart = Date.now();
     try {
@@ -226,12 +288,26 @@ export function speakingRoutes(state: AppState): Hono {
       state.repo.insertSpeakingTurn({ sessionId: session.id, learnerId, role: "blocked", safetyReason: "output" });
       return c.json({ heard, blocked: true, reply: out.reply, audio: null });
     }
+    /*
+     * 4b) 算式结果不出口：孩子在口语里问"37×24 等于几"，模型很可能直接算给他，
+     * 英语对练就成了绕过数学提示阶梯的解题通道。提示词里已经要求别做，
+     * 这里是确定性兜底——模型不听话也出不去。
+     */
+    if (containsMathAnswer(reply)) reply = SPEAKING_OFF_TOPIC_REPLY;
     reply = reply.slice(0, 400);
-    state.repo.insertSpeakingTurn({ sessionId: session.id, learnerId, role: "tutor", text: reply });
+    remember(session.id, "tutor", reply);
 
     // 5) 合成（失败就当没有声音：文字照给，不让孩子面对一个错误码）
-    const audio = await synthesizeSpeech(state, reply);
+    const audio = await synthesizeSpeech(state, reply, speedOpt(parsed.data.speed));
     const totalMs = Date.now() - startedAt;
+    // 合成完才落 tutor 行：latency_ms 记的是孩子这一轮的端到端等待，P50/P90 从这里算
+    state.repo.insertSpeakingTurn({
+      sessionId: session.id,
+      learnerId,
+      role: "tutor",
+      ...(keepText ? { text: reply } : {}),
+      latencyMs: totalMs,
+    });
     state.repo.appendEvent(learnerId, "speaking_turn", {
       sessionId: session.id,
       scenarioId: scenario.id,
@@ -259,10 +335,12 @@ export function speakingRoutes(state: AppState): Hono {
     const session = state.repo.getSpeakingSession(parsed.data.sessionId);
     if (!session || session.learnerId !== learnerId) return c.json({ error: "会话不存在" }, 404);
     const scenario = scenarioById(session.scenarioId);
-    const turns = state.repo.listSpeakingTurns(session.id);
+    // 小结用本轮内存里的文本算，算完就丢；库里有没有原文取决于「记录对话」开关
+    const turns = historyOf(session.id);
+    live.delete(session.id);
     state.repo.endSpeakingSession(session.id);
     const summary = scenario
-      ? summarizeSession(scenario, turns.map((t) => ({ role: t.role, text: t.text })))
+      ? summarizeSession(scenario, turns)
       : { turns: 0, used: [], tryNext: [], childWords: 0 };
     state.repo.appendEvent(learnerId, "speaking_session", {
       sessionId: session.id,
@@ -272,6 +350,25 @@ export function speakingRoutes(state: AppState): Hono {
       verification: "ai_unverified",
     });
     return c.json({ summary });
+  });
+
+  /**
+   * 最近 N 轮的延迟 P50 / P90。家长或孩子本人可看（孩子会话由 effectiveLearnerId 强制成自己）。
+   * 只读统计，不过模块/时长闸：家长关了英语也该看得到之前卡不卡。
+   */
+  app.get("/latency", (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const limit = Math.max(1, Math.min(500, Number(c.req.query("n") ?? 50) || 50));
+    const samples: { ts: string; ms: number }[] = [];
+    for (const s of state.repo.listSpeakingSessions(learnerId, 100)) {
+      for (const t of state.repo.listSpeakingTurns(s.id)) {
+        if (t.role === "tutor" && t.latencyMs !== null) samples.push({ ts: t.ts, ms: t.latencyMs });
+      }
+    }
+    samples.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+    const recent = samples.slice(0, limit).map((x) => x.ms);
+    return c.json({ learnerId, ...latencyPercentiles(recent), window: limit });
   });
 
   return app;

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button, LoadingState, PageHeader } from '../ui'
+import {
+    TIMEOUTS,
+    createPushToTalk,
+    paceToSpeed,
+    requestJson,
+    type PushToTalk,
+    type SpeakingPace,
+} from './uiLogic'
 
 /**
  * 英语口语对练（阶段 5）：角色扮演，语音全在本机。
@@ -12,6 +20,9 @@ import { Button, LoadingState, PageHeader } from '../ui'
  *    界面上不出现"你错了"三个字。
  * 3. **不打分**：结束时只列"你今天用到的表达 / 可以试试的说法"，
  *    没有分数、没有等级。
+ *
+ * 麦克风只在按住的那几秒开着：松手、切走标签页、离开这一栏都要把 track 还回去
+ * （生命周期在 uiLogic.createPushToTalk 里，那里说了早先漏在哪）。
  */
 
 interface Scenario {
@@ -66,19 +77,64 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
     const [recording, setRecording] = useState(false)
     const [typed, setTyped] = useState('')
     const [summary, setSummary] = useState<Summary | null>(null)
-    const recorderRef = useRef<MediaRecorder | null>(null)
-    const chunksRef = useRef<Blob[]>([])
+    /** 开始对话失败（超时 / 服务不可用）：只在情景列表上说一句，可以直接再点「开始」 */
+    const [startError, setStartError] = useState<string | null>(null)
+    /** 语速：慢速给刚开口的孩子用（服务端 speed 0.8），开始对话和每一轮都带上 */
+    const [pace, setPace] = useState<SpeakingPace>('normal')
+    const pttRef = useRef<PushToTalk | null>(null)
+    const lifeRef = useRef<AbortController | null>(null)
+    /** 录音回调里要用最新的 send（session 会变），走 ref 不走闭包 */
+    const sendRef = useRef<(payload: { audio?: string; text?: string }) => Promise<void>>(async () => {})
+
+    const speakingTimeout = '这一轮等得太久了（超过 30 秒），本机模型可能正忙——再说一次或者打字试试。'
+
+    useEffect(() => {
+        const life = new AbortController()
+        lifeRef.current = life
+        const ptt = createPushToTalk({
+            getStream: () => navigator.mediaDevices.getUserMedia({ audio: true }),
+            createRecorder: (stream) => new MediaRecorder(stream as MediaStream),
+            onRecording: (active) => setRecording(active),
+            onBlob: (blob) => {
+                void (async () => {
+                    try {
+                        const dataUrl = await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader()
+                            reader.onload = () => resolve(String(reader.result))
+                            reader.onerror = () => reject(reader.error)
+                            reader.readAsDataURL(blob)
+                        })
+                        await sendRef.current({ audio: dataUrl })
+                    } catch {
+                        setError('这段录音没读出来——再按住说一次，或者打字说。')
+                    }
+                })()
+            },
+            onDenied: () =>
+                setError('没有拿到麦克风权限——可以直接打字说，或者去浏览器的网站设置里允许麦克风。'),
+        })
+        pttRef.current = ptt
+        // 切到别的标签页 / 锁屏：录音丢弃、麦克风立刻还回去，不让指示灯一直亮着
+        const onVisibility = () => {
+            if (document.visibilityState === 'hidden') ptt.cancel()
+        }
+        document.addEventListener('visibilitychange', onVisibility)
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibility)
+            ptt.cancel()
+            life.abort()
+        }
+    }, [])
 
     const load = useCallback(async () => {
         setError(null)
-        try {
-            const res = await fetch(`/api/v1/speaking/scenarios?learnerId=${encodeURIComponent(learnerId)}`)
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = (await res.json()) as { scenarios: Scenario[] }
-            setScenarios(data.scenarios)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        }
+        const r = await requestJson<{ scenarios: Scenario[] }>(
+            `/api/v1/speaking/scenarios?learnerId=${encodeURIComponent(learnerId)}`,
+            {},
+            { timeoutMs: TIMEOUTS.list, timeoutMessage: '情景列表取得太久了，再试一次', signal: lifeRef.current?.signal },
+        )
+        if (r.ok) setScenarios(r.data.scenarios)
+        else if (!r.aborted) setError(r.error)
     }, [learnerId])
 
     useEffect(() => {
@@ -90,24 +146,27 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
     }, [load])
 
     const start = async (scenarioId: string) => {
+        if (busy) return
         setBusy(true)
         setError(null)
+        setStartError(null)
         setSummary(null)
-        try {
-            const res = await fetch('/api/v1/speaking/session', {
+        const r = await requestJson<SessionState>(
+            '/api/v1/speaking/session',
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ learnerId, scenarioId }),
-            })
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = (await res.json()) as SessionState
-            setSession(data)
-            setTurns([{ role: 'tutor', text: data.opening }])
-            playBase64Wav(data.audio)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        } finally {
-            setBusy(false)
+                body: JSON.stringify({ learnerId, scenarioId, speed: paceToSpeed(pace) }),
+            },
+            { timeoutMs: TIMEOUTS.speaking, timeoutMessage: speakingTimeout, signal: lifeRef.current?.signal },
+        )
+        setBusy(false)
+        if (r.ok) {
+            setSession(r.data)
+            setTurns([{ role: 'tutor', text: r.data.opening }])
+            playBase64Wav(r.data.audio)
+        } else if (!r.aborted) {
+            setStartError(r.error)
         }
     }
 
@@ -115,90 +174,91 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
         if (!session || busy) return
         setBusy(true)
         setError(null)
-        try {
-            const res = await fetch('/api/v1/speaking/turn', {
+        const r = await requestJson<{
+            heard?: string
+            reply?: string | null
+            audio?: string | null
+            blocked?: boolean
+        }>(
+            '/api/v1/speaking/turn',
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ learnerId, sessionId: session.sessionId, ...payload }),
-            })
-            const data = (await res.json()) as {
-                heard?: string
-                reply?: string | null
-                audio?: string | null
-                blocked?: boolean
-                error?: string
-            }
-            if (!res.ok) {
-                setError(data.error ?? `HTTP ${res.status}`)
-                return
-            }
-            if (data.heard && !data.blocked) setTurns((prev) => [...prev, { role: 'child', text: data.heard! }])
-            if (data.blocked) setTurns((prev) => [...prev, { role: 'blocked', text: data.reply ?? '' }])
-            else if (data.reply) setTurns((prev) => [...prev, { role: 'tutor', text: data.reply! }])
-            if (!data.blocked) playBase64Wav(data.audio ?? null)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        } finally {
-            setBusy(false)
+                body: JSON.stringify({ learnerId, sessionId: session.sessionId, speed: paceToSpeed(pace), ...payload }),
+            },
+            { timeoutMs: TIMEOUTS.speaking, timeoutMessage: speakingTimeout, signal: lifeRef.current?.signal },
+        )
+        setBusy(false)
+        if (!r.ok) {
+            if (!r.aborted) setError(r.error)
+            return
         }
+        const data = r.data
+        if (data.heard && !data.blocked) setTurns((prev) => [...prev, { role: 'child', text: data.heard! }])
+        if (data.blocked) setTurns((prev) => [...prev, { role: 'blocked', text: data.reply ?? '' }])
+        else if (data.reply) setTurns((prev) => [...prev, { role: 'tutor', text: data.reply! }])
+        if (!data.blocked) playBase64Wav(data.audio ?? null)
     }
+    // 渲染后再挂到 ref 上：录音回调异步触发，拿到的总是最新一次渲染的 send（session 已就位）
+    useEffect(() => {
+        sendRef.current = send
+    })
 
     /** 按住说话：松开就送出去。录不到麦克风就退到打字，而不是把这一轮吞掉。 */
-    const startRecording = async () => {
-        if (!session || busy || recording) return
+    const startRecording = () => {
+        if (!session || busy) return
         setError(null)
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-            const recorder = new MediaRecorder(stream)
-            chunksRef.current = []
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) chunksRef.current.push(e.data)
-            }
-            recorder.onstop = async () => {
-                stream.getTracks().forEach((t) => t.stop())
-                const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-                if (blob.size === 0) return
-                const dataUrl = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader()
-                    reader.onload = () => resolve(String(reader.result))
-                    reader.onerror = () => reject(reader.error)
-                    reader.readAsDataURL(blob)
-                })
-                await send({ audio: dataUrl })
-            }
-            recorder.start()
-            recorderRef.current = recorder
-            setRecording(true)
-        } catch {
-            setError('没有拿到麦克风权限——可以直接打字说，或者去浏览器的网站设置里允许麦克风。')
-        }
+        void pttRef.current?.press()
     }
 
     const stopRecording = () => {
-        if (!recorderRef.current) return
-        recorderRef.current.stop()
-        recorderRef.current = null
-        setRecording(false)
+        pttRef.current?.release()
     }
 
     const end = async () => {
         if (!session) return
+        // 结束时还在录：丢弃，麦克风还回去
+        pttRef.current?.cancel()
         setBusy(true)
-        try {
-            const res = await fetch('/api/v1/speaking/end', {
+        const r = await requestJson<{ summary: Summary }>(
+            '/api/v1/speaking/end',
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ learnerId, sessionId: session.sessionId }),
-            })
-            if (res.ok) {
-                const data = (await res.json()) as { summary: Summary }
-                setSummary(data.summary)
-                setSession(null)
-            }
-        } finally {
-            setBusy(false)
+            },
+            { timeoutMs: TIMEOUTS.speaking, timeoutMessage: '小结生成得太久了，再点一次试试。', signal: lifeRef.current?.signal },
+        )
+        setBusy(false)
+        if (r.ok) {
+            setSummary(r.data.summary)
+            setSession(null)
+        } else if (!r.aborted) {
+            setError(r.error)
         }
     }
+
+    const paceSwitch = (
+        <div className="flex items-center gap-1 text-xs text-ink-faint" role="group" aria-label="语速">
+            <span>AI 说话：</span>
+            {(
+                [
+                    ['slow', '慢一点'],
+                    ['normal', '正常'],
+                ] as const
+            ).map(([value, label]) => (
+                <Button
+                    key={value}
+                    size="sm"
+                    variant={pace === value ? 'primary' : 'ghost'}
+                    disabled={busy}
+                    onClick={() => setPace(value)}
+                >
+                    {label}
+                </Button>
+            ))}
+        </div>
+    )
 
     if (error && !session) {
         return (
@@ -238,6 +298,9 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
                 <p className="text-sm text-ink-soft">
                     挑一个情景，和 AI 扮演的角色用英语聊几句。说错了不要紧——它会用正确说法接你的话。
                 </p>
+                {paceSwitch}
+                {busy && <p className="text-sm text-ink-faint">正在准备对话，本机模型第一次要等一会儿……</p>}
+                {startError && <p className="text-sm text-wrong">{startError}</p>}
                 <ul className="grid gap-2 md:grid-cols-2">
                     {scenarios.map((s) => (
                         <li key={s.id} className="plate p-4 space-y-2">
@@ -262,6 +325,7 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
                 <div>
                     <p className="font-semibold text-ink">{session.scenario.title}</p>
                     <p className="text-xs text-ink-faint">要练：{session.scenario.expressions.join(' · ')}</p>
+                    {paceSwitch}
                 </div>
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => void end()}>
                     结束并看小结
@@ -288,11 +352,14 @@ export function SpeakingTab({ learnerId }: { learnerId: string }) {
             {error && <p className="text-sm text-wrong">{error}</p>}
 
             <div className="flex flex-wrap items-center gap-2">
+                {/* 录音中不能 disabled：被禁用的按钮收不到 pointerup，松手就松不掉了。
+                    pointercancel（系统手势抢走触点）也算松手 */}
                 <Button
-                    onPointerDown={() => void startRecording()}
+                    onPointerDown={startRecording}
                     onPointerUp={stopRecording}
-                    onPointerLeave={() => recording && stopRecording()}
-                    disabled={busy || recording}
+                    onPointerCancel={stopRecording}
+                    onPointerLeave={stopRecording}
+                    disabled={busy && !recording}
                 >
                     {recording ? '松开发送…' : busy ? '在听你说…' : '按住说话'}
                 </Button>

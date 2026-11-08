@@ -1,18 +1,20 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { judgeVocab, loadVocabulary, recordVocabAnswer, vocabBatch, type VocabCard } from "../vocabulary.js";
 import { judgeReading, loadReading, publicPassage } from "../reading.js";
 import { moduleBlockedBody, moduleEnabled } from "../modules.js";
 import { budgetBlockedPayload } from "../chatBudget.js";
-import { synthesizeLongSpeech } from "../voice.js";
+import { isWav, synthesizeLongSpeech } from "../voice.js";
 import { countWords, loadWriting, reviewWriting, writingPromptById } from "../writing.js";
-import { screenLearnerInput } from "../safety.js";
+import { screenLearnerInput, screenModelOutput } from "../safety.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { practiceReady } from "../questions.js";
 import { effectiveP, masteryBand } from "../mastery.js";
 import { loadEvidenceStats } from "../evidence.js";
+import { revealsQuestion } from "../classroom/englishLesson.js";
+import type { Question } from "@mathtutor/schema";
 
 /**
  * 英语学习入口：词汇（SM-2）与分级阅读。
@@ -47,8 +49,110 @@ const ReadingAnswerSchema = z.object({
   answer: z.string().max(300),
 });
 
+/** 听力同一题当天答错几次之后，第三次才给参考答案（和阅读"先提示、不直接给"的节奏一致） */
+const LISTENING_REVEAL_AFTER = 2;
+
+/** 本地时间的今天零点：和时长闸同一个"今天" */
+function startOfLocalDay(now = new Date()): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 英文分词：撇号缩写展开（She's → she is），数字也算词（"I'm 22." 里的 22 是上下文） */
+function englishTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/n't\b/g, " not")
+    .replace(/'re\b/g, " are")
+    .replace(/'m\b/g, " am")
+    .replace(/'s\b/g, " is")
+    .replace(/'ve\b/g, " have")
+    .replace(/'ll\b/g, " will")
+    .replace(/'d\b/g, " would")
+    .split(/[^a-z0-9_]+/)
+    .filter(Boolean);
+}
+
+function containsRun(hay: string[], run: string[]): boolean {
+  if (run.length === 0 || run.length > hay.length) return false;
+  for (let i = 0; i + run.length <= hay.length; i++) {
+    if (run.every((w, k) => hay[i + k] === w)) return true;
+  }
+  return false;
+}
+
+/**
+ * 这句话是不是**直接把空填上了**：空左边那个词 + 答案、或者答案 + 空右边那个词，原样出现在句子里。
+ *
+ * revealsQuestion 判的是"是不是同一句话"（实词重合度），对短题干判不出来：
+ * `It ___ (rain) now.` 和例句 `It's raining.` 只有一个实词重合；`I ___ 22 years old.`
+ * 和 `I'm 22.` 一个实词都不重合——可孩子照着例句抄，空就填对了。
+ * 这里看的是空两边的那个词和答案拼起来的那一小段，只拿来筛和题干同屏的教材原文。
+ */
+export function fillsBlank(sentence: string, question: Question): boolean {
+  // 题干里冒号后面才是英文题面；括号里的提示词（eat / not like）不是句子的一部分
+  const english = question.stem.split(/[：:]/).pop() ?? question.stem;
+  const stemTokens = englishTokens(english.replace(/\([^)]*\)/g, " ").replace(/_{2,}/g, " ___ "));
+  const blank = stemTokens.indexOf("___");
+  if (blank === -1) return false;
+  const left = stemTokens[blank - 1];
+  const right = stemTokens[blank + 1];
+  const hay = englishTokens(sentence);
+  return String(question.answer)
+    .split("/")
+    .map((alt) => englishTokens(alt))
+    .filter((alt) => alt.length > 0)
+    .some(
+      (alt) =>
+        (left !== undefined && containsRun(hay, [left, ...alt])) ||
+        (right !== undefined && containsRun(hay, [...alt, right])),
+    );
+}
+
+/**
+ * 把一段教材原文里**会泄露本单元任一下发题目**的句子去掉。
+ *
+ * 语法单元页把 summary / whatIsIt（教材原句）和题干摆在同一屏：
+ * "My name is Lisa." 和 "My name ___ Lisa." 一上一下，孩子照抄就"答对"了，
+ * 进掌握度的却是 reference 证据。判句子是不是同一句，用课堂那边同一把尺子
+ * （revealsQuestion），不另造一套标准。
+ */
+export function redactRevealing(text: string | undefined, questions: Question[]): string | undefined {
+  if (!text || questions.length === 0) return text;
+  const sentences = text.split(/(?<=[.!?。！？])\s+/).filter(Boolean);
+  const kept = sentences.filter(
+    (sentence) => !questions.some((q) => revealsQuestion(sentence, q) || fillsBlank(sentence, q)),
+  );
+  return kept.length === sentences.length ? text : kept.join(" ");
+}
+
 export function englishRoutes(state: AppState): Hono {
   const app = new Hono();
+
+  /**
+   * 作答/读原文类入口的三道闸：learner 存在 + 英语模块开着 + 今天还有时长。
+   * 词汇、写作、口语早就三道都过；阅读与听力作答漏了后两道，
+   * 家长关掉英语或时长用完后，孩子从这两条路照样能学——闸就成了摆设。
+   */
+  const gate = (c: Context, learnerId: string | undefined): Response | undefined => {
+    if (!learnerId) return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 400);
+    if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const blocked = budgetBlockedPayload(state.repo, learnerId);
+    if (blocked) return c.json(blocked, 429);
+    return undefined;
+  };
+
+  /** 听力里已经被亮过参考答案的题（passageId/questionId）：阅读里再答对不算"读懂了" */
+  const revealedInListening = (learnerId: string, passageId: string, questionId: string): boolean =>
+    state.repo
+      .listEvents(learnerId, "listening-answer")
+      .some((e) => {
+        const p = e.payload as { passageId?: string; questionId?: string; revealed?: boolean };
+        return p.revealed === true && p.passageId === passageId && p.questionId === questionId;
+      });
 
   // 词表 + 阅读都按需加载一次：内容是文件，读一次就够（改文件要重启，和题库一致）
   let vocabulary: VocabCard[] | null = null;
@@ -184,8 +288,9 @@ export function englishRoutes(state: AppState): Hono {
         id: node.id,
         name: node.name,
         stage: node.stage,
-        summary: node.summary,
-        whatIsIt: node.whatIsIt,
+        // 和题干同屏：会泄题的教材原句不下发（见 redactRevealing）
+        summary: redactRevealing(node.summary, questions) ?? "",
+        whatIsIt: redactRevealing(node.whatIsIt, questions),
         band: row ? masteryBand(effectiveP(row), row.evidenceN, stats) : "dim",
         evidenceN: row?.evidenceN ?? 0,
       },
@@ -235,18 +340,19 @@ export function englishRoutes(state: AppState): Hono {
 
     const file = path.join(listeningDir(), `${passage.id}.wav`);
     let audio: string | null = null;
-    if (existsSync(file)) {
-      audio = readFileSync(file).toString("base64");
+    // 旧缓存里可能躺着一份不是 wav 的"音频"（早先没校验就写了）：不认它，重新合成
+    const cached = existsSync(file) ? readFileSync(file) : null;
+    if (cached && isWav(cached)) {
+      audio = cached.toString("base64");
     } else {
       const made = await synthesizeLongSpeech(state, passage.text);
-      if (made) {
+      // 只缓存校验过的 wav：缓存一份坏音频，这篇听力就永远没声了
+      if (made && isWav(Buffer.from(made.base64, "base64"))) {
         mkdirSync(listeningDir(), { recursive: true });
         writeFileSync(file, Buffer.from(made.base64, "base64"));
         audio = made.base64;
       }
     }
-    const count = state.repo.attemptsForEvidence(learnerId).length;
-    void count;
     return c.json({
       id: passage.id,
       title: passage.title,
@@ -267,20 +373,43 @@ export function englishRoutes(state: AppState): Hono {
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "参数错误" }, 400);
     const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
-    if (!learnerId || !state.repo.getLearner(learnerId)) {
-      return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 404);
-    }
-    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const closed = gate(c, learnerId);
+    if (closed || !learnerId) return closed!;
     const passage = loadReading().passages.find((p) => p.id === parsed.data.passageId);
     const question = passage?.questions.find((q) => q.id === parsed.data.questionId);
     if (!passage || !question) return c.json({ error: "没有这道听力题" }, 404);
     const verdict = judgeReading(question, parsed.data.answer);
-    // 答完才给原文依据：那才是"讲解"
-    return c.json({
+
+    /*
+     * 答错不给参考答案、也不给原文那一句——听力材料和阅读是同一批短文，
+     * 原文句一亮，等于把听力变成了阅读、把答案念给孩子听。
+     * 同一题今天已经错过 LISTENING_REVEAL_AFTER 次，这一次（第三次）还错才给参考答案：
+     * 再卡下去没有学习价值，只剩挫败。亮过答案的题要在事件里标出来，
+     * 阅读那边据此不把"抄来的对"算成读懂了。
+     */
+    const since = startOfLocalDay();
+    const wrongToday = state.repo.listEvents(learnerId, "listening-answer").filter((e) => {
+      const p = e.payload as { passageId?: string; questionId?: string; correct?: boolean };
+      return (
+        p.passageId === passage.id &&
+        p.questionId === question.id &&
+        p.correct === false &&
+        new Date(e.ts).getTime() >= since
+      );
+    }).length;
+    const reveal = !verdict.correct && wrongToday >= LISTENING_REVEAL_AFTER;
+    // 听力作答留痕：不留孩子写的原文，只留对错与是否亮过答案
+    state.repo.appendEvent(learnerId, "listening-answer", {
+      passageId: passage.id,
+      questionId: question.id,
       correct: verdict.correct,
-      evidence: question.evidence,
-      reference: verdict.correct ? undefined : question.answer,
+      ...(reveal ? { revealed: true } : {}),
+      verification: "reference",
     });
+    if (verdict.correct) return c.json({ correct: true, evidence: question.evidence });
+    // 第三次还错：只给参考答案。原文那一句不给——同一篇里它可能顺带答了别的题
+    if (reveal) return c.json({ correct: false, retry: false, reference: question.answer });
+    return c.json({ correct: false, retry: true });
   });
 
   /*
@@ -325,13 +454,18 @@ export function englishRoutes(state: AppState): Hono {
     const screen = screenLearnerInput(state.repo, learnerId, parsed.data.text);
     if (screen.blocked) return c.json({ error: screen.reply }, 422);
 
-    const feedback = await reviewWriting(state.hintProvider, task, parsed.data.text);
+    // 反馈要说给孩子听：tip / praise 各过一遍输出侧安检（拦下即换固定话术，见 guardFeedbackLine）
+    const feedback = await reviewWriting(state.hintProvider, task, parsed.data.text, {
+      screen: (line) => screenModelOutput(state.repo, learnerId, line).blocked,
+    });
     state.repo.appendEvent(learnerId, "writing", {
       promptId: task.id,
       words: countWords(parsed.data.text),
       // 只留统计，不留全文：作文全文属于孩子的隐私，家长要看应该由孩子自己拿给他看
       bands: feedback?.bands ?? null,
       inconsistent: feedback?.inconsistent ?? null,
+      mustUseMissing: feedback?.requirements.mustUseMissing.length ?? null,
+      belowMinWords: feedback?.requirements.belowMinWords ?? null,
       verification: "ai_unverified",
     });
     if (!feedback) {
@@ -359,8 +493,9 @@ export function englishRoutes(state: AppState): Hono {
 
     const answered = new Map<string, Set<string>>();
     for (const event of state.repo.listEvents(learnerId, "reading-answer")) {
-      const p = event.payload as { passageId?: string; questionId?: string; correct?: boolean };
-      if (!p.passageId || !p.questionId || !p.correct) continue;
+      const p = event.payload as { passageId?: string; questionId?: string; correct?: boolean; afterReveal?: boolean };
+      // 听力里看过答案之后的"对"不算读懂（见 /reading/answer）
+      if (!p.passageId || !p.questionId || !p.correct || p.afterReveal) continue;
       const set = answered.get(p.passageId) ?? new Set<string>();
       set.add(p.questionId);
       answered.set(p.passageId, set);
@@ -381,6 +516,9 @@ export function englishRoutes(state: AppState): Hono {
   });
 
   app.get("/reading/passage", (c) => {
+    // 下发原文也是学习：早先这里谁都能拿、不看模块不看时长，家长关了英语照样读得到
+    const closed = gate(c, effectiveLearnerId(c, state, c.req.query("learnerId")));
+    if (closed) return closed;
     const id = c.req.query("id");
     if (!id) return c.json({ error: "需要 id" }, 400);
     const passage = reading.passages.find((p) => p.id === id);
@@ -393,8 +531,8 @@ export function englishRoutes(state: AppState): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     const body = parsed.data;
     body.learnerId = effectiveLearnerId(c, state, body.learnerId) ?? body.learnerId;
-    if (!state.repo.getLearner(body.learnerId)) return c.json({ error: "learner 不存在" }, 404);
-    if (!moduleEnabled(state.repo, body.learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const closed = gate(c, body.learnerId);
+    if (closed) return closed;
 
     const passage = reading.passages.find((p) => p.id === body.passageId);
     if (!passage) return c.json({ error: "没有这篇读物" }, 404);
@@ -402,10 +540,17 @@ export function englishRoutes(state: AppState): Hono {
     if (!question) return c.json({ error: "没有这道题" }, 404);
 
     const verdict = judgeReading(question, body.answer);
+    /*
+     * 同一批短文也是听力材料。听力里已经亮过这道题的参考答案，
+     * 阅读里再答对就只是"记住了答案"，不能把这一篇算成读完（done）。
+     * 判卷照常说对，事件里标 afterReveal，列表统计跳过它。
+     */
+    const afterReveal = verdict.correct && revealedInListening(body.learnerId, passage.id, question.id);
     state.repo.appendEvent(body.learnerId, "reading-answer", {
       passageId: passage.id,
       questionId: question.id,
       correct: verdict.correct,
+      ...(afterReveal ? { afterReveal: true } : {}),
       verification: "reference",
     });
 
@@ -418,7 +563,7 @@ export function englishRoutes(state: AppState): Hono {
       correct: verdict.correct,
       verification: "reference",
       ...(verdict.correct
-        ? { reference: verdict.reference, evidence: question.evidence }
+        ? { reference: verdict.reference, evidence: question.evidence, counted: !afterReveal }
         : { hint: "再读一遍短文，答案就藏在某一句里。" }),
     });
   });

@@ -207,14 +207,20 @@ export class Repo {
   }
 
   /** 这道题已经拿到过的最高提示级（服务端记账，不信客户端自报） */
-  maxHintLevel(learnerId: string, questionId: string): number {
+  /**
+   * 这道题拿到过的最高提示级。sinceIso 给了就只看那之后的提示事件。
+   *
+   * 不分范围的全量口径只适合"走没走过一遍"（讲解闸）：一旦算进作答，
+   * 第 1 天要过三级提示，第 8 天复习时零提示做对也会被记成 3 级，永远拿不到满额增益。
+   */
+  maxHintLevel(learnerId: string, questionId: string, sinceIso?: string): number {
     const rows = this.db
       .prepare(
         `SELECT payload_json FROM learner_events
          WHERE learner_id = ? AND type = 'attempt' AND json_extract(payload_json, '$.kind') = 'hint'
-           AND json_extract(payload_json, '$.questionId') = ?`,
+           AND json_extract(payload_json, '$.questionId') = ? AND ts > ?`,
       )
-      .all(learnerId, questionId);
+      .all(learnerId, questionId, sinceIso ?? "");
     let max = 0;
     for (const r of rows) {
       const payload = safeJson(r.payload_json) as { level?: unknown } | null;
@@ -233,10 +239,81 @@ export class Repo {
     return this.maxHintLevel(learnerId, questionId) >= 3;
   }
 
-  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
+  /**
+   * 「这一轮」做这道题的提示级：上一次答对之后、且最近 12 小时内要过的提示。
+   * - 答对就是一轮的结束：之后再做（复习、重做）从零提示算起；
+   * - 12 小时窗口：没答对过的题隔几天再做，也不该背着当年的三级提示；
+   *   用小时窗而不是"今天"，免得深夜要了提示、零点一过提交就清零。
+   */
+  hintLevelThisRound(learnerId: string, questionId: string, now = new Date()): number {
+    const lastCorrect = this.db
+      .prepare("SELECT MAX(at) AS at FROM attempts WHERE learner_id = ? AND question_id = ? AND correct = 1")
+      .get(learnerId, questionId) as { at?: unknown } | undefined;
+    const windowStart = new Date(now.getTime() - 12 * 3600_000).toISOString();
+    const lastCorrectAt = lastCorrect?.at ? String(lastCorrect.at) : "";
+    return this.maxHintLevel(learnerId, questionId, lastCorrectAt > windowStart ? lastCorrectAt : windowStart);
+  }
+
+  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */
+  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
     const r = this.db.prepare("SELECT id, kind, question_id FROM queue_items WHERE id = ?").get(id);
     if (!r) return undefined;
     return { id: String(r.id), kind: String(r.kind), questionId: String(r.question_id) };
+  }
+
+  /**
+   * 带归属与消费状态的队列项（探针来源判定用）。
+   *
+   * 为什么不改 getQueueItem：它只回 kind，判不了"是不是这个孩子的、用没用过"。
+   * 不校验这两样，一个探针队列项可以被重试无数次（每次都回填归因证据），
+   * 也可以被别的孩子拿去把普通作答伪装成探针。
+   */
+  getQueueItemState(
+    id: string,
+  ): { id: string; learnerId: string; kind: string; questionId: string; consumedAt: string | null } | undefined {
+    const r = this.db
+      .prepare("SELECT id, learner_id, kind, question_id, consumed_at FROM queue_items WHERE id = ?")
+      .get(id);
+    if (!r) return undefined;
+    return {
+      id: String(r.id),
+      learnerId: String(r.learner_id),
+      kind: String(r.kind),
+      questionId: String(r.question_id),
+      consumedAt: r.consumed_at === null || r.consumed_at === undefined ? null : String(r.consumed_at),
+    };
+  }
+
+  /**
+   * 某次作答**所在那一天**、同一道题上已经计入的证据数（对错各算各的），排除它自己。
+   *
+   * 和 todayAttemptCounts 的区别：家长裁决可能隔几天才做，要看的是作答发生的那一天，
+   * 而不是裁决的今天；被裁决的作答此刻已经 needs_review=0，不排除自己就会把自己算成"已有证据"。
+   */
+  countedAttemptsOnDayOf(
+    learnerId: string,
+    questionId: string,
+    at: string,
+    excludeAttemptId: string,
+  ): { correct: number; wrong: number } {
+    const start = localDayStart(new Date(at));
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const rows = this.db
+      .prepare(
+        `SELECT correct, COUNT(*) AS n FROM attempts
+         WHERE learner_id = ? AND question_id = ? AND at >= ? AND at < ? AND id != ?
+           AND needs_review = 0 AND verification != 'ai_unverified' AND actor = 'child'
+         GROUP BY correct`,
+      )
+      .all(learnerId, questionId, start.toISOString(), end.toISOString(), excludeAttemptId);
+    let correct = 0;
+    let wrong = 0;
+    for (const r of rows) {
+      if (Boolean(r.correct)) correct = Number(r.n);
+      else wrong = Number(r.n);
+    }
+    return { correct, wrong };
   }
 
   /** 这个孩子一共提过几次题库外的题（家长端"独立性"看板要的数） */
@@ -771,6 +848,20 @@ export class Repo {
       .run(error, new Date().toISOString(), id);
   }
 
+  /**
+   * 讲解产物（spec / html 文件 URL）→ 登记它的那条讲解挂在哪道题上。
+   * 孩子按题把门要用：产物按随机 id 命名，id 一旦出现在任何响应里就能被直接取用。
+   * column 只接受两个固定值（拼进 SQL 的是列名，不是用户输入）。
+   */
+  explanationByArtifactUrl(column: "spec_url" | "html_url", url: string): { questionId?: string } | undefined {
+    const col = column === "spec_url" ? "spec_url" : "html_url";
+    const r = this.db
+      .prepare(`SELECT question_id FROM explanations WHERE ${col} = ? ORDER BY created_at DESC LIMIT 1`)
+      .get(url) as { question_id?: unknown } | undefined;
+    if (!r) return undefined;
+    return { questionId: r.question_id === null || r.question_id === undefined ? undefined : String(r.question_id) };
+  }
+
   getExplainJob(id: string) {
     const r = this.db.prepare("SELECT * FROM explain_jobs WHERE id = ?").get(id);
     if (!r) return undefined;
@@ -914,10 +1005,36 @@ export class Repo {
     }));
   }
 
-  answerAssessmentItem(assessmentId: string, questionId: string, answer: string, correct: boolean): void {
-    this.db
-      .prepare("UPDATE assessment_items SET answer = ?, correct = ?, answered_at = ? WHERE assessment_id = ? AND question_id = ?")
-      .run(answer, correct ? 1 : 0, new Date().toISOString(), assessmentId, questionId);
+  /**
+   * 记一道测评题的作答。correct=null 表示判不准（存 SQL NULL，不算对也不算错）。
+   * 只写还没答过的那一行：两次并发提交（超时重交、而第一次其实还在判）时，
+   * 先到的那次算数，后到的拿到 false——"每道题只记第一次"不能靠读-判-写之间的空档。
+   */
+  answerAssessmentItem(assessmentId: string, questionId: string, answer: string, correct: boolean | null): boolean {
+    const r = this.db
+      .prepare(
+        "UPDATE assessment_items SET answer = ?, correct = ?, answered_at = ? WHERE assessment_id = ? AND question_id = ? AND answered_at IS NULL",
+      )
+      .run(answer, correct === null ? null : correct ? 1 : 0, new Date().toISOString(), assessmentId, questionId);
+    return Number(r.changes) > 0;
+  }
+
+  /**
+   * 每道题在测评里第一次被孩子看到的时刻（questionId → ISO）。
+   * 作答过的取 answered_at，没作答的退到测评创建时间（题面已经摆在他面前了）；
+   * 多份测评里都出现过取最早。证据统计据此判"首见"：测评里见过、交卷还看过参考答案的题，
+   * 之后练习里再做对，测到的是记忆，不是理解。
+   */
+  assessmentSeenAt(learnerId: string): Map<string, string> {
+    const rows = this.db
+      .prepare(
+        `SELECT ai.question_id AS qid, MIN(COALESCE(ai.answered_at, a.created_at)) AS at
+           FROM assessment_items ai JOIN assessments a ON a.id = ai.assessment_id
+          WHERE a.learner_id = ?
+          GROUP BY ai.question_id`,
+      )
+      .all(learnerId);
+    return new Map(rows.map((r) => [String(r.qid), String(r.at)]));
   }
 
   finishAssessment(id: string): void {

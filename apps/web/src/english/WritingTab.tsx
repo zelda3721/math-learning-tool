@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button, ErrorState, LoadingState } from '../ui'
+import { TIMEOUTS, bandLevel, mustUseNote, requestJson, showInconsistent } from './uiLogic'
 
 /**
  * 英语写作：给一个任务，孩子写，AI 按量规给反馈。
  *
  * 界面上必须说清的两句话：
  * 1. **不打分、不进掌握度**——写作是 `ai_unverified`，同一段话可以这么写也可以那么写；
- * 2. 两次评分差得远时（服务端算出来的），直说"这次反馈不太稳，可以给家长看看"。
+ *    所以量规每一维只显示三档文字（还在练 / 基本做到 / 做得好），不摆 x/5——
+ *    嘴上说不打分、底下摆个分数，孩子只会记住那个数；
+ * 2. 两次评分差得远时（服务端算出来的），直说"这次反馈不太稳，可以给家长看看"；
+ *    服务端说不知道（null）就不说。
  *
  * 这里不给"范文"：给了孩子会照着抄，而写作要练的是自己想说什么。
  */
@@ -23,12 +27,17 @@ interface Prompt {
 }
 
 interface Feedback {
-    bands: { structure: number; vocabulary: number; grammar: number }
+    /** 某一维模型没评出来时为 null：显示"—"，不编一个数 */
+    bands: { structure: number | null; vocabulary: number | null; grammar: number | null }
     tip: string
     praise: string
-    inconsistent: boolean
+    /** null = 只评了一次、不知道稳不稳：不显示警告 */
+    inconsistent: boolean | null
     words: number
     verification: string
+    mustUseHit?: string[]
+    mustUseMissing?: string[]
+    belowMinWords?: boolean
 }
 
 const BAND_LABEL: Record<keyof Feedback['bands'], string> = {
@@ -44,17 +53,24 @@ export function WritingTab({ learnerId }: { learnerId: string }) {
     const [text, setText] = useState('')
     const [busy, setBusy] = useState(false)
     const [feedback, setFeedback] = useState<Feedback | null>(null)
+    /** 卸载时掐掉还在路上的请求（模型评一篇可能要几十秒，人早走了） */
+    const lifeRef = useRef<AbortController | null>(null)
+
+    useEffect(() => {
+        const life = new AbortController()
+        lifeRef.current = life
+        return () => life.abort()
+    }, [])
 
     const load = useCallback(async () => {
         setError(null)
-        try {
-            const res = await fetch(`/api/v1/en/writing/prompts?learnerId=${encodeURIComponent(learnerId)}`)
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = (await res.json()) as { prompts: Prompt[] }
-            setPrompts(data.prompts)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        }
+        const r = await requestJson<{ prompts: Prompt[] }>(
+            `/api/v1/en/writing/prompts?learnerId=${encodeURIComponent(learnerId)}`,
+            {},
+            { timeoutMs: TIMEOUTS.list, timeoutMessage: '写作任务取得太久了，再试一次', signal: lifeRef.current?.signal },
+        )
+        if (r.ok) setPrompts(r.data.prompts)
+        else if (!r.aborted) setError(r.error)
     }, [learnerId])
 
     useEffect(() => {
@@ -70,23 +86,23 @@ export function WritingTab({ learnerId }: { learnerId: string }) {
         if (!picked || !text.trim() || busy) return
         setBusy(true)
         setError(null)
-        try {
-            const res = await fetch('/api/v1/en/writing/submit', {
+        const r = await requestJson<Feedback>(
+            '/api/v1/en/writing/submit',
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ learnerId, promptId: picked.id, text: text.trim() }),
-            })
-            const data = (await res.json()) as Feedback & { error?: string }
-            if (!res.ok) {
-                setError(data.error ?? `HTTP ${res.status}`)
-                return
-            }
-            setFeedback(data)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        } finally {
-            setBusy(false)
-        }
+            },
+            {
+                // 本地模型要评两次，慢是常态；超过一分钟就别让孩子干等，写的东西还在框里
+                timeoutMs: TIMEOUTS.writing,
+                timeoutMessage: 'AI 这次看得太久了（超过一分钟），本机模型可能正忙——你写的还在，再交一次试试。',
+                signal: lifeRef.current?.signal,
+            },
+        )
+        setBusy(false)
+        if (r.ok) setFeedback(r.data)
+        else if (!r.aborted) setError(r.error)
     }
 
     if (error && !prompts) return <ErrorState message={`写作加载失败：${error}`} onRetry={() => void load()} />
@@ -168,13 +184,19 @@ export function WritingTab({ learnerId }: { learnerId: string }) {
                         {(Object.keys(feedback.bands) as (keyof Feedback['bands'])[]).map((k) => (
                             <div key={k} className="rounded-[10px] border border-rule bg-paper px-3 py-2 text-center">
                                 <div className="text-xs text-ink-faint">{BAND_LABEL[k]}</div>
-                                <div className="numeric text-lg font-semibold text-ink">{feedback.bands[k]}/5</div>
+                                <div className="text-base font-semibold text-ink">{bandLevel(feedback.bands[k])}</div>
                             </div>
                         ))}
                     </div>
                     <p className="text-sm text-ink-soft">写得好的地方：{feedback.praise}</p>
                     <p className="text-sm text-ink">可以改一改：{feedback.tip}</p>
-                    {feedback.inconsistent && (
+                    {mustUseNote(feedback.mustUseMissing) && (
+                        <p className="text-sm text-ink-soft">{mustUseNote(feedback.mustUseMissing)}</p>
+                    )}
+                    {feedback.belowMinWords && (
+                        <p className="text-sm text-ink-soft">这篇还不到 {picked.minWords} 词，可以再多写几句。</p>
+                    )}
+                    {showInconsistent(feedback.inconsistent) && (
                         <p className="text-sm text-wrong">
                             这次两次评分差得比较多，反馈可能不太稳——可以让家长看一眼这篇。
                         </p>

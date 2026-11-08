@@ -54,7 +54,7 @@ async function setupParentAndChild(env: ReturnType<typeof makeAuthEnv>) {
 }
 
 describe("P0-1 讲解入口：孩子走过一遍才给看", () => {
-  it("没有作答过 → 403；用完三级提示之后 → 给讲（带解析）", async () => {
+  it("没有作答过 → 403；三级提示用完并且交过答案 → 给讲（带解析）", async () => {
     const env = makeAuthEnv([makeQuestion({ id: "eq1", answer: "7", analysis: "先求每份，再乘 3，答案是 7" })]);
     const { child, learnerId } = await setupParentAndChild(env);
 
@@ -71,6 +71,12 @@ describe("P0-1 讲解入口：孩子走过一遍才给看", () => {
       expect(res.status).toBe(200);
     }
 
+    // 光点三下提示、一个字不写，还不算走过一遍（A-05）
+    const hintsOnly = await child.call("POST", "/api/v1/explain", { questionId: "eq1", learnerId });
+    expect(hintsOnly.status).toBe(403);
+
+    const wrong = await child.call("POST", "/api/v1/practice/submit", { questionId: "eq1", answer: "3", learnerId });
+    expect(wrong.body.correct).toBe(false);
     const after = await child.call("POST", "/api/v1/explain", { questionId: "eq1", learnerId });
     expect(after.status).toBe(200);
     expect(after.body.fallback?.analysis).toContain("答案是 7");
@@ -289,6 +295,13 @@ describe("P0-4 证据通道", () => {
 
     const wrong = await child.call("POST", "/api/v1/practice/submit", { questionId: "dq1", answer: "3", learnerId });
     expect(wrong.body.correct).toBe(false);
+    // 归因和讲解同一道门：答错一次就直接调归因 → 403；三级提示走完才给
+    const early = await child.call("POST", `/api/v1/diagnosis/${wrong.body.attemptId}`, {});
+    expect(early.status).toBe(403);
+    for (const level of [1, 2, 3]) {
+      const res = await child.call("POST", "/api/v1/practice/hint", { questionId: "dq1", level, learnerId });
+      expect(res.status).toBe(200);
+    }
     const diag = await child.call("POST", `/api/v1/diagnosis/${wrong.body.attemptId}`, {});
     expect(diag.status).toBe(200);
     expect(diag.body.rootNodeId).toBe(PREREQ);

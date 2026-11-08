@@ -111,23 +111,46 @@ export function loadReading(env: NodeJS.ProcessEnv = process.env): LoadedReading
   return { passages, dropped };
 }
 
+/** one..twenty → 阿拉伯数字。只收这么多：小学阅读里的数量基本落在这一段，再往上就该写数字了 */
+const NUMBER_WORDS: Record<string, string> = {
+  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8",
+  nine: "9", ten: "10", eleven: "11", twelve: "12", thirteen: "13", fourteen: "14", fifteen: "15",
+  sixteen: "16", seventeen: "17", eighteen: "18", nineteen: "19", twenty: "20",
+};
+
+/**
+ * 阅读/听力判卷的归一。
+ *
+ * 只做"写法不同、意思一定相同"的那几种：大小写、引号、首尾标点、开头冠词、
+ * 数字词与阿拉伯数字。逐字精确匹配会把 "the supermarket" 对 "supermarket"、
+ * "6" 对 "six" 判错——孩子明明找到了答案，被判错只会学到"系统不讲理"。
+ * 仍然不调用模型：判卷要能复核，归一规则写在这里谁都看得懂。
+ */
+export function normalizeReadingAnswer(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[‘’´`]/g, "'")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.。!！?？,，;；:："“”']+|[\s.。!！?？,，;；:："“”']+$/g, "")
+    // 开头冠词只去一个：答案是 "a dog" 还是 "dog"，孩子写哪种都算找到了
+    .replace(/^(?:the|a|an)\s+/, "")
+    // 按词边界换，避免把 someone 里的 one 换掉
+    .replace(/\b[a-z]+\b/g, (w) => NUMBER_WORDS[w] ?? w)
+    .trim();
+}
+
 /** 判一道阅读题：答案必须命中某一种可接受写法 */
 export function judgeReading(
   question: ReadingQuestion,
   response: string,
 ): { correct: boolean; reference: string } {
-  const normalize = (s: string): string =>
-    s
-      .trim()
-      .toLowerCase()
-      .replace(/[‘’´`]/g, "'")
-      .replace(/\s+/g, " ")
-      .replace(/^[\s.。!！?？,，;；"“”]+|[\s.。!！?？,，;；"“”]+$/g, "");
   const accepted = question.answer
     .split("/")
-    .map((s) => normalize(s))
+    .map((s) => normalizeReadingAnswer(s))
     .filter(Boolean);
-  return { correct: accepted.includes(normalize(response)), reference: question.answer };
+  const got = normalizeReadingAnswer(response);
+  return { correct: got.length > 0 && accepted.includes(got), reference: question.answer };
 }
 
 /** 给孩子的阅读视图：**不带答案与证据**（证据在孩子答完之后才出现，那才是讲解） */

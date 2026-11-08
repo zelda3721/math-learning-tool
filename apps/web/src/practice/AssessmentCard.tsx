@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { FigureSpec } from '@mathtutor/explainer-web'
 
-import { Button } from '../ui'
+import { Badge, Button, MathText } from '../ui'
+import {
+    TIMEOUTS,
+    assessmentAnswerOutcome,
+    assessmentStartError,
+    firstUnansweredIndex,
+    requestJson,
+} from '../english/uiLogic'
+import { QuestionFigure } from './QuestionFigure'
+import { QuestionImage } from './QuestionImage'
 
 /**
  * 阶段测评（前测 / 后测 / 保持率）在孩子端的样子。
@@ -9,6 +19,9 @@ import { Button } from '../ui'
  * 1. **不叫考试**：说"看看你现在会到哪儿"，不说分数、不排名；
  * 2. **作答中不给对错**——不然下一道题会被上一道的反馈带跑；
  * 3. 交卷后把参考答案和原文依据一并给出来，那才是这次测评的学习价值。
+ *
+ * 一条记账纪律：作答没送到服务端就**停在这一题**让他重交——
+ * 早先不看返回就往下走，失败的题悄悄从分母里消失，"做了 8 道"其实只记了 6 道。
  */
 
 interface Suggestion {
@@ -20,6 +33,11 @@ interface Suggestion {
 interface Question {
     id: string
     stem: string
+    /** 双语题的英文题面：和练习里一样，英文在前、中文当退路 */
+    stemEn?: string
+    /** 原题原图文件名：走 /api/v1/figures/:name（QuestionImage 拼） */
+    figureImage?: string
+    figure?: FigureSpec
     options?: string[]
     answerType: string
 }
@@ -51,14 +69,13 @@ export function AssessmentCard({ learnerId }: { learnerId: string }) {
     const [error, setError] = useState<string | null>(null)
 
     const load = useCallback(async () => {
-        try {
-            const res = await fetch(`/api/v1/assessment/next?learnerId=${encodeURIComponent(learnerId)}`)
-            if (!res.ok) return
-            const data = (await res.json()) as { suggestion: Suggestion | null }
-            setSuggestion(data.suggestion)
-        } catch {
-            /* 测评是附加项：接口挂了不该挡练习 */
-        }
+        const r = await requestJson<{ suggestion: Suggestion | null }>(
+            `/api/v1/assessment/next?learnerId=${encodeURIComponent(learnerId)}`,
+            {},
+            { timeoutMs: TIMEOUTS.assessment, timeoutMessage: '' },
+        )
+        // 测评是附加项：接口挂了不该挡练习，静默不显示
+        if (r.ok) setSuggestion(r.data.suggestion)
     }, [learnerId])
 
     useEffect(() => {
@@ -66,56 +83,100 @@ export function AssessmentCard({ learnerId }: { learnerId: string }) {
     }, [load])
 
     const start = async () => {
-        if (!suggestion) return
+        if (!suggestion || busy) return
         setBusy(true)
         setError(null)
-        try {
-            const res = await fetch('/api/v1/assessment/start', {
+        const r = await requestJson<{ id?: string; questions?: Question[]; resumed?: boolean; answeredIds?: string[] }>(
+            '/api/v1/assessment/start',
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ learnerId, kind: suggestion.kind }),
-            })
-            const data = (await res.json()) as { id?: string; questions?: Question[]; error?: string }
-            if (!res.ok || !data.id || !data.questions) {
-                setError(data.error ?? '这一档测评现在开不了')
-                return
-            }
-            setAssessmentId(data.id)
-            setQuestions(data.questions)
-            setIndex(0)
-            setAnswer('')
-        } finally {
-            setBusy(false)
+            },
+            { timeoutMs: TIMEOUTS.assessment, timeoutMessage: '准备题目太久了，再点一次试试' },
+        )
+        setBusy(false)
+        if (!r.ok) {
+            // 403 家长账号 / 409 没到时间或已做过：说人话，不说"HTTP 409"；超时 / 断网用请求层的那句
+            setError(r.status === 0 ? r.error : assessmentStartError(r.status, r.data?.error))
+            return
         }
+        if (!r.data.id || !r.data.questions) {
+            setError(assessmentStartError(r.status, null))
+            return
+        }
+        // 续做没交卷的那份：从第一道没答的接着来；都答过了就直接交卷
+        const startAt = r.data.resumed
+            ? firstUnansweredIndex(r.data.questions.map((q) => q.id), r.data.answeredIds)
+            : 0
+        if (startAt === null) {
+            setBusy(true)
+            await finish(r.data.id)
+            setBusy(false)
+            return
+        }
+        setAssessmentId(r.data.id)
+        setQuestions(r.data.questions)
+        setIndex(startAt)
+        setAnswer('')
     }
 
     const submitOne = async () => {
-        if (!assessmentId || !questions || !answer.trim()) return
+        if (!assessmentId || !questions || !answer.trim() || busy) return
         const q = questions[index]
         if (!q) return
         setBusy(true)
-        try {
-            await fetch(`/api/v1/assessment/${encodeURIComponent(assessmentId)}/answer`, {
+        setError(null)
+        const r = await requestJson<{ ok?: boolean }>(
+            `/api/v1/assessment/${encodeURIComponent(assessmentId)}/answer`,
+            {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ learnerId, questionId: q.id, answer: answer.trim() }),
-            })
-            setAnswer('')
-            if (index + 1 < questions.length) setIndex(index + 1)
-            else await finish(assessmentId)
-        } finally {
+            },
+            { timeoutMs: TIMEOUTS.assessment, timeoutMessage: '这一题没送出去（等太久了），再交一次' },
+        )
+        const outcome = assessmentAnswerOutcome(r)
+        if (outcome === 'finished') {
+            // 这份已经交过卷（比如在别的标签页）：不再答，直接取结果
+            await finish(assessmentId)
             setBusy(false)
+            return
         }
+        if (outcome === 'retry') {
+            // 停在这一题、答案留在框里：没记下的题不能悄悄算"做过了"
+            setError(`这一题没记下：${r.ok ? '服务没回话' : r.error}。再交一次就好。`)
+            setBusy(false)
+            return
+        }
+        if (index + 1 < questions.length) {
+            setAnswer('')
+            setIndex(index + 1)
+            setBusy(false)
+            return
+        }
+        // 最后一题：交卷失败时答案留着，再点一次会先得到 409（已作答）再重新交卷
+        await finish(assessmentId)
+        setBusy(false)
     }
 
     const finish = async (id: string) => {
-        const res = await fetch(`/api/v1/assessment/${encodeURIComponent(id)}/finish`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ learnerId }),
-        })
-        const data = (await res.json()) as { summary?: Summary }
-        if (data.summary) setSummary(data.summary)
+        const r = await requestJson<{ summary?: Summary }>(
+            `/api/v1/assessment/${encodeURIComponent(id)}/finish`,
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ learnerId }),
+            },
+            { timeoutMs: TIMEOUTS.assessment, timeoutMessage: '交卷等太久了，再点一次「交卷」' },
+        )
+        if (!r.ok || !r.data.summary) {
+            // 409 = 答得不到一半：服务端那句话说清楚了还差几道，原样给孩子看（r.error 就是它）
+            setError(r.ok ? '交卷没成功，再点一次「交卷」' : r.status === 409 ? r.error : `交卷没成功：${r.error}`)
+            return
+        }
+        setSummary(r.data.summary)
+        setAnswer('')
         setQuestions(null)
         setAssessmentId(null)
         setSuggestion(null)
@@ -153,7 +214,25 @@ export function AssessmentCard({ learnerId }: { learnerId: string }) {
                 <p className="text-xs text-ink-faint numeric">
                     第 {index + 1} / {questions.length} 道 · 这一档没有提示
                 </p>
-                <p className="text-sm text-ink whitespace-pre-wrap">{q?.stem}</p>
+                {q?.stemEn && (
+                    <div>
+                        <p className="text-sm text-ink whitespace-pre-wrap">
+                            <MathText>{q.stemEn}</MathText>
+                        </p>
+                        <p className="mt-1 text-xs text-ink-faint">
+                            <Badge tone="sky">英文题面</Badge>
+                        </p>
+                    </div>
+                )}
+                <p className={`whitespace-pre-wrap ${q?.stemEn ? 'text-xs text-ink-soft' : 'text-sm text-ink'}`}>
+                    <MathText>{q?.stem ?? ''}</MathText>
+                </p>
+                {/* 配图是题面的一部分：几何题没图读不懂。原图优先，没有才用解算出来的矢量图（同 QuestionCard） */}
+                {q?.figureImage ? (
+                    <QuestionImage name={q.figureImage} />
+                ) : q?.figure ? (
+                    <QuestionFigure figure={q.figure} />
+                ) : null}
                 {q?.options && q.options.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                         {q.options.map((opt) => (
@@ -178,6 +257,7 @@ export function AssessmentCard({ learnerId }: { learnerId: string }) {
                         }}
                     />
                 )}
+                {error && <p className="text-sm text-wrong">{error}</p>}
                 <Button disabled={busy || !answer.trim()} onClick={() => void submitOne()}>
                     {busy ? '记下……' : index + 1 < questions.length ? '下一道' : '交卷'}
                 </Button>

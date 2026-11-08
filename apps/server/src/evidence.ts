@@ -1,5 +1,5 @@
 import { MASTERY_PARAMS } from "@mathtutor/schema";
-import { litByEvidence, type EvidenceStats, type MasteryBand } from "./mastery.js";
+import { applyAttempt, litByEvidence, masteryBand, type EvidenceStats, type MasteryBand } from "./mastery.js";
 
 /**
  * 证据账本（宪法第 1 条：理解由行为验证，不等于"做对过几次"）。
@@ -70,8 +70,9 @@ export interface EvidenceQuestion {
  * 每道题的「第一次见到」时刻：取**全部**作答（含不算证据的那些）里最早的一次。
  * 孩子先乱填过一次再认真做，那道题就不再是"未见题"——这是诚实的。
  */
-function firstSeenAt(attempts: EvidenceAttempt[]): Map<string, string> {
-  const map = new Map<string, string>();
+function firstSeenAt(attempts: EvidenceAttempt[], alsoSeen?: Map<string, string>): Map<string, string> {
+  // 测评里见过的题也算"见过"（测评交卷时还看了参考答案）
+  const map = new Map<string, string>(alsoSeen ?? []);
   for (const a of attempts) {
     const prev = map.get(a.questionId);
     if (prev === undefined || a.at < prev) map.set(a.questionId, a.at);
@@ -98,8 +99,10 @@ export function evidenceStatsByNode(
   attempts: EvidenceAttempt[],
   questions: { byId: Map<string, EvidenceQuestion> },
   analysisViews: Map<string, string[]>,
+  /** 作答之外"见过这道题"的时刻（目前是测评）：questionId → ISO */
+  alsoSeen?: Map<string, string>,
 ): Map<string, EvidenceStats> {
-  const firstSeen = firstSeenAt(attempts);
+  const firstSeen = firstSeenAt(attempts, alsoSeen);
   const counted = dedupeSameQuestionSameDay(attempts.filter(countsAsEvidence));
   const stats = new Map<string, EvidenceStats>();
   const independentAt = new Map<string, string[]>();
@@ -114,8 +117,19 @@ export function evidenceStatsByNode(
     q.nodeIds.forEach((nodeId, index) => {
       const s = stats.get(nodeId) ?? { counted: 0, independent: 0, distinctQuestions: 0, spanDays: 0, hasFirstSeen: false };
       s.counted++;
+      /*
+       * 独立证据只认**这道题第一次见的那一次**。
+       *
+       * 早先只要求"至少一条独立证据是首见"，其余可以是旧题隔天再做——
+       * 一道首见题加两道早就见过的题也能凑够"≥2 道不同题"，测到的又是记忆。
+       * 现在每条独立证据都必须是首见，"不同题"的门槛自然就是"不同的首见题"。
+       *
+       * hintLevelUsed 读的是 attempt 列：提交时服务端已经按提示账本取过上限，
+       * 不再是客户端自报的那个数。
+       */
+      const firstSeenHere = seenAt !== undefined && a.at === seenAt;
       const independent =
-        index === 0 && a.correct && a.hintLevelUsed === 0 && !viewedBefore;
+        index === 0 && firstSeenHere && a.correct && a.hintLevelUsed === 0 && !viewedBefore;
       if (independent) {
         s.independent++;
         const ats = independentAt.get(nodeId) ?? [];
@@ -124,8 +138,8 @@ export function evidenceStatsByNode(
         const qs = independentQuestions.get(nodeId) ?? new Set<string>();
         qs.add(a.questionId);
         independentQuestions.set(nodeId, qs);
-        // 「未见题上做对」：这一次就是这个孩子第一次见这道题
-        if (seenAt !== undefined && a.at === seenAt) s.hasFirstSeen = true;
+        // 独立证据现在必然是首见；字段保留给既有调用方（家长报告等）读
+        s.hasFirstSeen = true;
       }
       stats.set(nodeId, s);
     });
@@ -145,11 +159,72 @@ export function loadEvidenceStats(
   repo: {
     attemptsForEvidence(learnerId: string): EvidenceAttempt[];
     analysisViews(learnerId: string): Map<string, string[]>;
+    /** 可选：测评里见过的题（真 Repo 有；测试替身可以不给） */
+    assessmentSeenAt?(learnerId: string): Map<string, string>;
   },
   questions: { byId: Map<string, EvidenceQuestion> },
   learnerId: string,
 ): Map<string, EvidenceStats> {
-  return evidenceStatsByNode(repo.attemptsForEvidence(learnerId), questions, repo.analysisViews(learnerId));
+  return evidenceStatsByNode(
+    repo.attemptsForEvidence(learnerId),
+    questions,
+    repo.analysisViews(learnerId),
+    repo.assessmentSeenAt?.(learnerId),
+  );
+}
+
+/**
+ * 一条**已经判定算数**的作答，把增益写进掌握度。
+ *
+ * /practice/submit、/practice/submit-photo 和家长裁决 /parent/verdict 共用这一段。
+ * 早先裁决那条路自己写了一份：不打"看过解析"的折扣、次节点也按满额——
+ * 同一个对勾，孩子自己答出来和家长裁出来，进掌握度的分量不一样。
+ * "算不算数"仍由调用方判（各自的前置条件不同），但"算多少"只在这里。
+ *
+ * - 作答前看过这道题的解析：那一次答对是回忆，不是理解，增益打折（扣分照旧）
+ * - 主节点满额；挂在这道题上的其它节点只沾一半（一题多节点不能都满分）
+ * - hintLevelUsed 由调用方传入服务端值（attempt 列 / 提示账本上限），不信客户端
+ */
+export function applyCountedAttempt(
+  repo: {
+    attemptsForEvidence(learnerId: string): EvidenceAttempt[];
+    analysisViews(learnerId: string): Map<string, string[]>;
+    viewedAnalysisBefore(learnerId: string, questionId: string, at: string): boolean;
+    getMastery(learnerId: string, nodeId: string): { p: number; evidenceN: number } | undefined;
+    upsertMastery(row: { learnerId: string; nodeId: string; p: number; evidenceN: number; lastEvidenceAt: string | null }): void;
+  },
+  questions: { byId: Map<string, EvidenceQuestion> },
+  input: {
+    learnerId: string;
+    questionId: string;
+    nodeIds: string[];
+    correct: boolean;
+    hintLevelUsed: 0 | 1 | 2 | 3;
+    /** 作答时刻：判"作答前看没看过解析"用它，而不是现在 */
+    at: string;
+  },
+): { nodeId: string; p: number; band: MasteryBand }[] {
+  const viewed = repo.viewedAnalysisBefore(input.learnerId, input.questionId, input.at);
+  const stats = loadEvidenceStats(repo, questions, input.learnerId);
+  const changes: { nodeId: string; p: number; band: MasteryBand }[] = [];
+  input.nodeIds.forEach((nodeId, index) => {
+    const current = repo.getMastery(input.learnerId, nodeId);
+    const next = applyAttempt(
+      current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
+      input.correct,
+      input.hintLevelUsed,
+      (viewed ? MASTERY_PARAMS.afterAnalysisGainFactor : 1) * (index === 0 ? 1 : 0.5),
+    );
+    repo.upsertMastery({
+      learnerId: input.learnerId,
+      nodeId,
+      p: next.p,
+      evidenceN: next.evidenceN,
+      lastEvidenceAt: new Date().toISOString(),
+    });
+    changes.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
+  });
+  return changes;
 }
 
 /** 这道节点现在该不该点亮（判据在 mastery.ts，这里只做转出，避免两处各写一份） */
