@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button, ErrorState, LoadingState } from '../ui'
+import { BandBadge } from '../practice/badges'
 
 /**
  * 英语语法（阶段 5）：单元 → 学一学 / 练一练。
@@ -20,6 +21,10 @@ interface Unit {
     order: number
     questionCount: number
     summary: string
+    /** 掌握度三档：和星图同一套口径（独立证据才算点亮） */
+    band: 'dim' | 'glow' | 'lit'
+    practicedN: number
+    lastPracticedAt?: string
 }
 
 interface UnitQuestion {
@@ -30,7 +35,7 @@ interface UnitQuestion {
 }
 
 interface UnitDetail {
-    unit: { id: string; name: string; stage: string; summary: string; whatIsIt?: string }
+    unit: { id: string; name: string; stage: string; summary: string; whatIsIt?: string; band?: 'dim' | 'glow' | 'lit'; evidenceN?: number }
     questions: UnitQuestion[]
     lessonAvailable: boolean
 }
@@ -197,7 +202,12 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
             <div className="space-y-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <div>
-                        <p className="font-semibold text-ink">{picked.unit.name}</p>
+                        <p className="flex items-center gap-2 font-semibold text-ink">
+                            {picked.unit.name}
+                            {(picked.unit as { band?: 'dim' | 'glow' | 'lit' }).band && (
+                                <BandBadge band={(picked.unit as { band: 'dim' | 'glow' | 'lit' }).band} />
+                            )}
+                        </p>
                         <p className="text-xs text-ink-faint">{picked.unit.summary}</p>
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => { setPicked(null); setFeedback(null) }}>
@@ -290,9 +300,15 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
                     <li key={u.id} className="plate p-4 space-y-1">
                         <div className="flex items-baseline justify-between gap-2">
                             <span className="font-semibold text-ink">{u.name}</span>
-                            <span className="text-xs text-ink-faint numeric">{u.questionCount} 道题</span>
+                            <span className="flex items-center gap-2 shrink-0">
+                                <BandBadge band={u.band} />
+                                <span className="text-xs text-ink-faint numeric">{u.questionCount} 道题</span>
+                            </span>
                         </div>
                         <p className="text-xs text-ink-faint line-clamp-2">{u.summary}</p>
+                        {u.practicedN > 0 && (
+                            <p className="text-xs text-ink-faint numeric">练过 {u.practicedN} 次</p>
+                        )}
                         <Button size="sm" variant="secondary" disabled={busy} onClick={() => void openUnit(u.id)}>
                             学这一单元
                         </Button>

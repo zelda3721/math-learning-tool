@@ -27,6 +27,29 @@ PLAN 的 DoD 大多是工程指标（测试、延迟、拦截率）。一个阶�
 | 8 跨学科探索 | 🚧 15% | links.json 13 条、双语题、星图跨学科详情 | PBL 项目、统一探究流程、费曼模式、给 AI 挑错、AI 素养课 |
 | 9 引擎编排迁 TS | ⬜ | — | solve/verify/direct 对拍迁移，worker 只留纯计算 |
 
+## 本次推进（2026-11-08 第十二轮：语法进度、英语 generate、听力与写作）
+
+- **语法单元进度**：`/en/grammar/units` 每个单元带掌握度三档（与星图同一口径）、练过次数、
+  最后练习时间；单元详情也带 band。英语页列表直接显示「微光/点亮 + 练过 N 次」。
+- **英语语法的 generate 模式**：过去 generate 对英语节点用的还是数学提示词与数学图元白名单。
+  现在语法节点有自己的提示词（中文讲规则、英文例句**逐字照抄教材**），并允许
+  `en.sentence_highlight` 图元；程序逐字核对例句是否真的来自 `node.summary`，
+  且旁白不许先把要填的那句说出来——两条不过就退回 compose。
+- **听力**：`/en/listening/list|passage/:id|answer`。用 TTS 把短文念出来，
+  **短文本身不下发**（回了就成了"看着原文做听力题"），答完才给原文依据；
+  音频按篇缓存（长文本按句切分后拼接 wav，`voice.ts` 里那 40 行就是为了这个）。
+  没有语音后端时诚实说"做不了"，不偷偷把原文给出去。
+- **写作**：`/en/writing/prompts|submit`，五道任务，按结构/词汇/语法各 1–5 分 + 一句具体建议；
+  两次评分做一致性检查，差出两档就明说"这次反馈不太稳"。一律 `ai_unverified`、
+  不进掌握度；孩子作文全文不落库，只留字数与分数。
+- **顺手修的真问题**：隐私规则里 `\bmy\s+(?:phone|address|password|school)\b` 会把
+  "There is a playground in my school" 拦掉——英语写作作业本来就让孩子写自己的学校。
+  规则收窄到 phone/address/password，红队补 3 条（含两条"写学校要放行"）。
+  实测写作反馈：`bands 5/4/5 + 具体建议 + inconsistent=true`（本地模型两次评分确实会漂）。
+
+回归：`apps/server/tests/p5-listening-writing.test.ts`（11 条）+ `p5-grammar.test.ts` 增 3 条；
+红队 61 → 64 条。
+
 ## 本次推进（2026-11-08 第十一轮：英语语法整条线走通）
 
 - **语法练习接上提示阶梯**：语法 tab 里「我卡住了 / 再给一点」走 `/practice/hint`，

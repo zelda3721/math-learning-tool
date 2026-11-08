@@ -8,6 +8,7 @@ import { budgetBlockedPayload } from "./chatBudget.js";
 import { moduleBlockedBody, moduleEnabled } from "./modules.js";
 import { screenLearnerInput, screenModelOutput } from "./safety.js";
 import type { HintProvider } from "./hint.js";
+import { engineJson, synthesizeSpeech } from "./voice.js";
 
 /**
  * 英语口语对练（PLAN 阶段 5）。
@@ -112,16 +113,6 @@ const TurnSchema = z.object({
   text: z.string().max(1000).optional(),
 });
 
-async function engineJson(state: AppState, pathname: string, body: unknown, timeoutMs: number): Promise<Response> {
-  const fetchImpl = state.engineFetch ?? fetch;
-  return fetchImpl(`${state.config.engineUrl}${pathname}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-}
-
 export function speakingRoutes(state: AppState): Hono {
   const app = new Hono();
 
@@ -157,7 +148,7 @@ export function speakingRoutes(state: AppState): Hono {
     const scenario = (parsed.data.scenarioId && all.find((s) => s.id === parsed.data.scenarioId)) || all[0]!;
     const sessionId = state.repo.createSpeakingSession(learnerId, scenario.id);
     state.repo.insertSpeakingTurn({ sessionId, learnerId, role: "tutor", text: scenario.opening });
-    const audio = await synthesize(state, scenario.opening);
+    const audio = await synthesizeSpeech(state, scenario.opening);
     return c.json({
       sessionId,
       scenario: { id: scenario.id, title: scenario.title, level: scenario.level, goals: scenario.goals, expressions: scenario.expressions },
@@ -239,7 +230,7 @@ export function speakingRoutes(state: AppState): Hono {
     state.repo.insertSpeakingTurn({ sessionId: session.id, learnerId, role: "tutor", text: reply });
 
     // 5) 合成（失败就当没有声音：文字照给，不让孩子面对一个错误码）
-    const audio = await synthesize(state, reply);
+    const audio = await synthesizeSpeech(state, reply);
     const totalMs = Date.now() - startedAt;
     state.repo.appendEvent(learnerId, "speaking_turn", {
       sessionId: session.id,
@@ -307,15 +298,3 @@ async function transcribe(
   }
 }
 
-async function synthesize(state: AppState, text: string): Promise<{ base64: string; ms: number } | null> {
-  const started = Date.now();
-  try {
-    const res = await engineJson(state, "/api/v1/tts", { text }, 30_000);
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0) return null;
-    return { base64: buf.toString("base64"), ms: Date.now() - started };
-  } catch {
-    return null;
-  }
-}

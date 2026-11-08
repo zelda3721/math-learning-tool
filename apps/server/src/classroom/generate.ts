@@ -4,6 +4,7 @@ import { redactAnswers } from "@mathtutor/core";
 import { validateSpec } from "@mathtutor/explainer-web";
 import type { HintProvider } from "../hint.js";
 import type { ComposedLesson, LessonBeatRole } from "./lesson.js";
+import { revealsQuestion } from "./englishLesson.js";
 
 /**
  * 课堂的 generate 模式：让模型把一节讲出来，但**不让它出题、也不让它给答案**。
@@ -30,7 +31,8 @@ const MAX_BEATS = 8;
 const VisualSchema = z
   .object({
     id: z.string().min(1).max(24),
-    primitive: z.enum(["number_line", "quantity_bar", "unit_grid", "dot"]),
+    // 数学四种 + 英语语法的句子高亮。英语课不画数量关系，它把例句摆出来框住要练的形式
+    primitive: z.enum(["number_line", "quantity_bar", "unit_grid", "dot", "en.sentence_highlight"]),
     params: z.record(z.unknown()).default({}),
     meaning: z.string().max(60).optional(),
   })
@@ -65,8 +67,42 @@ export interface GenerateResult {
   degraded: { reason: string } | null;
 }
 
+/** 这是不是一节语法单元课（与 lesson.ts 的判定同源：id 前缀 en:grammar-） */
+function isGrammarNode(node: Pick<KnowledgeNode, "id">): boolean {
+  return node.id.startsWith("en:grammar-");
+}
+
+/**
+ * 语法课的提示词：讲的是"这个形式长什么样"，不是"这个结论怎么来的"。
+ *
+ * 两条比数学课更硬的限制：
+ * 1. **例句只能用教材原句**——模型编一句自己觉得对的英文例句，语法可能是错的，
+ *    而孩子会把它当成教材背下来。所以允许的例句集合就是档案里那几句，
+ *    程序会逐字核对（见 buildLessonFromDraft）。
+ * 2. **不写答案**：这节课最后要填空，模型看不到那道题。
+ */
+function grammarLessonPrompt(node: KnowledgeNode): string {
+  return `你在给一个中国孩子讲一个英语语法点。写成 3–8 拍，每拍一句话（不超过 60 字），孩子读得懂。
+知识点：${node.name}
+材料（教材原文，只有这些例句可以用）：
+${node.summary ?? ""}
+${node.whatIsIt ? `它说的是：${node.whatIsIt}` : ""}
+
+要求：
+- 中文讲规则，英文例句逐字照抄上面的材料，**不许自己造英文句子**（造错了孩子会当成对的背下来）。
+- 这节课最后会有一道填空题，但你看不到那道题：不要写"答案是…""所以填…"。
+- 每拍可以配一张图，图元只有一种：en.sentence_highlight
+  {"primitive":"en.sentence_highlight","params":{"text":"教材里的那句英文"}}
+  句子必须与材料逐字一致；没有能对上的句子就不要图。
+只输出 JSON，不要解释：
+{"visualThesis":"这节课想让孩子看见什么","beats":[
+ {"role":"intro|concept|example|summary","narration":"这一拍的话","visual":{"id":"s1","primitive":"en.sentence_highlight","params":{"text":"教材例句"}}}
+]}`;
+}
+
 /** 模型提示词：只给档案，不给题、不给答案 */
 export function lessonPrompt(node: KnowledgeNode): string {
+  if (isGrammarNode(node)) return grammarLessonPrompt(node);
   const profile = [
     `知识点：${node.name}`,
     node.summary ? `一句话：${node.summary}` : "",
@@ -114,6 +150,10 @@ export function parseLooseJson(raw: string): unknown {
 
 /** 图元参数要能被播放器真的画出来：数量类必须有正数 count，数轴必须有范围 */
 function visualIssue(visual: z.infer<typeof VisualSchema>): string | null {
+  if (visual.primitive === "en.sentence_highlight") {
+    const text = (visual.params as { text?: unknown }).text;
+    return typeof text === "string" && text.trim() ? null : "句子高亮缺少 text";
+  }
   if (!ALLOWED_PRIMITIVES.has(visual.primitive)) return "图元不在白名单里";
   const count = (visual.params as { count?: unknown }).count;
   if (visual.primitive === "quantity_bar" || visual.primitive === "unit_grid") {
@@ -151,6 +191,13 @@ export function buildLessonFromDraft(
     return { ok: false, reason: `模型输出不符合结构：${first ? `${first.path.join(".")} ${first.message}` : "未知"}` };
   }
   const { beats, visualThesis } = parsed.data;
+  /*
+   * 语法课：模型写的旁白也不许把要填的那句先说出来（"My name is Lisa." 之于
+   * "My name ___ Lisa."）。和 compose 用同一把尺子，免得两条路两道标准。
+   */
+  if (question && isGrammarNode(node) && beats.some((b) => revealsQuestion(b.narration, question))) {
+    return { ok: false, reason: "模型把要填的那句话先讲出来了" };
+  }
 
   const answers = question?.answer?.trim() ? [{ questionId: question.id, answer: question.answer.trim() }] : [];
   const visualObjects: VisualObject[] = [];
@@ -166,6 +213,18 @@ export function buildLessonFromDraft(
     if (beat.visual) {
       const issue = visualIssue(beat.visual);
       if (issue) return { ok: false, reason: `第 ${index + 1} 拍的图：${issue}` };
+      /*
+       * 语法课：例句必须逐字来自教材材料。
+       * 模型造一句"看起来对"的英文，语法可能错，而孩子会当教材背下来——
+       * 这条不能只靠提示词，必须由程序核对（撇号统一后再比）。
+       */
+      if (beat.visual.primitive === "en.sentence_highlight") {
+        const text = String((beat.visual.params as { text?: unknown }).text ?? "").trim();
+        const material = (node.summary ?? "").replace(/[‘’]/g, "'");
+        if (!material.includes(text.replace(/[‘’]/g, "'"))) {
+          return { ok: false, reason: `第 ${index + 1} 拍的例句不是教材原文` };
+        }
+      }
       if (seenIds.has(beat.visual.id)) return { ok: false, reason: `图元 id 重复：${beat.visual.id}` };
       seenIds.add(beat.visual.id);
       visualObjects.push({

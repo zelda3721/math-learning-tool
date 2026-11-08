@@ -1,0 +1,47 @@
+[
+  {
+    "id": "w-a1-my-school",
+    "title": "写三句话介绍你的学校",
+    "level": "A1",
+    "prompt": "Write 3 sentences about your school. Use 'There is / There are'.",
+    "minWords": 15,
+    "mustUse": ["There is", "There are"],
+    "tips": ["先说学校有什么（there is / there are）", "再说你最喜欢的地方", "最后说一句你的感受"]
+  },
+  {
+    "id": "w-a1-my-friend",
+    "title": "写三句话介绍一个朋友",
+    "level": "A1",
+    "prompt": "Write 3 sentences about your best friend. Use 'He is / She is' and 'He likes / She likes'.",
+    "minWords": 15,
+    "mustUse": ["is", "likes"],
+    "tips": ["他/她是谁", "他/她喜欢什么", "你们常一起做什么"]
+  },
+  {
+    "id": "w-a2-my-weekend",
+    "title": "写一段话讲上个周末",
+    "level": "A2",
+    "prompt": "Write 5 sentences about last weekend. Use the past tense (went, played, saw, was).",
+    "minWords": 35,
+    "mustUse": ["went", "was"],
+    "tips": ["时间地点先交代", "用过去式讲两三件事", "最后说感受"]
+  },
+  {
+    "id": "w-a2-a-picture",
+    "title": "描写一张图",
+    "level": "A2",
+    "prompt": "Describe a picture of a park. Use 'There is / There are', 'is playing', 'are sitting'.",
+    "minWords": 35,
+    "mustUse": ["there is", "playing"],
+    "tips": ["先说整体（there is a park）", "再说人在做什么（is playing / are sitting）", "最后说画面给你的感觉"]
+  },
+  {
+    "id": "w-a2-a-letter",
+    "title": "给朋友写一张便条",
+    "level": "A2",
+    "prompt": "Write a short note to a friend: invite him or her to your birthday party. Say when, where and what you will do.",
+    "minWords": 30,
+    "mustUse": ["would you like", "at"],
+    "tips": ["开头称呼", "说清时间地点", "结尾一句期待"]
+  }
+]

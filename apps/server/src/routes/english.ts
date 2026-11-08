@@ -5,7 +5,14 @@ import { judgeVocab, loadVocabulary, recordVocabAnswer, vocabBatch, type VocabCa
 import { judgeReading, loadReading, publicPassage } from "../reading.js";
 import { moduleBlockedBody, moduleEnabled } from "../modules.js";
 import { budgetBlockedPayload } from "../chatBudget.js";
+import { synthesizeLongSpeech } from "../voice.js";
+import { countWords, loadWriting, reviewWriting, writingPromptById } from "../writing.js";
+import { screenLearnerInput } from "../safety.js";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { practiceReady } from "../questions.js";
+import { effectiveP, masteryBand } from "../mastery.js";
+import { loadEvidenceStats } from "../evidence.js";
 
 /**
  * 英语学习入口：词汇（SM-2）与分级阅读。
@@ -120,18 +127,45 @@ export function englishRoutes(state: AppState): Hono {
     const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
     if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    /*
+     * 单元进度：孩子要能看见"练到哪儿了"。
+     * 掌握度口径和星图一致（独立证据才算点亮），这里不另造一套。
+     */
+    const mastery = new Map(state.repo.allMastery(learnerId).map((m) => [m.nodeId, m]));
+    const evidence = loadEvidenceStats(state.repo, state.questions, learnerId);
+    const attempts = state.repo.attemptsForEvidence(learnerId);
+    const practiced = new Map<string, { n: number; lastAt: string }>();
+    for (const a of attempts) {
+      const q = state.questions.byId.get(a.questionId);
+      if (!q) continue;
+      for (const nodeId of q.nodeIds) {
+        if (!nodeId.startsWith("en:grammar-")) continue;
+        const cur = practiced.get(nodeId) ?? { n: 0, lastAt: a.at };
+        practiced.set(nodeId, { n: cur.n + 1, lastAt: a.at > cur.lastAt ? a.at : cur.lastAt });
+      }
+    }
     const units = state.knowledge.graph.nodes
       .filter((n) => n.id.startsWith("en:grammar-"))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((n) => ({
-        id: n.id,
-        name: n.name,
-        stage: n.stage,
-        order: n.order ?? 0,
-        questionCount: (state.questions.byNode.get(n.id) ?? []).filter((q) => practiceReady(q)).length,
-        // 一句话说清这单元要学什么（教材对照页里那句）
-        summary: n.summary,
-      }));
+      .map((n) => {
+        const row = mastery.get(n.id);
+        const p = row ? effectiveP(row) : 0;
+        const band = row ? masteryBand(p, row.evidenceN, evidence.get(n.id)) : "dim";
+        const seen = practiced.get(n.id);
+        return {
+          id: n.id,
+          name: n.name,
+          stage: n.stage,
+          order: n.order ?? 0,
+          questionCount: (state.questions.byNode.get(n.id) ?? []).filter((q) => practiceReady(q)).length,
+          // 一句话说清这单元要学什么（教材对照页里那句）
+          summary: n.summary,
+          // 进度：三档亮度 + 练过几次 + 最后一次
+          band,
+          practicedN: seen?.n ?? 0,
+          lastPracticedAt: seen?.lastAt,
+        };
+      });
     return c.json({ units });
   });
 
@@ -143,8 +177,18 @@ export function englishRoutes(state: AppState): Hono {
     const node = state.knowledge.index.getNode(c.req.param("id"));
     if (!node || !node.id.startsWith("en:grammar-")) return c.json({ error: "没有这个语法单元" }, 404);
     const questions = (state.questions.byNode.get(node.id) ?? []).filter((q) => practiceReady(q)).slice(0, 8);
+    const row = state.repo.getMastery(learnerId, node.id);
+    const stats = loadEvidenceStats(state.repo, state.questions, learnerId).get(node.id);
     return c.json({
-      unit: { id: node.id, name: node.name, stage: node.stage, summary: node.summary, whatIsIt: node.whatIsIt },
+      unit: {
+        id: node.id,
+        name: node.name,
+        stage: node.stage,
+        summary: node.summary,
+        whatIsIt: node.whatIsIt,
+        band: row ? masteryBand(effectiveP(row), row.evidenceN, stats) : "dim",
+        evidenceN: row?.evidenceN ?? 0,
+      },
       questions: questions.map((q) => ({
         id: q.id,
         stem: q.stem,
@@ -154,6 +198,152 @@ export function englishRoutes(state: AppState): Hono {
       // 课堂能不能开这节课（没材料时如实说，而不是给一个点不动的按钮）
       lessonAvailable: Boolean(state.knowledge.index.getNode(node.id)),
     });
+  });
+
+  /*
+   * 听力（阶段 5）：**用 TTS 把短文念出来，短文本身不下发**。
+   *
+   * 这就是听力与阅读的全部区别：阅读把原文摆在眼前，听力只给声音。
+   * 所以这一组接口刻意不回 text —— 回了就成了"看着原文做听力题"。
+   * 音频按篇缓存到磁盘：同一篇念一次就够，重复合成既慢又浪费。
+   */
+  const listeningDir = () => path.join(state.config.dataDir, "listening");
+
+  app.get("/listening/list", (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const passages = loadReading().passages.map((p) => ({
+      id: p.id,
+      title: p.title,
+      level: p.level,
+      questionCount: p.questions.length,
+      // 已经听过几道题：听过与答对是两件事，这里只报"碰过"
+      cached: existsSync(path.join(listeningDir(), `${p.id}.wav`)),
+    }));
+    return c.json({ passages });
+  });
+
+  app.get("/listening/passage/:id", async (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const blocked = budgetBlockedPayload(state.repo, learnerId);
+    if (blocked) return c.json(blocked, 429);
+    const passage = loadReading().passages.find((p) => p.id === c.req.param("id"));
+    if (!passage) return c.json({ error: "没有这篇听力材料" }, 404);
+
+    const file = path.join(listeningDir(), `${passage.id}.wav`);
+    let audio: string | null = null;
+    if (existsSync(file)) {
+      audio = readFileSync(file).toString("base64");
+    } else {
+      const made = await synthesizeLongSpeech(state, passage.text);
+      if (made) {
+        mkdirSync(listeningDir(), { recursive: true });
+        writeFileSync(file, Buffer.from(made.base64, "base64"));
+        audio = made.base64;
+      }
+    }
+    const count = state.repo.attemptsForEvidence(learnerId).length;
+    void count;
+    return c.json({
+      id: passage.id,
+      title: passage.title,
+      level: passage.level,
+      audio,
+      // 没有语音后端就诚实说，并把这次听力当成"现在做不了"，不偷偷把原文给出去
+      ttsAvailable: audio !== null,
+      questions: passage.questions.map((q) => ({ id: q.id, prompt: q.prompt })),
+      note: audio
+        ? "听两遍，再答题。没听清就重听，不用急着作答。"
+        : "这台机器上还没有语音合成，听力暂时做不了。",
+    });
+  });
+
+  app.post("/listening/answer", async (c) => {
+    const parsed = z
+      .object({ learnerId: z.string().optional(), passageId: z.string().min(1), questionId: z.string().min(1), answer: z.string().max(200) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "参数错误" }, 400);
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
+    if (!learnerId || !state.repo.getLearner(learnerId)) {
+      return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 404);
+    }
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const passage = loadReading().passages.find((p) => p.id === parsed.data.passageId);
+    const question = passage?.questions.find((q) => q.id === parsed.data.questionId);
+    if (!passage || !question) return c.json({ error: "没有这道听力题" }, 404);
+    const verdict = judgeReading(question, parsed.data.answer);
+    // 答完才给原文依据：那才是"讲解"
+    return c.json({
+      correct: verdict.correct,
+      evidence: question.evidence,
+      reference: verdict.correct ? undefined : question.answer,
+    });
+  });
+
+  /*
+   * 写作（阶段 5）：给任务 → 孩子写 → 按量规给反馈。
+   *
+   * 一律 `ai_unverified`：不进掌握度、不点亮星（PLAN D9）。界面必须说出来，
+   * 否则"AI 说不错"会被当成"我会了"。
+   */
+  app.get("/writing/prompts", (c) => {
+    const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    return c.json({
+      prompts: loadWriting().map((p) => ({
+        id: p.id,
+        title: p.title,
+        level: p.level,
+        prompt: p.prompt,
+        minWords: p.minWords,
+        mustUse: p.mustUse,
+        tips: p.tips,
+      })),
+    });
+  });
+
+  app.post("/writing/submit", async (c) => {
+    const parsed = z
+      .object({ learnerId: z.string().optional(), promptId: z.string().min(1), text: z.string().min(1).max(2000) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "参数错误" }, 400);
+    const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
+    if (!learnerId || !state.repo.getLearner(learnerId)) {
+      return c.json({ error: "需要 learnerId（孩子会话会自动带上）" }, 404);
+    }
+    if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    const blocked = budgetBlockedPayload(state.repo, learnerId);
+    if (blocked) return c.json(blocked, 429);
+    const task = writingPromptById(parsed.data.promptId);
+    if (!task) return c.json({ error: "没有这个写作任务" }, 404);
+
+    // 孩子写的内容也要过安检（它会进模型，也会被家长看到）
+    const screen = screenLearnerInput(state.repo, learnerId, parsed.data.text);
+    if (screen.blocked) return c.json({ error: screen.reply }, 422);
+
+    const feedback = await reviewWriting(state.hintProvider, task, parsed.data.text);
+    state.repo.appendEvent(learnerId, "writing", {
+      promptId: task.id,
+      words: countWords(parsed.data.text),
+      // 只留统计，不留全文：作文全文属于孩子的隐私，家长要看应该由孩子自己拿给他看
+      bands: feedback?.bands ?? null,
+      inconsistent: feedback?.inconsistent ?? null,
+      verification: "ai_unverified",
+    });
+    if (!feedback) {
+      return c.json(
+        {
+          error: "现在没有可用的模型，写作反馈暂时给不了。可以先检查一遍时态和拼写。",
+          words: countWords(parsed.data.text),
+        },
+        503,
+      );
+    }
+    return c.json({ ...feedback, verification: "ai_unverified", countedTowardMastery: false });
   });
 
   app.get("/reading/list", (c) => {
