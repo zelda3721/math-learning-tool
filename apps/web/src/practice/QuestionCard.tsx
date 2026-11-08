@@ -330,6 +330,13 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                 <SlotBadge slot={item.slot} />
             </div>
 
+            {/* 摸底组：新孩子的第一组按知识点铺开，说清这是干什么的 */}
+            {item.slot === 'placement' && (
+                <p className="text-xs text-ink-faint">
+                    这组是摸底题：看看你已经会到哪儿，从最合适的地方开始。正常做就好，不会也没关系。
+                </p>
+            )}
+
             {/* 错后闭环：归因中 / 归因卡 / 讲解 / 变式 */}
             {flow.kind === 'diagnosing' && (
                 <div className="text-center text-ink-faint py-10">正在看看你卡在哪儿……</div>

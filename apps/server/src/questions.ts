@@ -13,6 +13,14 @@ export interface QuestionStore {
   all: Question[];
   byId: Map<string, Question>;
   byNode: Map<string, Question[]>;
+  /**
+   * 配图文件找不到的题。
+   *
+   * 题库里有"如图"题却把图丢了（58 道），孩子拿到手是一道读不懂的题，
+   * 页面上也不会报错。这类题不进组卷——但要留一张名单，家长端与体检看得到，
+   * 否则"题少了 58 道"永远没人知道为什么。
+   */
+  figureMissing: Set<string>;
   reload(): void;
 }
 
@@ -136,16 +144,30 @@ export function loadQuestionFiles(
   return { questions, issues };
 }
 
-export function createQuestionStore(dataDir: string, index: GraphIndex): QuestionStore {
+export function createQuestionStore(
+  dataDir: string,
+  index: GraphIndex,
+  figuresDir?: string,
+): QuestionStore {
   const dir = path.join(dataDir, "knowledge", "questions");
   const store: QuestionStore = {
     all: [],
     byId: new Map(),
     byNode: new Map(),
+    figureMissing: new Set<string>(),
     reload() {
       const { questions, issues } = loadQuestionFiles(dir, index);
       for (const issue of issues) console.warn(`[questions] ${issue.file}: ${issue.problem}`);
       store.all = questions;
+      // 题面配图丢了：题就不该发给孩题做（读不懂题比不做更伤）
+      store.figureMissing = new Set(
+        figuresDir
+          ? questions.filter((q) => q.figureImage && !existsSync(path.join(figuresDir, q.figureImage))).map((q) => q.id)
+          : [],
+      );
+      if (store.figureMissing.size) {
+        console.warn(`[questions] ${store.figureMissing.size} 道题的原图找不到，已从组卷里排除（${figuresDir}）`);
+      }
       store.byId = new Map(questions.map((q) => [q.id, q]));
       store.byNode = new Map();
       for (const q of questions)
