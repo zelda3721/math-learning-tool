@@ -1,9 +1,21 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppState } from "../app.js";
-import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
-import { loadEvidenceStats } from "../evidence.js";
+import { countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
+import { loadEvidenceStats, applyCountedAttempt } from "../evidence.js";
 import { buildIndependenceReport } from "../independence.js";
+import {
+  ASSESSMENT_SUBJECTS,
+  assessmentItemsOf,
+  assessmentSubjectOf,
+  compareAssessments,
+  englishNodeIdsOf,
+  englishReference,
+  nextAssessment,
+  summarizeAssessment,
+} from "../assessment.js";
+import { loadVocabulary } from "../vocabulary.js";
+import { loadReading } from "../reading.js";
 import { chatBudgetReport } from "../chatBudget.js";
 import { readProfile, writeProfile } from "../tutorMemory.js";
 import { MODULES, readModules, writeModules, type ModuleState } from "../modules.js";
@@ -231,15 +243,91 @@ export function parentRoutes(state: AppState): Hono {
       endedAt: s.endedAt,
       turnCount: s.turns,
       turns: recording
-        ? state.repo.listSpeakingTurns(s.id).map((t) => ({
-            ts: t.ts,
-            role: t.role,
-            text: t.role === "blocked" ? "" : t.text,
-            latencyMs: t.latencyMs,
-          }))
+        ? state.repo
+            .listSpeakingTurns(s.id)
+            // 没开记录时说的话根本没存原文（只留了空行占轮次）：不摆一排空白行给家长看
+            .filter((t) => t.role === "blocked" || t.text.trim() !== "")
+            .map((t) => ({
+              ts: t.ts,
+              role: t.role,
+              text: t.role === "blocked" ? "" : t.text,
+              latencyMs: t.latencyMs,
+            }))
         : [],
     }));
     return c.json({ recording, sessions });
+  });
+
+  /**
+   * 阶段测评对比：前测 → 后测 → 保持率。
+   *
+   * 只比两次都覆盖到的节点；两道口径都写清楚（各档几次、答了几道、对了几道），
+   * 让家长能自己核对这张表是怎么来的。
+   *
+   * 按学科分开（bySubject）：数学的前测和英语的后测放在一起比没有意义。
+   * 顶层的 preToPost / postToRetention / next 保持为数学的口径，兼容旧前端。
+   * answered 只算判得出对错的题；判不准（没有判卷器）的单列 pending，不算对也不算错。
+   */
+  app.get("/assessments", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const list = state.repo.listAssessments(learnerId, 30).filter((a) => a.finishedAt);
+    // 英语内容只在真有英语测评时才读文件
+    let english: { vocabulary: ReturnType<typeof loadVocabulary>; reading: ReturnType<typeof loadReading> } | null = null;
+    const englishContent = () => (english ??= { vocabulary: loadVocabulary(), reading: loadReading() });
+    const summaries = list.map((a) => {
+      const subject = assessmentSubjectOf(a);
+      const items = assessmentItemsOf(state.repo, learnerId, a.id);
+      const summary =
+        subject === "english"
+          ? summarizeAssessment(
+              a,
+              items,
+              (qid) => englishReference(qid, englishContent().vocabulary, englishContent().reading),
+              englishNodeIdsOf,
+            )
+          : summarizeAssessment(
+              a,
+              items,
+              (qid) => state.questions.byId.get(qid)?.answer ?? "",
+              (qid) => state.questions.byId.get(qid)?.nodeIds ?? [],
+            );
+      return { ...summary, subject };
+    });
+    const now = new Date();
+    const bySubject = Object.fromEntries(
+      ASSESSMENT_SUBJECTS.map((subject) => {
+        const mine = summaries.filter((s) => s.subject === subject);
+        const latest = (kind: string) => mine.find((s) => s.kind === kind);
+        const pre = latest("pre");
+        const post = latest("post");
+        const retention = latest("retention");
+        return [
+          subject,
+          {
+            preToPost: pre && post ? compareAssessments(pre, post) : null,
+            postToRetention: post && retention ? compareAssessments(post, retention) : null,
+            next: nextAssessment(state.repo, learnerId, now, subject),
+          },
+        ];
+      }),
+    ) as Record<(typeof ASSESSMENT_SUBJECTS)[number], { preToPost: unknown; postToRetention: unknown; next: unknown }>;
+    return c.json({
+      sessions: summaries.map((s) => ({
+        id: s.id,
+        kind: s.kind,
+        subject: s.subject,
+        answered: s.answered,
+        pending: s.pending,
+        total: s.total,
+        correct: s.correct,
+        rate: s.rate,
+      })),
+      preToPost: bySubject.math.preToPost,
+      postToRetention: bySubject.math.postToRetention,
+      next: bySubject.math.next,
+      bySubject,
+    });
   });
 
   app.get("/pending-count", (c) => {
@@ -532,34 +620,42 @@ export function parentRoutes(state: AppState): Hono {
     state.repo.setAttemptVerdict(parsed.data.attemptId, parsed.data.verdict, parsed.data.note);
     const question = state.questions.byId.get(attempt.questionId);
     const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
-    // 家长可以判一个 ai_unverified 的作答，但它仍然不进掌握度：
-    // 家长判的是"孩子答得对不对"，而这条证据本身没有可执行/可定位的验证依据
-    if (question && countsTowardMastery(attempt.verification)) {
-      const correct = parsed.data.verdict === "correct";
-      for (const nodeId of question.nodeIds) {
-        const current = state.repo.getMastery(attempt.learnerId, nodeId);
-        const next = applyAttempt(
-          current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
-          correct,
-          attempt.hintLevelUsed as 0 | 1 | 2 | 3,
-        );
-        state.repo.upsertMastery({
+    /*
+     * 裁决后补记掌握度，和 /practice/submit 是**同一套纪律**（早先这里只看 verification）：
+     *
+     * - 家长可以判一个 ai_unverified 的作答，但它仍然不进掌握度：家长判的是
+     *   "孩子答得对不对"，而这条证据本身没有可执行/可定位的验证依据；
+     * - 家长试做（actor=parent）被裁决了也不进：那条作答里没有孩子的任何行为；
+     * - 作答那一天同一道题已经有计入的同向证据（对或错）→ 不再加，
+     *   与 /submit 的"同题同日最多认一次错、一次对"一致：否则"先交一个判不准的，
+     *   再交一个判得准的"就能一题记两次；
+     * - 增益怎么算（看过解析打折、次节点只沾一半、提示级读 attempt 列）
+     *   交给 applyCountedAttempt，和 /submit 共用一份。
+     */
+    const correct = parsed.data.verdict === "correct";
+    const sameDay = state.repo.countedAttemptsOnDayOf(attempt.learnerId, attempt.questionId, attempt.at, attempt.id);
+    const repeatSameDay = correct ? sameDay.correct > 0 : sameDay.wrong > 0;
+    const counted =
+      !!question && countsTowardMastery(attempt.verification) && attempt.actor !== "parent" && !repeatSameDay;
+    if (question && counted) {
+      masteryChanges.push(
+        ...applyCountedAttempt(state.repo, state.questions, {
           learnerId: attempt.learnerId,
-          nodeId,
-          p: next.p,
-          evidenceN: next.evidenceN,
-          lastEvidenceAt: new Date().toISOString(),
-        });
-        const stats = loadEvidenceStats(state.repo, state.questions, attempt.learnerId);
-        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
-      }
+          questionId: attempt.questionId,
+          nodeIds: question.nodeIds,
+          correct,
+          // attempt 列在提交时已按服务端提示账本取过上限，这里直接读它
+          hintLevelUsed: Math.min(3, Math.max(0, attempt.hintLevelUsed)) as 0 | 1 | 2 | 3,
+          at: attempt.at,
+        }),
+      );
     }
     state.repo.appendEvent(attempt.learnerId, "feedback", {
       kind: "parent_verdict",
       attemptId: attempt.id,
       verdict: parsed.data.verdict,
     });
-    return c.json({ ok: true, mastery: masteryChanges });
+    return c.json({ ok: true, mastery: masteryChanges, countedTowardMastery: counted });
   });
 
   // 归因纠错：家长认为根因不对（可选改指到别的节点）

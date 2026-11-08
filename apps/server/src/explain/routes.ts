@@ -12,6 +12,7 @@ import { groundingSourceOf } from "./grounding.js";
 import { engineJsonFetch } from "../engineHttp.js";
 import { figureDataUrl, storeFigure } from "../figures.js";
 import { latexToPlainText } from "../latexText.js";
+import type { Repo } from "../repo.js";
 
 /**
  * P2 讲解管线（模式 B · Manim）：缓存命中直接返回；未命中建生成任务，
@@ -359,12 +360,37 @@ async function fetchSubtitle(
   }
 }
 
+/**
+ * 孩子对这道题算不算「自己走过一遍」——讲解、归因对孩子开放的共同判据。
+ *
+ * repo.workedThrough 的提示分支只看「三级提示拿到了没有」，不看作答：
+ * 连点三下提示、一个字不写，讲解（连同教师解析）就到手了，「先自己试」形同虚设。
+ * 所以这里在它之上收紧，而不是改它（别处还在用它原来的口径）：
+ * - 答对过（孩子本人的作答）→ 走过；
+ * - 三级提示用完 **并且** 至少交过一次已判定的作答（needsReview=false）→ 走过。
+ *   待复核的不算：那一笔连对错都还没定，算不上"自己试过"。
+ * 家长试做（actor=parent）不替孩子算。
+ */
+export function childWorkedThrough(repo: Repo, learnerId: string, questionId: string): boolean {
+  const own = repo
+    .attemptsForEvidence(learnerId)
+    .filter((a) => a.questionId === questionId && a.actor === "child");
+  if (own.some((a) => a.correct)) return true;
+  if (repo.maxHintLevel(learnerId, questionId) < 3) return false;
+  return own.some((a) => !a.needsReview);
+}
+
 export function explainRoutes(state: AppState): Hono {
   const app = new Hono();
 
   /** 请求方是不是孩子本人（家长 / 单测里的 authDisabled 都按家长算） */
   const callerIsChild = (c: { get: (k: string) => unknown }) =>
     (c.get("user") as { role?: string } | undefined)?.role === "child";
+
+  const lockedBody = {
+    error: "这道题还没轮到你来看讲解：先自己试一次，答错了可以用提示，三级提示都用完再来看讲解。",
+    code: "explain-locked",
+  };
 
   /**
    * 孩子看讲解的入口闸（宪法第 2 条：不喂答案）。
@@ -375,7 +401,7 @@ export function explainRoutes(state: AppState): Hono {
    * 界面上的顺序就成了一条可以绕开的路。
    *
    * 所以闸放在协议层：**这道题孩子自己走过一遍**（答对过，或真的把三级提示
-   * 都用完了）才给讲。注意"用完提示"按服务端记的提示事件算，不信客户端自报的层级。
+   * 都用完了、并且交过答案）才给讲。注意"用完提示"按服务端记的提示事件算，不信客户端自报的层级。
    */
   const gateForChild = (
     c: { get: (k: string) => unknown },
@@ -384,14 +410,25 @@ export function explainRoutes(state: AppState): Hono {
   ): { ok: true } | { ok: false; body: Record<string, unknown> } => {
     if (!callerIsChild(c) || !learnerId || !questionId) return { ok: true };
     if (!state.repo.getLearner(learnerId)) return { ok: true };
-    if (state.repo.workedThrough(learnerId, questionId)) return { ok: true };
-    return {
-      ok: false,
-      body: {
-        error: "这道题还没轮到你来看讲解：先自己试一次，答错了可以用提示，三级提示都用完再来看讲解。",
-        code: "explain-locked",
-      },
-    };
+    // 提示用完还得真交过一次答案（见 childWorkedThrough）
+    if (childWorkedThrough(state.repo, learnerId, questionId)) return { ok: true };
+    return { ok: false, body: lockedBody };
+  };
+
+  /**
+   * 孩子能不能看一份**已登记**的讲解产物。
+   *
+   * 讲解缓存按节点也能命中：只带 focusNodeId 来，查到的可能是别的题的整题讲解
+   * （「问一道题」登记的 SceneSpec 就是整道题怎么解）。产物 URL 一旦到手，
+   * /specs、/html、/jobs 又都能直接取。所以门不能只守在 POST / 的 questionId 上，
+   * 而要守在「这份产物挂在哪道题上」：没挂题的纯节点讲解随便看；挂了题，
+   * 那道题孩子得自己走过一遍。家长不受限。
+   */
+  const childMaySee = (c: { get: (k: string) => unknown }, questionId: string | undefined): boolean => {
+    if (!callerIsChild(c) || !questionId) return true;
+    const learnerId = (c.get("user") as { learnerId?: string } | undefined)?.learnerId;
+    if (!learnerId) return false;
+    return childWorkedThrough(state.repo, learnerId, questionId);
   };
 
   /** 孩子看过这道题的解析 → 记一条事件（掌握度那边据此把"回忆"和"理解"分开） */
@@ -444,14 +481,22 @@ export function explainRoutes(state: AppState): Hono {
     // both 是「两份都要」的生成策略，所以只有**首选那份**（模型直写）才算命中。
     // 早先让它回退到已有的 SceneSpec，结果是：题目只要以前生成过动画讲解，
     // 缓存就直接返回那份，模型那份永远没机会生成，页面上也就永远没有对比可切。
+    //
+    // 孩子会话：查到的讲解挂在别的题上、而那道题他没走过 → 当作未命中。
+    // findExplanation 同题查不到会退到「同节点最新一份」，那份可能是任意一道题的整题讲解；
+    // 当作未命中后下面生成的是纯节点讲解（body.questionId 为空时任务不挂题），
+    // 不会替那道题生成或复用它的 SceneSpec。
+    const visible = <T extends { questionId?: string }>(e: T | undefined): T | undefined =>
+      e && (e.questionId === body.questionId || childMaySee(c, e.questionId)) ? e : undefined;
     const cachedSpec =
       body.mode === "both"
-        ? state.repo.findExplanation(body.questionId, body.focusNodeId, "web")
+        ? visible(state.repo.findExplanation(body.questionId, body.focusNodeId, "web"))
         : undefined;
-    const cached =
+    const cached = visible(
       body.mode === "both"
         ? state.repo.findExplanation(body.questionId, body.focusNodeId, "web_html")
-        : state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode);
+        : state.repo.findExplanation(body.questionId, body.focusNodeId, body.mode),
+    );
     if (cached && (cached.videoUrl || cached.specUrl || cached.htmlUrl)) {
       if (body.mistakeId) state.repo.linkMistakeExplanation(body.mistakeId, cached.id);
       return c.json({
@@ -563,6 +608,12 @@ export function explainRoutes(state: AppState): Hono {
     const id = c.req.param("id").replace(/[^\w-]/g, "");
     const file = path.join(state.config.dataDir, "subtitles", `${id}.vtt`);
     if (!existsSync(file)) return c.json({ error: "字幕不存在" }, 404);
+    // 字幕就是整段讲解的台词，和视频同一道门（文件名即讲解 id）。
+    // 查不到登记的孤儿字幕对孩子也拒，和 /specs、/html 一个口径（宁可错拦）
+    if (callerIsChild(c)) {
+      const owner = state.repo.getExplanation(id);
+      if (!owner || !childMaySee(c, owner.questionId)) return c.json(lockedBody, 403);
+    }
     return c.body(readFileSync(file, "utf8"), 200, { "content-type": "text/vtt; charset=utf-8" });
   });
 
@@ -571,6 +622,11 @@ export function explainRoutes(state: AppState): Hono {
     const id = c.req.param("id").replace(/[^\w-]/g, "");
     const file = path.join(state.config.dataDir, "specs", `${id}.json`);
     if (!existsSync(file)) return c.json({ error: "spec 不存在" }, 404);
+    if (callerIsChild(c)) {
+      // 孩子：查不到登记（孤儿产物）也拒——宁可错拦，不把一份整题讲解放出去
+      const owner = state.repo.explanationByArtifactUrl("spec_url", `/api/v1/explain/specs/${id}`);
+      if (!owner || !childMaySee(c, owner.questionId)) return c.json(lockedBody, 403);
+    }
     return c.body(readFileSync(file, "utf8"), 200, { "content-type": "application/json" });
   });
 
@@ -583,6 +639,10 @@ export function explainRoutes(state: AppState): Hono {
     const id = c.req.param("id").replace(/[^\w-]/g, "");
     const file = path.join(state.config.dataDir, "explanations", `${id}.html`);
     if (!existsSync(file)) return c.json({ error: "讲解不存在" }, 404);
+    if (callerIsChild(c)) {
+      const owner = state.repo.explanationByArtifactUrl("html_url", `/api/v1/explain/html/${id}`);
+      if (!owner || !childMaySee(c, owner.questionId)) return c.json(lockedBody, 403);
+    }
     // 存的是模型的原始产物（数据集要的是原样）；克隆运行时在发出时才拼上
     return c.body(readFileSync(file, "utf8") + REPEAT_RUNTIME, 200, {
       "content-type": "text/html; charset=utf-8",
@@ -623,6 +683,13 @@ export function explainRoutes(state: AppState): Hono {
     const job = state.repo.getExplainJob(c.req.param("id"));
     if (!job) return c.json({ error: "任务不存在" }, 404);
     const explanation = job.explanationId ? state.repo.getExplanation(job.explanationId) : undefined;
+    // 任务结果里带着产物 URL：任务挂的题、或交付的那份讲解挂的题，孩子没走过就不给看
+    // 也不看别的孩子的任务：家里最多五个孩子，题目和进度彼此不该互见
+    const callerLearner = (c.get("user") as { learnerId?: string } | undefined)?.learnerId;
+    if (callerIsChild(c) && job.learnerId && job.learnerId !== callerLearner) return c.json({ error: "无权访问" }, 403);
+    if (callerIsChild(c) && !(childMaySee(c, job.questionId) && childMaySee(c, explanation?.questionId))) {
+      return c.json(lockedBody, 403);
+    }
     return c.json({
       status: job.status,
       explanation: explanation ? explanationView(explanation) : undefined,

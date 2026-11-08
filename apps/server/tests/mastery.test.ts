@@ -34,9 +34,12 @@ describe("effectiveP half-life decay", () => {
 
 describe("masteryBand", () => {
   it("requires both p and evidence for lit (行为验证)", () => {
-    expect(masteryBand(0.9, 1)).toBe("glow");
-    expect(masteryBand(0.9, 3)).toBe("lit");
-    expect(masteryBand(0.5, 10)).toBe("glow");
-    expect(masteryBand(0.2, 10)).toBe("dim");
+    const enough = { counted: 3, independent: 3, distinctQuestions: 2, spanDays: 1, hasFirstSeen: true };
+    expect(masteryBand(0.9, 1, enough)).toBe("glow");
+    expect(masteryBand(0.9, 3, enough)).toBe("lit");
+    // 没有独立证据明细 = 零独立证据：p 和次数再高也不点亮（B-02）
+    expect(masteryBand(0.9, 3, undefined)).toBe("glow");
+    expect(masteryBand(0.5, 10, enough)).toBe("glow");
+    expect(masteryBand(0.2, 10, enough)).toBe("dim");
   });
 });

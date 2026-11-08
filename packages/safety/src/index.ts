@@ -155,7 +155,13 @@ const RULES: {
       /(?:1[3-9]\d{9})|(?:\d{6,})@/,
     ],
     english: [
-      /\bmy\s+(?:phone|address|password|school)\b/,
+      /*
+       * 只说"我的电话/住址/密码"。**不拦 "my school"**：
+       * 英语写作作业本来就会让孩子写自己的学校（"Write about your school"），
+       * 一拦就把一整类合法作业堵死，而校名本身不是可定位的个人信息。
+       * 真正要拦的是"在哪上学 + 具体班级"这种组合，中文规则里已经有了。
+       */
+      /\bmy\s+(?:phone|address|password)\b/,
       /\b\d{3}[-.\s]?\d{3,4}[-.\s]?\d{4}\b/,
       /\bi\s+live\s+(?:at|in)\s+\d/,
     ],

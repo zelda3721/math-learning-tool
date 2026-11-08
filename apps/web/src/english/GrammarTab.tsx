@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button, ErrorState, LoadingState } from '../ui'
+import { BandBadge } from '../practice/badges'
+import { TIMEOUTS, requestJson } from './uiLogic'
 
 /**
  * 英语语法（阶段 5）：单元 → 学一学 / 练一练。
@@ -20,6 +22,10 @@ interface Unit {
     order: number
     questionCount: number
     summary: string
+    /** 掌握度三档：和星图同一套口径（独立证据才算点亮） */
+    band: 'dim' | 'glow' | 'lit'
+    practicedN: number
+    lastPracticedAt?: string
 }
 
 interface UnitQuestion {
@@ -30,7 +36,7 @@ interface UnitQuestion {
 }
 
 interface UnitDetail {
-    unit: { id: string; name: string; stage: string; summary: string; whatIsIt?: string }
+    unit: { id: string; name: string; stage: string; summary: string; whatIsIt?: string; band?: 'dim' | 'glow' | 'lit'; evidenceN?: number }
     questions: UnitQuestion[]
     lessonAvailable: boolean
 }
@@ -70,14 +76,14 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
 
     const load = useCallback(async () => {
         setError(null)
-        try {
-            const res = await fetch(`/api/v1/en/grammar/units?learnerId=${encodeURIComponent(learnerId)}`)
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = (await res.json()) as { units: Unit[] }
-            setUnits(data.units)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        }
+        // 走 requestJson：非 JSON 的错误页（网关 502）给一句人话，不把解析异常甩给孩子
+        const r = await requestJson<{ units: Unit[] }>(
+            `/api/v1/en/grammar/units?learnerId=${encodeURIComponent(learnerId)}`,
+            {},
+            { timeoutMs: TIMEOUTS.list, timeoutMessage: '语法单元取得太久了，再试一次' },
+        )
+        if (r.ok) setUnits(r.data.units)
+        else setError(r.error)
     }, [learnerId])
 
     useEffect(() => {
@@ -90,20 +96,20 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
         setBusy(true)
         setError(null)
         setFeedback(null)
-        try {
-            const res = await fetch(
-                `/api/v1/en/grammar/unit/${encodeURIComponent(id)}?learnerId=${encodeURIComponent(learnerId)}`,
-            )
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            setPicked((await res.json()) as UnitDetail)
-            setAnswering({ index: 0, value: '' })
-            setHint(null)
-            setHintLevel(0)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
-        } finally {
-            setBusy(false)
+        const r = await requestJson<UnitDetail>(
+            `/api/v1/en/grammar/unit/${encodeURIComponent(id)}?learnerId=${encodeURIComponent(learnerId)}`,
+            {},
+            { timeoutMs: TIMEOUTS.list, timeoutMessage: '这一单元取得太久了，再试一次' },
+        )
+        setBusy(false)
+        if (!r.ok) {
+            setError(r.error)
+            return
         }
+        setPicked(r.data)
+        setAnswering({ index: 0, value: '' })
+        setHint(null)
+        setHintLevel(0)
     }
 
     const submit = async () => {
@@ -113,16 +119,21 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
         if (!q || !value) return
         setBusy(true)
         try {
-            const res = await fetch('/api/v1/practice/submit', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ learnerId, questionId: q.id, answer: value, source: 'daily', hintLevelUsed: hintLevel }),
-            })
-            const data = (await res.json()) as SubmitResult & { error?: string }
-            if (!res.ok) {
-                setFeedback({ ok: false, note: data.error ?? `HTTP ${res.status}` })
+            const r = await requestJson<SubmitResult>(
+                '/api/v1/practice/submit',
+                {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ learnerId, questionId: q.id, answer: value, source: 'daily', hintLevelUsed: hintLevel }),
+                },
+                // 规则判不准时会请模型确认，本地模型慢：给足时间，超时说人话
+                { timeoutMs: TIMEOUTS.speaking, timeoutMessage: '判卷等太久了，再交一次试试。' },
+            )
+            if (!r.ok) {
+                setFeedback({ ok: false, note: r.error })
                 return
             }
+            const data = r.data
             if (data.notAnAnswer) {
                 setFeedback({ ok: false, note: '这还不算作答——再想想，或者看看这一单元的讲解。' })
                 return
@@ -161,18 +172,21 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
         if (!q) return
         setHintLoading(true)
         try {
-            const res = await fetch('/api/v1/practice/hint', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ learnerId, questionId: q.id, level: hintLevel + 1 }),
-            })
-            const data = (await res.json()) as { hint?: string; error?: string }
-            if (res.ok && data.hint) {
-                setHint(data.hint)
+            const r = await requestJson<{ hint?: string }>(
+                '/api/v1/practice/hint',
+                {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ learnerId, questionId: q.id, level: hintLevel + 1 }),
+                },
+                { timeoutMs: TIMEOUTS.speaking, timeoutMessage: '提示生成得太久了，再点一次试试。' },
+            )
+            if (r.ok && r.data.hint) {
+                setHint(r.data.hint)
                 setHintLevel((n) => n + 1)
                 setFeedback(null)
             } else {
-                setFeedback({ ok: false, note: data.error ?? '提示暂时给不出来，先看看这一单元的讲解。' })
+                setFeedback({ ok: false, note: r.ok ? '提示暂时给不出来，先看看这一单元的讲解。' : r.error })
             }
         } catch (err) {
             setFeedback({ ok: false, note: err instanceof Error ? err.message : String(err) })
@@ -197,7 +211,12 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
             <div className="space-y-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <div>
-                        <p className="font-semibold text-ink">{picked.unit.name}</p>
+                        <p className="flex items-center gap-2 font-semibold text-ink">
+                            {picked.unit.name}
+                            {(picked.unit as { band?: 'dim' | 'glow' | 'lit' }).band && (
+                                <BandBadge band={(picked.unit as { band: 'dim' | 'glow' | 'lit' }).band} />
+                            )}
+                        </p>
                         <p className="text-xs text-ink-faint">{picked.unit.summary}</p>
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => { setPicked(null); setFeedback(null) }}>
@@ -290,9 +309,15 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
                     <li key={u.id} className="plate p-4 space-y-1">
                         <div className="flex items-baseline justify-between gap-2">
                             <span className="font-semibold text-ink">{u.name}</span>
-                            <span className="text-xs text-ink-faint numeric">{u.questionCount} 道题</span>
+                            <span className="flex items-center gap-2 shrink-0">
+                                <BandBadge band={u.band} />
+                                <span className="text-xs text-ink-faint numeric">{u.questionCount} 道题</span>
+                            </span>
                         </div>
                         <p className="text-xs text-ink-faint line-clamp-2">{u.summary}</p>
+                        {u.practicedN > 0 && (
+                            <p className="text-xs text-ink-faint numeric">练过 {u.practicedN} 次</p>
+                        )}
                         <Button size="sm" variant="secondary" disabled={busy} onClick={() => void openUnit(u.id)}>
                             学这一单元
                         </Button>

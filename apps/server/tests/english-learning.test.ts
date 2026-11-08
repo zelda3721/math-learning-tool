@@ -172,9 +172,13 @@ describe("接口", () => {
       text: "Tom gets up at seven o'clock.",
       questions: [{ id: "q1", prompt: "What time?", answer: "seven", evidence: "Tom gets up at seven o'clock." }],
     }), "utf8");
-    const { app } = makeApp([]);
-    const body = (await (await app.request("/api/v1/en/reading/passage?id=r-a1-test")).json()) as Record<string, unknown>;
+    const { app, repo } = makeApp([]);
+    const learner = repo.createLearner("读者", "elementary_upper");
+    const res = await app.request(`/api/v1/en/reading/passage?id=r-a1-test&learnerId=${learner.id}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
     const serialized = JSON.stringify(body);
+    expect(serialized).toContain("Tom gets up");
     expect(serialized).not.toContain("\"answer\"");
     expect(serialized).not.toContain("evidence");
   });

@@ -51,9 +51,20 @@ function countsAsAttempt(a: EvidenceAttempt): boolean {
 }
 
 export function buildIndependenceReport(input: IndependenceInput): IndependenceReport {
-  const attempts = input.attempts.filter(countsAsAttempt).sort((a, b) => a.at.localeCompare(b.at));
+  /*
+   * 先用**全部**作答定"第一次见"，再过滤计数——和 evidence.ts 的 firstSeenAt 同一口径。
+   *
+   * 早先是先过滤再定首见：孩子第一次乱填（判不准进抽检）、第二天再认真做，
+   * 第二次就被当成"第一次见就做对"。可那道题他已经见过了。
+   * 首见那次本身不算数（抽检中 / 家长试做 / 只有 AI 判断）时，这道题就不进新题分母：
+   * 它的"第一手"已经没有可信的数据了，拿后来那次冒充只会把独立率抬高。
+   */
   const firstAt = new Map<string, string>();
-  for (const a of attempts) if (!firstAt.has(a.questionId)) firstAt.set(a.questionId, a.at);
+  for (const a of input.attempts) {
+    const prev = firstAt.get(a.questionId);
+    if (prev === undefined || a.at < prev) firstAt.set(a.questionId, a.at);
+  }
+  const attempts = input.attempts.filter(countsAsAttempt).sort((a, b) => a.at.localeCompare(b.at));
 
   let firstSeenQuestions = 0;
   let independentFirstCorrect = 0;

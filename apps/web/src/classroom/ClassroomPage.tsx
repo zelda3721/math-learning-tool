@@ -12,6 +12,7 @@ import { useLearner } from '../learner/LearnerContext'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
 import { getLesson, listLessons, submitClassroomAnswer, type ComposedLesson, type LessonOption } from './api'
 import { createClassroomBridge } from './playerAdapter'
+import { classroomResumeTarget } from '../english/uiLogic'
 
 /**
  * 课堂页：一节 compose 课，从开场讲到提问、答完回到原处、最后小结。
@@ -283,8 +284,16 @@ export function ClassroomPage() {
                             size="sm"
                             onClick={() => {
                                 dispatch({ type: 'start' })
-                                // 恢复到上次那一拍：resume 语义是"回到位置"，不是重放过程
-                                for (let i = 0; i < resumeFrom; i++) dispatch({ type: 'beat-finished' })
+                                // 恢复到上次那一拍：resume 语义是"回到位置"，不是重放过程。
+                                // 但快进不能越过还没答的提问拍（E-06）：存档只有拍号，这节课的题这次没答过，
+                                // 就停在提问拍——不然 generate 课存档落在提问拍之后时，这节课等于没提问
+                                const target = classroomResumeTarget(
+                                    resumeFrom,
+                                    lesson?.pauseBeatIndex ?? -1,
+                                    Boolean(lesson?.question),
+                                    lesson ? pauseAnswered.includes(lesson.pauseBeatIndex) || pauseSkipped.includes(lesson.pauseBeatIndex) : false,
+                                )
+                                for (let i = 0; i < target; i++) dispatch({ type: 'beat-finished' })
                                 setResumeFrom(null)
                             }}
                         >

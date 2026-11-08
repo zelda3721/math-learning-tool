@@ -2,6 +2,7 @@
  * P1a 做题页：选人 → 今日题组 → 逐题作答（判卷 + 提示阶梯）→ 完成小结。
  * fetch 直连 server API，状态机全部收在本组件；子组件见同目录。
  */
+import { AssessmentCard } from './AssessmentCard'
 import { useEffect, useState } from 'react'
 import { useLearner } from '../learner/LearnerContext'
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../ui'
@@ -118,6 +119,9 @@ export function PracticePage() {
                     {plan.note && <p className="text-xs text-ink-faint">{plan.note}</p>}
                 </Card>
             )}
+
+            {/* 阶段测评：没有就完全不显示，练习页不该被它挤满 */}
+            {phase.kind === 'idle' && <AssessmentCard learnerId={learner.id} />}
 
             {phase.kind === 'idle' && (
                 <div className="plate p-10 max-w-lg mx-auto text-center space-y-5">

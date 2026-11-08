@@ -24,6 +24,7 @@ import { ingestRoutes } from "./ingest/routes.js";
 import { exploreRoutes } from "./explore.js";
 import { askRoutes } from "./ask.js";
 import { speakingRoutes } from "./speaking.js";
+import { assessmentRoutes } from "./routes/assessment.js";
 import { bankRoutes } from "./bank.js";
 import { textbookRoutes } from "./textbook.js";
 import { classroomRoutes } from "./classroom/routes.js";
@@ -211,6 +212,8 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/ask", askRoutes(state));
   // 英语口语对练：本地 ASR + 本地 TTS，全链路不出本机
   app.route("/api/v1/speaking", speakingRoutes(state));
+  // 阶段测评（前测 / 后测 / 保持率）：单独记账，不进掌握度
+  app.route("/api/v1/assessment", assessmentRoutes(state));
   // 题库管理（家长专属）：列出全部题、就地修改、删除、整批撤回
   app.route("/api/v1/bank", bankRoutes(state));
   // 教材编译（家长专属）：PDF 文本 → 章节 → 知识点 → 图谱候选，只出提案

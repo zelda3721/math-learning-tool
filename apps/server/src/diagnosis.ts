@@ -7,7 +7,9 @@ import { practiceReady } from "./questions.js";
 import type { HintProvider } from "./hint.js";
 import { countsTowardMastery, effectiveP } from "./mastery.js";
 import { nodeEvidenceCounts } from "./evidence.js";
-import { normalizeText } from "@mathtutor/subject-math";
+import { normalizeText, parseNumeric } from "@mathtutor/subject-math";
+import { REDACTED, redactAnswers } from "@mathtutor/core";
+import { screenModelOutput } from "./safety.js";
 
 /**
  * 诊断归因（设计 §06/§07）：归因主链是代码，LLM 只在候选集内做受限选择。
@@ -77,6 +79,45 @@ function parseSelection(raw: string): LlmSelection {
   } catch {
     return {};
   }
+}
+
+/**
+ * 模型写的那句错因，交出去之前先过两道确定性的筛。
+ *
+ * 为什么非筛不可：选根因时提示词里给了模型**正确答案**（它要对照学生答案才判得出错因），
+ * 而这句话最终原样摆在孩子的归因卡上。"别提答案"写在提示词里靠不住——模型一顺嘴
+ * 就会写出"应该得 7 而不是 3"。所以和课堂旁白用同一把尺子（@mathtutor/core 的
+ * redactAnswers）硬剔，再过输出侧安检。
+ *
+ * 剔完只剩占位符和标点（整句就是在报答案）、或安检拦下，都换成确定性的那句：
+ * 半截被抹过的话比一句干脆的替换更让人困惑。
+ */
+export function sanitizeDiagnosisExplanation(
+  raw: unknown,
+  answer: string,
+  fallback: string,
+  screen?: (text: string) => boolean,
+): string {
+  // 模型给的 JSON 里这个字段不保证是字符串
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return fallback;
+  // 答案的几种书写：原样、以及数值答案的规范写法（"7.0"/"07" 这类原样匹配不上的形态）
+  const forms = new Set([answer.trim()]);
+  const num = parseNumeric(answer);
+  if (num !== null) {
+    forms.add(String(num));
+    forms.add(num.toFixed(1));
+    forms.add(num.toFixed(2).replace(/\.?0+$/, ""));
+  }
+  // 先剔再截：反过来截断会把答案截成一半（"126" → "12"），剔除就认不出了
+  const redacted = redactAnswers(
+    text,
+    [...forms].filter(Boolean).map((a) => ({ answer: a })),
+  ).text.slice(0, 60);
+  const residue = redacted.split(REDACTED).join("").replace(/[\s\p{P}\p{S}]/gu, "");
+  if (!residue) return fallback;
+  if (screen?.(redacted)) return fallback;
+  return redacted;
 }
 
 const SURFACES = new Set(["concept", "procedure", "calculation", "reading"]);
@@ -245,11 +286,14 @@ export async function diagnoseMistake(args: {
     chain,
     chainNames: chain.map((id) => knowledge.index.getNode(id)?.name ?? id),
     confidence,
-    explanation:
-      selection.explanation?.slice(0, 60) ??
-      (eligible
+    explanation: sanitizeDiagnosisExplanation(
+      selection.explanation,
+      question.answer,
+      eligible
         ? `这道题的根子可能在「${rootNode.name}」，先把它补牢。`
-        : `暂定位到「${rootNode.name}」附近；已安排探针题进一步确认，先看讲解。`),
+        : `暂定位到「${rootNode.name}」附近；已安排探针题进一步确认，先看讲解。`,
+      (text) => screenModelOutput(repo, attempt.learnerId, text).blocked,
+    ),
     probesQueued,
   };
 }

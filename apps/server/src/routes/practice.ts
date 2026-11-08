@@ -1,12 +1,11 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { AttemptSourceSchema, type Question } from "@mathtutor/schema";
-import { MASTERY_PARAMS } from "@mathtutor/schema";
 import { effectiveLearnerId, type AppState } from "../app.js";
 import { composeToday } from "../composer.js";
 import { getSubjectRegistry, judgeAnswer } from "../subjects.js";
-import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
-import { loadEvidenceStats } from "../evidence.js";
+import { countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
+import { applyCountedAttempt, loadEvidenceStats } from "../evidence.js";
 import { makeHint } from "../hint.js";
 import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
@@ -31,20 +30,58 @@ function callerActor(c: Context): "child" | "parent" {
  * 乱填、只写「不会」会让规则判卷返回 pending。早先前端把 pending 当完成，
  * 于是"打几个字"就是一条零代价的跳题捷径——比认真答错还划算。
  * 这里把它和"判不准但确实答了"分开：前者不算一次作答，题留在原地。
+ *
+ * 判定以**结构**为主、短语表为辅：早先只认 15 个短语，「我真的想不出来」
+ * 「这题好怪」「等会再说」换个说法就漏过去，每一句还要白送一次语义判卷的模型调用。
+ * 结构规则：参考答案是数值/表达式类，而学生答案里一个数字、一个字母变量都没有，
+ * 那它不可能是这道题的答案。
  */
 const GIVE_UP = new Set([
   "不会", "不会做", "不知道", "不懂", "没学过", "我不想做", "不想做", "跳过", "略", "不会写",
   "我不会", "随便", "哈哈", "不会啊", "太难了",
 ]);
 
-export function looksLikeGiveUp(answer: string): boolean {
+/**
+ * 作答里的"数字"：阿拉伯数字、全角数字、带圈数字，以及中文数字。
+ * 中文数字必须算——「二十六」「一半」「三分之一」是孩子真实会写的答案，
+ * 把它们当成"没在作答"就是冤枉。
+ */
+const DIGIT_LIKE = /[0-9０-９①-⑳零〇一二两三四五六七八九十百千万亿半]/;
+/**
+ * 字母变量与常见数学记号：x、y、π、√、∞、希腊字母、全角字母。
+ * 「π」「√2」「a+b」都是合法答案，不能因为没有阿拉伯数字就判成放弃。
+ */
+const VARIABLE_LIKE = /[A-Za-zＡ-Ｚａ-ｚα-ωΑ-Ωπ√∞]/;
+
+/** 判放弃只需要题目的这几样（参考答案、类型、作答语言） */
+export type GiveUpQuestion = Pick<Question, "answer" | "answerType"> & { answerLang?: Question["answerLang"] };
+
+/**
+ * 英语题：参考答案是纯英文单词（或题目声明作答语言是英文）。
+ * 这类题的答案本来就没有数字，数字规则不适用——只看短语表和"全是标点/emoji"。
+ * 选择题的参考答案「B」也落在这里：同样不该拿数字去要求它。
+ */
+function isEnglishAnswer(q: GiveUpQuestion): boolean {
+  if (q.answerLang === "en") return true;
+  const ref = q.answer.trim();
+  return ref.length > 0 && /^[A-Za-z\s'’\-/,.;()!?]+$/.test(ref);
+}
+
+export function looksLikeGiveUp(answer: string, question?: GiveUpQuestion): boolean {
   const trimmed = answer.trim();
   if (!trimmed) return true;
   // 去掉标点与空白后再比：」不会。「 也是「不会」
   const bare = trimmed.replace(/[\s，。！？、,.!?~～…—\-"'“”‘’()（）]/g, "");
   if (/^[0-9A-Za-z一-鿿]+$/.test(bare) && GIVE_UP.has(bare)) return true;
-  // 一个字符都算不上作答（全是 emoji、问号、破折号）
-  return !/[0-9A-Za-z一-鿿]/.test(bare);
+  // 一个字符都算不上作答（全是 emoji、问号、破折号）。
+  // 数学记号单独放行：「π」「∞」本身就是合法答案，不是标点
+  if (!/[0-9A-Za-z一-鿿]/.test(bare) && !DIGIT_LIKE.test(bare) && !VARIABLE_LIKE.test(bare)) return true;
+  if (!question || isEnglishAnswer(question)) return false;
+  // 结构判定：参考答案是数值/表达式类（声明的类型，或参考答案里本来就有数字）
+  const numericReference =
+    question.answerType === "numeric" || question.answerType === "expression" || /[0-9]/.test(question.answer);
+  if (!numericReference) return false;
+  return !DIGIT_LIKE.test(trimmed) && !VARIABLE_LIKE.test(trimmed);
 }
 
 /** 发给前端的题目视图：绝不包含 answer/analysis（不喂答案从协议层做起） */
@@ -110,6 +147,44 @@ const ReflectionSchema = z.object({
   guess: z.enum(["reading", "calculation", "procedure", "concept", "unknown"]).optional(),
   text: z.string().max(500).optional(),
 });
+
+/**
+ * 作答来源与要消费的队列项，由**服务端**按队列项判定，不信客户端传的 source。
+ *
+ * 早先前端从没传过 source=probe，于是宪法第 4 条的证据通道从来没收到过东西；
+ * 改成按队列项判定之后又漏了三件事：队列项是不是这个孩子的、是不是探针、用没用过。
+ * 不校验的话，同一个探针队列项每重试一次就回填一次归因证据（置信度被一路推到顶），
+ * 别人的 queueItemId 也能把普通作答伪装成"探查过前置知识"。
+ *
+ * 只有「属于这个孩子 + kind=probe + 未消费 + 就是这道题」才算 probe；其余一律当 daily
+ * （客户端自称 probe 也退回 daily）。只消费属于这个孩子且还没消费的队列项。
+ */
+function resolveQueueSource(
+  repo: AppState["repo"],
+  learnerId: string,
+  questionId: string,
+  claimed: z.infer<typeof AttemptSourceSchema>,
+  queueItemId: string | undefined,
+): { source: z.infer<typeof AttemptSourceSchema>; consumeId: string | undefined } {
+  const item = queueItemId ? repo.getQueueItemState(queueItemId) : undefined;
+  // 还得是这道题的队列项：带错 queueItemId 去答别的题，不能把那道探针悄悄吃掉
+  const usable =
+    item && item.learnerId === learnerId && item.consumedAt === null && item.questionId === questionId ? item : undefined;
+  const isProbe = usable?.kind === "probe" && usable.questionId === questionId;
+  const source = isProbe ? "probe" : claimed === "probe" ? "daily" : claimed;
+  return { source, consumeId: usable?.id };
+}
+
+/**
+ * 这次作答记账用的提示级：客户端自报与服务端提示账本取大。
+ *
+ * 早先直接写客户端的 hintLevelUsed：要过三级提示、提交时报 0，就是一条"零提示做对"——
+ * 增益满额、算独立证据、还会被请去"讲讲你是怎么想的"。提示是服务端发的，账在服务端。
+ */
+function serverHintLevel(repo: AppState["repo"], learnerId: string, questionId: string, claimed: number): 0 | 1 | 2 | 3 {
+  // 只算「这一轮」的提示（上次答对之后、12 小时内）：复习时不背着旧账
+  return Math.min(3, Math.max(claimed, repo.hintLevelThisRound(learnerId, questionId))) as 0 | 1 | 2 | 3;
+}
 
 export function practiceRoutes(state: AppState): Hono {
   const app = new Hono();
@@ -205,58 +280,56 @@ export function practiceRoutes(state: AppState): Hono {
     }
 
     const result = await judgeAnswer(registry, state.knowledge, question, extracted.answer);
+    /*
+     * 题目本身的参考答案没人核对过（practiceReady=false）：和 /submit 一样进家长抽检。
+     * 早先这条路只在 counted 里挡了一下，needsReview 没标——作答不进掌握度，
+     * 却也不进抽检队列，家长永远看不到这道题有人做过、该去核对答案。
+     */
+    const untrustedQuestion = !practiceReady(question);
     // 低置信度识别：无论判对错都进家长抽检（识别错误不能污染掌握度证据）
     // 没有判卷器时也不自己判：转家长，而不是让一条无依据的判定进掌握度
-    const needsReview = !extracted.confident || result.method === "pending" || !result.hasJudge;
+    const needsReview = !extracted.confident || result.method === "pending" || !result.hasJudge || untrustedQuestion;
+    const hintLevelUsed = serverHintLevel(state.repo, photoLearnerId, body.questionId, body.hintLevelUsed);
     // 两条提交路径同一套纪律：家长试做不进证据、同题同日只认第一次
     const actor = callerActor(c);
     const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(photoLearnerId, body.questionId) : { correct: 0, wrong: 0 };
     const repeatSameDay = actor === "child" && (result.correct ? todayCounts.correct > 0 : todayCounts.wrong > 0);
-    const queueKind = body.queueItemId ? state.repo.getQueueItem(body.queueItemId)?.kind : undefined;
-    const source: typeof body.source =
-      queueKind === "probe" ? "probe" : body.source === "probe" ? "daily" : body.source;
+    const { source, consumeId } = resolveQueueSource(
+      state.repo,
+      photoLearnerId,
+      body.questionId,
+      body.source,
+      body.queueItemId,
+    );
     const attempt = state.repo.insertAttempt({
       learnerId: photoLearnerId,
       questionId: body.questionId,
       answer: extracted.answer,
       correct: result.correct,
-      hintLevelUsed: body.hintLevelUsed as 0 | 1 | 2 | 3,
+      hintLevelUsed,
       source,
       durationS: body.durationS,
       needsReview,
       verification: result.verification,
       actor,
     });
-    if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
+    if (consumeId) state.repo.consumeQueueItem(consumeId);
 
-    const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
+    let masteryChanges: { nodeId: string; p: number; band: string }[] = [];
     let review: { stage: number; mastered: boolean; nextReviewAt: string | null } | undefined;
     const counted =
       !needsReview &&
       countsTowardMastery(attempt.verification) &&
       actor === "child" &&
-      !repeatSameDay &&
-      practiceReady(question);
+      !repeatSameDay;
     if (counted) {
-      const viewed = state.repo.viewedAnalysisBefore(photoLearnerId, body.questionId, attempt.at);
-      const stats = loadEvidenceStats(state.repo, state.questions, photoLearnerId);
-      question.nodeIds.forEach((nodeId, index) => {
-        const current = state.repo.getMastery(photoLearnerId, nodeId);
-        const next = applyAttempt(
-          current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
-          result.correct,
-          body.hintLevelUsed as 0 | 1 | 2 | 3,
-          (viewed ? MASTERY_PARAMS.afterAnalysisGainFactor : 1) * (index === 0 ? 1 : 0.5),
-        );
-        const row = {
-          learnerId: photoLearnerId,
-          nodeId,
-          p: next.p,
-          evidenceN: next.evidenceN,
-          lastEvidenceAt: new Date().toISOString(),
-        };
-        state.repo.upsertMastery(row);
-        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
+      masteryChanges = applyCountedAttempt(state.repo, state.questions, {
+        learnerId: photoLearnerId,
+        questionId: body.questionId,
+        nodeIds: question.nodeIds,
+        correct: result.correct,
+        hintLevelUsed,
+        at: attempt.at,
       });
       if (source === "probe") backfillProbeEvidence(state.repo, photoLearnerId, question, result.correct);
       if (body.reviewCardId) review = advanceReviewCard(state.repo, body.reviewCardId, result.correct);
@@ -280,7 +353,7 @@ export function practiceRoutes(state: AppState): Hono {
       countedTowardMastery: counted,
       trial: actor === "parent",
       repeat: repeatSameDay,
-      hintAvailable: !result.correct && !needsReview && body.hintLevelUsed < 3,
+      hintAvailable: !result.correct && !needsReview && hintLevelUsed < 3,
       mastery: masteryChanges,
       review,
     });
@@ -299,6 +372,38 @@ export function practiceRoutes(state: AppState): Hono {
     const registry = state.subjects ?? getSubjectRegistry();
 
     let result = await judgeAnswer(registry, state.knowledge, question, body.answer);
+    // 提示级按服务端账本取：写 attempt、算增益、判 askWhy 都用这一个值
+    const hintLevelUsed = serverHintLevel(state.repo, learnerId, body.questionId, body.hintLevelUsed);
+    /*
+     * 乱填 / 只写「不会」：这**不是一次作答**。
+     *
+     * 早先前端把判不准（pending）当完成，于是"打几个字"就是一条零代价的跳题捷径，
+     * 比认真答错还划算。这里把两类都挡住：判不准但同时明显没在作答的，
+     * 以及判卷器判成"错"但其实只是放弃话术的（"不会" 两个字会被规则判成 string）。
+     *
+     * 这一步必须在语义判卷**之前**：「这题好怪」明显不是数值题的答案，
+     * 不该先白花一次模型调用去问"是不是同一个意思"。规则判卷是确定性的、不花钱，
+     * 放在前面只为一件事——规则已经判对的，绝不当成放弃。
+     *
+     * 不写 attempt（它本来就不是作答），只留一条 giveup 事件：
+     * 家长看得到孩子说「不会」，但这个动作既不扣分也不占掉今天的证据名额。
+     */
+    if (looksLikeGiveUp(body.answer, question) && !result.correct) {
+      state.repo.appendEvent(learnerId, "giveup", { questionId: body.questionId, answer: body.answer });
+      return c.json({
+        attemptId: null,
+        correct: false,
+        method: result.method,
+        needsReview: false,
+        notAnAnswer: true,
+        verification: result.verification,
+        countedTowardMastery: false,
+        trial: callerActor(c) === "parent",
+        repeat: false,
+        hintAvailable: hintLevelUsed < 3,
+        mastery: [],
+      });
+    }
     /**
      * 规则判不准时，问模型「是不是同一个意思」。
      *
@@ -335,32 +440,6 @@ export function practiceRoutes(state: AppState): Hono {
     }
     const pending = result.method === "pending";
     /*
-     * 乱填 / 只写「不会」：这**不是一次作答**。
-     *
-     * 早先前端把判不准（pending）当完成，于是"打几个字"就是一条零代价的跳题捷径，
-     * 比认真答错还划算。这里把两类都挡住：判不准但同时明显没在作答的，
-     * 以及判卷器判成"错"但其实只是放弃话术的（"不会" 两个字会被规则判成 string）。
-     *
-     * 不写 attempt（它本来就不是作答），只留一条 giveup 事件：
-     * 家长看得到孩子说「不会」，但这个动作既不扣分也不占掉今天的证据名额。
-     */
-    if (looksLikeGiveUp(body.answer) && !result.correct) {
-      state.repo.appendEvent(learnerId, "giveup", { questionId: body.questionId, answer: body.answer });
-      return c.json({
-        attemptId: null,
-        correct: false,
-        method: result.method,
-        needsReview: false,
-        notAnAnswer: true,
-        verification: result.verification,
-        countedTowardMastery: false,
-        trial: callerActor(c) === "parent",
-        repeat: false,
-        hintAvailable: body.hintLevelUsed < 3,
-        mastery: [],
-      });
-    }
-    /*
      * 题目本身可不可信，和"判卷判得准不准"是两件事，但都会让一条证据作废。
      *
      * `answerUnverified`（参考答案是模型自己算的、还没人核对）的题，本该由
@@ -381,28 +460,21 @@ export function practiceRoutes(state: AppState): Hono {
      */
     const todayCounts = actor === "child" ? state.repo.todayAttemptCounts(learnerId, body.questionId) : { correct: 0, wrong: 0 };
     const repeatSameDay = actor === "child" && (result.correct ? todayCounts.correct > 0 : todayCounts.wrong > 0);
-    /*
-     * 探针的来源由**服务端**按队列项判定，不信客户端传的 source。
-     * 早先前端从没传过 source=probe，于是宪法第 4 条的证据通道从来没收到过东西。
-     * 反过来，客户端自称 probe 但没有对应的探针队列项，就退回 daily——
-     * 不然谁都能把一条普通作答伪装成"探查过前置知识"。
-     */
-    const queueKind = body.queueItemId ? state.repo.getQueueItem(body.queueItemId)?.kind : undefined;
-    const source: typeof body.source =
-      queueKind === "probe" ? "probe" : body.source === "probe" ? "daily" : body.source;
+    // 探针来源与队列项归属的判定见 resolveQueueSource（只认这个孩子的、未消费的探针）
+    const { source, consumeId } = resolveQueueSource(state.repo, learnerId, body.questionId, body.source, body.queueItemId);
     const attempt = state.repo.insertAttempt({
       learnerId: learnerId,
       questionId: body.questionId,
       answer: body.answer,
       correct: result.correct,
-      hintLevelUsed: body.hintLevelUsed as 0 | 1 | 2 | 3,
+      hintLevelUsed,
       source,
       durationS: body.durationS,
       needsReview: pending || !result.hasJudge || untrustedQuestion,
       verification: result.verification,
       actor,
     });
-    if (body.queueItemId) state.repo.consumeQueueItem(body.queueItemId);
+    if (consumeId) state.repo.consumeQueueItem(consumeId);
 
     /*
      * 一条证据到底算不算数，**只在这里判一次**。
@@ -415,37 +487,23 @@ export function practiceRoutes(state: AppState): Hono {
      */
     const counted =
       !pending && !untrustedQuestion && countsTowardMastery(attempt.verification) && actor === "child" && !repeatSameDay;
-    const masteryChanges: { nodeId: string; p: number; band: string }[] = [];
-    if (counted) {
-      // 作答前看过这道题的解析：那一次答对是回忆，不是理解，增益打折（扣分照旧）
-      const viewed = state.repo.viewedAnalysisBefore(learnerId, body.questionId, attempt.at);
-      const stats = loadEvidenceStats(state.repo, state.questions, learnerId);
-      question.nodeIds.forEach((nodeId, index) => {
-        const current = state.repo.getMastery(learnerId, nodeId);
-        const next = applyAttempt(
-          current ? { p: current.p, evidenceN: current.evidenceN } : undefined,
-          result.correct,
-          body.hintLevelUsed as 0 | 1 | 2 | 3,
-          // 主节点满额；挂在这道题上的其它节点只沾一半（一题多节点不能都满分）
-          (viewed ? MASTERY_PARAMS.afterAnalysisGainFactor : 1) * (index === 0 ? 1 : 0.5),
-        );
-        const row = {
-          learnerId: learnerId,
-          nodeId,
-          p: next.p,
-          evidenceN: next.evidenceN,
-          lastEvidenceAt: new Date().toISOString(),
-        };
-        state.repo.upsertMastery(row);
-        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
-      });
-    }
+    // 算多少（解析折扣、次节点减半）与家长裁决共用 applyCountedAttempt
+    const masteryChanges: { nodeId: string; p: number; band: string }[] = counted
+      ? applyCountedAttempt(state.repo, state.questions, {
+          learnerId,
+          questionId: body.questionId,
+          nodeIds: question.nodeIds,
+          correct: result.correct,
+          hintLevelUsed,
+          at: attempt.at,
+        })
+      : [];
     state.repo.appendEvent(learnerId, "attempt", {
       attemptId: attempt.id,
       questionId: body.questionId,
       correct: result.correct,
       method: result.method,
-      hintLevelUsed: body.hintLevelUsed,
+      hintLevelUsed,
       source,
       repeatSameDay,
       actor,
@@ -480,8 +538,8 @@ export function practiceRoutes(state: AppState): Hono {
        * 这不是考试，是让他把自己的想法说出来——那句话是元认知证据，
        * 不进掌握度（自由表达判不了对错），但家长看得到他会不会讲。
        */
-      askWhy: counted && result.correct && !seenBefore && body.hintLevelUsed === 0 && actor === "child",
-      hintAvailable: !result.correct && !pending && body.hintLevelUsed < 3,
+      askWhy: counted && result.correct && !seenBefore && hintLevelUsed === 0 && actor === "child",
+      hintAvailable: !result.correct && !pending && hintLevelUsed < 3,
       mastery: masteryChanges,
       review,
     });
@@ -548,7 +606,8 @@ export function practiceRoutes(state: AppState): Hono {
      * 否则客户端可以直接把 level:3 发给「第一个式子」那一级——
      * 对一步题，那一句就是全部解法。
      */
-    const maxLevel = state.repo.maxHintLevel(learnerId, questionId);
+    // 阶梯按「这一轮」算：复习时重新从第一级要起，不能凭当年的账直接跳到第三级
+    const maxLevel = state.repo.hintLevelThisRound(learnerId, questionId);
     if (level > maxLevel + 1) {
       return c.json({ error: "提示要一级一级来：先把这一级用起来，再要下一级。" }, 409);
     }

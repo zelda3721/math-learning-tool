@@ -4,6 +4,7 @@ import { AuthStore } from "../src/auth.js";
 import { openMemoryDb } from "../src/db.js";
 import { Repo } from "../src/repo.js";
 import { knowledge, makeQuestion, tempFixtureEnv } from "./helpers.js";
+import { buildLessonFromDraft, lessonPrompt } from "../src/classroom/generate.js";
 
 /**
  * 英语语法（阶段 5）：单元目录 + 单元详情 + 走既有判卷通路。
@@ -107,5 +108,61 @@ describe("语法单元目录", () => {
     const { child } = await withChild(env);
     const res = await child.call("POST", "/api/v1/practice/submit", { questionId: "en-g1", answer: "am" });
     expect(res.status).toBe(200);
+  });
+
+  it("语法课的 generate：例句必须逐字来自教材", () => {
+    const node = knowledge.index.getNode(GRAMMAR_NODE!)!;
+    // 教材 summary 里的原句
+    const material = (node.summary ?? "").split(/(?<=[.?!])\s+/)[0]!;
+    const good = {
+      visualThesis: "看见 am/is 跟着谁变",
+      beats: [
+        { role: "intro", narration: "先看这几句里 be 动词长什么样。" },
+        { role: "example", narration: material, visual: { id: "s1", primitive: "en.sentence_highlight", params: { text: material } } },
+        { role: "summary", narration: "读一遍，注意框住的那一段。" },
+      ],
+    };
+    expect(buildLessonFromDraft(node, good, null).ok).toBe(true);
+
+    const invented = {
+      ...good,
+      beats: [
+        { role: "intro", narration: "先看这几句。" },
+        {
+          role: "example",
+          narration: "My name is Tommy.",
+          visual: { id: "s1", primitive: "en.sentence_highlight", params: { text: "My name is Tommy." } },
+        },
+        { role: "summary", narration: "读完。" },
+      ],
+    };
+    const bad = buildLessonFromDraft(node, invented, null);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.reason).toContain("教材原文");
+  });
+
+  it("语法课的 generate：旁白先把要填的那句讲出来 → 退回 compose", () => {
+    const node = knowledge.index.getNode(GRAMMAR_NODE!)!;
+    const question = makeQuestion({ id: "q-reveal", nodeIds: [GRAMMAR_NODE!], stem: "My name ___ Lisa.", answer: "is" });
+    const leaking = {
+      visualThesis: "看见 be 动词跟着主语变",
+      beats: [
+        { role: "intro", narration: "My name is Lisa, 这个句子里的 be 动词是 is。" },
+        { role: "concept", narration: "be 动词要跟着主语变。" },
+        { role: "summary", narration: "记住了吗。" },
+      ],
+    };
+    const res = buildLessonFromDraft(node, leaking, question);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toContain("先讲出来");
+  });
+
+  it("语法课的提示词要求逐字照抄例句、且不写答案", () => {
+    const node = knowledge.index.getNode(GRAMMAR_NODE!)!;
+    const prompt = lessonPrompt(node);
+    expect(prompt).toContain("英语语法点");
+    expect(prompt).toContain("不许自己造英文句子");
+    expect(prompt).toContain("en.sentence_highlight");
+    expect(prompt).not.toContain("number_line");
   });
 });

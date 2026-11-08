@@ -32,6 +32,26 @@ function client(app: ReturnType<typeof createApp>) {
   };
 }
 
+/** 一段真的 wav（44 字节头 + 一点静音）：服务端现在会验 RIFF/WAVE 头和 data 块 */
+function tinyWav(): Buffer {
+  const data = Buffer.alloc(320);
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0, "ascii");
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVE", 8, "ascii");
+  h.write("fmt ", 12, "ascii");
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(16000, 24);
+  h.writeUInt32LE(32000, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36, "ascii");
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
 function makeEnv(opts: { ttsOk?: boolean; asrText?: string; asrStatus?: number; reply?: string } = {}) {
   const env = tempFixtureEnv([makeQuestion({ id: "q1", answer: "26" })]);
   const db = openMemoryDb();
@@ -45,7 +65,7 @@ function makeEnv(opts: { ttsOk?: boolean; asrText?: string; asrStatus?: number; 
       const url = String(input);
       if (url.endsWith("/api/v1/tts")) {
         if (opts.ttsOk === false) return new Response("no tts", { status: 501 });
-        return new Response(new Uint8Array([82, 73, 70, 70]), { status: 200, headers: { "content-type": "audio/wav" } });
+        return new Response(new Uint8Array(tinyWav()), { status: 200, headers: { "content-type": "audio/wav" } });
       }
       if (url.endsWith("/api/v1/asr")) {
         if ((opts.asrStatus ?? 200) !== 200) return new Response("nope", { status: opts.asrStatus });
@@ -242,9 +262,22 @@ describe("口语接口", () => {
     expect(closed.body.sessions[0].turns).toHaveLength(0);
 
     await parent.call("POST", "/api/v1/parent/transcripts/recording", { learnerId, enabled: true });
+    // 开关之前说的话没存原文（D-02）：打开记录也补不回来，更不摆空行
+    const afterToggle = await parent.call("GET", `/api/v1/parent/speaking?learnerId=${learnerId}`);
+    expect(afterToggle.body.recording).toBe(true);
+    expect(afterToggle.body.sessions[0].turns.some((t: { text: string }) => t.text.includes("Lily"))).toBe(false);
+
+    // 打开之后的新一次对练才看得到内容
+    const second = await child.call("POST", "/api/v1/speaking/session", { learnerId });
+    await child.call("POST", "/api/v1/speaking/turn", {
+      learnerId,
+      sessionId: second.body.sessionId,
+      text: "My name is Lily.",
+    });
     const openedView = await parent.call("GET", `/api/v1/parent/speaking?learnerId=${learnerId}`);
-    expect(openedView.body.recording).toBe(true);
-    const texts = openedView.body.sessions[0].turns.map((t: { text: string }) => t.text).join(" ");
+    const texts = openedView.body.sessions
+      .flatMap((s: { turns: { text: string }[] }) => s.turns.map((t) => t.text))
+      .join(" ");
     expect(texts).toContain("My name is Lily");
 
     const forbidden = await child.call("GET", `/api/v1/parent/speaking?learnerId=${learnerId}`);

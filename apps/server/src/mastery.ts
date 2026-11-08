@@ -78,12 +78,16 @@ export function applyAttempt(
  * 星图分档：暗 / 微光 / 点亮。
  *
  * 点亮要同时满足两件事：**掌握度够高**，以及**独立证据够硬**（不同题、隔天、
- * 未见题上零提示做对）。只给 p 和次数时（拿不到证据明细的历史调用）退回旧判据，
- * 但孩子看得见的那些地方都应该把 stats 传进来。
+ * 未见题上零提示做对）。
+ *
+ * `stats` 缺失一律按**零独立证据**处理，最多到微光。早先缺 stats 时退回
+ * 「p 够高 + 次数够」的旧判据，而调用方普遍写成 `evidence.get(nodeId)`——
+ * 这个节点一条独立证据都没有时恰好就是 undefined，于是"没有独立证据"反而能点亮。
+ * 参数保留可选只是为了让 `evidence.get()` 的结果能直接传进来，不是允许省略。
  */
-export function masteryBand(p: number, evidenceN: number, stats?: EvidenceStats): MasteryBand {
+export function masteryBand(p: number, evidenceN: number, stats: EvidenceStats | undefined): MasteryBand {
   const enoughP = p >= MASTERY_PARAMS.litThresholdP && evidenceN >= MASTERY_PARAMS.litThresholdEvidence;
-  if (enoughP && (stats === undefined || litByEvidence(stats))) return "lit";
+  if (enoughP && litByEvidence(stats)) return "lit";
   if (p >= MASTERY_PARAMS.dimThresholdP) return "glow";
   return "dim";
 }
