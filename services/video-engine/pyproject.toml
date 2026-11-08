@@ -19,6 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 本地语音（PLAN 阶段 5）：ASR 用 faster-whisper（首次用到时从 HF 拉模型，tiny.en 约 75MB）。
+# 单独做成 extra 而不是必装：ctranslate2 + onnxruntime 加起来一百多 MB，
+# 不用口语的人不该为它付出安装时间。
+speech = [
+    "faster-whisper>=1.0.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
