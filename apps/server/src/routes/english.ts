@@ -4,6 +4,7 @@ import { effectiveLearnerId, type AppState } from "../app.js";
 import { judgeVocab, loadVocabulary, recordVocabAnswer, vocabBatch, type VocabCard } from "../vocabulary.js";
 import { judgeReading, loadReading, publicPassage } from "../reading.js";
 import { moduleBlockedBody, moduleEnabled } from "../modules.js";
+import { budgetBlockedPayload } from "../chatBudget.js";
 
 /**
  * 英语学习入口：词汇（SM-2）与分级阅读。
@@ -54,6 +55,9 @@ export function englishRoutes(state: AppState): Hono {
     if (!learnerId) return c.json({ error: "需要 learnerId" }, 400);
     if (!state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
     if (!moduleEnabled(state.repo, learnerId, "english")) return c.json(moduleBlockedBody("english"), 403);
+    // 学英语也算使用时长：时长闸不该只拦数学练习
+    const blocked = budgetBlockedPayload(state.repo, learnerId);
+    if (blocked) return c.json(blocked, 429);
 
     const batch = vocabBatch(state.repo, learnerId, cards());
     return c.json({

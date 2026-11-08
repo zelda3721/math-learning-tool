@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { availableLessons, composeLesson, pauseContextFor, pickLessonQuestion } from "./lesson.js";
 import { buildLessonFromDraft, generateLessonDraft } from "./generate.js";
-import type { AppState } from "../app.js";
+import { effectiveLearnerId, type AppState } from "../app.js";
+import { checkChatBudget } from "../chatBudget.js";
+import { screenModelOutput } from "../safety.js";
 
 /** 生成一节课最多等这么久：过了就先用离线课，模型写完也不要了（孩子已经在上课） */
 const LESSON_GENERATE_TIMEOUT_MS = 45_000;
@@ -32,6 +34,21 @@ export function classroomRoutes(state: AppState): Hono {
         const nodeId = c.req.query("nodeId");
         if (!nodeId) return c.json({ error: "需要 nodeId" }, 400);
         const mode = c.req.query("mode") === "generate" ? "generate" : "compose";
+
+        // 上课也算使用时长：课堂是最容易"开着不看也算用"的地方
+        const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
+        if (learnerId && state.repo.getLearner(learnerId)) {
+            const budget = checkChatBudget(state.repo, learnerId);
+            if (!budget.allowed) {
+                return c.json(
+                    {
+                        error: `今天的时间用完了（每天 ${budget.limitMinutes} 分钟）。明天再来，或者先去和家长说一声。`,
+                        budget,
+                    },
+                    429,
+                );
+            }
+        }
 
         const composed = composeLesson(nodeId, state.knowledge.index, state.questions);
         if (!composed) return c.json({ error: "这个知识点开不出一节课（图谱里没有，或档案里没有可讲的材料）" }, 404);
@@ -67,6 +84,13 @@ export function classroomRoutes(state: AppState): Hono {
                         degraded = { reason: "模型没有给出可用的课" };
                     } else if (!built.ok) {
                         degraded = { reason: built.reason };
+                    } else if (
+                        // 模型写的每一句旁白都会念给孩子听：过一遍输出侧安检
+                        built.lesson.narrations.some(
+                            (line) => screenModelOutput(state.repo, learnerId ?? undefined, line).blocked,
+                        )
+                    ) {
+                        degraded = { reason: "模型写的内容没过安全层" };
                     } else {
                         return c.json({
                             ...built.lesson,

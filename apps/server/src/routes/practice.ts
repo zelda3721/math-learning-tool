@@ -12,7 +12,7 @@ import { backfillProbeEvidence } from "../diagnosis.js";
 import { getVariant } from "../variant.js";
 import { practiceReady } from "../questions.js";
 import { checkChatBudget } from "../chatBudget.js";
-import { screenLearnerInput } from "../safety.js";
+import { screenLearnerInput, screenModelOutput } from "../safety.js";
 import { advanceReviewCard, ensureReviewCard } from "../review.js";
 
 /**
@@ -549,6 +549,8 @@ export function practiceRoutes(state: AppState): Hono {
       question,
       level as 1 | 2 | 3,
       lastWrongAnswer,
+      // 提示是模型写的、也直接给孩子看：和对话一样过输出侧安检
+      (text) => screenModelOutput(state.repo, learnerId, text).blocked,
     );
     state.repo.appendEvent(learnerId, "attempt", { kind: "hint", questionId, level, source });
     return c.json({ level, hint, source });

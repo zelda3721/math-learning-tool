@@ -6,7 +6,7 @@ import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } from "@mathtutor/schema";
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { effectiveLearnerId, type AppState } from "./app.js";
-import { screenLearnerInput } from "./safety.js";
+import { screenLearnerInput, screenModelOutput } from "./safety.js";
 import { checkChatBudget } from "./chatBudget.js";
 import { moduleBlockedBody, moduleEnabled } from "./modules.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
@@ -202,7 +202,20 @@ export async function runAskJob(
       repo.failAskJob(jobId, "这道题引擎没能独立验证答案，暂时收不了——换个说法再试一次，或先做今天的练习");
       return;
     }
-    const steps = (result.solution_steps ?? []).map((s) => String(s).trim()).filter(Boolean);
+    /*
+     * 引擎产出的解题步骤会变成"题目解析"给孩子看（答错、走完提示之后），
+     * 所以它和对话一样要过输出侧安检——这是最后一个没被拦的模型出口。
+     */
+    const steps = (result.solution_steps ?? [])
+      .map((s) => String(s).trim())
+      .filter(Boolean);
+    for (const step of steps) {
+      const screen = screenModelOutput(state.repo, args.learnerId, step);
+      if (screen.blocked) {
+        repo.failAskJob(jobId, "这道题的解法里有不适合直接给孩子看的内容，暂时收不了——换个说法再试一次");
+        return;
+      }
+    }
     const answer = (result.solution_answer ?? "").trim() || (steps.length ? steps[steps.length - 1]! : "");
     if (!answer) {
       // 没有答案就没有判卷依据——诚实失败，绝不建一道判不了的题
