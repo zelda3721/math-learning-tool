@@ -99,6 +99,27 @@ CREATE TABLE IF NOT EXISTS review_cards (
 );
 CREATE INDEX IF NOT EXISTS idx_review_due ON review_cards(learner_id, next_review_at, mastered_at);
 -- P2 错因归因：错因 = 图谱坐标 (root_node_id, misconception_id?)，附证据与置信度（宪法第 4 条）
+-- 阶段测评（前测 / 后测 / 保持率）：单独记账，**不进掌握度**——
+-- 测评一旦反过来改变它所测量的东西，数字就没意义了
+CREATE TABLE IF NOT EXISTS assessments (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  kind TEXT NOT NULL,              -- 'pre' | 'post' | 'retention'
+  scope_json TEXT NOT NULL,        -- 这次测评覆盖的节点 id
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_assessments_learner ON assessments(learner_id, created_at);
+CREATE TABLE IF NOT EXISTS assessment_items (
+  id TEXT PRIMARY KEY,
+  assessment_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  answer TEXT,
+  correct INTEGER,
+  answered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_items ON assessment_items(assessment_id, position);
 CREATE TABLE IF NOT EXISTS mistakes (
   id TEXT PRIMARY KEY,
   attempt_id TEXT NOT NULL,

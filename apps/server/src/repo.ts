@@ -866,6 +866,83 @@ export class Repo {
     return r ? String(r.id) : undefined;
   }
 
+  // ---- 阶段测评（前测 / 后测 / 保持率）：单独记账，不进掌握度 ----
+  createAssessment(learnerId: string, kind: string, scope: string[], questionIds: string[]): string {
+    const id = randomUUID();
+    const at = new Date().toISOString();
+    this.db
+      .prepare("INSERT INTO assessments (id, learner_id, kind, scope_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, learnerId, kind, JSON.stringify(scope), at);
+    const insert = this.db.prepare(
+      "INSERT INTO assessment_items (id, assessment_id, question_id, position) VALUES (?, ?, ?, ?)",
+    );
+    questionIds.forEach((qid, i) => insert.run(randomUUID(), id, qid, i));
+    return id;
+  }
+
+  getAssessment(id: string):
+    | { id: string; learnerId: string; kind: string; scope: string[]; createdAt: string; finishedAt: string | null }
+    | undefined {
+    const r = this.db.prepare("SELECT * FROM assessments WHERE id = ?").get(id);
+    if (!r) return undefined;
+    return {
+      id: String(r.id),
+      learnerId: String(r.learner_id),
+      kind: String(r.kind),
+      scope: JSON.parse(String(r.scope_json)) as string[],
+      createdAt: String(r.created_at),
+      finishedAt: r.finished_at === null || r.finished_at === undefined ? null : String(r.finished_at),
+    };
+  }
+
+  listAssessmentItems(assessmentId: string): {
+    questionId: string;
+    position: number;
+    answer: string | null;
+    correct: boolean | null;
+    answeredAt: string | null;
+  }[] {
+    const rows = this.db
+      .prepare("SELECT * FROM assessment_items WHERE assessment_id = ? ORDER BY position")
+      .all(assessmentId);
+    return rows.map((r) => ({
+      questionId: String(r.question_id),
+      position: Number(r.position),
+      answer: r.answer === null || r.answer === undefined ? null : String(r.answer),
+      correct: r.correct === null || r.correct === undefined ? null : Boolean(r.correct),
+      answeredAt: r.answered_at === null || r.answered_at === undefined ? null : String(r.answered_at),
+    }));
+  }
+
+  answerAssessmentItem(assessmentId: string, questionId: string, answer: string, correct: boolean): void {
+    this.db
+      .prepare("UPDATE assessment_items SET answer = ?, correct = ?, answered_at = ? WHERE assessment_id = ? AND question_id = ?")
+      .run(answer, correct ? 1 : 0, new Date().toISOString(), assessmentId, questionId);
+  }
+
+  finishAssessment(id: string): void {
+    this.db.prepare("UPDATE assessments SET finished_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  }
+
+  listAssessments(learnerId: string, limit = 20): {
+    id: string;
+    kind: string;
+    scope: string[];
+    createdAt: string;
+    finishedAt: string | null;
+  }[] {
+    const rows = this.db
+      .prepare("SELECT * FROM assessments WHERE learner_id = ? ORDER BY created_at DESC LIMIT ?")
+      .all(learnerId, limit);
+    return rows.map((r) => ({
+      id: String(r.id),
+      kind: String(r.kind),
+      scope: JSON.parse(String(r.scope_json)) as string[],
+      createdAt: String(r.created_at),
+      finishedAt: r.finished_at === null || r.finished_at === undefined ? null : String(r.finished_at),
+    }));
+  }
+
   // ---- 英语口语对练（阶段 5） ----
   createSpeakingSession(learnerId: string, scenarioId: string): string {
     const id = randomUUID();

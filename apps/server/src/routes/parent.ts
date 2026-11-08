@@ -4,6 +4,7 @@ import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
 import { loadEvidenceStats } from "../evidence.js";
 import { buildIndependenceReport } from "../independence.js";
+import { compareAssessments, nextAssessment, summarizeAssessment } from "../assessment.js";
 import { chatBudgetReport } from "../chatBudget.js";
 import { readProfile, writeProfile } from "../tutorMemory.js";
 import { MODULES, readModules, writeModules, type ModuleState } from "../modules.js";
@@ -240,6 +241,44 @@ export function parentRoutes(state: AppState): Hono {
         : [],
     }));
     return c.json({ recording, sessions });
+  });
+
+  /**
+   * 阶段测评对比：前测 → 后测 → 保持率。
+   *
+   * 只比两次都覆盖到的节点；两道口径都写清楚（各档几次、答了几道、对了几道），
+   * 让家长能自己核对这张表是怎么来的。
+   */
+  app.get("/assessments", (c) => {
+    const learnerId = c.req.query("learnerId");
+    if (!learnerId || !state.repo.getLearner(learnerId)) return c.json({ error: "需要 learnerId" }, 400);
+    const list = state.repo.listAssessments(learnerId, 30).filter((a) => a.finishedAt);
+    const summaries = list.map((a) => {
+      const items = state.repo.listAssessmentItems(a.id);
+      return summarizeAssessment(
+        a,
+        items.map((i) => ({ questionId: i.questionId, correct: i.correct })),
+        (qid) => state.questions.byId.get(qid)?.answer ?? "",
+        (qid) => state.questions.byId.get(qid)?.nodeIds ?? [],
+      );
+    });
+    const latest = (kind: string) => summaries.find((s) => s.kind === kind);
+    const pre = latest("pre");
+    const post = latest("post");
+    const retention = latest("retention");
+    return c.json({
+      sessions: summaries.map((s) => ({
+        id: s.id,
+        kind: s.kind,
+        answered: s.answered,
+        total: s.total,
+        correct: s.correct,
+        rate: s.rate,
+      })),
+      preToPost: pre && post ? compareAssessments(pre, post) : null,
+      postToRetention: post && retention ? compareAssessments(post, retention) : null,
+      next: nextAssessment(state.repo, learnerId),
+    });
   });
 
   app.get("/pending-count", (c) => {
