@@ -63,6 +63,10 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
     const [answering, setAnswering] = useState<{ index: number; value: string } | null>(null)
     const [feedback, setFeedback] = useState<{ ok: boolean; note: string } | null>(null)
     const [busy, setBusy] = useState(false)
+    /** 提示阶梯：和数学练习同一条规矩——一级一级给，答错才给下一级，不喂答案 */
+    const [hintLevel, setHintLevel] = useState(0)
+    const [hint, setHint] = useState<string | null>(null)
+    const [hintLoading, setHintLoading] = useState(false)
 
     const load = useCallback(async () => {
         setError(null)
@@ -93,6 +97,8 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             setPicked((await res.json()) as UnitDetail)
             setAnswering({ index: 0, value: '' })
+            setHint(null)
+            setHintLevel(0)
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
         } finally {
@@ -110,7 +116,7 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
             const res = await fetch('/api/v1/practice/submit', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ learnerId, questionId: q.id, answer: value, source: 'daily' }),
+                body: JSON.stringify({ learnerId, questionId: q.id, answer: value, source: 'daily', hintLevelUsed: hintLevel }),
             })
             const data = (await res.json()) as SubmitResult & { error?: string }
             if (!res.ok) {
@@ -135,12 +141,43 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
             })
             if (data.correct) {
                 const next = answering.index + 1
-                if (next < picked.questions.length) setAnswering({ index: next, value: '' })
+                if (next < picked.questions.length) {
+                    setAnswering({ index: next, value: '' })
+                    setHint(null)
+                    setHintLevel(0)
+                }
             }
         } catch (err) {
             setFeedback({ ok: false, note: err instanceof Error ? err.message : String(err) })
         } finally {
             setBusy(false)
+        }
+    }
+
+    /** 要一级提示：服务端记账、逐级发放（直接要第三级会被拒） */
+    const askHint = async () => {
+        if (!answering || !picked || hintLoading || hintLevel >= 3) return
+        const q = picked.questions[answering.index]
+        if (!q) return
+        setHintLoading(true)
+        try {
+            const res = await fetch('/api/v1/practice/hint', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ learnerId, questionId: q.id, level: hintLevel + 1 }),
+            })
+            const data = (await res.json()) as { hint?: string; error?: string }
+            if (res.ok && data.hint) {
+                setHint(data.hint)
+                setHintLevel((n) => n + 1)
+                setFeedback(null)
+            } else {
+                setFeedback({ ok: false, note: data.error ?? '提示暂时给不出来，先看看这一单元的讲解。' })
+            }
+        } catch (err) {
+            setFeedback({ ok: false, note: err instanceof Error ? err.message : String(err) })
+        } finally {
+            setHintLoading(false)
         }
     }
 
@@ -209,9 +246,21 @@ export function GrammarTab({ learnerId }: { learnerId: string }) {
                                 }}
                             />
                         )}
-                        <Button disabled={busy || !answering.value.trim()} onClick={() => void submit()}>
-                            {busy ? '批改中…' : '交卷'}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                            <Button disabled={busy || !answering.value.trim()} onClick={() => void submit()}>
+                                {busy ? '批改中…' : '交卷'}
+                            </Button>
+                            {hintLevel < 3 && (
+                                <Button size="sm" variant="ghost" disabled={hintLoading} onClick={() => void askHint()}>
+                                    {hintLoading ? '想想……' : hintLevel === 0 ? '我卡住了' : `再给一点 (${hintLevel + 1}/3)`}
+                                </Button>
+                            )}
+                        </div>
+                        {hint && (
+                            <p className="rounded-[10px] border border-beam/25 bg-beam-wash px-3 py-2 text-sm text-beam">
+                                {hint}
+                            </p>
+                        )}
                         {feedback && (
                             <p className={`text-sm ${feedback.ok ? 'text-[color:var(--color-correct)]' : 'text-wrong'}`}>
                                 {feedback.note}
