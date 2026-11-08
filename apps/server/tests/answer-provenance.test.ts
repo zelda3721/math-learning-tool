@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { composeToday } from "../src/composer.js";
 import { practiceReady } from "../src/questions.js";
 import { createApp } from "../src/app.js";
+import { getVariant } from "../src/variant.js";
 import { knowledge, makeQuestion, tempFixtureEnv, NODE_A } from "./helpers.js";
 
 describe("practiceReady", () => {
@@ -149,5 +150,62 @@ describe("题库页能把这批题捞出来", () => {
     };
     expect(body.items.map((i) => i.id)).toEqual(["guessed"]);
     expect(body.facets.blocked).toBe(1);
+  });
+});
+
+describe("变式题：模型生成的答案不能自己给自己作证", () => {
+  it("生成的变式题标 answerUnverified，且不会当场发给这个孩子", async () => {
+    const env = tempFixtureEnv([makeQuestion({ id: "origin", stem: "12 + 8 = ?", answer: "20", options: undefined })]);
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+    const llm = {
+      generate: async () => '{"stem":"15 + 9 = ?","answer":"24"}',
+    };
+    const result = await getVariant({
+      store: env.store,
+      repo: env.repo,
+      llm,
+      dataDir: env.dataDir,
+      learnerId: learner.id,
+      questionId: "origin",
+    });
+
+    // 不进变式门：点亮推迟到复习卡，而不是拿一个没人核对过的答案判孩子对错
+    expect(result).toEqual({ kind: "none" });
+    expect(env.repo.dueReviewCards(learner.id, 10)).toHaveLength(0); // 明天才到期
+
+    // 但它确实进了库，带着"答案没核对"这条来历，等家长核对
+    const generated = env.state.questions.all.find((q) => q.source.role === "generated");
+    expect(generated?.answerUnverified).toBe(true);
+    expect(generated?.status).toBe("extracted");
+    expect(practiceReady(generated!)).toBe(false);
+
+    // 生成这件事可审计
+    const events = env.repo.listEvents(learner.id, "variant_generated");
+    expect(events).toHaveLength(1);
+  });
+
+  it("漏网的未核对题：作答照记，但绝不进掌握度", async () => {
+    const env = tempFixtureEnv([
+      makeQuestion({ id: "guessed", stem: "数三角形", answer: "48", answerUnverified: true, status: "extracted" }),
+    ]);
+    const app = createApp(env.state);
+    const learner = env.repo.createLearner("小明", "elementary_upper");
+
+    const res = await app.request("/api/v1/practice/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learnerId: learner.id, questionId: "guessed", answer: "48", source: "daily" }),
+    });
+    const body = (await res.json()) as {
+      correct: boolean;
+      countedTowardMastery: boolean;
+      needsReview: boolean;
+      mastery: unknown[];
+    };
+    expect(body.correct).toBe(true);
+    expect(body.countedTowardMastery).toBe(false);
+    expect(body.mastery).toHaveLength(0);
+    expect(body.needsReview).toBe(true);
+    expect(env.repo.getMastery(learner.id, NODE_A)).toBeUndefined();
   });
 });

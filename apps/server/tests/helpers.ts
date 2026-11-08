@@ -10,10 +10,16 @@ import { JobStore } from "../src/ingest/jobs.js";
 import { createQuestionStore, contentHashOf, type QuestionStore } from "../src/questions.js";
 import { createApp, type AppState } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { SUBJECT_GRAPH_PATHS } from "../src/subjectGraphs.js";
 
 export const knowledge: Knowledge = loadKnowledge({
   graphPath: fileURLToPath(new URL("../../../data/knowledge/graph.json", import.meta.url)),
   problemsPath: fileURLToPath(new URL("../../../data/knowledge/problems.json", import.meta.url)),
+  linksPath: fileURLToPath(new URL("../../../data/knowledge/links.json", import.meta.url)),
+  // 学科图一起加载：跨学科连接要按 id 找得到对面。
+  // 用与服务器同一份清单（SUBJECT_GRAPH_PATHS），否则测试会在"少加载一个学科图"
+  // 的形态下跑，实体上过的悬挂检查在测试里过不了、或反之。
+  subjectGraphPaths: SUBJECT_GRAPH_PATHS,
 });
 
 /** 取真实图谱里的节点 id，保证 fixture 题目通过悬挂检查 */
@@ -71,7 +77,10 @@ export function tempFixtureEnv(questions: Question[]): {
   return { dataDir, store, repo, state };
 }
 
-export function makeApp(questions: Question[]) {
+export function makeApp(questions: Question[], overrides: Partial<AppState> = {}) {
   const env = tempFixtureEnv(questions);
-  return { app: createApp(env.state), ...env };
+  // overrides 用来注入需要外部依赖的部件（如语义判卷的 judge），
+  // 让"AI 确认"这类路径也可测，而不必真连模型
+  const state: AppState = { ...env.state, ...overrides };
+  return { app: createApp(state), ...env, state };
 }

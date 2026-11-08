@@ -1,6 +1,7 @@
 import { REVIEW_PARAMS, type Question } from "@mathtutor/schema";
 import type { Repo, ReviewCardRow } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
+import { findVariantQuestion } from "./variantMatch.js";
 
 /**
  * SM-2 简化变体（设计 §06）：间隔 [1,2,4,7,15,30] 天；
@@ -60,17 +61,13 @@ export function pickReviewQuestion(
     (q) => q.id !== original.id && !excludeIds.has(q.id) && (q.variantOf ?? q.id) === group,
   );
   if (inGroup) return inGroup;
-  if (original.problemTypeId) {
-    const sameType = store.all.find(
-      (q) => q.id !== original.id && !excludeIds.has(q.id) && q.problemTypeId === original.problemTypeId,
-    );
-    if (sameType) return sameType;
-  }
-  for (const nodeId of original.nodeIds) {
-    const sameNode = (store.byNode.get(nodeId) ?? []).find(
-      (q) => q.id !== original.id && !excludeIds.has(q.id),
-    );
-    if (sameNode) return sameNode;
-  }
+  /*
+   * 换题再练：**题干骨架相同**的优先（换个数、同一套解法），其次同题型、措辞相近，
+   * 最后才是同节点。原来只有后两档，而库里 variantOf 全空、problemTypeId 只有 5 道，
+   * 所谓"换题"实际上退化成"同节点的第一道题"。
+   */
+  const pool = [...new Set(original.nodeIds.flatMap((id) => store.byNode.get(id) ?? []))];
+  const matched = findVariantQuestion(original, pool, (q) => !excludeIds.has(q.id));
+  if (matched) return matched;
   return excludeIds.has(original.id) ? undefined : original;
 }

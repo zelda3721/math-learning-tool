@@ -9,6 +9,7 @@ import { buildCoverage, verifyNode, reviewQuestion } from "../src/knowledgeAdmin
 import { createQuestionStore } from "../src/questions.js";
 import { loadKnowledge } from "@mathtutor/knowledge";
 import { knowledge, makeApp, makeQuestion, NODE_A } from "./helpers.js";
+import { SUBJECT_GRAPH_PATHS } from "../src/subjectGraphs.js";
 
 const REAL_KNOWLEDGE_DIR = fileURLToPath(new URL("../../../data/knowledge", import.meta.url));
 
@@ -119,6 +120,8 @@ describe("coverage report", () => {
     const kn = loadKnowledge({
       graphPath: path.join(dataDir, "knowledge", "graph.json"),
       problemsPath: path.join(dataDir, "knowledge", "problems.json"),
+      // 题库里有双语题（关联 en: 节点），不带学科图加载会把它们全判成悬挂
+      subjectGraphPaths: SUBJECT_GRAPH_PATHS,
     });
     const store = createQuestionStore(dataDir, kn.index);
     const coverage = buildCoverage(kn, store);
@@ -157,6 +160,8 @@ describe("question review (抽检裁决)", () => {
     const kn = loadKnowledge({
       graphPath: path.join(dataDir, "knowledge", "graph.json"),
       problemsPath: path.join(dataDir, "knowledge", "problems.json"),
+      // 题库里有双语题（关联 en: 节点），不带学科图加载会把它们全判成悬挂
+      subjectGraphPaths: SUBJECT_GRAPH_PATHS,
     });
     const store = createQuestionStore(dataDir, kn.index);
     const before = store.all.length;

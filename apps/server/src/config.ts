@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { clampConcurrency } from "@mathtutor/knowledge";
 
 /**
  * 读仓库根 .env 注入 process.env（已存在的真实环境变量优先，不覆盖）。
@@ -55,6 +56,8 @@ export interface ServerConfig {
    * 三者都会往引擎数据集追加记录，便于按门禁通过率与人工反馈比较。
    */
   defaultWebExplainMode: "web" | "web_html" | "both";
+  /** 教材知识编译的并发上限（本地模型 45 token/s，见 compile.ts） */
+  textbookCompileConcurrency: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -70,6 +73,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       ? path.resolve(new URL("../../..", import.meta.url).pathname, env.FIGURES_DIR)
       : new URL("../../../media/figures", import.meta.url).pathname,
     allowEngineOffline: env.ALLOW_ENGINE_OFFLINE === "1",
+    /**
+     * 教材知识编译同时在飞的模型请求数。
+     *
+     * 本地常驻模型实测约 45 token/s，总时间约等于总 token 数 ÷ 45——
+     * 并发不让整本更快，只是别让请求之间空转；默认 2，上限 4（见 compile.ts 的说明）。
+     */
+    textbookCompileConcurrency: clampConcurrency(env.TEXTBOOK_COMPILE_CONCURRENCY),
     defaultWebExplainMode:
       env.EXPLAIN_WEB_MODE === "web_html" || env.EXPLAIN_WEB_MODE === "both"
         ? env.EXPLAIN_WEB_MODE

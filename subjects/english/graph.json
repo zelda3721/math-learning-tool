@@ -1,0 +1,330 @@
+{
+  "$comment": "英语学科包的知识图谱（阶段 5 的第一块，2026-11-06）。这里只收**用英语学数学/在生活中用数字**的那部分表达，不收通用语法：跨学科的价值是融合运用，不是把两套课程并排放。节点 id 一律 en: 前缀，字段与数学节点同构，便于同一套掌握度与星图复用。",
+  "stages": [
+    { "id": "primary", "name": "小学", "order": 1 },
+    { "id": "junior", "name": "初中", "order": 2 }
+  ],
+  "strands": [
+    {
+      "id": "math-english",
+      "name": "用英语学数学",
+      "color": "#2b5ce6",
+      "oneLine": "读题、说数、描述图表——英语里的数学表达"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "en:numbers-words",
+      "name": "英语数词",
+      "nameEn": "Number words",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 1,
+      "summary": "用英语说数：从 one 到 thousand，以及 first / second 这样的序数词。",
+      "whatIsIt": "基数词表示多少（one、twenty、three hundred），序数词表示第几（first、second、third）。英语里十位和个位之间要加连字符：thirty-five。",
+      "why": "英文题面里的数不会写成数字，通常是 three hundred and sixty 这样的词。数词听不明白，题就没法读。",
+      "bigPicture": "英语数学表达的最底层：先会把数读出来，才有后面的价格、时间、长度。",
+      "prerequisites": [],
+      "evolvesTo": [
+        { "to": "en:money-words", "how": "会读整数之后，把数词接上 dollars、cents 就是价格。" }
+      ],
+      "relatedTo": ["en:question-words"],
+      "applications": [
+        {
+          "title": "读英文应用题里的数",
+          "detail": "There are thirty-five students in the class. 这里的 thirty-five 要读成「三十五」，不是「三十和五」。"
+        }
+      ],
+      "misconceptions": [
+        { "id": "hyphen", "desc": "三十五分不清是 35 还是 30 和 5", "signals": ["thirty five 当成 30 和 5"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["数词", "序数词", "基数词", "thirty-five", "first", "second", "hundred"]
+    },
+    {
+      "id": "en:money-words",
+      "name": "价格与货币表达",
+      "nameEn": "Money and price words",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 2,
+      "summary": "英文价格怎么说：dollars 和 cents，$3.50 读作 three dollars fifty。",
+      "whatIsIt": "美元用 dollar，美分用 cent。美元符号后面先写元再写分：$3.50。读的时候小数部分直接读成 fifty cents，说成 three fifty 也常见。",
+      "why": "英文题里的价格是元和分两段，而中文是元角分三段；不弄清这点，换算就会错一个数位。",
+      "bigPicture": "价格是小数最真实的用处之一，也是跨学科最自然的接口。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [{ "to": "en:percent-discount", "how": "会读价格之后，折扣（20% off）才有意义。" }],
+      "relatedTo": ["en:telling-time"],
+      "applications": [
+        { "title": "购物找零的英文题", "detail": "A pen costs $2.75. You pay $5. How much change? 这里要先把 2.75 读成 two dollars seventy-five。" }
+      ],
+      "misconceptions": [
+        { "id": "cent-vs-jiao", "desc": "把美分当角，$3.50 读成三元五角", "signals": ["$3.50 = 3 元 5 角"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["dollar", "cent", "price", "cost", "change", "价格", "找零"]
+    },
+    {
+      "id": "en:telling-time",
+      "name": "时间表达",
+      "nameEn": "Telling the time",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 3,
+      "summary": "英语怎么说几点几分：o'clock、half past、a quarter to。",
+      "whatIsIt": "整点用 o'clock；半点用 half past three（3:30）；差一刻用 a quarter to four（3:45）；也可以直接读数字 three fifteen。",
+      "why": "英文题常写成 half past seven 而不写 7:30，读不懂就无从计算路程和时间。",
+      "bigPicture": "时间和速度、路程题绑在一起，是英语表达能直接用上的地方。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": ["en:money-words"],
+      "applications": [
+        { "title": "说清出发和到达时刻", "detail": "The bus leaves at half past eight and arrives at a quarter past nine. 相机算法要先把它读成 8:30 和 9:15。" }
+      ],
+      "misconceptions": [
+        { "id": "quarter-to", "desc": "把 a quarter to four 当成 4:15", "signals": ["a quarter to four = 4:15"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["o'clock", "half past", "quarter to", "时间", "几点", "时刻"]
+    },
+    {
+      "id": "en:dates-months",
+      "name": "日期与月份",
+      "nameEn": "Dates and months",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 4,
+      "summary": "英文日期怎么写怎么读：May 1st, 2026 与 1 May 2026。",
+      "whatIsIt": "美式写法是「月 日, 年」，英式是「日 月 年」；日期用序数词（1st、2nd、3rd）。月份首字母要大写。",
+      "why": "同样一串数字，美式 03/04/2026 与英式 04/03/2026 差了一个月——这在应用题里是硬错。",
+      "bigPicture": "年月日的计算（闰年、相差几天）配上英文日期，才是真正的跨学科练习。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "算两个日期相差几天", "detail": "How many days are there from March 5th to April 2nd? 先把 3 月 5 日读对，再算天数。" }
+      ],
+      "misconceptions": [
+        { "id": "order", "desc": "把英美写法的日月顺序弄反", "signals": ["03/04 = 3 月 4 日（美式）还是 4 月 3 日（英式）"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["date", "month", "January", "May", "日期", "月份", "闰年"]
+    },
+    {
+      "id": "en:measurement-words",
+      "name": "长度与质量单位",
+      "nameEn": "Measurement words",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 5,
+      "summary": "英文里的单位：cm、km、kg、g，以及 metres 与 kilometres 的换算题。",
+      "whatIsIt": "centimetre、metre、kilometre 之间是 100 与 1000 的关系；gram 与 kilogram 是 1000。英文题通常写缩写（12 cm），也会写全称。",
+      "why": "单位读错一个字母，量级就差 1000 倍：km 与 cm 在算式里长得一样。",
+      "bigPicture": "单位换算加上英语缩写，是最常见的双语数学题形态。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": ["en:geometry-words"],
+      "applications": [
+        { "title": "把 3 km 换算成 m", "detail": "The school is 3 km away. How many metres is that? 先认清 km 是 1000 米。" }
+      ],
+      "misconceptions": [
+        { "id": "km-cm", "desc": "把 km 与 cm 看混", "signals": ["3 km = 300 cm"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["cm", "metre", "kilometre", "kg", "gram", "单位", "换算", "长度", "质量"]
+    },
+    {
+      "id": "en:percent-discount",
+      "name": "百分比与折扣表达",
+      "nameEn": "Percent and discount",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 6,
+      "summary": "20% off、half price、a discount of 15% 到底降了多少。",
+      "whatIsIt": "percent 是「每一百」，20% 就是 0.2。off 表示减去：20% off 是打八折。half price 是一半。",
+      "why": "英文折扣题的坑在介词：20% off 是降价 20%，而 pay 20% 是只付 20%，两句话的结果差四倍。",
+      "bigPicture": "折扣是百分数最生活化的应用，也是英语介词影响数学结果的典型例子。",
+      "prerequisites": ["en:money-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "海外购物的折扣", "detail": "A jacket is $80 with 25% off. 先算减去 25%，再付 60 美元。" }
+      ],
+      "misconceptions": [
+        { "id": "off-vs-pay", "desc": "把 20% off 当成只付 20%", "signals": ["20% off = 付 20%"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["percent", "discount", "off", "half price", "百分数", "折扣", "打几折"]
+    },
+    {
+      "id": "en:compare-words",
+      "name": "比较与倍数表达",
+      "nameEn": "Comparing amounts",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 7,
+      "summary": "more than、less than、twice as many as —— 比较句里的数量关系。",
+      "whatIsIt": "more than 是多了多少，less than 是少了多少，times as many as 是几倍。three times as many 是「是它的三倍」，不是多三倍。",
+      "why": "倍数句最容易错：twice as many as A 是 A 的两倍；而 two more than A 是比 A 多两个。差的不是英语，是数量关系。",
+      "bigPicture": "把中文的数量关系换成英文句式，是「用另一种语言做题」的核心能力。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "倍数句练习", "detail": "Ben has 12 stickers. Amy has twice as many. 那么 Amy 是 24 张，而不是 12+2。" }
+      ],
+      "misconceptions": [
+        { "id": "times-vs-more", "desc": "把 times as many 当成 more than", "signals": ["twice as many = 多两个"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["more than", "less than", "twice", "times", "比较", "倍数", "as many as"]
+    },
+    {
+      "id": "en:chart-words",
+      "name": "图表的读写",
+      "nameEn": "Reading charts",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 8,
+      "summary": "bar chart、line graph、average、increase / decrease 怎么说。",
+      "whatIsIt": "条形图是 bar chart，折线图是 line graph，扇形图是 pie chart。increase 是上升，decrease 是下降，average 是平均。",
+      "why": "英文图表题的提问方式固定：Which month had the most? How many more… than…? 读懂问句才能读图。",
+      "bigPicture": "统计图 + 英语描述，是把「看得见的数据」讲给别人听的基本功。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "描述一月的销量", "detail": "Sales increased from 40 to 55 in May. How many more? 先读懂增加了多少。" }
+      ],
+      "misconceptions": [],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["bar chart", "line graph", "pie chart", "average", "increase", "decrease", "图表", "统计图"]
+    },
+    {
+      "id": "en:fraction-words",
+      "name": "分数的英文读法",
+      "nameEn": "Fractions in English",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 9,
+      "summary": "1/2 是 one half，3/4 是 three quarters，2/3 是 two thirds。",
+      "whatIsIt": "分母用序数词（third、fourth），分子是 1 用单数（one third），大于 1 分母加 s（two thirds）。one half 与 one quarter 是固定说法。",
+      "why": "英文里的分数不是数字而是词，听写和读题都会卡；而分数又是小学到初中绕不开的量。",
+      "bigPicture": "分数读法是把「形」（图上的几份）和「词」连起来的桥。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": ["en:compare-words"],
+      "applications": [
+        { "title": "把图形读成英语分数", "detail": "把一张图均分成 4 份涂 3 份，说的是 three quarters，不是 three four。" }
+      ],
+      "misconceptions": [
+        { "id": "denominator-plural", "desc": "two thirds 说成 two third", "signals": ["two third"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["half", "quarter", "third", "fraction", "分数", "几分之几"]
+    },
+    {
+      "id": "en:geometry-words",
+      "name": "图形与周长面积词汇",
+      "nameEn": "Shapes, perimeter and area",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 10,
+      "summary": "triangle、rectangle、circle，以及 perimeter（周长）与 area（面积）。",
+      "whatIsIt": "常见图形：triangle、rectangle、square、circle。perimeter 是围一圈的长度，area 是里面的大小。side 是边，angle 是角。",
+      "why": "英文几何题最常问的是 perimeter 还是 area——这两个词混了，算得再对也没用。",
+      "bigPicture": "图形词汇是用英语描述「看得见的表示」的入口，和数学的数形结合直接对接。",
+      "prerequisites": ["en:measurement-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "判断问的是周长还是面积", "detail": "Find the perimeter of the rectangle. 问的是一圈，单位是厘米，不是平方厘米。" }
+      ],
+      "misconceptions": [
+        { "id": "perimeter-vs-area", "desc": "perimeter 与 area 混用", "signals": ["周长写成 cm²"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["triangle", "rectangle", "circle", "perimeter", "area", "side", "angle", "周长", "面积", "图形"]
+    },
+    {
+      "id": "en:directions",
+      "name": "方位与路线",
+      "nameEn": "Directions and routes",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 11,
+      "summary": "turn left、go straight、next to —— 描述位置和路线。",
+      "whatIsIt": "方位：left、right、north、south、east、west。路线：go straight、turn left at the corner、next to、opposite。",
+      "why": "路线题的题干就是这些短语，读不懂就画不出路线图。",
+      "bigPicture": "方位语言把空间关系说清楚，是几何与英语共同的表达。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": [],
+      "applications": [
+        { "title": "按指令画路线", "detail": "Go straight for 200 m, then turn left. 画出来的路线要能对上米数。" }
+      ],
+      "misconceptions": [],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["left", "right", "turn", "straight", "north", "方位", "路线", "东南西北"]
+    },
+    {
+      "id": "en:question-words",
+      "name": "数学题常用疑问句",
+      "nameEn": "Question words in problems",
+      "subject": "english",
+      "stage": "primary",
+      "strand": "math-english",
+      "lane": 0,
+      "order": 12,
+      "summary": "how many、how much、how long、how far —— 问什么决定了怎么算。",
+      "whatIsIt": "how many 问个数（可数），how much 问价钱或不可数数量，how long 问时间或长度，how far 问距离。",
+      "why": "问句就是指令：问 how many 却算了钱、问 how long 却算了距离，是双语题里最常见的错。",
+      "bigPicture": "把问句读准，是把「今天要算什么」这件事想清楚的开始。",
+      "prerequisites": ["en:numbers-words"],
+      "evolvesTo": [],
+      "relatedTo": ["en:compare-words"],
+      "applications": [
+        { "title": "先看问句再动笔", "detail": "How much does it cost? 问的是钱；How many apples? 问的是个数。" }
+      ],
+      "misconceptions": [
+        { "id": "how-many-much", "desc": "how many 与 how much 混用", "signals": ["how much apples"] }
+      ],
+      "status": "ai-generated",
+      "sources": [],
+      "keywords": ["how many", "how much", "how long", "how far", "问句", "疑问句"]
+    }
+  ]
+}

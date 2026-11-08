@@ -4,12 +4,16 @@ import type { validateSpec } from '@mathtutor/explainer-web'
 import type { FigureSpec } from '@mathtutor/explainer-web'
 
 /** 'asked' 是前端专有槽位：孩子自由提问转成的临时题目，server 的今日题组不会返回它 */
-export type Slot = 'review' | 'queue' | 'weak' | 'consolidate' | 'new' | 'challenge' | 'asked'
+export type Slot = 'review' | 'queue' | 'weak' | 'consolidate' | 'new' | 'challenge' | 'asked' | 'placement'
 export type MasteryBand = 'dim' | 'glow' | 'lit'
 
 export interface PracticeQuestion {
     id: string
     stem: string
+    /** 双语题的英文题面：先读英文，中文当退路 */
+    stemEn?: string
+    /** 答案要用英语写出来的题 */
+    answerLang?: 'zh' | 'en'
     /** 几何题的配图规格（点线角 + 约束）；坐标由前端解算并逐条回代验证后才画 */
     /** 原题原图的文件名，走 /api/v1/figures/:name 取 */
     figureImage?: string
@@ -44,10 +48,26 @@ export interface ReviewProgress {
 }
 
 export interface SubmitResult {
-    attemptId: string
+    /** 只写了「不会」这类话时没有 attempt（它本来就不是一次作答） */
+    attemptId: string | null
     correct: boolean
     method: 'numeric' | 'expression' | 'string' | 'pending'
     needsReview: boolean
+    /**
+     * 这条判定凭什么算数。`ai_unverified` = 只有 AI 判断（规则判不准、模型说对）：
+     * 界面必须如实标注，因为这次的"对"不会点亮星图。
+     */
+    verification?: 'executable' | 'reference' | 'ai_unverified'
+    /** 是否计入掌握度；false 时界面上不能显示成"学会了" */
+    countedTowardMastery?: boolean
+    /** 只写了「不会」这类话：不算一次作答，题留在原地 */
+    notAnAnswer?: boolean
+    /** 家长在孩子的页面上试做：留痕但不进掌握度 */
+    trial?: boolean
+    /** 同一道题同一天重复作答：照常记录，但不计入证据 */
+    repeat?: boolean
+    /** 第一次见这道题就零提示做对了：这时请他讲讲思路最有价值 */
+    askWhy?: boolean
     hintAvailable: boolean
     mastery: MasteryChange[]
     review?: ReviewProgress
@@ -222,6 +242,21 @@ export function submitAnswer(payload: {
     source?: 'daily' | 'probe' | 'variant' | 'review' | 'explore'
 }): Promise<SubmitResult> {
     return post('/api/v1/practice/submit', payload)
+}
+
+/**
+ * 元认知记录：错后先猜自己错在哪、（第一次就做对时）说说怎么想的。
+ * 这是孩子自己的话——不计掌握度、不算对错，但家长看得到他会不会讲。
+ */
+export function postReflection(payload: {
+    learnerId: string
+    questionId: string
+    attemptId?: string
+    kind: 'error-guess' | 'self-explain'
+    guess?: 'reading' | 'calculation' | 'procedure' | 'concept' | 'unknown'
+    text?: string
+}): Promise<{ ok: boolean }> {
+    return post('/api/v1/practice/reflection', payload)
 }
 
 /** 学生「下一步」一句话建议（GET /practice/next-step） */
@@ -421,5 +456,34 @@ export async function fetchNodeNames(learnerId: string): Promise<Record<string, 
         return map
     } catch {
         return {}
+    }
+}
+
+/** 今天的安排（GET /planner/today）：复习几张、上哪节课、做多少题 */
+export interface PlanBlock {
+    kind: 'review' | 'lesson' | 'practice' | 'explore'
+    minutes: number
+    title: string
+    reason: string
+    nodeId?: string
+    subject?: string
+}
+
+export interface DailyPlan {
+    blocks: PlanBlock[]
+    totalMinutes: number
+    leftMinutes: number
+    note?: string
+}
+
+/** best-effort：排不出来就不显示这块，别把练习页顶掉。 */
+export async function fetchPlan(learnerId: string): Promise<DailyPlan | null> {
+    try {
+        const res = await fetch(`/api/v1/planner/today?learnerId=${encodeURIComponent(learnerId)}`)
+        if (!res.ok) return null
+        const body = (await res.json()) as { plan?: DailyPlan }
+        return body.plan ?? null
+    } catch {
+        return null
     }
 }

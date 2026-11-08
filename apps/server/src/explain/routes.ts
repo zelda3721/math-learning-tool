@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
+import { qualityOf, semanticFindingsOf } from "./semantics.js";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -230,6 +231,17 @@ async function runWebJob(
         const structuralWarnings: string[] = [];
         if (spec.visual_objects.length === 0) structuralWarnings.push("无可视对象");
         if (spec.scenes.length === 0) structuralWarnings.push("无讲解拍子");
+        // 语义门禁：结构合格不等于"画对了"。三条反例（宣称数量对不上、
+        // 写了搬运却没搬、清点空组）在生成端就标出来，别等到孩子点了播放。
+        const semanticFindings = structuralWarnings.length === 2 ? [] : semanticFindingsOf(spec);
+        if (semanticFindings.length > 0) {
+          console.warn(
+            `[explain] 语义门禁：${semanticFindings
+              .slice(0, 3)
+              .map((f) => f.detail)
+              .join("；")}`,
+          );
+        }
         if (structuralWarnings.length === 2) {
           problems.push("SceneSpec 为空（无对象且无拍子）");
         } else {
@@ -245,7 +257,7 @@ async function runWebJob(
             engineSessionId: result.plan_id,
             mode: "web",
             specUrl: `/api/v1/explain/specs/${specId}`,
-            quality: structuralWarnings.length ? "acceptable" : "good",
+            quality: qualityOf(structuralWarnings, semanticFindings),
             contractVersion: state.contract?.contract_version ?? "unknown",
             // 确定性构造器会在计划上盖章；LLM 导演写的计划没有这个字段，留空即代表走了模型路径
             groundingSource: groundingSourceOf(spec),
@@ -350,6 +362,50 @@ async function fetchSubtitle(
 export function explainRoutes(state: AppState): Hono {
   const app = new Hono();
 
+  /** 请求方是不是孩子本人（家长 / 单测里的 authDisabled 都按家长算） */
+  const callerIsChild = (c: { get: (k: string) => unknown }) =>
+    (c.get("user") as { role?: string } | undefined)?.role === "child";
+
+  /**
+   * 孩子看讲解的入口闸（宪法第 2 条：不喂答案）。
+   *
+   * 「答错了才给讲解」原来是靠界面顺序守的：错 4 次 → 看完三级提示 → 先跳过 →
+   * 才出现「看讲解」。可讲解接口本身对孩子敞着，带上任意 questionId 直接调，
+   * 响应里就带 `fallback.analysis`（教师解析全文，通常含答案）——
+   * 界面上的顺序就成了一条可以绕开的路。
+   *
+   * 所以闸放在协议层：**这道题孩子自己走过一遍**（答对过，或真的把三级提示
+   * 都用完了）才给讲。注意"用完提示"按服务端记的提示事件算，不信客户端自报的层级。
+   */
+  const gateForChild = (
+    c: { get: (k: string) => unknown },
+    learnerId: string | undefined,
+    questionId: string | undefined,
+  ): { ok: true } | { ok: false; body: Record<string, unknown> } => {
+    if (!callerIsChild(c) || !learnerId || !questionId) return { ok: true };
+    if (!state.repo.getLearner(learnerId)) return { ok: true };
+    if (state.repo.workedThrough(learnerId, questionId)) return { ok: true };
+    return {
+      ok: false,
+      body: {
+        error: "这道题还没轮到你来看讲解：先自己试一次，答错了可以用提示，三级提示都用完再来看讲解。",
+        code: "explain-locked",
+      },
+    };
+  };
+
+  /** 孩子看过这道题的解析 → 记一条事件（掌握度那边据此把"回忆"和"理解"分开） */
+  const recordAnalysisView = (learnerId: string | undefined, questionId: string | undefined) => {
+    if (!learnerId || !questionId) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const already = (state.repo.analysisViews(learnerId).get(questionId) ?? []).some(
+      (t) => Date.parse(t) >= today.getTime(),
+    );
+    if (already) return;
+    state.repo.appendEvent(learnerId, "analysis_view", { questionId });
+  };
+
   app.post("/", async (c) => {
     const parsed = ExplainSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
@@ -376,7 +432,12 @@ export function explainRoutes(state: AppState): Hono {
       figureImageName,
       problemImage: raw.problemImage,
     };
+    // 孩子请求讲解：这道题他自己走过一遍才给（见 gateForChild）
+    const gate = gateForChild(c, body.learnerId, body.questionId);
+    if (!gate.ok) return c.json(gate.body, 403);
     const fallback = buildFallback(state, body);
+    // 孩子真的拿到了这道题的解析：记一笔，掌握度那边据此把"回忆"和"理解"分开
+    if (callerIsChild(c) && fallback.analysis) recordAnalysisView(body.learnerId, body.questionId);
 
     // 1) 缓存命中（同题优先，其次同根因节点；按模式命中）
     //

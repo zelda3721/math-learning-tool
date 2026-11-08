@@ -52,6 +52,8 @@ const RawNodeSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    /** 学科归属：现有节点一律 math（缺省即 math，无需回填）；新学科节点 id 带前缀如 `en:`、`phys:` */
+    subject: z.string().min(1).default("math"),
     nameEn: z.string().optional(),
     stage: StageIdSchema,
     strand: z.string(),
@@ -67,7 +69,14 @@ const RawNodeSchema = z
     applications: z.array(ApplicationSchema).default([]),
     misconceptions: z.array(z.union([z.string(), MisconceptionSchema])).default([]),
     keywords: z.array(z.string()).optional(),
-    status: z.enum(["ai-generated", "ai-bridge", "verified"]).default("ai-generated"),
+    /**
+     * 内容来源与核对状态。
+     *
+     * `extracted` = **从教材原文确定性抽取**（可翻回页码核对），既不是模型编的
+     * （`ai-generated`），也还没经过人逐条核对（`verified`）。英语语法主线就是这一类：
+     * 单元标题、顺序、页码都来自书本身，脚本跑一百遍结果一样。
+     */
+    status: z.enum(["ai-generated", "ai-bridge", "extracted", "verified"]).default("ai-generated"),
     sources: z.array(SourceSchema).default([]),
   })
   .passthrough();
@@ -132,6 +141,21 @@ export const QuestionSchema = z.object({
   nodeIds: z.array(z.string()),
   level: z.enum(["elementary_lower", "elementary_upper", "middle", "high", "advanced"]),
   stem: z.string(),
+  /**
+   * 英文题面（双语题）。
+   *
+   * 同一道题给两种语言，不是两套课程并排：孩子先读英文题面，用它把数读出来、
+   * 把关系想清楚，再动笔算——这一步就是「综合运用」。中文题干留着当退路：
+   * 读不懂英文时不该整道题都做不了。
+   */
+  stemEn: z.string().optional(),
+  /**
+   * 作答语言：`en` 时按英语判卷（词汇/短语类，如 three quarters）。
+   *
+   * 不靠猜：一道题的题面有英文、答案却仍然是数字，那是"读英文算数学"；
+   * 只有答案本身要用英文写出来，才轮到英语判卷器。
+   */
+  answerLang: z.enum(["zh", "en"]).optional(),
   options: z.array(z.string()).optional(),
   answer: z.string(),
   answerType: z.enum(["numeric", "expression", "steps"]),
@@ -193,3 +217,43 @@ export const QuestionSchema = z.object({
   status: z.enum(["extracted", "verified"]),
 });
 export type Question = z.infer<typeof QuestionSchema>;
+
+/* ── 跨学科连接（data/knowledge/links.json） ── */
+
+/**
+ * 边的类型。刻意只有四种：每多一种，界面上就多一种说不清的箭头。
+ *
+ * - `prerequisite` 先学 A 才学得动 B（可跨学科，如「比例」→「物理密度」）
+ * - `applies`      A 在 B 里被用上（数学 → 物理的常态）
+ * - `analogy`      A 与 B 结构同构（如「分数」与「英语的可数/不可数」）
+ * - `evolves`      A 的思想演化成 B（同学科内的纵向关系，图谱里已有 evolvesTo，
+ *                  这里只用于**跨学科**的演化叙述）
+ */
+export const KnowledgeLinkTypeSchema = z.enum(["prerequisite", "applies", "analogy", "evolves"]);
+export type KnowledgeLinkType = z.infer<typeof KnowledgeLinkTypeSchema>;
+
+export const KnowledgeLinkSchema = z.object({
+  /** 起点节点 id（必须存在于图谱） */
+  from: z.string(),
+  /** 终点节点 id（必须存在于图谱） */
+  to: z.string(),
+  type: KnowledgeLinkTypeSchema,
+  /**
+   * 一句话说清「怎么联系上的」，界面上直接显示这一句。
+   * 跨学科连接是最容易编造的东西——「数学和音乐有关」这种话谁都会说，
+   * 所以这里要求具体到可判断：说清哪个概念、在哪一步用上。
+   */
+  note: z.string().min(1),
+  /** 依据（课标条目、教材页码、具体实验），便于家长核对 */
+  source: z.string().optional(),
+});
+export type KnowledgeLink = z.infer<typeof KnowledgeLinkSchema>;
+
+export const LinksFileSchema = z
+  .object({
+    /** 文件说明；lint 会核对 from/to 是否都在图谱里 */
+    $comment: z.string().optional(),
+    links: z.array(KnowledgeLinkSchema).default([]),
+  })
+  .passthrough();
+export type LinksFile = z.infer<typeof LinksFileSchema>;

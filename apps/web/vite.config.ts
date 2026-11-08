@@ -9,18 +9,22 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, repoRoot, '')
+  // loadEnv 只读 .env 文件，不看进程环境；冒烟测试要在不碰 .env 的前提下换端口，
+  // 所以真实环境变量优先（日常没人导出这些变量，行为与以前一致）。
+  const fileEnv = loadEnv(mode, repoRoot, '')
+  const env = (key: string): string | undefined => process.env[key] || fileEnv[key] || undefined
+
   // 代理默认指向网关（对外唯一入口；练习/诊断/讲解等路由都在网关上）。
   // 网关端口跟随 SERVER_PORT；特殊场景可用 VITE_API_PROXY 整体覆盖。
-  const proxyTarget = env.VITE_API_PROXY || `http://localhost:${env.SERVER_PORT || '8080'}`
+  const proxyTarget = env('VITE_API_PROXY') || `http://localhost:${env('SERVER_PORT') || '8080'}`
 
   return {
     envDir: repoRoot,
     plugins: [react(), tailwindcss()],
     server: {
       // 平板/手机经局域网访问开发服务器；WEB_HOST=127.0.0.1 可收回仅本机
-      host: env.WEB_HOST || '0.0.0.0',
-      port: Number(env.WEB_PORT || 5173),
+      host: env('WEB_HOST') || '0.0.0.0',
+      port: Number(env('WEB_PORT') || 5173),
       proxy: {
         '/api': {
           target: proxyTarget,

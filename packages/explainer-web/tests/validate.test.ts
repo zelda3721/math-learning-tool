@@ -59,4 +59,22 @@ describe("validateSpec", () => {
     expect(result.warnings.some((w) => w.includes('primitive "hologram"'))).toBe(true);
     expect(result.warnings.some((w) => w.includes('op "teleport"'))).toBe(true);
   });
+
+  it("set_value 写在不支持的对象上 → 警告（静默无效比报错更难查）", () => {
+    const result = validateSpec({
+      visual_objects: [
+        { id: "bar", primitive: "quantity_bar", params: { total: 12 } },
+        { id: "dots", primitive: "unit_grid", params: { count: 6 } },
+      ],
+      scenes: [
+        { actions: [{ op: "set_value", target: "bar", value: 9 }] },
+        { actions: [{ op: "set_value", target: "dots", value: 3 }] },
+      ],
+    });
+    expect(result.errors).toEqual([]);
+    // 量：不警告
+    expect(result.warnings.filter((w) => w.includes('"bar"'))).toEqual([]);
+    // 集：警告，并说清为什么
+    expect(result.warnings.some((w) => w.includes('"dots"') && w.includes("quantity_bar"))).toBe(true);
+  });
 });

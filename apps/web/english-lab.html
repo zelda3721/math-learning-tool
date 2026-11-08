@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>English Lab · 英语画面实验台</title>
+    <style>
+      body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #fff; }
+      #stage { max-width: 720px; }
+    </style>
+  </head>
+  <body>
+    <!--
+      英语画面实验台：只给冒烟测试用，不进产品入口。
+
+      为什么不和播放器实验台（player-lab.html）放同一页：那边有一张**像素基线**
+      截图，页面上多一个 KaTeX 渲染器就会让基线漂移几像素——基线一漂，
+      真正想问的"渲染有没有退步"就变成了"这一页有没有变"。各开一页，各盯各的。
+    -->
+    <div id="stage"></div>
+    <script type="module" src="/src/dev/englishLab.ts"></script>
+  </body>
+</html>

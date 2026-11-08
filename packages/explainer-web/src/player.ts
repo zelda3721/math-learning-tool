@@ -9,6 +9,12 @@
  */
 import type { SceneSpec } from "@mathtutor/schema";
 import { foldBeats, type BeatState } from "./fold.js";
+import { Playhead, buildTimeline, type TimelineFrame } from "./timeline.js";
+import { tweenBarGeometry, tweenPoint, type BarGeometry, type Point } from "./motion.js";
+import { atomOpacity } from "./formulas.js";
+import { defaultVisuals, type VisualRegistry } from "./visuals.js";
+import { gateBeats } from "./gate.js";
+import { buildChannels, intensityAt, revealOpacityAt, stateValueAt, type ChannelCue } from "./channels.js";
 import {
   limitSwaps,
   liveTotal,
@@ -23,18 +29,60 @@ import {
 import {
   layoutFlowed,
   type PlacedBar,
+  type PlacedCard,
   type PlacedExtent,
   type PlacedFigure,
   type PlacedLabel,
+  type PlacedSentence,
   type PlacedUnits,
 } from "./render/layout.js";
 import { renderSolved } from "./figure/render.js";
 import type { FigureSpec } from "@mathtutor/schema";
 import type { CoordSystem } from "./math/coords.js";
 
+/**
+ * 公式渲染器：由调用方注入（本包零第三方依赖，KaTeX 留在 apps/web）。
+ *
+ * 返回 `atoms` 是关键——公式要逐项显现，就得知道它被切成了哪几块。
+ * 没有注入时回落成纯文本：`$x^2$` 会连着美元符号一起画出来，
+ * 难看但诚实，而且不会因为缺依赖就崩掉整个播放器。
+ */
+export type MathRenderer = (tex: string, displayMode: boolean) => {
+  root: HTMLElement;
+  atoms: HTMLElement[];
+};
+
+/** 时钟：浏览器里是 requestAnimationFrame + performance.now，测试里可以手动喂时间 */
+export interface PlayerClock {
+  now(): number;
+  schedule(cb: () => void): number;
+  cancel(handle: number): void;
+}
+
+const browserClock: PlayerClock = {
+  now: () => (typeof performance !== "undefined" ? performance.now() : Date.now()),
+  schedule: (cb) =>
+    typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame(cb)
+      : (setTimeout(cb, 16) as unknown as number),
+  cancel: (h) => {
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(h);
+    else clearTimeout(h as unknown as ReturnType<typeof setTimeout>);
+  },
+};
+
 export interface PlayerOptions {
   autoPlay?: boolean;
+  /** 每拍时长（毫秒）；时间轴按它铺开，缺省 3200 */
   beatMs?: number;
+  /** 转场时长（毫秒）；0 = 硬切。截图比对时用 0 */
+  transitionMs?: number;
+  /** 注入时钟（测试用），缺省浏览器时钟 */
+  clock?: PlayerClock;
+  /** 注入公式渲染器（缺省把 LaTeX 当纯文本画） */
+  math?: MathRenderer;
+  /** 视觉词表：学科新增图元从这里注入（缺省只有内置数学图元） */
+  visuals?: VisualRegistry;
   onBeatChange?: (index: number, total: number) => void;
   /** 算不出的曲线、未知构件、计数不一致——诚实上报 */
   onIssue?: (issue: SceneIssue) => void;
@@ -97,13 +145,40 @@ export class ExplainerPlayer {
   private controlsEl: HTMLDivElement | null = null;
 
   private index = 0;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly clock: PlayerClock;
+  private readonly playhead: Playhead;
+  private raf: number | null = null;
+  private lastTickMs = 0;
   private playing = false;
   private destroyed = false;
   private width = 640;
   private height = 380;
-  /** 上一拍每个单位的屏幕位置，用于 FLIP 飞行 */
-  private lastUnitPos = new Map<string, { x: number; y: number }>();
+  /**
+   * 转场补间的目标位置与进度（由时间轴给出）。
+   * 非转场帧一律为 null——画面就是本拍该有的样子，不掺上一帧的残留。
+   */
+  private motion: {
+    positions: Map<string, Point>;
+    bars: Map<string, BarGeometry>;
+    progress: number;
+  } | null = null;
+  /** 目标拍的落点缓存（按拍与画布高度），转场时每帧都要用，别重算 */
+  private readonly posCache = new Map<string, { units: Map<string, Point>; bars: Map<string, BarGeometry> }>();
+  /** 每拍的动作通道（谁在拍内什么时候被强调） */
+  private readonly visuals: VisualRegistry;
+  private readonly channels: ChannelCue[][];
+  /** 本帧在拍内的比例，通道按时生效 */
+  private local = 0;
+  /** 每个组画出来的节点：通道要靠改透明度生效，重建整幅画面太贵 */
+  private readonly groupNodes = new Map<string, SVGElement[]>();
+  /** 每个组的画面范围：标注要知道"贴在谁旁边" */
+  private readonly groupBoxes = new Map<string, { x: number; y: number; w: number; h: number }>();
+  /** 每次重绘收集到的公式原子块（逐项显现按帧改透明度） */
+  private mathBlocks: HTMLElement[][] = [];
+  /** 每组那个"数量"文字节点：state 通道按帧改它的内容，不重排版 */
+  private readonly countNodes = new Map<string, SVGTextElement>();
+  /** 本拍的标注（贴纸 + 引线），透明度随通道强度更新 */
+  private annotation: { cue: ChannelCue; nodes: SVGElement[] } | null = null;
   private reportedIssues = new Set<string>();
   /**
    * 本拍「已经换了几只」。假设法的道理不在终态而在过程——
@@ -118,8 +193,26 @@ export class ExplainerPlayer {
   constructor(container: HTMLElement, spec: SceneSpec, opts: PlayerOptions = {}) {
     this.container = container;
     this.opts = opts;
-    this.beats = foldBeats(spec);
+    this.visuals = opts.visuals ?? defaultVisuals;
+    this.beats = foldBeats(spec, this.visuals);
     this.beatCount = this.beats.length;
+    this.clock = opts.clock ?? browserClock;
+    this.playhead = new Playhead(
+      buildTimeline(this.beatCount, { beatMs: opts.beatMs, transitionMs: opts.transitionMs }),
+    );
+    this.channels = buildChannels(this.beats);
+    /*
+     * 语义门禁在装配时就跑一次：它不是"看着不对劲就提示"，而是把
+     * 「宣称的数量对不上」「说了过程却没搬东西」「验证空框」这三类事直接报出来。
+     * 走既有的 onIssue 通道——和"曲线没算出来"一样，宁可让孩子看到一句提示，
+     * 也不要让一张看着正常、其实什么也没证明的图过关。
+     */
+    if (opts.onIssue) {
+      const gateInput = spec as unknown as { scenes?: { actions?: { op?: string }[] }[] };
+      for (const finding of gateBeats(this.beats, gateInput)) {
+        opts.onIssue({ kind: "semantic", detail: finding.detail });
+      }
+    }
 
     this.root = document.createElement("div");
     this.root.style.cssText = "display:flex;flex-direction:column;gap:10px;width:100%";
@@ -145,7 +238,12 @@ export class ExplainerPlayer {
     const interactive = this.firstScrubbableBeat();
     if (interactive > 0) {
       this.index = interactive;
+      this.playhead.seekBeat(interactive);
       this.startSubPlayback();
+    } else {
+      // 从第 0 拍开画。少了这一句，seek(0) 会拿到一个空画布——
+      // 看起来像"播放器坏了"，其实只是从来没人要求它画过第一帧。
+      this.render();
     }
     if (opts.autoPlay) this.play();
   }
@@ -154,42 +252,258 @@ export class ExplainerPlayer {
   private firstScrubbableBeat(): number {
     for (let i = 0; i < this.beats.length; i += 1) {
       const beat = this.beats[i];
-      if (beat && swappedCount(solveScene(beat, this.width, this.height)) > 0) return i;
+      if (beat && swappedCount(solveScene(beat, this.width, this.height, 600, this.visuals)) > 0) return i;
     }
     return 0;
   }
 
   // ── 播放控制 ───────────────────────────────────────────
 
+  /** 总时长（毫秒） */
+  get duration(): number {
+    return this.playhead.timeline.duration;
+  }
+
+  /** 当前时刻（毫秒） */
+  get currentTime(): number {
+    return this.playhead.time;
+  }
+
   play(): void {
     if (this.destroyed || this.playing) return;
+    // 已经播到头：再按播放就从头来，而不是原地不动装死
+    if (this.playhead.finished) this.seek(0);
     this.playing = true;
     this.syncControls();
-    this.schedule();
+    this.lastTickMs = this.clock.now();
+    this.scheduleTick();
   }
 
   pause(): void {
     this.playing = false;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    if (this.raf !== null) this.clock.cancel(this.raf);
+    this.raf = null;
     this.syncControls();
   }
 
   next(): void {
-    this.goTo(this.index + 1);
+    this.seekBeat(this.index + 1);
   }
 
   prev(): void {
-    this.goTo(this.index - 1);
+    this.seekBeat(this.index - 1);
   }
 
   goTo(i: number): void {
+    this.seekBeat(i);
+  }
+
+  /** 跳到指定时刻（毫秒）。画面由时间决定，与"怎么走到这里"无关 */
+  seek(tMs: number): void {
     if (this.destroyed) return;
-    const clamped = Math.max(0, Math.min(this.beatCount - 1, i));
-    if (clamped === this.index) return;
-    this.index = clamped;
-    this.startSubPlayback();
-    if (this.playing) this.schedule();
+    const frame = this.playhead.seek(tMs);
+    this.applyFrame(frame);
+    this.syncControls();
+  }
+
+  seekBeat(i: number): void {
+    if (this.destroyed) return;
+    this.applyFrame(this.playhead.seekBeat(i));
+    this.syncControls();
+  }
+
+  /**
+   * 应用一帧。画面由（哪一拍、转场进度）共同决定，两者都来自时间轴：
+   * 跨拍就重建，同拍处在转场窗口里就按进度插值重绘。
+   *
+   * 减弱动效（reduceMotion）时不做补间：直接跳到下一拍该有的样子，
+   * 而不是把这一拍的单位预先画到下一拍的位置上——那样标签与图形会对不上。
+   */
+  private applyFrame(frame: TimelineFrame): void {
+    /*
+     * 顺序很重要：先换拍（清掉一拍内的拨动状态），**再**装补间。
+     * 反过来写过一版——motion 先设好、再调 startSubPlayback()，被它顺手清掉，
+     * 于是"正着播到转场"有动画、"seek 进转场"没有。画面取决于你怎么走到这里，
+     * 这正是确定性最不能容忍的那种错。播放器实验台里抓到的。
+     */
+    const beatChanged = frame.beatIndex !== this.index;
+    if (beatChanged) {
+      this.index = frame.beatIndex;
+      this.subK = 0;
+    }
+
+    const hadMotion = this.motion !== null;
+    this.motion =
+      frame.transition && !reduceMotion()
+        ? (() => {
+            const targets = this.targetsOf(frame.transition.to);
+            return { positions: targets.units, bars: targets.bars, progress: frame.transition.progress };
+          })()
+        : null;
+
+    /*
+     * 什么时候必须重画：
+     * - 换拍了：内容变了
+     * - 正在转场：位置随进度变
+     * - **刚离开转场**（hadMotion）：上一帧画的是被位移过的单位，不重画就停在半路上
+     *
+     * 第三种最容易漏，也最伤人：seek(0) 落在一个"既不换拍也没转场"的时刻，
+     * 于是画面原封不动，看上去像跳转失败——其实是没人要求它把位移收回去。
+     * 播放器实验台里抓到的（同一时刻两次渲染不一致，正是这条）。
+     *
+     * 一拍之内的静止帧不重画，是刻意的：播放时每帧都重解一次场景太贵，
+     * 而静止帧的内容本来就没变。
+     */
+    this.local = frame.local;
+    if (beatChanged || frame.transition || hadMotion) this.render();
+    else {
+      this.applyFormulaReveal();
+      this.applyChannels();
+    }
+  }
+
+  /**
+   * 本拍的标注：一条引线 + 一句短话，钉在被强调的对象旁边。
+   *
+   * 画出来时先给透明度 0，由通道的强度决定显隐——这样"什么时候出现"仍然由 t 决定，
+   * 而不是"画的时候顺手淡入"。没有标注的那个组，它自己也不知道被区别对待了。
+   */
+  private drawAnnotation(): void {
+    this.annotation = null;
+    const cue = (this.channels[this.index] ?? []).find((c) => c.kind === "annotate");
+    const box = cue ? this.groupBoxes.get(cue.target) : undefined;
+    if (!cue?.text || !box) return;
+
+    const nodes: SVGElement[] = [];
+    const anchorX = box.x + box.w;
+    const anchorY = box.y + 6;
+    const textX = Math.min(this.width - 168, anchorX + 14);
+    const textY = Math.max(16, box.y - 10);
+
+    nodes.push(
+      el("line", {
+        x1: anchorX, y1: anchorY, x2: textX - 4, y2: textY,
+        stroke: C.beam, "stroke-width": 1.5, "stroke-dasharray": "4 3",
+      }),
+    );
+    const label = el("text", {
+      x: textX, y: textY, "font-size": 12, fill: C.beam, "font-weight": 600, "text-anchor": "start",
+    });
+    label.textContent = cue.text;
+    nodes.push(label);
+
+    for (const node of nodes) {
+      node.setAttribute("opacity", "0");
+      this.svg.appendChild(node);
+    }
+    this.annotation = { cue, nodes };
+  }
+
+  /**
+   * 把通道强度落到已画好的节点上。
+   *
+   * 不重建画面：通道每帧都在变（一拍里几十帧），重建要重解场景+重排版，
+   * 而它实际只改一个透明度属性。节点在绘制时按组收好，这里按组改。
+   *
+   * 两条语义上的讲究：
+   * - **reveal 是单向的**：窗口过去之后必须停在 1，不能回到 0——那是"出现"，不是"脉冲"，
+   *   回到 0 会让新出现的东西整拍后半段都不见了。
+   * - **spotlight 是脉冲**：没有它的时候，其他组回到 1。
+   */
+  /**
+   * 公式的逐项显现：按本帧的拍内进度设置每个原子的透明度。
+   *
+   * 只改 style.opacity：一增删节点，后面的项就会挪位，观众看到的是"公式在跳"。
+   * 原子数与可见数由 formulas.ts 的纯函数给（那里有单测），这里只负责落地。
+   */
+  private applyFormulaReveal(): void {
+    for (const atoms of this.mathBlocks) {
+      atoms.forEach((atom, index) => {
+        atom.style.opacity = String(atomOpacity(index, this.local, atoms.length));
+      });
+    }
+  }
+
+  private applyChannels(): void {
+    const cues = this.channels[this.index] ?? [];
+    if (cues.length === 0) {
+      for (const cue of cues) {
+      if (cue.kind !== "state") continue;
+      const node = this.countNodes.get(cue.target);
+      // 只改文字内容：重排版要重解场景，而这件事每帧都要做
+      if (node) node.textContent = String(Math.round(stateValueAt(cue, this.local)));
+    }
+
+    if (this.annotation) {
+        for (const node of this.annotation.nodes) node.setAttribute("opacity", "0");
+      }
+      return;
+    }
+    const intensities = intensityAt(cues, this.local);
+    // 只有**此刻真的在强调**时才压暗其他组。用"存在 spotlight 通道"来判断会出错：
+    // 脉冲结束之后所有组仍然是暗的，整拍后半段都像被蒙了一层。
+    const spotlighting = cues.some(
+      (c) => c.kind === "spotlight" && intensities.get(c.target) !== undefined,
+    );
+
+    for (const cue of cues) {
+      if (cue.kind !== "state") continue;
+      const node = this.countNodes.get(cue.target);
+      // 只改文字内容：重排版要重解场景，而这件事每帧都要做
+      if (node) node.textContent = String(Math.round(stateValueAt(cue, this.local)));
+    }
+
+    if (this.annotation) {
+      const strength = intensities.get(this.annotation.cue.target) ?? 0;
+      for (const node of this.annotation.nodes) node.setAttribute("opacity", strength.toFixed(3));
+    }
+
+    for (const [id, nodes] of this.groupNodes) {
+      const reveal = cues.find((c) => c.kind === "reveal" && c.target === id);
+      const spotted = intensities.get(id) !== undefined;
+
+      let opacity = 1;
+      if (reveal) {
+        opacity = revealOpacityAt(reveal, this.local);
+      } else if (spotlighting) {
+        // 有 spotlight 的拍里，没被点到的组压暗但不消失——它们仍在论证里
+        opacity = spotted ? 1 : 0.45;
+      }
+
+      for (const node of nodes) node.setAttribute("opacity", opacity.toFixed(3));
+    }
+  }
+
+  /**
+   * 某一拍里每个单位的落点（屏幕坐标）。纯计算，用于转场插值的目标端。
+   *
+   * 缓存键带上画布高度：`fitHeight` 会按内容改变高度，高度一变，
+   * 同一拍的落点也跟着变，拿旧缓存去插值就是让单位飞向一个不存在的位置。
+   */
+  private targetsOf(beatIndex: number): { units: Map<string, Point>; bars: Map<string, BarGeometry> } {
+    const key = `${beatIndex}@${this.height}`;
+    const cached = this.posCache.get(key);
+    if (cached) return cached;
+
+    const units = new Map<string, Point>();
+    const bars = new Map<string, BarGeometry>();
+    const beat = this.beats[beatIndex];
+    if (beat) {
+      const scene = solveScene(beat, this.width, this.height, 600, this.visuals);
+      const top = scene.coords ? Math.round(this.height * 0.62) : 34;
+      const bottom = FACTS_H + (this.subSteps > 0 ? TALLY_H : 0);
+      const { items } = layoutFlowed(scene, { width: this.width, height: this.height, top, bottom });
+      for (const item of items) {
+        if (item.kind === "units") {
+          for (const u of item.units) units.set(u.id, { x: u.cx, y: u.cy });
+        } else if (item.kind === "bar") {
+          bars.set(item.id, { x: item.box.x, y: item.box.y, w: item.box.w, h: item.box.h, fillW: item.fillW });
+        }
+      }
+    }
+    const out = { units, bars };
+    this.posCache.set(key, out);
+    return out;
   }
 
   /**
@@ -201,12 +515,14 @@ export class ExplainerPlayer {
    */
   private startSubPlayback(): void {
     this.subK = 0;
+    this.motion = null;
     this.render();
   }
 
   /** 拨到第 k 只 */
   private scrubTo(k: number): void {
     this.subK = Math.max(0, Math.min(this.subSteps, Math.round(k)));
+    this.motion = null;
     this.render();
   }
 
@@ -216,18 +532,29 @@ export class ExplainerPlayer {
     if (this.root.parentNode === this.container) this.container.removeChild(this.root);
   }
 
-  private schedule(): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.index >= this.beatCount - 1) {
-      this.playing = false;
-      this.syncControls();
-      return;
-    }
-    this.timer = setTimeout(() => {
-      this.index += 1;
-      this.render();
-      this.schedule();
-    }, this.opts.beatMs ?? 3200);
+  /**
+   * 时间驱动的播放循环：每帧把「过了多少毫秒」交给播放头，而不是等一个固定时长的定时器。
+   *
+   * 换掉 setTimeout 的理由不是审美：定时器的误差会一直累积（每拍迟几十毫秒，
+   * 二十拍后就是一两秒），而且它没法表达"跳到第 7.3 秒"——
+   * 而 seek、字幕轨对时、断点续看都要求画面是 t 的函数。
+   */
+  private scheduleTick(): void {
+    if (!this.playing) return;
+    this.raf = this.clock.schedule(() => {
+      this.raf = null;
+      if (!this.playing || this.destroyed) return;
+      const now = this.clock.now();
+      const dt = now - this.lastTickMs;
+      this.lastTickMs = now;
+      this.applyFrame(this.playhead.advance(dt));
+      if (this.playhead.finished) {
+        this.playing = false;
+        this.syncControls();
+        return;
+      }
+      this.scheduleTick();
+    });
   }
 
   // ── 渲染 ───────────────────────────────────────────────
@@ -246,7 +573,7 @@ export class ExplainerPlayer {
   private render(): void {
     const beat = this.beats[this.index];
     if (!beat) return;
-    const full = solveScene(beat, this.width, this.height);
+    const full = solveScene(beat, this.width, this.height, 600, this.visuals);
     this.subSteps = swappedCount(full);
     // 可回放的那一拍按当前进度只换前 k 只；其余拍照常整幅渲染
     let scene = this.subSteps > 0 ? limitSwaps(full, this.subK) : full;
@@ -409,11 +736,15 @@ export class ExplainerPlayer {
       return;
     }
     if (!Number.isFinite(len) || len <= 0) return;
-    path.style.strokeDasharray = `${len}`;
-    path.style.strokeDashoffset = `${len}`;
-    path.animate?.([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
-      duration: 900, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards",
-    });
+    /*
+     * 这里曾经做"曲线画入"：先设 strokeDashoffset = 全长，再用 WAAPI 在 900ms 内归零。
+     * 那是墙上时钟的动画，与 t 无关——同一时刻截两次图会得到不同的像素，
+     * 而阶段 2 的 DoD 要的正是"同一 t 必得同一画面"。所以删掉。
+     *
+     * 曲线画入这件事本身没错，但它该由**动作通道**在时间轴上驱动（谁在第几拍出现、
+     * 用多长时间露出），而不是渲染完顺手起一个动画。等 reveal 通道落地再回来做。
+     */
+    void len;
   }
 
   private drawTag(text: string, cs: CoordSystem, segs: [number, number][][], fill: string): void {
@@ -446,22 +777,68 @@ export class ExplainerPlayer {
     });
     const nextPos = new Map<string, { x: number; y: number }>();
 
+    this.groupNodes.clear();
+    this.countNodes.clear();
+    this.mathBlocks = [];
     for (const item of items) {
+      /*
+       * 按组收集刚画出来的节点：通道要靠改透明度生效，每帧重建整幅画面太贵
+       * （一拍里几十帧，每帧都要重解场景、重排版）。用"画前画后的子元素差"来收，
+       * 比在每个绘制函数里手工 push 更不容易漏。
+       */
+      const before = this.svg.childElementCount;
       if (item.kind === "bar") this.paintBar(item);
       else if (item.kind === "extent") this.paintExtent(item);
       else if (item.kind === "label") this.paintLabel(item);
+      else if (item.kind === "sentence") this.paintSentence(item);
+      else if (item.kind === "card") this.paintCard(item);
       else if (item.kind === "figure") this.paintFigure(item);
       else this.paintUnits(item, nextPos);
+      this.groupNodes.set(
+        item.id,
+        Array.from(this.svg.children).slice(before) as SVGElement[],
+      );
+      const box = "box" in item ? item.box : "at" in item ? { ...item.at, w: 0, h: 0 } : undefined;
+      if (box) this.groupBoxes.set(item.id, box);
     }
+    this.drawAnnotation();
+    this.applyFormulaReveal();
+    this.applyChannels();
 
-    this.lastUnitPos = nextPos;
   }
 
-  /** 量：长度正比于数值的条。共享一把尺，差额那一截高亮——「差 24」是看出来的 */
+  /**
+   * 量：长度正比于数值的条。共享一把尺，差额那一截高亮——「差 24」是看出来的。
+   *
+   * 转场时插的是**几何**（槽位 + 填充长度），不是数值：所有条共享一把尺，
+   * 而尺本身会随全场最大值变；去插数值再按新尺换算，中途会出现
+   * "数值没动、条却跳了一下"的怪相。读数是文字，哪一拍的写哪一拍的，不补间。
+   *
+   * 需要知道的一件事：**当前模型里条根本不会跨拍变化**。
+   * `magnitude` 在 fold 建组时从 params 读一次，之后没有任何动作会改它
+   * （take_from 改的是 units，平衡类动作改的是 live 值，都不落在 magnitude 上）。
+   * 所以这段补间目前是"接通但待机"：写好了、纯函数测过，等哪天有动作能改条的量，
+   * 它立刻生效。要让数量条随叙事变长变短，缺的是**动作**（例如 set_value），不是播放器。
+   *
+   * 刻度按填充宽度的比例压缩：一轮转场里刻度数不变、间距等比缩，
+   * 转场结束才换成下一拍那组。刻度的语义是"单位分格"，单位数本来就会变，
+   * 追求逐刻度连续既做不到也没意义。
+   */
   private paintBar(bar: PlacedBar): void {
     const tone = CHANNELS[bar.channel % CHANNELS.length]!;
-    const { box } = bar;
-    this.text(bar.label ?? bar.id, bar.labelAt.x, bar.labelAt.y, 12, C.ink, "start", 600);
+    const target = this.motion?.bars.get(bar.id);
+    const geom: BarGeometry = target
+      ? tweenBarGeometry(
+          { x: bar.box.x, y: bar.box.y, w: bar.box.w, h: bar.box.h, fillW: bar.fillW },
+          target,
+          this.motion!.progress,
+        )
+      : { x: bar.box.x, y: bar.box.y, w: bar.box.w, h: bar.box.h, fillW: bar.fillW };
+    const box = { x: geom.x, y: geom.y, w: geom.w, h: geom.h };
+    const fillW = geom.fillW;
+    // 刻度与差额段都是相对槽位左侧的偏移：随填充一起等比压缩，才不会被留在框外
+    const tickScale = bar.fillW > 0 ? fillW / bar.fillW : 1;
+    this.maybeMath(bar.label ?? bar.id, bar.labelAt.x, bar.labelAt.y, 12, C.ink, "start", 600);
     // 空槽：让所有条的量程一致，短的那根一眼看出"还差一截"
     this.svg.appendChild(
       el("rect", {
@@ -470,47 +847,46 @@ export class ExplainerPlayer {
       }),
     );
     const fill = el("rect", {
-      x: box.x, y: box.y, width: Math.max(0, bar.fillW), height: box.h, rx: 6,
+      x: box.x, y: box.y, width: Math.max(0, fillW), height: box.h, rx: 6,
       fill: tone, "fill-opacity": 0.22, stroke: tone, "stroke-width": 1.5,
     });
     this.svg.appendChild(fill);
-    if (!reduceMotion()) {
-      fill.animate?.(
-        [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
-        { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
-      );
-      (fill as SVGElement).style.transformOrigin = `${box.x}px ${box.y}px`;
-    }
     for (const t of bar.ticks) {
       this.svg.appendChild(
         el("line", {
-          x1: box.x + t, y1: box.y + 6, x2: box.x + t, y2: box.y + box.h - 6,
+          x1: box.x + t * tickScale, y1: box.y + 6,
+          x2: box.x + t * tickScale, y2: box.y + box.h - 6,
           stroke: tone, "stroke-width": 1, "stroke-opacity": 0.45,
         }),
       );
     }
     // 数值写在填充段内侧；条太短就挪到外面，绝不压在边框上
-    const inside = bar.fillW > 46;
-    this.text(
+    const inside = fillW > 46;
+    const valueNode = this.text(
       String(bar.value),
-      box.x + bar.fillW + (inside ? -10 : 8),
+      box.x + fillW + (inside ? -10 : 8),
       box.y + box.h / 2 + 4,
       13,
       tone,
       inside ? "end" : "start",
       700,
     );
+    this.countNodes.set(bar.id, valueNode);
     if (bar.delta) {
-      const w = bar.delta.toX - bar.delta.fromX;
+      const w = (bar.delta.toX - bar.delta.fromX) * tickScale;
       this.svg.appendChild(
         el("rect", {
-          x: box.x + bar.delta.fromX, y: box.y - 4, width: w, height: box.h + 8, rx: 4,
+          x: box.x + bar.delta.fromX * tickScale, y: box.y - 4, width: w, height: box.h + 8, rx: 4,
           fill: C.beam, "fill-opacity": 0.12, stroke: C.beam,
           "stroke-width": 1.5, "stroke-dasharray": "5 3",
         }),
       );
       // 「比最短的那根多出 N」——写「差 N」在三根条并排时会被读成缺口
-      this.text(`+${bar.delta.value}`, box.x + bar.delta.fromX + w / 2, box.y - 9, 12, C.beam, "middle", 700);
+      this.text(
+        `+${bar.delta.value}`,
+        box.x + bar.delta.fromX * tickScale + w / 2,
+        box.y - 9, 12, C.beam, "middle", 700,
+      );
     }
   }
 
@@ -582,29 +958,145 @@ export class ExplainerPlayer {
     );
   }
 
+  /**
+   * 英语句子：整句居中，正在练的那一段加底色并加粗。
+   *
+   * 高亮只用**原文里的字符区间**（布局层算好的），所以句子里本来有的撇号、
+   * 省略号都原样保留；找不到那一段就整句平着画，绝不去猜"大概是这个"。
+   */
+  private paintSentence(s: PlacedSentence): void {
+    const cx = s.box.x + s.box.w / 2;
+    const t = el("text", {
+      x: cx,
+      y: s.baseline,
+      "font-size": s.fontSize,
+      fill: C.ink,
+      "text-anchor": "middle",
+      "font-family": "Georgia, 'Times New Roman', serif",
+    }) as SVGTextElement;
+
+    const spans = [...s.highlights].sort((a, b) => a.start - b.start);
+    let at = 0;
+    const add = (piece: string, strong: boolean): void => {
+      if (!piece) return;
+      const ts = el("tspan", strong ? { "font-weight": 700, fill: C.beam } : {}) as SVGTSpanElement;
+      ts.textContent = piece;
+      if (strong) ts.setAttribute("text-decoration", "underline");
+      t.appendChild(ts);
+    };
+    for (const span of spans) {
+      if (span.start < at || span.end > s.text.length) continue; // 区间重叠/越界：跳过，不猜
+      add(s.text.slice(at, span.start), false);
+      add(s.text.slice(span.start, span.end), true);
+      at = span.end;
+    }
+    add(s.text.slice(at), false);
+    this.svg.appendChild(t);
+  }
+
+  /** 词汇卡：正面词 + 背面释义，卡片边框只围住这一张卡，不做装饰 */
+  private paintCard(c: PlacedCard): void {
+    const g = el("g");
+    g.appendChild(
+      el("rect", {
+        x: c.box.x + 8,
+        y: c.box.y,
+        width: Math.max(0, c.box.w - 16),
+        height: c.box.h,
+        rx: 14,
+        fill: C.paper,
+        stroke: C.rule,
+        "stroke-width": 1.5,
+      }),
+    );
+    const cx = c.box.x + c.box.w / 2;
+    const head = el("text", {
+      x: cx, y: c.headBaseline, "font-size": c.headSize, fill: C.beam,
+      "text-anchor": "middle", "font-weight": 600,
+      "font-family": "Georgia, 'Times New Roman', serif",
+    }) as SVGTextElement;
+    head.textContent = c.head;
+    g.appendChild(head);
+    if (c.sub !== undefined && c.subBaseline !== undefined) {
+      const sub = el("text", {
+        x: cx, y: c.subBaseline, "font-size": c.subSize, fill: C.ink,
+        "text-anchor": "middle",
+      }) as SVGTextElement;
+      sub.textContent = c.sub;
+      g.appendChild(sub);
+    }
+    this.svg.appendChild(g);
+  }
+
   /** 集：可数的记号。组身份 = 形状 × 颜色，被换过类别的记号换形状但不换位置 */
+  /**
+   * 画一段可能含公式的文字。
+   *
+   * `$...$` 里是 LaTeX：有渲染器就交给它（塞进 foreignObject，SVG 里能放 HTML），
+   * 没有就原样画成文字。**不做半吊子替换**——把 `$x^2$` 的美元符号去掉、
+   * 上下标丢掉，比原样显示更难查。
+   */
+  private maybeMath(
+    content: string,
+    x: number,
+    y: number,
+    size: number,
+    fill: string,
+    anchor: "start" | "middle" | "end" = "start",
+    weight = 400,
+  ): void {
+    const tex = /\$([^$]+)\$/.exec(content)?.[1];
+    if (!tex || !this.opts.math) {
+      this.text(content, x, y, size, fill, anchor, weight);
+      return;
+    }
+    const rendered = this.opts.math(tex, false);
+    rendered.root.style.fontSize = `${size}px`;
+    rendered.root.style.display = "inline-block";
+    const fo = document.createElementNS(NS, "foreignObject");
+    fo.setAttribute("x", String(x));
+    // foreignObject 的 y 是顶边，而 svg text 的 y 是基线：按字号抬一点，两者才对得齐
+    fo.setAttribute("y", String(y - size));
+    fo.setAttribute("width", String(Math.max(40, Math.min(this.width - x, 320))));
+    fo.setAttribute("height", String(Math.ceil(size * 2.2)));
+    fo.appendChild(rendered.root);
+    this.svg.appendChild(fo);
+    this.mathBlocks.push(rendered.atoms);
+  }
+
   private paintUnits(g: PlacedUnits, nextPos: Map<string, { x: number; y: number }>): void {
     const tone = CHANNELS[g.channel % CHANNELS.length]!;
     const shape = SHAPES[g.channel % SHAPES.length]!;
     const count = g.units.reduce((s, u) => s + u.weight, 0);
     const head = g.label ?? g.id;
-    this.text(
+    this.maybeMath(
       `${head}${g.note ? `（${g.note}）` : ""}`,
       g.labelAt.x, g.labelAt.y, 12, g.ghost ? C.inkFaint : C.ink, "start", 600,
     );
     if (!g.label?.includes(String(count))) {
-      this.text(`${count}`, g.labelAt.x + g.box.w, g.labelAt.y, 12, C.inkFaint, "end", 600);
+      const countNode = this.text(`${count}`, g.labelAt.x + g.box.w, g.labelAt.y, 12, C.inkFaint, "end", 600);
+      this.countNodes.set(g.id, countNode);
     }
 
     for (const u of g.units) {
+      // 本拍的落点记下来（拨动滑杆、同一拍重绘都要用它当基准）
       nextPos.set(u.id, { x: u.cx, y: u.cy });
+      /*
+       * 转场中：位置按进度插值，而不是让 CSS 自己动。
+       * 由 t 算出来的位置，seek 到任意时刻都对得上；CSS 动画一旦被打断，
+       * 画面就停在"当时是什么样"，而那个"当时"谁也复现不出来。
+       */
+      const target = this.motion?.positions.get(u.id);
+      const at = target
+        ? tweenPoint({ x: u.cx, y: u.cy }, target, this.motion!.progress)
+        : { x: u.cx, y: u.cy };
       // 被替换过的记号长成它变成的那一类的样子（换成兔就该像兔）；
       // spec 没说变成什么时退到下一个通道，至少和原类别区分得开
       const swappedCh = u.swappedChannel ?? (g.channel + 1) % CHANNELS.length;
       const swappedTone = CHANNELS[swappedCh % CHANNELS.length]!;
       const node = this.unitNode(
         u.swapped ? SHAPES[swappedCh % SHAPES.length]! : shape,
-        u.cx, u.cy, u.r,
+        at.x, at.y, u.r,
         g.ghost ? "none" : u.swapped ? swappedTone : u.kind === "unknown" ? C.lit : tone,
         g.ghost ? C.inkFaint : u.swapped ? swappedTone : tone,
         g.ghost,
@@ -615,8 +1107,8 @@ export class ExplainerPlayer {
         for (const dx of u.markXs) {
           this.svg.appendChild(
             el("line", {
-              x1: u.cx + dx, y1: u.cy + u.r * 0.8,
-              x2: u.cx + dx, y2: u.cy + u.r * 0.8 + u.markLen,
+              x1: at.x + dx, y1: at.y + u.r * 0.8,
+              x2: at.x + dx, y2: at.y + u.r * 0.8 + u.markLen,
               stroke: u.swapped ? swappedTone : tone,
               "stroke-width": Math.max(1, u.r * 0.22),
               "stroke-linecap": "round",
@@ -625,17 +1117,7 @@ export class ExplainerPlayer {
         }
       }
       if (u.weight > 1) {
-        this.text(String(u.weight), u.cx, u.cy + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
-      }
-      const prev = this.lastUnitPos.get(u.id);
-      if (prev && !reduceMotion() && (prev.x !== u.cx || prev.y !== u.cy)) {
-        node.animate?.(
-          [
-            { transform: `translate(${prev.x - u.cx}px, ${prev.y - u.cy}px)` },
-            { transform: "translate(0,0)" },
-          ],
-          { duration: 700, easing: "cubic-bezier(.22,1,.36,1)" },
-        );
+        this.text(String(u.weight), at.x, at.y + u.r * 0.45, Math.max(7, u.r), "#fff", "middle", 700);
       }
     }
   }
@@ -733,12 +1215,13 @@ export class ExplainerPlayer {
     fill: string,
     anchor: "start" | "middle" | "end" = "start",
     weight = 400,
-  ): void {
+  ): SVGTextElement {
     const t = el("text", {
       x, y, "font-size": size, fill, "text-anchor": anchor, "font-weight": weight,
-    });
+    }) as SVGTextElement;
     t.textContent = content;
     this.svg.appendChild(t);
+    return t;
   }
 
   /**

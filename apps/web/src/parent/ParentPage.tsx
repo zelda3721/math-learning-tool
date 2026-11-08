@@ -4,6 +4,12 @@ import { useLearner } from '../learner/LearnerContext'
 import { LearnerGate, LearnerSwitcher } from '../practice/LearnerGate'
 import { Badge, Button, ErrorState, LoadingState, PageHeader } from '../ui'
 import { ChildrenPanel } from './ChildrenPanel'
+import { SafetyPanel } from './SafetyPanel'
+import { MemoryPanel } from './MemoryPanel'
+import { ModulesPanel } from './ModulesPanel'
+import { IndependencePanel } from './IndependencePanel'
+import { TranscriptPanel } from './TranscriptPanel'
+import { AiJudgmentPanel } from './AiJudgmentPanel'
 import {
     ApiError,
     fetchParentSummary,
@@ -237,7 +243,7 @@ function MistakePatterns({ summary }: { summary: ParentSummary }) {
                             <div className="h-2 rounded-full bg-rule overflow-hidden">
                                 <div
                                     className="h-full rounded-full bg-beam"
-                                    style={{ width: `${Math.max(4, Math.round(p.share * 100))}%` }}
+                                    style={{ width: `${Math.max(4, Math.round(p.share))}%` }}
                                 />
                             </div>
                         </li>
@@ -599,11 +605,17 @@ export function ParentPage() {
                     </div>
                 )}
                 <VerdictQueue items={summary.pendingVerdicts} onResolved={handleVerdictResolved} />
+                {learnerId && <AiJudgmentPanel learnerId={learnerId} />}
+                {learnerId && <IndependencePanel learnerId={learnerId} />}
                 <Struggles summary={summary} />
                 <WeakNodes summary={summary} />
                 <MistakePatterns summary={summary} />
                 <RecentMistakes items={summary.recentMistakes} onCorrected={handleMistakeCorrected} />
                 <TrendChart trend={summary.trend} />
+                {learnerId && <SafetyPanel learnerId={learnerId} />}
+                {learnerId && <TranscriptPanel learnerId={learnerId} />}
+                {learnerId && <ModulesPanel learnerId={learnerId} />}
+                {learnerId && <MemoryPanel learnerId={learnerId} />}
                 <ExplanationSources rows={summary.explanationSources ?? []} />
             </div>
         )

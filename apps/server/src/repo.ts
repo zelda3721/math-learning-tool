@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { readLearnerPrefs, writeLearnerPrefs } from "./learnerPrefs.js";
 import { randomUUID } from "node:crypto";
 import type { Attempt, EducationLevel, Learner } from "@mathtutor/schema";
 
@@ -22,6 +23,22 @@ export interface MasteryRow {
   lastEvidenceAt: string | null;
 }
 
+/** 事件 payload 是外部写入的 JSON：坏了一行不该让整个查询抛错 */
+function safeJson(raw: unknown): unknown {
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** 本地时间的零点：孩子是"今天"用完了，不是"UTC 今天" */
+function localDayStart(at: Date): Date {
+  const d = new Date(at);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 export class Repo {
   constructor(private readonly db: DatabaseSync) {}
 
@@ -39,19 +56,40 @@ export class Repo {
     return rows.map((r) => ({ id: String(r.id), name: String(r.name), level: r.level as EducationLevel }));
   }
 
+  /** 学习者偏好（`learners.prefs_json`）：时长上限、被关掉的模块等 */
+  learnerPrefs(id: string): import("./learnerPrefs.js").LearnerPrefs {
+    return readLearnerPrefs(this.db, id);
+  }
+
+  setLearnerPrefs(id: string, patch: import("./learnerPrefs.js").LearnerPrefs): void {
+    writeLearnerPrefs(this.db, id, patch);
+  }
+
   getLearner(id: string): Learner | undefined {
     const r = this.db.prepare("SELECT id, name, level FROM learners WHERE id = ?").get(id);
     return r ? { id: String(r.id), name: String(r.name), level: r.level as EducationLevel } : undefined;
   }
 
   // ---- attempts ----
-  insertAttempt(a: Omit<Attempt, "id" | "at"> & { at?: string }): Attempt {
+  /**
+   * `verification` 可省略，缺省 `executable`：在英语包接入之前，判卷全部来自
+   * 确定性判卷器，缺省值就是事实。新学科要写 `ai_unverified` 时必须显式传。
+   */
+  insertAttempt(
+    a: Omit<Attempt, "id" | "at" | "verification"> & {
+      at?: string;
+      verification?: Attempt["verification"];
+      /** 谁在作答：缺省孩子本人；家长试做记为 parent，不进掌握度但留痕 */
+      actor?: "child" | "parent";
+    },
+  ): Attempt {
     const id = randomUUID();
     const at = a.at ?? new Date().toISOString();
+    const verification = a.verification ?? "executable";
     this.db
       .prepare(
         `INSERT INTO attempts (id, learner_id, question_id, answer, correct, hint_level_used,
-          source, duration_s, needs_review, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          source, duration_s, needs_review, verification, actor, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -63,12 +101,153 @@ export class Repo {
         a.source,
         a.durationS ?? null,
         a.needsReview ? 1 : 0,
+        verification,
+        a.actor ?? "child",
         at,
       );
-    return { ...a, id, at, needsReview: a.needsReview };
+    return { ...a, id, at, verification, needsReview: a.needsReview };
   }
 
-  getAttempt(id: string): (Attempt & { at: string }) | undefined {
+  /**
+   * 证据账本的原料：一次读全部作答（不截断）。
+   *
+   * 为什么不复用 recentAttempts：那个有 limit，且不带 verification/needs_review/actor，
+   * 而这三样正是"这条证据算不算数"的判据。推导在 evidence.ts 里做，这里只负责取数。
+   */
+  attemptsForEvidence(learnerId: string): {
+    questionId: string;
+    correct: boolean;
+    hintLevelUsed: number;
+    at: string;
+    source: string;
+    verification: string;
+    needsReview: boolean;
+    actor: string;
+  }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT question_id, correct, hint_level_used, at, source, verification, needs_review, actor
+         FROM attempts WHERE learner_id = ? ORDER BY at`,
+      )
+      .all(learnerId);
+    return rows.map((r) => ({
+      questionId: String(r.question_id),
+      correct: Boolean(r.correct),
+      hintLevelUsed: Number(r.hint_level_used),
+      at: String(r.at),
+      source: String(r.source),
+      verification: String(r.verification ?? "executable"),
+      needsReview: Boolean(r.needs_review),
+      actor: String(r.actor ?? "child"),
+    }));
+  }
+
+  /** 看过的题目解析：questionId → 时刻（升序）。用来区分"回忆"和"理解" */
+  analysisViews(learnerId: string): Map<string, string[]> {
+    const views = new Map<string, string[]>();
+    const rows = this.db
+      .prepare(
+        `SELECT ts, payload_json FROM learner_events
+         WHERE learner_id = ? AND type = 'analysis_view' ORDER BY ts`,
+      )
+      .all(learnerId);
+    for (const r of rows) {
+      const payload = safeJson(r.payload_json) as { questionId?: unknown } | null;
+      const questionId = typeof payload?.questionId === "string" ? payload.questionId : undefined;
+      if (!questionId) continue;
+      const list = views.get(questionId) ?? [];
+      list.push(String(r.ts));
+      views.set(questionId, list);
+    }
+    return views;
+  }
+
+  /** 这道题上一次作答前是否看过解析（决定增益折扣） */
+  viewedAnalysisBefore(learnerId: string, questionId: string, at: string): boolean {
+    const views = this.analysisViews(learnerId).get(questionId) ?? [];
+    return views.some((t) => t <= at);
+  }
+
+  /**
+   * 今天这道题已经计过几次证据：对错各算各的。
+   *
+   * 为什么要分开：同一道题一天里最多认「一次错」和「一次对」。
+   * - 反复交错答案不再连续 ×0.6 扣分（订正过程本来就被按错扣分，旧口径能把
+   *   一颗点亮的星打回暗）；
+   * - 但真的订正成功了还是一次真实的作答，不能假装没发生。
+   */
+  todayAttemptCounts(learnerId: string, questionId: string, at = new Date()): { correct: number; wrong: number } {
+    const day = localDayStart(at).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT correct, COUNT(*) AS n FROM attempts
+         WHERE learner_id = ? AND question_id = ? AND at >= ?
+           AND needs_review = 0 AND verification != 'ai_unverified' AND actor = 'child'
+         GROUP BY correct`,
+      )
+      .all(learnerId, questionId, day);
+    let correct = 0;
+    let wrong = 0;
+    for (const r of rows) {
+      if (Boolean(r.correct)) correct = Number(r.n);
+      else wrong = Number(r.n);
+    }
+    return { correct, wrong };
+  }
+
+  /** 这道题今天是否已经答对（"看过解析再答"的折扣只需要知道这一件事） */
+  correctToday(learnerId: string, questionId: string, at = new Date()): boolean {
+    const day = localDayStart(at).toISOString();
+    const r = this.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM attempts WHERE learner_id = ? AND question_id = ? AND at >= ? AND correct = 1",
+      )
+      .get(learnerId, questionId, day);
+    return Number((r as { n?: number } | undefined)?.n ?? 0) > 0;
+  }
+
+  /** 这道题已经拿到过的最高提示级（服务端记账，不信客户端自报） */
+  maxHintLevel(learnerId: string, questionId: string): number {
+    const rows = this.db
+      .prepare(
+        `SELECT payload_json FROM learner_events
+         WHERE learner_id = ? AND type = 'attempt' AND json_extract(payload_json, '$.kind') = 'hint'
+           AND json_extract(payload_json, '$.questionId') = ?`,
+      )
+      .all(learnerId, questionId);
+    let max = 0;
+    for (const r of rows) {
+      const payload = safeJson(r.payload_json) as { level?: unknown } | null;
+      const level = typeof payload?.level === "number" ? payload.level : 0;
+      if (level > max) max = level;
+    }
+    return max;
+  }
+
+  /** 这孩子对这道题是否已经"走过一遍"（答对过，或走完了三级提示） */
+  workedThrough(learnerId: string, questionId: string): boolean {
+    const correct = this.db
+      .prepare("SELECT COUNT(*) AS n FROM attempts WHERE learner_id = ? AND question_id = ? AND correct = 1")
+      .get(learnerId, questionId);
+    if (Number((correct as { n?: number } | undefined)?.n ?? 0) > 0) return true;
+    return this.maxHintLevel(learnerId, questionId) >= 3;
+  }
+
+  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
+    const r = this.db.prepare("SELECT id, kind, question_id FROM queue_items WHERE id = ?").get(id);
+    if (!r) return undefined;
+    return { id: String(r.id), kind: String(r.kind), questionId: String(r.question_id) };
+  }
+
+  /** 这个孩子一共提过几次题库外的题（家长端"独立性"看板要的数） */
+  countAskJobs(learnerId: string): number {
+    const r = this.db
+      .prepare("SELECT COUNT(*) AS n FROM ask_jobs WHERE learner_id = ?")
+      .get(learnerId);
+    return Number((r as { n?: number } | undefined)?.n ?? 0);
+  }
+
+  getAttempt(id: string): (Attempt & { at: string; actor?: string }) | undefined {
     const r = this.db.prepare("SELECT * FROM attempts WHERE id = ?").get(id);
     if (!r) return undefined;
     return {
@@ -81,6 +260,9 @@ export class Repo {
       source: r.source as Attempt["source"],
       durationS: r.duration_s === null ? undefined : Number(r.duration_s),
       needsReview: Boolean(r.needs_review),
+      verification: (r.verification ?? "executable") as Attempt["verification"],
+      /** 谁在作答（家长试做记为 parent）：归因判断"这条证据算不算"要用 */
+      actor: String(r.actor ?? "child"),
       parentVerdict: (r.parent_verdict ?? undefined) as Attempt["parentVerdict"],
       parentNote: (r.parent_note ?? undefined) as string | undefined,
       at: String(r.at),
@@ -114,6 +296,8 @@ export class Repo {
       "queue_items",
       "review_cards",
       "mistakes",
+      // 转写也算学习痕迹：重置一个孩子就该连"他自己说过的话"一起清掉
+      "explore_transcripts",
     ];
     return tables.map((table) => {
       const r = this.db.prepare(`DELETE FROM ${table} WHERE learner_id = ?`).run(learnerId);
@@ -183,11 +367,111 @@ export class Repo {
       .run(row.learnerId, row.nodeId, row.p, row.evidenceN, row.lastEvidenceAt);
   }
 
+  // ---- 导师长期记忆（可解释、可删、只存本地） ----
+  /**
+   * 记一条记忆。同一 `dedupeKey` 已有则累加计数并刷新时间——
+   * 一件事反复发生不代表要记十条，记一条、数次数才是人读得懂的形态。
+   *
+   * **删过的条目不再复活**（`WHERE tutor_memories.deleted_at IS NULL`）。
+   * 记忆是每轮对话前重新派生的，UPSERT 里那个 `deleted_at = NULL` 曾让家长删掉的记忆
+   * 下一次对话就原样回来——"删了就真的不再被召回"这条承诺当场作废。
+   * 现在墓碑挡住后续写入：数据再怎么证明同一件事，它也不会重新出现。
+   * 家长要恢复某条记忆，只能靠新增一条不同的记忆，不能靠"删错"来碰运气。
+   */
+  rememberMemory(input: {
+    learnerId: string;
+    kind: string;
+    text: string;
+    dedupeKey: string;
+    source: string;
+  }): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO tutor_memories (id, learner_id, kind, text, dedupe_key, hit_count, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+         ON CONFLICT(learner_id, dedupe_key) DO UPDATE SET
+           text = excluded.text,
+           hit_count = tutor_memories.hit_count + 1,
+           updated_at = excluded.updated_at
+         WHERE tutor_memories.deleted_at IS NULL`,
+      )
+      .run(randomUUID(), input.learnerId, input.kind, input.text, input.dedupeKey, input.source, now, now);
+  }
+
+  /** 召回：默认只给还在用的（软删除的一律不出现） */
+  listMemories(learnerId: string, opts: { includeDeleted?: boolean } = {}): {
+    id: string;
+    kind: string;
+    text: string;
+    hitCount: number;
+    source: string;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string | null;
+  }[] {
+    const rows = (
+      opts.includeDeleted
+        ? this.db.prepare("SELECT * FROM tutor_memories WHERE learner_id = ? ORDER BY updated_at DESC").all(learnerId)
+        : this.db
+            .prepare(
+              "SELECT * FROM tutor_memories WHERE learner_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC",
+            )
+            .all(learnerId)
+    ) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      kind: String(r.kind),
+      text: String(r.text),
+      hitCount: Number(r.hit_count ?? 1),
+      source: String(r.source),
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at),
+      deletedAt: r.deleted_at === null || r.deleted_at === undefined ? null : String(r.deleted_at),
+    }));
+  }
+
+  /** 家长删记忆：软删除，召回立刻不再出现 */
+  forgetMemory(learnerId: string, id: string): boolean {
+    const result = this.db
+      .prepare("UPDATE tutor_memories SET deleted_at = ? WHERE learner_id = ? AND id = ? AND deleted_at IS NULL")
+      .run(new Date().toISOString(), learnerId, id);
+    return Number(result.changes ?? 0) > 0;
+  }
+
   // ---- events（append-only；mastery 是它的可重放投影） ----
   appendEvent(learnerId: string, type: string, payload: unknown): void {
     this.db
       .prepare("INSERT INTO learner_events (id, learner_id, ts, type, payload_json) VALUES (?, ?, ?, ?, ?)")
       .run(randomUUID(), learnerId, new Date().toISOString(), type, JSON.stringify(payload));
+  }
+
+  /**
+   * 读事件（按时间正序）。可传 type 过滤。
+   *
+   * 补这个方法的原因很实在：`learner_events` 一直是**只写不读**的。
+   * 而语义判卷那边写着"模型放行的每一次都记进 learner_events，可审"——
+   * 一条没人读得到的审计记录，跟没记没有区别。
+   */
+  listEvents(
+    learnerId: string,
+    type?: string,
+  ): { id: string; ts: string; type: string; payload: unknown }[] {
+    const rows = (
+      type
+        ? this.db
+            .prepare("SELECT * FROM learner_events WHERE learner_id = ? AND type = ? ORDER BY ts")
+            .all(learnerId, type)
+        : this.db
+            .prepare("SELECT * FROM learner_events WHERE learner_id = ? ORDER BY ts")
+            .all(learnerId)
+    ) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: String(r.ts),
+      type: String(r.type),
+      payload: JSON.parse(String(r.payload_json)),
+    }));
   }
 
   // ---- mistakes（P2 错因坐标） ----
@@ -582,8 +866,89 @@ export class Repo {
     return r ? String(r.id) : undefined;
   }
 
+  // ---- 对话转写（阶段 4；默认关，开不写在一处判断，见 learnerPrefs.recordTranscript） ----
+  /** 写一轮转写。`role='blocked'` 时 content 一律空，只留原因——被拦下的原话不落库 */
+  insertTranscript(t: {
+    learnerId: string;
+    role: "user" | "assistant" | "blocked";
+    content?: string;
+    safetyReason?: string;
+    at?: string;
+  }): void {
+    this.db
+      .prepare(
+        "INSERT INTO explore_transcripts (id, learner_id, ts, role, content, safety_reason) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        randomUUID(),
+        t.learnerId,
+        t.at ?? new Date().toISOString(),
+        t.role,
+        t.role === "blocked" ? "" : (t.content ?? ""),
+        t.safetyReason ?? null,
+      );
+  }
+
+  /** 家长看：倒序（最近的对话在最上面） */
+  listTranscripts(
+    learnerId: string,
+    limit = 200,
+  ): { id: string; ts: string; role: string; content: string; safetyReason: string | null }[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, ts, role, content, safety_reason FROM explore_transcripts WHERE learner_id = ? ORDER BY ts DESC LIMIT ?",
+      )
+      .all(learnerId, limit);
+    return rows.map((r) => ({
+      id: String(r.id),
+      ts: String(r.ts),
+      role: String(r.role),
+      content: String(r.content ?? ""),
+      safetyReason: r.safety_reason === null || r.safety_reason === undefined ? null : String(r.safety_reason),
+    }));
+  }
+
+  /** 家长清空：**物理删除**。转写是"家长自己开的录音"，删掉就该真没了 */
+  clearTranscripts(learnerId: string): number {
+    const r = this.db.prepare("DELETE FROM explore_transcripts WHERE learner_id = ?").run(learnerId);
+    return Number(r.changes ?? 0);
+  }
+
+  // ---- AI 判断抽查（宪法第 5 条：ai_unverified 的证据要有人看，但不承重） ----
+  /**
+   * 列 `verification='ai_unverified'` 的作答，供家长抽查。
+   * 不按 needs_review 过滤：这类作答本来就可能不进裁决队列（模型判"对"时
+   * needs_review 是 0），只按 needs_review 筛会让家长一条都看不到。
+   */
+  attemptsByVerification(
+    learnerId: string,
+    verification: Attempt["verification"],
+    limit = 50,
+  ): (Attempt & { at: string })[] {
+    return this.db
+      .prepare("SELECT id FROM attempts WHERE learner_id = ? AND verification = ? ORDER BY at DESC LIMIT ?")
+      .all(learnerId, verification, limit)
+      .map((r) => this.getAttempt(String((r as Record<string, unknown>).id))!)
+      .filter(Boolean);
+  }
+
+  /** 家长推翻一条 AI 判断：只标"需复核"，等他自己给出结论，不在这里改判 */
+  markAttemptNeedsReview(attemptId: string): boolean {
+    const r = this.db
+      .prepare("UPDATE attempts SET needs_review = 1 WHERE id = ? AND parent_verdict IS NULL")
+      .run(attemptId);
+    return Number(r.changes ?? 0) > 0;
+  }
+
   // ---- review cards（P3 SM-2） ----
-  upsertReviewCard(learnerId: string, targetKind: "question" | "node", targetId: string, nextReviewAt: string): void {
+  /**
+   * 建/重置一张复习卡。
+   *
+   * targetKind 是开放的：`question` / `node` 走组卷器，`vocab` / `reading`
+   * 是英语那两条线（词与读物不是图谱节点，进度单独记）。类型放宽是有意的——
+   * 每加一条学习线都来改一次签名，等于把"这里会长新东西"写死在类型里。
+   */
+  upsertReviewCard(learnerId: string, targetKind: string, targetId: string, nextReviewAt: string): void {
     this.db
       .prepare(
         `INSERT INTO review_cards (id, learner_id, target_kind, target_id, stage, next_review_at, created_at)
@@ -618,17 +983,31 @@ export class Repo {
   dueReviewCards(learnerId: string, limit: number): ReviewCardRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?
+        `SELECT * FROM review_cards WHERE learner_id = ? AND target_kind IN ('question','node')
+         AND mastered_at IS NULL AND next_review_at <= ?
          ORDER BY next_review_at LIMIT ?`,
       )
       .all(learnerId, new Date().toISOString(), limit)
       .map((r) => this.rowToReviewCard(r as Record<string, unknown>));
   }
 
+  /**
+   * 按 targetKind 列复习卡（vocab / reading 这些词与读物不是图谱节点，自己一条线）。
+   * 与 dueReviewCards 分开：那种"到期的题"会被组卷器直接拿去出题，
+   * 混进 vocab 卡就会让组卷器拿到一个查不到的 question id。
+   */
+  listReviewCardsByKind(learnerId: string, targetKind: string): ReviewCardRow[] {
+    return this.db
+      .prepare("SELECT * FROM review_cards WHERE learner_id = ? AND target_kind = ?")
+      .all(learnerId, targetKind)
+      .map((r) => this.rowToReviewCard(r as Record<string, unknown>));
+  }
+
+  /** 到期复习只数题：词汇与阅读有自己的入口，不该占"今天有几道复习题"这个数 */
   countDueReviews(learnerId: string): number {
     const r = this.db
       .prepare(
-        "SELECT COUNT(*) AS n FROM review_cards WHERE learner_id = ? AND mastered_at IS NULL AND next_review_at <= ?",
+        "SELECT COUNT(*) AS n FROM review_cards WHERE learner_id = ? AND target_kind IN ('question','node') AND mastered_at IS NULL AND next_review_at <= ?",
       )
       .get(learnerId, new Date().toISOString());
     return Number(r?.n ?? 0);

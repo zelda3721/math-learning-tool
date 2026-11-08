@@ -5,8 +5,9 @@ import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
 import { practiceReady } from "./questions.js";
 import type { HintProvider } from "./hint.js";
-import { effectiveP } from "./mastery.js";
-import { normalizeText } from "./grading.js";
+import { countsTowardMastery, effectiveP } from "./mastery.js";
+import { nodeEvidenceCounts } from "./evidence.js";
+import { normalizeText } from "@mathtutor/subject-math";
 
 /**
  * 诊断归因（设计 §06/§07）：归因主链是代码，LLM 只在候选集内做受限选择。
@@ -95,9 +96,31 @@ export async function diagnoseMistake(args: {
   if (!question) return { error: "题目不存在" };
 
   // 1) 确定性候选：沿 prerequisites 回溯掌握度低/无证据的祖先
+  /*
+   * 证据要**排除这道题刚刚交上来的那一次错答**。
+   *
+   * 不排除的话归因会自我认证：错答先写了证据，题目自身节点的 evidenceN 变成 1，
+   * 于是"verified 或有实证"的门槛总被这道错题自己满足，根因永远塌缩成
+   * "题目自己那个节点"——沿前置回溯找根子的设计对新孩子完全不起作用。
+   */
+  const history = repo
+    .attemptsForEvidence(attempt.learnerId)
+    .filter((a) => !(a.questionId === attempt.questionId && a.at === attempt.at));
+  const historicalCounts = nodeEvidenceCounts(history, questions);
+  /*
+   * 掌握度行是增量投影，看不出"这条证据是不是刚才那次错答写的"。
+   * 但那一次错答只会给**题目自己挂的节点**各加 1，所以按节点身份扣掉它：
+   * 题目自身节点从"有实证"里排除，前置节点原样保留。
+   * 这一条是堵自证的关键——不然错题自己就把"有实证"的门槛满足了。
+   */
+  const thisCounted =
+    !attempt.needsReview && countsTowardMastery(attempt.verification) && attempt.actor !== "parent";
   const masteryLookup = (nodeId: string) => {
     const row = repo.getMastery(attempt.learnerId, nodeId);
-    return row ? { p: effectiveP(row), evidenceN: row.evidenceN } : undefined;
+    const own = thisCounted && question.nodeIds.includes(nodeId) ? 1 : 0;
+    const fromRow = row ? Math.max(0, row.evidenceN - own) : 0;
+    const evidenceN = Math.max(historicalCounts.get(nodeId) ?? 0, fromRow);
+    return { p: row ? effectiveP(row) : 0, evidenceN };
   };
   const candidates = knowledge.index.traceRootCandidates(question.nodeIds, masteryLookup);
   // 题目自身节点也是候选（错在当前知识而非前置的情形），排在回溯候选之后

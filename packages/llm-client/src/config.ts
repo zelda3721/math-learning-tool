@@ -35,6 +35,20 @@ export interface LlmConfig {
   embeddingEnabled: boolean;
   /** True when a rerank model is configured. */
   rerankEnabled: boolean;
+  /**
+   * 只许本机/局域网端点（D5：`LOCAL_ONLY` 默认开启）。
+   *
+   * 这不是提示而是**硬拦截**：客户端拿着非本地地址构造就直接抛错，而不是打一行日志
+   * 再照常发出去。默认必须是开的——默认关等于默认允许把孩子的对话和作业发到云上，
+   * 而这件事出错的代价不可逆。显式写 `LOCAL_ONLY=0` 才放行，放行后越界请求都记审计。
+   */
+  localOnly: boolean;
+}
+
+/** `LOCAL_ONLY=0/false/off/no` 才关；其余（包括没写）一律开 */
+export function parseLocalOnly(env: Env = process.env): boolean {
+  const raw = (env["LOCAL_ONLY"] ?? "").trim().toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
 }
 
 // Defaults target LMStudio + Qwen3, same as settings.py.
@@ -74,6 +88,7 @@ export function loadLlmConfig(env: Env = process.env): LlmConfig {
     fastEnabled: Boolean(pick("LLM_FAST_MODEL")),
     embeddingEnabled: Boolean(embedding.model),
     rerankEnabled: Boolean(rerank.model),
+    localOnly: parseLocalOnly(env),
   };
 }
 

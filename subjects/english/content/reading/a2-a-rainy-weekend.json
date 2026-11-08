@@ -1,0 +1,26 @@
+{
+  "id": "r-a2-a-rainy-weekend",
+  "title": "A Rainy Weekend",
+  "level": "A2",
+  "text": "Last weekend the weather was terrible. On Saturday morning a strong wind blew, and then it rained all afternoon. My brother and I wanted to play football in the park, but the ground was wet and cold. We stayed at home and played chess for two hours. My mother made hot soup for lunch. In the afternoon, we watched a film about a farm and a clever dog. On Sunday the rain stopped, but it was still foggy. We put on warm coats and walked to the market with our father. We bought fresh bread, carrots and a bottle of milk. The market was not busy because the streets were wet. We walked home slowly and had pancakes for dinner.",
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "What did the children do at home for two hours?",
+      "answer": "They played chess / played chess / chess",
+      "evidence": "We stayed at home and played chess for two hours."
+    },
+    {
+      "id": "q2",
+      "prompt": "Why was the market not busy?",
+      "answer": "The streets were wet / streets were wet / because the streets were wet",
+      "evidence": "The market was not busy because the streets were wet."
+    },
+    {
+      "id": "q3",
+      "prompt": "Where did the family walk on Sunday?",
+      "answer": "To the market / the market / market",
+      "evidence": "We put on warm coats and walked to the market with our father."
+    }
+  ]
+}

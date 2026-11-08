@@ -1,0 +1,1467 @@
+{
+  "generated_at": "2026-11-05T13:56:44",
+  "set": "engine",
+  "label": "oMLX Qwen3.8-Flash-Next（thinking 默认关）",
+  "base_url": "http://127.0.0.1:8001",
+  "summary": {
+    "cases": 30,
+    "ran": 30,
+    "errored": 0,
+    "answer_correct": 28,
+    "answer_accuracy": 0.933,
+    "median_s": 340.5,
+    "p90_s": 1142.3,
+    "compiled": 27,
+    "done": 27,
+    "regraded_from": "golden-engine-20261105-0942.json",
+    "changed_by_regrade": 3
+  },
+  "cases": [
+    {
+      "id": "eng-001",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "3",
+      "answer_got": "3个",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 440.2,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 41.2,
+          "summary": "问题简报与解题完成：通过从总数中移除吃掉的苹果数量，直接计算剩余数量。，3 步，答案：3个"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 22.2,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 21.7,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 37.2,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（quantity_story）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 0.1,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 317.7,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-002",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "4",
+      "answer_got": "4 颗",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 1174.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 46.8,
+          "summary": "问题简报与解题完成：将 12 颗糖果平均分成 3 份，每份的数量即为每人分得的数量。，2 步，答案：4 颗"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 16.7,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 16.5,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 46.9,
+          "summary": "验证降级：独立验证连续格式失败；已采用 solve 阶段确定性证据作为验证依据"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 374.1,
+          "summary": "视觉导演降级：LLM 计划与安全基线均不可用，已改用最小已验证数量叙事（成片审查将附降级警告）"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 28.2,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 645.7,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-003",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "5",
+      "answer_got": "还剩 5 只",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 208.6,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 40.6,
+          "summary": "问题简报与解题完成：从总数中减去飞走的数量，得到剩余的数量。，3 步，答案：还剩 5 只"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 17.1,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 21.0,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 35.8,
+          "summary": "验证降级：独立验证连续格式失败；已采用 solve 阶段确定性证据作为验证依据"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（quantity_story）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 46.6,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 47.4,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-004",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "12",
+      "answer_got": "12 支",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 300.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 46.1,
+          "summary": "问题简报与解题完成：将原有的铅笔数量与新得到的铅笔数量合并，通过加法计算总和。，3 步，答案：12 支"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 16.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 20.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 42.6,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（quantity_story）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 26.9,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 147.7,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-005",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "5",
+      "answer_got": "每盘放 5 个。",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选",
+      "total_s": 1142.3,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 49.5,
+          "summary": "问题简报与解题完成：利用乘法口诀“三五十五”或连续减法，找出 15 里面包含多少个 3。，2 步，答案：每盘放 5 个。"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 21.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 15.7,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 40.4,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 414.4,
+          "summary": "视觉导演降级：LLM 计划与安全基线均不可用，已改用最小已验证数量叙事（成片审查将附降级警告）"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 33.9,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 566.4,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-006",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "兔 12 只，鸡 23 只",
+      "answer_got": "鸡有 23 只，兔有 12 只。",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 263.6,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 65.4,
+          "summary": "问题简报与解题完成：使用“假设法”：先假设所有动物都是鸡，计算脚数差额，再通过替换一只鸡为一只兔来消除差额，从而求出兔的数量。，5 步，答案：鸡有 23 只，兔有 12 只。"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 26.2,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 26.4,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 60.0,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（linear_mix_swap）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 28.7,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 56.8,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-007",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "鸡 5 只，兔 3 只",
+      "answer_got": "鸡有 5 只，兔有 3 只",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=10/12，问题 3 条",
+      "total_s": 319.3,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 69.4,
+          "summary": "问题简报与解题完成：使用假设法。先假设所有动物都是鸡，计算出此时的脚数，通过实际脚数与假设脚数的差值，结合每只兔比鸡多出的脚数，推算出兔的数量。，5 步，答案：鸡有 5 只，兔有 3 只"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 23.6,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 38.0,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 61.9,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（linear_mix_swap）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 31.8,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 94.6,
+          "summary": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=10/12，问题 3 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-008",
+      "ok": false,
+      "status": "failed",
+      "answer_expected": "6",
+      "answer_got": "4",
+      "answer_correct": false,
+      "compiled": false,
+      "gate": null,
+      "total_s": 1947.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 784.9,
+          "summary": "问题简报与解题完成：利用共线线段上的三角形面积比等于底边比，逐步求出中间三角形 $\\triangle ABE$、$\\triangle BEN$、$\\triangle BNM$ 的面积，最后利用 $\\triangle BEC$ 和 $\\tri"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 0.0,
+          "summary": "解答与原图几何不符：解答里说 A、E、F、M 共线，但按原图它们不共线——这条位置关系不能用"
+        },
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 1163.0,
+          "summary": "问题简报与解题完成：利用“等高三角形面积比等于底边比”的性质，通过已知面积求出线段比例，进而求出未知区域的面积。，4 步，答案：4"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 0.0,
+          "summary": "解答与原图几何不符：解答里说 E 在 AM 上，但按原图 E 不在直线 AM 上（图上也没有 AM 这条线）——这条位置关系不能用；解答里说 N 在 AM 上，但按原图 N 不在直线 AM 上（图上也没有 AM 这条线）——这条位置关系不能"
+        }
+      ]
+    },
+    {
+      "id": "eng-009",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "8",
+      "answer_got": "8",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 956.7,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 80.1,
+          "summary": "问题简报与解题完成：采用逆向推理（还原法），从最终结果 20 出发，通过逆运算逐步还原出原始数字。，2 步，答案：8"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 47.4,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 19.8,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 312.2,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 41.7,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 455.4,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-010",
+      "ok": false,
+      "status": "failed",
+      "answer_expected": "5",
+      "answer_got": "甲车原来的速度为 10 km/h。",
+      "answer_correct": false,
+      "compiled": false,
+      "gate": null,
+      "total_s": 1844.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 862.6,
+          "summary": "问题简报与解题完成：利用两次速度变化导致的相遇时间变化，结合甲车行驶距离的变化量建立方程组，消去总路程和乙车速度，解出甲车速度。，4 步，答案：甲车原来的速度为 10 km/h。"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 39.9,
+          "summary": "独立 Math IR 发现结论不成立：[{'id': 'check_v_A', 'relation': 'equal', 'left': '5', 'right': '10', 'passed': False}]"
+        },
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 887.5,
+          "summary": "问题简报与解题完成：利用两次相遇中甲车行驶距离的变化量建立方程组，通过代数消元求解甲车原速度。，4 步，答案：甲车原来的速度为 10 km/h。"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 54.8,
+          "summary": "独立 Math IR 发现结论不成立：[{'id': 'check_vA', 'relation': 'equal', 'left': '5', 'right': '10', 'passed': False}]"
+        }
+      ]
+    },
+    {
+      "id": "eng-011",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "5",
+      "answer_got": "5 米",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选",
+      "total_s": 862.7,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 60.7,
+          "summary": "问题简报与解题完成：利用长方形周长公式的逆运算，先求出长与宽的和，再减去已知的长得到宽。，2 步，答案：5 米"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 27.9,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 42.0,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 53.6,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 240.0,
+          "summary": "视觉导演完成：开放式视觉计划完成：5 个 beat；通过‘展开周长’的视觉隐喻，将封闭的长方形周长转化为一条包含‘2长+2宽’的线段，先通过‘对折’或‘取半’得到‘长+宽’"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 35.5,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 402.8,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-012",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "18",
+      "answer_got": "18 人",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 518.4,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 32.5,
+          "summary": "问题简报与解题完成：利用“移多补少”的思想，从总人数中减去男生比女生多出的部分，剩下的就是两倍的女生人数，再除以2即可得到女生人数。，3 步，答案：18 人"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 6.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 7.0,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 13.4,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 155.8,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 28.4,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 274.5,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-013",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "23",
+      "answer_got": "23",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片复审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 379.6,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 15.9,
+          "summary": "问题简报与解题完成：利用连续自然数的对称性，中间数等于平均数，从而直接求出最小数。，3 步，答案：23"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 7.1,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 9.2,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 14.7,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 194.0,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 18.3,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 120.2,
+          "summary": "成片复审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-014",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "30",
+      "answer_got": "30 个",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片复审通过（acceptable，附改进建议）：视觉评审：acceptable B=8/12，问题 4 条",
+      "total_s": 662.6,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 21.6,
+          "summary": "问题简报与解题完成：按正方形的边长分类，分别数出边长为1、2、3、4的正方形个数，最后相加。，5 步，答案：30 个"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 11.6,
+          "summary": "自校验：通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 277.5,
+          "summary": "视觉导演降级：LLM 计划与安全基线均不可用，已改用最小已验证数量叙事（成片审查将附降级警告）"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 37.6,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 314.3,
+          "summary": "成片复审通过（acceptable，附改进建议）：视觉评审：acceptable B=8/12，问题 4 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-015",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "4",
+      "answer_got": "$x = 4$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 80.8,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 15.6,
+          "summary": "问题简报与解题完成：利用等式的性质，通过逆运算逐步剥离 $x$ 周围的系数和常数，使 $x$ 单独位于等式一边。，3 步，答案：$x = 4$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.5,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（linear_balance）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 37.5,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 24.1,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-016",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "4",
+      "answer_got": "$x = 4$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 71.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 13.1,
+          "summary": "问题简报与解题完成：利用等式的性质，通过逆运算逐步隔离未知数 $x$。，3 步，答案：$x = 4$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.5,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（linear_balance）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 31.1,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 24.1,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-017",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "6",
+      "answer_got": "$x = 6$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 212.1,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 13.7,
+          "summary": "问题简报与解题完成：利用等式的性质，先消除系数 3，再消除常数 -2，从而孤立未知数 $x$。，2 步，答案：$x = 6$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.9,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（linear_balance）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 39.1,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 155.3,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-018",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "5",
+      "answer_got": "5",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片复审通过（acceptable，附改进建议）：视觉评审：acceptable B=11/12，问题 2 条",
+      "total_s": 181.3,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 12.4,
+          "summary": "问题简报与解题完成：直接应用勾股定理，将已知直角边长度代入公式求解斜边。，2 步，答案：5"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.4,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（math_ir）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 42.7,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 122.7,
+          "summary": "成片复审通过（acceptable，附改进建议）：视觉评审：acceptable B=11/12，问题 2 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-019",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "96",
+      "answer_got": "96%",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选",
+      "total_s": 345.0,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 18.5,
+          "summary": "问题简报与解题完成：设原价为单位“1”或变量 $P$，依次应用涨价和降价的乘法因子，最后计算现价与原价的比值。，3 步，答案：96%"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 4.7,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 143.4,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 17.3,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 161.0,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-020",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "x = 6，y = 4",
+      "answer_got": "$x = 6, y = 4$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 443.1,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 20.1,
+          "summary": "问题简报与解题完成：利用加减消元法，将两个方程相加消去 $y$，求出 $x$，再代回求出 $y$。，4 步，答案：$x = 6, y = 4$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 4.9,
+          "summary": "独立 Math IR 无法执行：claim 1: ValueError: only constant integer/string subscripts are supported"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 4.1,
+          "summary": "独立 Math IR 无法执行：claim 1: ValueError: only constant integer/string subscripts are supported"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 16.7,
+          "summary": "验证降级：独立验证连续格式失败；已采用 solve 阶段确定性证据作为验证依据"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 187.3,
+          "summary": "视觉导演完成：开放式视觉计划完成：6 个 beat；通过天平模型演示两个方程的叠加，直观展示 y 的抵消与 x 的加倍，从而求出 x，再代回求 y 并验证。"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 31.4,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 178.5,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-021",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "-1",
+      "answer_got": "-1",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 2 条",
+      "total_s": 127.2,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 15.1,
+          "summary": "问题简报与解题完成：利用二次函数开口向上的性质，通过求导找到驻点（顶点横坐标），再代入原函数计算最小值。，2 步，答案：-1"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 4.7,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（calculus_derivative）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 89.1,
+          "summary": "编译成功：写码、校验、渲染均通过（首稿通过）"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 18.2,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 2 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-022",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "29",
+      "answer_got": "29",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选",
+      "total_s": 527.7,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 18.2,
+          "summary": "问题简报与解题完成：识别数列的首项和公差，代入等差数列通项公式计算第 10 项。，3 步，答案：29"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 9.3,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.5,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 142.2,
+          "summary": "视觉导演降级：LLM 计划与安全基线均不可用，已改用最小已验证数量叙事（成片审查将附降级警告）"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 19.4,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 334.9,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片修复发生质量回归，已交付更好的候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-023",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "1/2",
+      "answer_got": "$\\frac{1}{2}$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=10/12，问题 3 条",
+      "total_s": 200.8,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 14.5,
+          "summary": "问题简报与解题完成：将角度制转换为弧度制，利用特殊角三角函数定义直接求值。，2 步，答案：$\\frac{1}{2}$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.8,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 122.8,
+          "summary": "视觉导演完成：开放式视觉计划完成：4 个 beat；通过构建边长为2的等边三角形并沿高线剖分，将抽象的 sin(30°) 转化为直角三角形中“对边与斜边之比”的几何量，直观"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 34.7,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 24.9,
+          "summary": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=10/12，问题 3 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-024",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "x > 4",
+      "answer_got": "$x > 4$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=8/12，问题 3 条",
+      "total_s": 336.0,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 24.7,
+          "summary": "问题简报与解题完成：利用不等式的性质，通过移项和系数化为1，将不等式变形为 $x > a$ 的形式。，2 步，答案：$x > 4$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 3.3,
+          "summary": "独立 Math IR 无法执行：solve_ineq: ValueError: unsupported expression node: Compare"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 9.6,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 15.6,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 229.2,
+          "summary": "视觉导演完成：开放式视觉计划完成：5 个 beat；通过天平隐喻演示不等式两边同步操作保持平衡，最终在数轴上可视化解集 x > 4。"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 27.6,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 25.8,
+          "summary": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=8/12，问题 3 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-025",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "1",
+      "answer_got": "1",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 156.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 17.0,
+          "summary": "问题简报与解题完成：利用泰勒级数展开将 $\\sin(x)$ 转化为多项式，消去分母中的 $x$，然后代入极限值。，3 步，答案：1"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.4,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（calculus_limit）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 118.4,
+          "summary": "编译成功：写码、校验、渲染均通过（内部定向修复 1 次）"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 18.1,
+          "summary": "成片首审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    },
+    {
+      "id": "eng-026",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "1",
+      "answer_got": "1",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 203.9,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 16.1,
+          "summary": "问题简报与解题完成：应用微积分基本定理，先求被积函数 $2x$ 的原函数，再代入积分上下限计算差值。，3 步，答案：1"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.6,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（calculus_integral）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 76.9,
+          "summary": "编译成功：写码、校验、渲染均通过（内部定向修复 1 次）"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 107.3,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-027",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "3x²",
+      "answer_got": "$3x^2$",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 446.3,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 12.7,
+          "summary": "问题简报与解题完成：直接应用幂函数的求导法则（Power Rule）对 $x^3$ 进行微分。，2 步，答案：$3x^2$"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.4,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（calculus_derivative）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 96.6,
+          "summary": "修复后代码门禁仍未通过；已生成可播放的已验证关系图保底视频，画面质量标记为 degraded，后续仍会进入成片审查"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 333.5,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-028",
+      "ok": false,
+      "status": "failed",
+      "answer_expected": "-2",
+      "answer_got": "-2",
+      "answer_correct": true,
+      "compiled": false,
+      "gate": null,
+      "total_s": 187.8,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 12.1,
+          "summary": "问题简报与解题完成：直接应用 $2 \\times 2$ 矩阵行列式的定义公式 $ad-bc$ 进行计算。，2 步，答案：-2"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 3.2,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 171.0,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": false,
+          "s": 1.5,
+          "summary": "Visual IR 确定性编译未能渲染；编译阶段已停止无证据试错"
+        }
+      ]
+    },
+    {
+      "id": "eng-029",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "96",
+      "answer_got": "96 平方厘米",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选",
+      "total_s": 409.2,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 18.6,
+          "summary": "问题简报与解题完成：识别出表面积增加的部分即为两个新产生的切面，从而求出单个面的面积，再乘以6得到原表面积。，3 步，答案：96 平方厘米"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 9.2,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 7.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 14.9,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 210.7,
+          "summary": "视觉导演完成：开放式视觉计划完成：6 个 beat；通过正方体切割动画，直观展示切开后新增的两个切面，利用面积守恒与增量关系，推导出单面面积进而求出总表面积。"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 30.2,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 117.7,
+          "summary": "已交付当前最佳候选视频（未达到质量门禁）：一次成片定向修复后仍未达到质量门禁，已交付最佳候选"
+        }
+      ]
+    },
+    {
+      "id": "eng-030",
+      "ok": true,
+      "status": "ok",
+      "answer_expected": "9",
+      "answer_got": "9 本",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=7/12，问题 3 条",
+      "total_s": 290.2,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 42.1,
+          "summary": "问题简报与解题完成：将甲和乙的数量都转化为丙的倍数，从而将总数量表示为丙的若干倍，通过除法求出丙的数量。，4 步，答案：9 本"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 10.3,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 4.1,
+          "summary": "独立 Math IR 计算与全部 claims 通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 170.3,
+          "summary": "视觉导演首稿文案未通过契约；已保留可验证图形对象并切换为安全视觉基线"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 45.6,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 17.8,
+          "summary": "成片首审通过（acceptable，附改进建议）：视觉评审：acceptable B=7/12，问题 3 条"
+        }
+      ]
+    }
+  ]
+}

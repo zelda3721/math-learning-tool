@@ -1,13 +1,23 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { GraphSchema, type Question, type Source } from "@mathtutor/schema";
-import { lint, loadKnowledge, type Knowledge } from "@mathtutor/knowledge";
+import { GraphSchema, LinksFileSchema, type Question, type Source } from "@mathtutor/schema";
+import { lint, loadKnowledge, mergeSubjectGraphs, type Knowledge } from "@mathtutor/knowledge";
+import { GraphSchema as GraphSchemaForMerge } from "@mathtutor/schema";
+import { readFileSync as readForMerge } from "node:fs";
+import { SUBJECT_GRAPH_PATHS } from "./subjectGraphs.js";
 import type { QuestionStore } from "./questions.js";
 
 /**
  * 知识层管理通道（P1b）：所有修改都走 file-first + lint 闸门 + reload，
  * 禁止绕过文件直接改内存/DB（设计 §06 纪律）。
  */
+
+/** 读跨学科连接表（校验节点改动时要用它一起过 lint）；文件缺失按"没有连接"处理 */
+function readLinks(dataDir: string) {
+  const p = path.join(dataDir, "knowledge", "links.json");
+  if (!existsSync(p)) return [];
+  return LinksFileSchema.parse(JSON.parse(readFileSync(p, "utf8"))).links;
+}
 
 export interface CoverageRow {
   nodeId: string;
@@ -25,7 +35,14 @@ export interface CoverageReport {
   uncoveredByStage: Record<string, string[]>;
   /** 核验候选：命中题数最多但尚未 verified 的前 20 节点（验收指标） */
   topUnverified: CoverageRow[];
-  totals: { nodes: number; covered: number; verifiedNodes: number; questions: number };
+  /**
+   * 原图丢了、已被排除出组卷的题。
+   *
+   * 题库里有"如图"题却找不到图（58 道），孩子拿到手是一道读不懂的题。
+   * 这些题不进组卷，但必须有人看得见——否则"能做的题怎么少了"永远没人知道为什么。
+   */
+  figureMissing: string[];
+  totals: { nodes: number; covered: number; verifiedNodes: number; questions: number; usableQuestions: number };
 }
 
 export function buildCoverage(knowledge: Knowledge, store: QuestionStore): CoverageReport {
@@ -56,11 +73,13 @@ export function buildCoverage(knowledge: Knowledge, store: QuestionStore): Cover
     nodes: rows.sort((a, b) => b.questionCount - a.questionCount),
     uncoveredByStage,
     topUnverified,
+    figureMissing: [...store.figureMissing],
     totals: {
       nodes: rows.length,
       covered: rows.filter((r) => r.questionCount > 0).length,
       verifiedNodes: rows.filter((r) => r.status === "verified").length,
       questions: store.all.length,
+      usableQuestions: store.all.length - store.figureMissing.size,
     },
   };
 }
@@ -90,7 +109,15 @@ export function verifyNode(
   if (!candidate.success) {
     return { ok: false, error: `修改后 schema 校验失败: ${candidate.error.issues[0]?.message}` };
   }
-  const report = lint(candidate.data, []);
+  /*
+   * lint 要看得到**所有学科**的节点：连接表里已经有 en: 节点，
+   * 只拿数学图去查会把每条跨学科连接都判成悬挂，于是核验永远过不去。
+   * 写回文件的仍然只有本学科的图。
+   */
+  const extraGraphs = SUBJECT_GRAPH_PATHS.filter((file) => existsSync(file)).map((file) =>
+    GraphSchemaForMerge.parse(JSON.parse(readForMerge(file, "utf8"))),
+  );
+  const report = lint(mergeSubjectGraphs(candidate.data, extraGraphs), [], readLinks(dataDir));
   if (report.errors.length) {
     node.status = before.status;
     node.sources = before.sources;
@@ -100,6 +127,8 @@ export function verifyNode(
   const knowledge = loadKnowledge({
     graphPath,
     problemsPath: path.join(dataDir, "knowledge", "problems.json"),
+    linksPath: path.join(dataDir, "knowledge", "links.json"),
+    subjectGraphPaths: SUBJECT_GRAPH_PATHS,
   });
   return { ok: true, knowledge };
 }

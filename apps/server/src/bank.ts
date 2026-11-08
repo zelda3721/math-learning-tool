@@ -25,8 +25,9 @@ import { checkFigure } from "./ingest/figureGate.js";
 import { contentHashOf } from "./questions.js";
 import { pruneFigures } from "./figures.js";
 import { practiceReady } from "./questions.js";
-import { deriveAnswerType } from "./grading.js";
+import { deriveAnswerType } from "@mathtutor/subject-math";
 import { runSemanticAudit } from "./bankAudit.js";
+import { proposeProblemTypes } from "./problemTypeProposals.js";
 
 const questionsDir = (dataDir: string) => path.join(dataDir, "knowledge", "questions");
 
@@ -399,6 +400,52 @@ export function bankRoutes(state: AppState): Hono {
    * 已入库的题重新过一遍模型既慢又会引入新的不确定。**只补不改**——
    * 已经有题型的不动，那可能是人工核对过的。
    */
+  /*
+   * 题型提案（P2）：只报不改，见 problemTypeProposals.ts 的分档规则。
+   * 高置信的一键采纳，其余逐条看——挂错题型会让孩子学到另一类题的方法。
+   */
+  const proposals = (includeLow: boolean) =>
+    proposeProblemTypes({
+      questions: listBatches(state.config.dataDir).flatMap((b) => b.items),
+      problemTypes: state.knowledge.problemTypes,
+      includeLow,
+    });
+
+  app.get("/problem-type-proposals", (c) => {
+    if (!requireParentRole(c, state)) return c.json({ error: "仅家长可用" }, 403);
+    const list = proposals(c.req.query("include") === "all");
+    const counts = { high: 0, medium: 0, low: 0 };
+    for (const p of list) counts[p.confidence]++;
+    return c.json({ counts, total: list.length, proposals: list });
+  });
+
+  /** 采纳提案：只写点过的那几道，写完 reload；返回实际写进去的 id */
+  app.post("/problem-type-proposals/apply", async (c) => {
+    if (!requireParentRole(c, state)) return c.json({ error: "仅家长可用" }, 403);
+    const parsed = z
+      .object({ ids: z.array(z.string()).min(1).max(500) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "需要 ids（题目 id 数组）" }, 400);
+    const want = new Set(parsed.data.ids);
+    const accepted = new Map(proposals(true).map((p) => [p.questionId, p.proposed]));
+    const applied: { id: string; to: string }[] = [];
+    for (const b of listBatches(state.config.dataDir)) {
+      let touched = false;
+      for (let i = 0; i < b.items.length; i += 1) {
+        const item = b.items[i]!;
+        if (!want.has(item.id) || item.problemTypeId) continue;
+        const to = accepted.get(item.id);
+        if (!to) continue;
+        b.items[i] = { ...item, problemTypeId: to };
+        applied.push({ id: item.id, to });
+        touched = true;
+      }
+      if (touched) writeBatch(state.config.dataDir, b.file, b.items);
+    }
+    if (applied.length) state.questions.reload();
+    return c.json({ applied: applied.length, ids: applied });
+  });
+
   app.post("/rematch-types", (c) => {
     const changes: { id: string; to: string; stem: string }[] = [];
     for (const b of listBatches(state.config.dataDir)) {

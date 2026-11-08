@@ -22,9 +22,14 @@ import type { BadgeTone } from '../ui'
 
 interface AgentTimelineProps {
     state: AgentRunState
+    /**
+     * 分区标题。默认是「Agent 思考过程」；实验台复用它展示**一次**调用，
+     * 那里说的不是整条 agent 轨迹，标题得跟着换。
+     */
+    title?: string
 }
 
-export function AgentTimeline({ state }: AgentTimelineProps) {
+export function AgentTimeline({ state, title }: AgentTimelineProps) {
     if (state.items.length === 0 && state.status === 'idle') {
         return null
     }
@@ -32,7 +37,7 @@ export function AgentTimeline({ state }: AgentTimelineProps) {
     return (
         <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-                <span className="eyebrow">Agent 思考过程</span>
+                <span className="eyebrow">{title ?? 'Agent 思考过程'}</span>
                 <StatusBadge status={state.status} />
             </div>
 

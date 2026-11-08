@@ -350,6 +350,31 @@ class SolutionScene(Scene):
     def color(self, value):
         return self.COLOR_MAP.get(str(value).lower(), BLUE)
 
+    def bar_body(self, value, label, color):
+        # 一根量条的形状：宽度按全场最大值等比。
+        #
+        # 抽成方法是为了 set_value 能重画同一根条。换值时若另用一套比例重建，
+        # 条会先跳一下尺寸再动，看上去像换了根条——观众读到的就是"换了个东西"，
+        # 而数量条要避免的正是这种误读。
+        # 注意：这里是生成脚本的模板（原始字符串），一律用 # 注释，别写三引号。
+        value = abs(float(value))
+        units = min(max(int(round(value)), 1), 16)
+        width = 1.0 + 2.2 * value / self.quantity_bar_max
+        shell = RoundedRectangle(
+            width=width, height=0.72, corner_radius=0.1,
+            color=color, fill_color=color, fill_opacity=0.25,
+        )
+        ticks = VGroup(*[
+            Line(
+                [-width / 2 + width * i / units, -0.3, 0],
+                [-width / 2 + width * i / units, 0.3, 0],
+                color=color, stroke_width=1,
+            )
+            for i in range(1, units)
+        ])
+        amount = Text(str(label), font_size=25).move_to(shell)
+        return VGroup(shell, ticks, amount)
+
     def place_figure_label(self, mobj, x, y):
         # 阶梯避让：首选原位，太近（<0.6）依次试右/左/下/上等空位
         spots = [
@@ -972,26 +997,7 @@ class SolutionScene(Scene):
                 body = Arrow(LEFT * 1.15, RIGHT * 1.15, color=color, buff=0.04)
         elif primitive == "quantity_bar":
             value = abs(self.number(params.get("value", params.get("count", 1)), 1, 0, 1000))
-            units = min(max(int(round(value)), 1), 16)
-            # Preserve relative magnitude across all aggregate bars.  The old
-            # capped ``1 + .18 * min(value, 16)`` made any two values above 16
-            # look identical, erasing the comparison the bar was meant to show.
-            width = 1.0 + 2.2 * value / self.quantity_bar_max
-            shell = RoundedRectangle(
-                width=width, height=0.72, corner_radius=0.1,
-                color=color, fill_color=color, fill_opacity=0.25,
-            )
-            ticks = VGroup(*[
-                Line(
-                    [-width / 2 + width * i / units, -0.3, 0],
-                    [-width / 2 + width * i / units, 0.3, 0],
-                    color=color, stroke_width=1,
-                )
-                for i in range(1, units)
-            ])
-            amount = Text(str(params.get("value", params.get("count", ""))), font_size=25)
-            amount.move_to(shell)
-            body = VGroup(shell, ticks, amount)
+            body = self.bar_body(value, params.get("value", params.get("count", "")), color)
         elif primitive == "unit_grid":
             x_range = params.get("x_range")
             y_range = params.get("y_range")
@@ -2778,6 +2784,28 @@ class SolutionScene(Scene):
                     *[Indicate(item, color=YELLOW) for item in selected],
                     *[Indicate(item, color=GREEN, scale_factor=1.35) for item in mapped_units],
                 )
+        elif op == "set_value":
+            # 量重新取值：重画同一根条并变换过去。
+            #
+            # 没有这个分支时 set_value 会掉进最后那条 "Indicate 一下" 的兜底：
+            # 旁白说"吃掉 3 个，还剩 9 个"，画面上的条却一直是 12——那是画了个假话。
+            raw = action.get("value", action.get("total", action.get("to")))
+            numeric = None
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                numeric = max(0.0, float(raw))
+            for item in targets:
+                spec = self.specs.get(item) or {}
+                if numeric is None or spec.get("primitive") != "quantity_bar":
+                    continue
+                body = self.bar_body(numeric, numeric, self.color(spec.get("color")))
+                if item in visible and item in self.objects:
+                    body.move_to(self.objects[item])
+                    self.play(Transform(self.objects[item], body), run_time=0.8)
+                else:
+                    self.play(FadeIn(body))
+                    if item not in visible:
+                        visible.append(item)
+                self.objects[item] = body
         else:
             selected = [
                 self.objects[item] for item in targets

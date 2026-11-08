@@ -1,4 +1,5 @@
-import { LlmClient, loadLlmConfig, type ChatMessage } from "@mathtutor/llm-client";
+import { loadLlmConfig, type ChatMessage, type LlmClient } from "@mathtutor/llm-client";
+import { auditDataDir, createServerLlmClient } from "../llm.js";
 import { z } from "zod";
 import { EducationLevelSchema, type EducationLevel, type FigureSpec } from "@mathtutor/schema";
 import type { Knowledge } from "@mathtutor/knowledge";
@@ -509,8 +510,9 @@ export function createLlmExtractionProvider(
     deps
       ? `你是数学题目抽取器。${vocabularyPrompt(deps.knowledge, hint?.level)}`
       : "你是数学题目抽取器。";
-  const textClient = LlmClient.fromEndpoint(config.fast);
-  const visionClient = LlmClient.fromEndpoint(config.vision);
+  const dataDir = auditDataDir(env);
+  const textClient = createServerLlmClient(config, "fast", { dataDir });
+  const visionClient = createServerLlmClient(config, "vision", { dataDir });
   return {
     async extractFromText(text, hint) {
       const raw = await collectText(textClient, [

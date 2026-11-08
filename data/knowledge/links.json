@@ -1,0 +1,96 @@
+{
+  "$comment": "跨学科连接表（docs/PLAN.md 第三部分 3.2）。边类型只有 prerequisite / applies / analogy / evolves 四种；from 与 to 必须是图谱里真实存在的节点 id（数学节点无前缀，英语节点 en: 前缀）。同学科的纵向关系写进节点自己的 prerequisites / evolvesTo，不要在这里重复。note 必须具体到可判断——'数学和音乐有关'这种话不算连接。当前收的是「用英语学数学」这一层：读题、说数、读图表、单位与折扣表达，每条都写了具体在哪一步用上。",
+  "links": [
+    {
+      "from": "numbers-100",
+      "to": "en:numbers-words",
+      "type": "applies",
+      "note": "读大数要先把数词念对：three hundred and sixty 是 360，不是 300 和 60。",
+      "source": "人教版五年级上 大数的认识 / 英语数字表达"
+    },
+    {
+      "from": "decimal",
+      "to": "en:money-words",
+      "type": "applies",
+      "note": "英文价格 $3.50 读作 three dollars fifty，小数后两位是美分——和中文元角分是三段不同。",
+      "source": "英语货币表达 / 小数初步认识"
+    },
+    {
+      "from": "clock-money",
+      "to": "en:telling-time",
+      "type": "applies",
+      "note": "题目写 half past eight，要先换成 8:30 再算时间差。",
+      "source": "英语时间表达"
+    },
+    {
+      "from": "year-month-day",
+      "to": "en:dates-months",
+      "type": "applies",
+      "note": "03/04/2026 在美式是 3 月 4 日、英式是 4 月 3 日，算相差天数前必须先定顺序。",
+      "source": "人教版三年级下 年月日 / 英语日期"
+    },
+    {
+      "from": "length-mass-units",
+      "to": "en:measurement-words",
+      "type": "applies",
+      "note": "英文题里的 km 与 cm 只差两个字母，量级差 100000 倍，换算前先认清缩写。",
+      "source": "人教版二年级 长度单位 / 英语单位词"
+    },
+    {
+      "from": "ratio-percent",
+      "to": "en:percent-discount",
+      "type": "applies",
+      "note": "20% off 是降价 20%（打八折），不是只付 20%——介词决定算式。",
+      "source": "人教版六年级 百分数 / 英语折扣表达"
+    },
+    {
+      "from": "average-charts",
+      "to": "en:chart-words",
+      "type": "applies",
+      "note": "英文图表题固定问 increase from … to … / how many more … than …，先读问句再读图。",
+      "source": "人教版四年级 统计图 / 英语图表描述"
+    },
+    {
+      "from": "fraction",
+      "to": "en:fraction-words",
+      "type": "applies",
+      "note": "3/4 说 three quarters；分母用序数词、分子大于一时分母加 s。",
+      "source": "人教版三年级 分数的初步认识 / 英语分数读法"
+    },
+    {
+      "from": "perimeter",
+      "to": "en:geometry-words",
+      "type": "applies",
+      "note": "Find the perimeter 问的是一圈的长度，单位是 cm；问 area 才是 cm²。",
+      "source": "人教版三年级 周长 / 英语图形词汇"
+    },
+    {
+      "from": "area-units",
+      "to": "en:geometry-words",
+      "type": "applies",
+      "note": "面积用 square centimetres，写成 cm²；和 perimeter 的厘米不是一回事。",
+      "source": "人教版三年级 面积 / 英语图形词汇"
+    },
+    {
+      "from": "position-direction",
+      "to": "en:directions",
+      "type": "applies",
+      "note": "Go straight for 200 m, then turn left 要能画成路线图，方向和米数都得对上。",
+      "source": "人教版三年级 位置与方向 / 英语方位"
+    },
+    {
+      "from": "problem-solving-primary",
+      "to": "en:question-words",
+      "type": "analogy",
+      "note": "中文的「多少」在英语里分成 how many（个数）与 how much（钱/不可数）——问句不同，算式也不同。",
+      "source": "小学应用题常用问句"
+    },
+    {
+      "from": "solid-plane-shapes",
+      "to": "en:geometry-words",
+      "type": "applies",
+      "note": "认识图形时中英名称成对记：三角形 triangle、长方形 rectangle、圆 circle。",
+      "source": "人教版一年级 认识图形 / 英语图形词"
+    }
+  ]
+}

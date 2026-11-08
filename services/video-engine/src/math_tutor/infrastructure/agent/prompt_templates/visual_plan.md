@@ -126,7 +126,7 @@ essence_rationale 必须**指名这条决定性关系**（"因为总量守恒，
 - 函数图像必须用 `function_curve`，并填写 Python/SymPy 语法的 `params.expression`、
   `params.variable` 和可选 `params.x_range`；不能把非线性函数伪装成 `line`。
 - `actions.op` 只能使用：`create | transform | move | highlight | partition | merge | compare |
-  map | measure | verify | remove | take_from | combine | count | recount_verify`。
+  map | measure | verify | remove | take_from | combine | count | recount_verify | set_value`。
 - **数量动词（离散数量变化必须使用，参数强制）**：数量的增减不能用 transform 换对象表达，
   必须让同一批单位对象发生可见迁移：
   - `take_from`：需要 `source`（计数组 id）、`destination`（已声明容器对象 id，不接受
@@ -139,6 +139,12 @@ essence_rationale 必须**指名这条决定性关系**（"因为总量守恒，
     `expect` 为替换后每单位的标记数（0-6），`expect_total` 为替换完成后应达到的
     可见标记总量；每次替换单位变色、补标记、总量计数同步变化。适用于"两类成员、
     总数固定、总值固定"的混合结构（假设法/置换法）。
+  - `set_value`：**改一根量（`quantity_bar`）的数值**，需要 `targets`（对象 id）与 `value`
+    （新的非负数值）。量的增减只有它能表达——同一个 `quantity_bar` 跨拍保留同一身份，
+    数值变了就写一条 `set_value`，**不要**另建一根新条、也不要用 `transform` 换成别的对象。
+    典型的「吃掉 3 个，条缩短」「水位下降」「还剩多少」都用它。它只对 `quantity_bar` 生效；
+    写在可数记号（`unit_grid` 等）上不会改变任何东西——那边的数量由单位说了算，
+    要减就 `take_from` 把单位取走。
   - 未使用的参数字段一律填 `null`。`move` 必须携带 `destination`（对象 id 或 `x=数值`）。
   - 守恒硬约束：每个数量动词的收支必须平衡（源减 k、目的地增 k），校验器逐动词核对。
 - `targets` 和 `result` 必须精确引用完整的 `visual_objects.id`，不能写 `axes.origin`、

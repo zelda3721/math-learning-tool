@@ -7,6 +7,8 @@ import { useAgentRun } from './hooks/useAgentRun'
 import { SLOGAN } from './brand'
 import { useAuth } from './auth/AuthContext'
 import { useLearner } from './learner/LearnerContext'
+import { useActiveUsage } from './usage/useActiveUsage'
+import { UsageBadge, UsageExhaustedBanner } from './usage/UsageBadge'
 import { AuthGate, SetupPage } from './auth/AuthScreens'
 import { Badge, ErrorState, PageHeader } from './ui'
 import { AtlasPage } from './atlas/AtlasPage'
@@ -19,6 +21,10 @@ import { ParentPage } from './parent/ParentPage'
 import { FreeExplainPanel } from './solve/FreeExplainPanel'
 import type { PersistedSession, SessionDetail } from './types/agent'
 import { BankPage } from './bank/BankPage'
+import { TextbookPage } from './textbook/TextbookPage'
+import { ClassroomPage } from './classroom/ClassroomPage'
+import { LabPage } from './lab/LabPage'
+import { EnglishPage } from './english/EnglishPage'
 
 import {
     GradeSelector,
@@ -31,11 +37,29 @@ import {
     HistoricalSessionView,
 } from './components'
 
-type AppView = 'practice' | 'ask' | 'solve' | 'atlas' | 'mistakes' | 'explore' | 'ingest' | 'bank' | 'parent'
+type AppView =
+    | 'practice'
+    | 'ask'
+    | 'solve'
+    | 'atlas'
+    | 'mistakes'
+    | 'explore'
+    | 'ingest'
+    | 'bank'
+    | 'textbook'
+    | 'classroom'
+    | 'english'
+    | 'lab'
+    | 'parent'
 
 /** 角色导航：孩子只看学习面，家长全量（管理员） */
 const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[] = [
     { key: 'practice', label: '练习', roles: ['parent', 'child'] },
+    // 课堂是孩子学习面的一部分：讲—停—问—回到原处，两种角色都能上
+    { key: 'classroom', label: '课堂', roles: ['parent', 'child'] },
+    // 英语是孩子的日常作业面（词汇 + 分级阅读），家长也要能进来查看/陪读；
+    // 家长把它关掉时页面自己会说"家长把英语关掉了"，不在导航里藏起来
+    { key: 'english', label: '英语', roles: ['parent', 'child'] },
     { key: 'ask', label: '问一道题', roles: ['parent', 'child'] },
     { key: 'atlas', label: '星图', roles: ['parent', 'child'] },
     { key: 'mistakes', label: '错题本', roles: ['parent', 'child'] },
@@ -43,6 +67,10 @@ const NAV_ITEMS: { key: AppView; label: string; roles: ('parent' | 'child')[] }[
     { key: 'solve', label: '讲解', roles: ['parent'] },
     { key: 'ingest', label: '录题', roles: ['parent'] },
     { key: 'bank', label: '题库', roles: ['parent'] },
+    // 教材编译只给家长：它产出的是"这学期按什么顺序上课"，那是家长的判断
+    { key: 'textbook', label: '教材', roles: ['parent'] },
+    // AI 实验台只给家长：能任意写提示词、直接看模型原文，不经过判卷与安全层
+    { key: 'lab', label: 'AI 实验台', roles: ['parent'] },
     { key: 'parent', label: '家长', roles: ['parent'] },
 ]
 
@@ -96,6 +124,9 @@ function AuthedApp() {
     const role = user?.role ?? 'child'
     const navItems = NAV_ITEMS.filter((item) => item.roles.includes(role))
     const { learner } = useLearner()
+    // 使用时长：只在标签页可见时计时，服务端按真实流逝封顶（见 routes/usage.ts）
+    // 只给孩子计时：家长在孩子页面上试做、停留，不该扣孩子的时长额度
+    const usage = useActiveUsage(role === 'child' ? learner?.id : undefined)
     // 待批改只对家长有意义——孩子不该给自己判卷
     const pendingVerdicts = usePendingVerdicts(role === 'parent', learner?.id)
 
@@ -194,7 +225,7 @@ function AuthedApp() {
         <div className="min-h-screen flex flex-col relative overflow-hidden">
             {/* 统一顶栏：贴合纸面的横轨 —— logo · 角色导航 · 用户区 */}
             <header className="top-rail sticky top-0 z-50 mb-6">
-                <div className="mx-auto max-w-6xl px-4 md:px-6 h-16 md:h-[4.5rem] flex items-center gap-3">
+                <div className="mx-auto max-w-6xl px-4 md:px-6 min-h-16 md:min-h-[4.5rem] py-2 flex items-center gap-3">
                     {/* 标识锁定：方章 + 字标，口号在字标正下方另起一行。
                         排成一行时它把顶栏挤出了横向滚动条——竖排比横排窄一截，
                         顶栏也随之加高到 72px 容下两行。 */}
@@ -206,6 +237,8 @@ function AuthedApp() {
                             <span className="font-bold text-lg text-ink tracking-tight">
                                 Math<span className="text-beam">Tutor</span>
                             </span>
+                            {/* 口号在窄屏让位给导航（原本 lg 就显示）：11 个入口在
+                                1280 宽时已经装不下一行，口号与入口抢的正是同一段横向空间 */}
                             <span
                                 className="hidden lg:block text-[11px] text-ink-faint whitespace-nowrap mt-1"
                                 aria-hidden="true"
@@ -215,39 +248,42 @@ function AuthedApp() {
                         </div>
                     </div>
 
-                    {/* min-w-0 是关键：flex 子项默认 min-width:auto，装不下时会把整条顶栏
-                        撑宽而不是让 overflow-x-auto 生效——那正是横向滚动条的来源。 */}
-                    <nav className="flex-1 min-w-0 flex items-center justify-center gap-1 overflow-x-auto">
+                    {/* 装不下时**换行**，不横向滚动：入口是用来点的，滚到屏幕外等于没有。
+                        之前用 overflow-x-auto + justify-center，溢出时最左边那颗按钮会被
+                        推到导航区之外、压在 logo 底下——看着还在，实际点不动
+                        （实机：加了「课堂」之后「练习」正好撞上）。 */}
+                    <nav className="flex-1 min-w-0 flex flex-wrap items-center justify-center gap-1">
                         {navItems.map(({ key, label }) => (
-                            <button
-                                key={key}
-                                type="button"
-                                onClick={() => setView(key)}
-                                className={`px-3.5 md:px-4 py-1.5 rounded-[10px] text-sm font-semibold whitespace-nowrap transition-colors ${
-                                    view === key
-                                        ? 'bg-beam text-white'
-                                        : 'text-ink-soft hover:text-ink hover:bg-paper'
-                                }`}
-                            >
-                                {label}
-                                {/* 有作答等着家长判，导航上就得看得见——
-                                    不然孩子那句"已交给家长确认"就没有下文了 */}
-                                {key === 'parent' && pendingVerdicts > 0 && (
-                                    <span
-                                        className={`ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold numeric ${
-                                            view === key
-                                                ? 'bg-white/25 text-white'
-                                                : 'bg-wrong text-white'
-                                        }`}
-                                    >
-                                        {pendingVerdicts}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setView(key)}
+                                    className={`px-3.5 md:px-4 py-1.5 rounded-[10px] text-sm font-semibold whitespace-nowrap transition-colors ${
+                                        view === key
+                                            ? 'bg-beam text-white'
+                                            : 'text-ink-soft hover:text-ink hover:bg-paper'
+                                    }`}
+                                >
+                                    {label}
+                                    {/* 有作答等着家长判，导航上就得看得见——
+                                        不然孩子那句"已交给家长确认"就没有下文了 */}
+                                    {key === 'parent' && pendingVerdicts > 0 && (
+                                        <span
+                                            className={`ml-1.5 inline-flex min-w-[18px] justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold numeric ${
+                                                view === key
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-wrong text-white'
+                                            }`}
+                                        >
+                                            {pendingVerdicts}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
                     </nav>
 
                     <div className="flex items-center gap-2 shrink-0">
+                        <UsageBadge usage={usage} role={role} />
                         {view === 'solve' && (
                             <button
                                 type="button"
@@ -275,6 +311,13 @@ function AuthedApp() {
                     </div>
                 </div>
             </header>
+
+            {/* 时间用完：服务端各入口都会拦，这里把同一句话摆出来，别让孩子一个个撞 */}
+            {role === 'child' && (
+                <div className="w-full max-w-5xl mx-auto px-4 pt-4 empty:hidden">
+                    <UsageExhaustedBanner usage={usage} role={role} />
+                </div>
+            )}
 
             {view === 'practice' && (
                 <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
@@ -309,6 +352,30 @@ function AuthedApp() {
             {view === 'bank' && (
                 <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
                     <BankPage />
+                </main>
+            )}
+
+            {view === 'classroom' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <ClassroomPage />
+                </main>
+            )}
+
+            {view === 'english' && (
+                <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-8 relative z-10">
+                    <EnglishPage />
+                </main>
+            )}
+
+            {view === 'textbook' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <TextbookPage />
+                </main>
+            )}
+
+            {view === 'lab' && (
+                <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 relative z-10">
+                    <LabPage />
                 </main>
             )}
 

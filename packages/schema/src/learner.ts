@@ -9,7 +9,36 @@ export const LearnerSchema = z.object({
 });
 export type Learner = z.infer<typeof LearnerSchema>;
 
-export const AttemptSourceSchema = z.enum(["daily", "probe", "variant", "review", "explore"]);
+/**
+ * 这次作答从哪来。
+ *
+ * `classroom` 是课堂里答的题（阶段 3）：它在**教学流程中间**产生，
+ * 与课后练习的区别不只是入口——课堂作答带着"这一拍讲到哪了"的上下文，
+ * 将来做归因时要用到。混进 daily 会把两种证据搅成一种，事后分不开。
+ */
+export const AttemptSourceSchema = z.enum([
+  "daily",
+  "probe",
+  "variant",
+  "review",
+  "explore",
+  "classroom",
+]);
+
+/**
+ * 证据的验证等级（教学宪法第 5 条：未经验证的知识不承重）。
+ *
+ * - `executable`  可执行验证：数学（SymPy）、物理（单位与仿真）。计入掌握度。
+ * - `reference`   有标准答案，或证据可在原文中定位：词汇、语法、阅读理解。计入掌握度。
+ * - `ai_unverified` 只有 AI 的判断：作文、口语、开放回答。**不计入掌握度**，
+ *   只作为练习记录和建议，界面上必须明确标注。
+ *
+ * 为什么这条要在类型上而不是在注释里：一个分数算错了只是这道题的事，
+ * 而一条 `ai_unverified` 的证据混进掌握度，会让孩子**不该亮的星亮起来**——
+ * 那是在教错人，且事后无从分辨。所以由 `applyAttempt` 的调用方强制判断。
+ */
+export const VerificationLevelSchema = z.enum(["executable", "reference", "ai_unverified"]);
+export type VerificationLevel = z.infer<typeof VerificationLevelSchema>;
 
 export const AttemptSchema = z.object({
   id: z.string(),
@@ -23,6 +52,11 @@ export const AttemptSchema = z.object({
   durationS: z.number().optional(),
   /** LLM 判卷/生成题 → 家长判卷抽检队列 */
   needsReview: z.boolean().default(false),
+  /**
+   * 这条证据凭什么算数。缺省 `executable`：在英语包接入之前，
+   * 判卷全部来自确定性判卷器，缺省值即事实。
+   */
+  verification: VerificationLevelSchema.default("executable"),
   parentVerdict: z.enum(["correct", "incorrect"]).optional(),
   parentNote: z.string().optional(),
   at: z.string(),

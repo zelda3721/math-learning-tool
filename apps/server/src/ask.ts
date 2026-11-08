@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -6,12 +6,15 @@ import { z } from "zod";
 import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } from "@mathtutor/schema";
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { effectiveLearnerId, type AppState } from "./app.js";
+import { screenLearnerInput, screenModelOutput } from "./safety.js";
+import { checkChatBudget } from "./chatBudget.js";
+import { moduleBlockedBody, moduleEnabled } from "./modules.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
 import { figureDataUrl, storeFigure } from "./figures.js";
 import { latexToPlainText } from "./latexText.js";
 import { classifyFigures, isDanglingLabel } from "./ingest/passes.js";
 import { stripDataUrl } from "./ingest/routes.js";
-import { expressionsEquivalent, normalizeText, parseNumeric } from "./grading.js";
+import { expressionsEquivalent, normalizeText, parseNumeric } from "@mathtutor/subject-math";
 import { composeDirectives } from "./explain/engine.js";
 import { groundingSourceOf } from "./explain/grounding.js";
 import { engineJsonFetch } from "./engineHttp.js";
@@ -199,7 +202,20 @@ export async function runAskJob(
       repo.failAskJob(jobId, "这道题引擎没能独立验证答案，暂时收不了——换个说法再试一次，或先做今天的练习");
       return;
     }
-    const steps = (result.solution_steps ?? []).map((s) => String(s).trim()).filter(Boolean);
+    /*
+     * 引擎产出的解题步骤会变成"题目解析"给孩子看（答错、走完提示之后），
+     * 所以它和对话一样要过输出侧安检——这是最后一个没被拦的模型出口。
+     */
+    const steps = (result.solution_steps ?? [])
+      .map((s) => String(s).trim())
+      .filter(Boolean);
+    for (const step of steps) {
+      const screen = screenModelOutput(state.repo, args.learnerId, step);
+      if (screen.blocked) {
+        repo.failAskJob(jobId, "这道题的解法里有不适合直接给孩子看的内容，暂时收不了——换个说法再试一次");
+        return;
+      }
+    }
     const answer = (result.solution_answer ?? "").trim() || (steps.length ? steps[steps.length - 1]! : "");
     if (!answer) {
       // 没有答案就没有判卷依据——诚实失败，绝不建一道判不了的题
@@ -314,14 +330,51 @@ export function keepPhotoSample(
 export function askRoutes(state: AppState): Hono {
   const app = new Hono();
 
+  /**
+   * 「问一道题」的两道闸：家长可以关掉，且和练习共用同一个每日时长。
+   *
+   * 早先这个入口两样都没有——它是全系统最依赖模型的一条路（引擎完整解题），
+   * 却在孩子时长用完之后仍然开着，家长也关不掉。
+   */
+  const askGate = (c: Context, learnerId: string | undefined): Response | undefined => {
+    if (!learnerId || !state.repo.getLearner(learnerId)) return undefined;
+    if (!moduleEnabled(state.repo, learnerId, "ask")) return c.json(moduleBlockedBody("ask"), 403);
+    const budget = checkChatBudget(state.repo, learnerId);
+    if (!budget.allowed) {
+      return c.json(
+        {
+          error: `今天的时间用完了（每天 ${budget.limitMinutes} 分钟）。明天再来，或者先去和家长说一声。`,
+          budget,
+        },
+        429,
+      );
+    }
+    return undefined;
+  };
+
   app.post("/", async (c) => {
     const parsed = AskSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     // 孩子只能给自己提问（请求里传别人的 learnerId 会被会话覆盖）
     const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
     if (learnerId && !state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    const gated = askGate(c, learnerId);
+    if (gated) return gated;
     const problem = parsed.data.problem.trim();
     if (problem.length < 4) return c.json({ error: "题目太短了，把题目完整写下来" }, 400);
+
+    /*
+     * 安全前置：拦下的话不进解题链路（也就不进模型）。
+     * 这里用 422 而不是 200：孩子该看见"这句话我不能接"，
+     * 而不是一个假装成功的任务号。
+     */
+    const gate = screenLearnerInput(state.repo, learnerId, problem);
+    if (gate.blocked) {
+      return c.json(
+        { error: gate.reply, safety: { action: gate.verdict.action, reason: gate.verdict.reason ?? null } },
+        422,
+      );
+    }
 
     // 配图先落盘（同步、快）：图有问题当场报错，别等几分钟解题后才失败
     let figureImageName: string | undefined;
@@ -429,6 +482,10 @@ export function askRoutes(state: AppState): Hono {
       await c.req.json().catch(() => null),
     );
     if (!parsed.success) return c.json({ error: "需要 {content}（单题图 data URL，最大 4MB）" }, 400);
+    // 识题也走模型，也就该受同一道闸管；否则关掉模块后仍能借它读题
+    const photoLearnerId = effectiveLearnerId(c, state, (parsed.data as { learnerId?: string }).learnerId);
+    const photoGated = askGate(c, photoLearnerId);
+    if (photoGated) return photoGated;
     const provider = state.extraction;
     if (!provider?.questionFromImage) return c.json({ error: "当前抽取端点不支持拍照识题" }, 501);
     const { base64, mime } = stripDataUrl(parsed.data.content);

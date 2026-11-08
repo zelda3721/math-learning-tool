@@ -1,0 +1,290 @@
+[
+  {
+    "id": "en-grammar-01",
+    "nodeIds": [
+      "en:grammar-1-am-is-are"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 1,
+    "stem": "用 be 动词的适当形式填空：I ___ 22 years old.",
+    "answer": "am",
+    "answerType": "expression",
+    "contentHash": "eb4ca629ebb675bf",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-02",
+    "nodeIds": [
+      "en:grammar-1-am-is-are"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 1,
+    "stem": "用 be 动词的适当形式填空：My name ___ Lisa.",
+    "answer": "is",
+    "answerType": "expression",
+    "contentHash": "2888f7aea81d39bb",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-03",
+    "nodeIds": [
+      "en:grammar-1-am-is-are"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用 be 动词的适当形式填空：My favourite sports ___ football and swimming.",
+    "answer": "are",
+    "answerType": "expression",
+    "contentHash": "c7a3378d71ba8948",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-04",
+    "nodeIds": [
+      "en:grammar-2-am-is-are-questions"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "改成问句，填第一个词：___ you married?",
+    "answer": "Are",
+    "answerType": "expression",
+    "contentHash": "f5fc34e5a560df67",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-05",
+    "nodeIds": [
+      "en:grammar-2-am-is-are-questions"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "填疑问句里的 be 动词：Where ___ your parents from?",
+    "answer": "are",
+    "answerType": "expression",
+    "contentHash": "5bfa3c5b3bbe1ba9",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-06",
+    "nodeIds": [
+      "en:grammar-3-i-am-doing-present-continuous"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用现在进行时填空：Look! She ___ (eat).",
+    "answer": "is eating",
+    "answerType": "expression",
+    "contentHash": "67ea03b2a2920f96",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-07",
+    "nodeIds": [
+      "en:grammar-3-i-am-doing-present-continuous"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用现在进行时填空：It ___ (rain) now.",
+    "answer": "is raining",
+    "answerType": "expression",
+    "contentHash": "4ddc152d5d28bfdd",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-08",
+    "nodeIds": [
+      "en:grammar-3-i-am-doing-present-continuous"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用现在进行时填空：They ___ (run) in the park.",
+    "answer": "are running",
+    "answerType": "expression",
+    "contentHash": "470a3398243bb398",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-09",
+    "nodeIds": [
+      "en:grammar-4-are-you-doing"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用现在进行时提问，填第一个词：___ you working today?",
+    "answer": "Are",
+    "answerType": "expression",
+    "contentHash": "68682b2dbba92a60",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-10",
+    "nodeIds": [
+      "en:grammar-5-i-do-work-like-etc-present-simple"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用一般现在时填空：I ___ (work) in a shop.",
+    "answer": "work",
+    "answerType": "expression",
+    "contentHash": "2687ef6a0880b35a",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-11",
+    "nodeIds": [
+      "en:grammar-5-i-do-work-like-etc-present-simple"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用一般现在时填空：He ___ (like) football.",
+    "answer": "likes",
+    "answerType": "expression",
+    "contentHash": "f49c7103d9cf8c55",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-12",
+    "nodeIds": [
+      "en:grammar-6-i-don-t-present-simple-negative"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 3,
+    "stem": "改成否定句：I ___ (not like) coffee.",
+    "answer": "don't like / do not like",
+    "answerType": "expression",
+    "contentHash": "5576f9817ed0663d",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-13",
+    "nodeIds": [
+      "en:grammar-6-i-don-t-present-simple-negative"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 3,
+    "stem": "改成否定句：He ___ (not play) tennis.",
+    "answer": "doesn't play / does not play",
+    "answerType": "expression",
+    "contentHash": "5335bad1da829962",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-14",
+    "nodeIds": [
+      "en:grammar-7-do-you-present-simple-questions"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "改成一般疑问句，填第一个词：___ she play the piano?",
+    "answer": "Does",
+    "answerType": "expression",
+    "contentHash": "2ff6edce91986c42",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-15",
+    "nodeIds": [
+      "en:grammar-11-worked-got-went-etc-past-simple"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用一般过去时填空：I ___ (go) to the cinema yesterday.",
+    "answer": "went",
+    "answerType": "expression",
+    "contentHash": "3ee50d6102fb68be",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-16",
+    "nodeIds": [
+      "en:grammar-11-worked-got-went-etc-past-simple"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 2,
+    "stem": "用一般过去时填空：We ___ (work) late last night.",
+    "answer": "worked",
+    "answerType": "expression",
+    "contentHash": "8130370a2441850a",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-17",
+    "nodeIds": [
+      "en:grammar-12-i-didn-t-did-you"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 3,
+    "stem": "改成否定句：She ___ (not come) to the party.",
+    "answer": "didn't come / did not come",
+    "answerType": "expression",
+    "contentHash": "ea58e3cb539accbe",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  },
+  {
+    "id": "en-grammar-18",
+    "nodeIds": [
+      "en:grammar-13-i-was-doing-past-continuous"
+    ],
+    "level": "elementary_upper",
+    "difficulty": 3,
+    "stem": "用过去进行时填空：At 8 o'clock I ___ (have) breakfast.",
+    "answer": "was having",
+    "answerType": "expression",
+    "contentHash": "1e10b51ffb1af932",
+    "status": "extracted",
+    "source": {
+      "role": "manual"
+    }
+  }
+]

@@ -1,8 +1,15 @@
 /**
- * P5 探索伙伴（ExploreAgent）：自由 tool-calling 循环。
+ * 探索伙伴：自由 tool-calling 循环。
+ *
+ * 阶段 1 起，「这个学科该怎么带」不再写死在这里——它是一份技能文件
+ * `skills/math/explore/SKILL.md`。本文件只剩与学科无关的部分：
+ * 一轮 agent 循环、工具执行、离线兜底。
+ *
+ * 这么切的理由：每加一门学科就复制一份代理代码，而真正随学科变化的
+ * 其实只有提示词与工具子集（见 docs/PLAN.md D10）。
+ *
  * 宪法：苏格拉底式只引导不喂答案；图谱事实必须经工具查证（防幻觉）。
- * 首版两个工具：graph_query（节点档案）、find_similar（离线相关匹配）。
- * LLM 不可用时返回固定引导语（离线兜底，永不 500）。
+ * LLM 或技能文件不可用时返回固定引导语（离线兜底，永不 500）。
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -15,7 +22,15 @@ import {
   type ToolDefinition,
 } from "@mathtutor/llm-client";
 import { matchOffline, matchProblemTypesOffline, type Knowledge } from "@mathtutor/knowledge";
+import { loadSkills, resolveSkill, type Skill } from "@mathtutor/core";
+import { fileURLToPath } from "node:url";
 import { effectiveLearnerId, type AppState } from "./app.js";
+import { auditDataDir, createServerLlmClient } from "./llm.js";
+import { screenLearnerInput, screenModelOutput } from "./safety.js";
+import { checkChatBudget } from "./chatBudget.js";
+import { deriveMemories, profileBlock, readProfile, recallBlock } from "./tutorMemory.js";
+import { moduleBlockedBody, moduleEnabled } from "./modules.js";
+import { transcriptRecorder } from "./transcripts.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -60,7 +75,8 @@ const MAX_ROUNDS = 4;
 // 工具
 // ---------------------------------------------------------------------------
 
-const EXPLORE_TOOLS: ToolDefinition[] = [
+const TOOL_DEFS: Record<string, ToolDefinition> = {
+  graph_query:
   {
     name: "graph_query",
     description:
@@ -71,7 +87,7 @@ const EXPLORE_TOOLS: ToolDefinition[] = [
       required: ["nodeId"],
     },
   },
-  {
+  find_similar: {
     name: "find_similar",
     description: "根据一段文字（孩子的问题或想法）找到相关的知识点与经典题型名称。",
     parameters: {
@@ -80,7 +96,21 @@ const EXPLORE_TOOLS: ToolDefinition[] = [
       required: ["text"],
     },
   },
-];
+};
+
+/**
+ * 技能声明用哪些工具，就只把哪些交给模型。
+ * 全量交给模型再指望它别用，等于用提示词做权限控制——那件事从来没有成功过。
+ */
+export function toolsFor(skill: Skill): ToolDefinition[] {
+  const picked: ToolDefinition[] = [];
+  for (const name of skill.tools) {
+    const def = TOOL_DEFS[name];
+    if (def) picked.push(def);
+    else console.warn(`[explore] 技能 ${skill.id} 声明了未实现的工具 ${name}，已忽略`);
+  }
+  return picked;
+}
 
 function executeTool(
   knowledge: Knowledge,
@@ -137,32 +167,46 @@ const LEVEL_LABEL: Record<string, string> = {
   advanced: "大学",
 };
 
-function buildSystemPrompt(knowledge: Knowledge, level?: string, nodeId?: string): string {
-  const focus = nodeId ? knowledge.index.getNode(nodeId) : undefined;
-  const levelLine = level
-    ? `学生年级：${LEVEL_LABEL[level] ?? level}。解释和追问都不要超出这个年级的认知上限。`
-    : "学生年级未知，按小学高年级的认知水平交流。";
-  const focusLine = focus
-    ? `当前聚焦的知识点：「${focus.name}」（id: ${focus.id}）。可以先用 graph_query 查它的档案再展开。`
-    : "";
-  return `你是「探索伙伴」——陪孩子在数学星图里自由漫游的同伴，不是讲课老师。
-${levelLine}
-${focusLine}
-守则（必须遵守）：
-1. 苏格拉底式：用追问引导孩子自己想明白，每次回复以一个能推进思考的好问题结尾。
-2. 绝对不直接给出任何题目的答案或完整解法；孩子要答案时，把问题拆小再反问。
-3. 需要图谱事实（节点关系、相关题型）时用工具 graph_query / find_similar 查证，绝不编造。
-4. 语言面向孩子：短句、真诚鼓励；每次回复不超过 5 句话，禁止使用 LaTeX 公式记号（不要写 $...$、\\times、\\frac），
-   算式直接写成「1 × 0 = 0」这样的普通文字。
-5. 孩子说出好想法时，提醒他/她可以「记下这个发现」。
+/**
+ * 技能文件是按需读的：一份写坏或找不到的技能，不该让整个服务起不来。
+ * 读一次缓存住——提示词不会在运行中变。
+ */
+const SKILLS_ROOT = fileURLToPath(new URL("../../../skills", import.meta.url));
+let cachedSkills: Skill[] | null = null;
 
-讲清楚的标准（比守则更重要——回复前先自检）：
-A. 一次只讲一条线索。不要把三种理由堆在一起；先抛出最能让孩子自己动手验证的那一个，剩下的等他回应后再说。
-B. 例子必须是孩子能真的动手数一数、摆一摆、算一算的。像「0 块饼干分给 0 个小朋友」这种连大人都想不明白的场景是坏例子——
-   宁可用「6 块饼干分给 3 个人」这种他能验证的具体例子，先建立规则，再问「那如果人数变成 0 呢？」让他自己撞到矛盾。
-C. 先让孩子体验到「咦，说不通」，再谈结论。数学规则的道理来自它必须自洽，不是来自权威。
-D. 结尾的问题要小、要具体、要可回答。别问「你觉得会有什么麻烦吗」这种大而空的问题，
-   要问「那你觉得 6 ÷ 0 应该等于几？你能找到一个数乘以 0 得到 6 吗？」这种他能立刻试的问题。`;
+export function exploreSkill(): Skill | undefined {
+  cachedSkills ??= loadSkills(SKILLS_ROOT);
+  return resolveSkill(cachedSkills, "math", "explore");
+}
+
+/**
+ * 组装系统提示：**技能文件是提示词的唯一来源**，这里只补上随会话变化的上下文
+ * （年级、当前聚焦的知识点）。
+ *
+ * 不把提示词内嵌回代码里当兜底——那会立刻变成第二份真相：
+ * 有人改了 SKILL.md，线上跑的却是那一份旧的，而且没有任何地方会报错。
+ */
+export function buildSystemPrompt(
+  knowledge: Knowledge,
+  skill: Skill,
+  level?: string,
+  nodeId?: string,
+): string {
+  const focus = nodeId ? knowledge.index.getNode(nodeId) : undefined;
+  const context = [
+    level
+      ? `学生年级：${LEVEL_LABEL[level] ?? level}。解释和追问都不要超出这个年级的认知上限。`
+      : "学生年级未知，按小学高年级的认知水平交流。",
+    focus
+      ? `当前聚焦的知识点：「${focus.name}」（id: ${focus.id}）。可以先用 graph_query 查它的档案再展开。`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return skill.body.includes("{{context}}")
+    ? skill.body.replace("{{context}}", context)
+    : `${context}\n\n${skill.body}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,12 +215,7 @@ D. 结尾的问题要小、要具体、要可回答。别问「你觉得会有�
 
 function defaultClientFactory(): ExploreClient {
   const config = loadLlmConfig(process.env);
-  const endpoint = config.fast;
-  return new LlmClient({
-    baseUrl: endpoint.baseUrl,
-    apiKey: endpoint.apiKey,
-    model: endpoint.model,
-  });
+  return createServerLlmClient(config, "fast", { dataDir: auditDataDir(process.env) });
 }
 
 function safeParseArgs(argumentsJson: string): Record<string, unknown> {
@@ -202,9 +241,37 @@ export async function runExplore(
     return { reply: EXPLORE_FALLBACK_REPLY, toolTrace };
   }
 
+  // 没有技能文件就没有提示词可讲——照兜底语回复，而不是用一份临时拼的话术顶上
+  const skill = exploreSkill();
+  if (!skill) {
+    console.warn("[explore] 找不到技能 skills/math/explore/SKILL.md");
+    return { reply: EXPLORE_FALLBACK_REPLY, toolTrace };
+  }
+  const tools = toolsFor(skill);
+
   const learner = state.repo.getLearner(input.learnerId);
+
+  /*
+   * 记忆与被记住的设定拼进 system prompt。
+   * 先派生一次再召回：错因、掌握度随时在变，记忆跟着事实走，
+   * 而不是把某天的判断冻在那里。
+   */
+  try {
+    deriveMemories(state.repo, state.knowledge.index, input.learnerId);
+  } catch {
+    // 派生失败不该让对话挂掉：记忆是锦上添花，不是关键路径
+  }
+  const memory = recallBlock(state.repo, input.learnerId);
+  const profile = profileBlock(readProfile(state.repo, input.learnerId));
+  const systemPrompt = [buildSystemPrompt(state.knowledge, skill, learner?.level, input.nodeId), profile, memory]
+    .filter(Boolean)
+    .join("\n\n");
+
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(state.knowledge, learner?.level, input.nodeId) },
+    {
+      role: "system",
+      content: systemPrompt,
+    },
     ...input.messages.map((m): ChatMessage => ({ role: m.role, content: m.content })),
   ];
 
@@ -213,7 +280,7 @@ export async function runExplore(
       let text = "";
       let toolCalls: { id: string; name: string; argumentsJson: string }[] = [];
       for await (const ev of client.chat(messages, {
-        tools: EXPLORE_TOOLS,
+        tools,
         temperature: 0.5,
         maxTokens: 900,
       })) {
@@ -273,7 +340,86 @@ export function exploreRoutes(state: AppState, clientFactory?: ExploreClientFact
     const parsed = ChatSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "需要 learnerId 与 messages" }, 400);
     parsed.data.learnerId = effectiveLearnerId(c, state, parsed.data.learnerId) ?? parsed.data.learnerId;
+
+    /*
+     * 模块开关：家长关掉「探索对话」就整个入口挡掉，403 + 一句孩子看得懂的话。
+     * 挡在服务端而不是只把入口藏起来——藏起来只是没给门，换个客户端照样进。
+     */
+    if (!moduleEnabled(state.repo, parsed.data.learnerId, "explore")) {
+      return c.json(moduleBlockedBody("explore"), 403);
+    }
+
+    /*
+     * 转写开关：家长没开就是空操作（见 transcripts.ts）。
+     * 在这里取一次，整个请求共用一个判断——中途改设置不该让一轮对话只记一半。
+     */
+    const transcript = transcriptRecorder(state.repo, parsed.data.learnerId);
+
+    /*
+     * 时长闸：**开始前**拦，不聊到一半掐断。
+     * 半句话被截断对孩子是最糟的体验，而且他不知道自己错在哪；
+     * 提前说"今天的时间用完了，明天再来"才是能理解的。
+     */
+    const budget = checkChatBudget(state.repo, parsed.data.learnerId);
+    if (!budget.allowed) {
+      return c.json(
+        {
+          reply: `今天的对话时间用完了（每天 ${budget.limitMinutes} 分钟）。想继续的话，可以去做几道题，或者明天再来找我。`,
+          toolTrace: [],
+          safety: { action: "block", reason: "time-budget" },
+          budget,
+        },
+        429,
+      );
+    }
+
+    /*
+     * 安全前置：拦下的话**根本不会送到模型**——不给它"被说服"的机会。
+     *
+     * 要查的不只是最后一句。历史整段由客户端提交、原样拼进模型上下文，
+     * 所以上一轮被拦下的那句话，这一轮会随着 history 一起进模型：
+     * "拦下的话不进模型"于是只对当轮成立。这里把历史里的每一条用户消息都过一遍
+     * （纯规则，不花钱），命中就当轮拦下并回同一句话术。
+     */
+    const userMessages = parsed.data.messages.filter((m) => m.role === "user");
+    for (const message of [...userMessages].reverse()) {
+      const gate = screenLearnerInput(state.repo, parsed.data.learnerId, message.content);
+      if (gate.blocked) {
+        // 被拦下的一轮只留"拦下了 + 原因"，原话不进转写（也不进 safety 事件）
+        transcript.blocked("input", gate.verdict.reason);
+        return c.json({
+          reply: gate.reply,
+          toolTrace: [],
+          safety: { action: gate.verdict.action, reason: gate.verdict.reason ?? null },
+        });
+      }
+    }
+
     const result = await runExplore(state, parsed.data, clientFactory);
+    /*
+     * 这里曾经记 `Date.now() - startedAt`——那是**模型的推理耗时**。
+     * 孩子聊了一个小时可能只被记几十秒，上限永远碰不到；模型慢的时候，
+     * 孩子反而"被用掉了时间"。使用时长现在由前端的活跃心跳记账
+     * （见 routes/usage.ts），这里不再写。
+     */
+    // 输出侧只拦确定的泄露；拦下就整段换成固定话术（半截改写更让人困惑）
+    const out = screenModelOutput(state.repo, parsed.data.learnerId, result.reply);
+    /*
+     * 转写只记**这一轮新说的话**：客户端每次把整段历史发上来，
+     * 把 messages 全写一遍等于同一句话存十遍。所以只取最后一条 user
+     * （孩子刚问的那一句）和这一轮的回话。
+     */
+    const asked = [...parsed.data.messages].reverse().find((m) => m.role === "user");
+    if (asked) transcript.turn("user", asked.content);
+    if (out.blocked) {
+      transcript.blocked("output", out.verdict.reason);
+      return c.json({
+        reply: out.reply,
+        toolTrace: result.toolTrace,
+        safety: { action: out.verdict.action, reason: out.verdict.reason ?? null },
+      });
+    }
+    transcript.turn("assistant", out.reply);
     return c.json(result);
   });
 

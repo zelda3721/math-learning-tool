@@ -22,7 +22,9 @@ export interface CoverageReport {
     nodes: CoverageRow[]
     uncoveredByStage: Record<string, string[]>
     topUnverified: CoverageRow[]
-    totals: { nodes: number; covered: number; verifiedNodes: number; questions: number }
+    /** 原图丢失、已排除出组卷的题（题库体检） */
+    figureMissing?: string[]
+    totals: { nodes: number; covered: number; verifiedNodes: number; questions: number; usableQuestions?: number }
 }
 
 /** 节点核验：成功返回 ok:true；422 等失败时带回 error 文案 */
@@ -170,6 +172,8 @@ export function CoveragePanel({ report, failed, onReload, stageNames, onVerified
                 <StatCell label="已覆盖" value={report.totals.covered} />
                 <StatCell label="已核验" value={report.totals.verifiedNodes} />
                 <StatCell label="题目总数" value={report.totals.questions} />
+                {/* 能发给孩子做的题：扣掉原图丢失的那些。差多少、为什么差，得有人看得见 */}
+                <StatCell label="可出题" value={report.totals.usableQuestions ?? report.totals.questions} />
             </div>
 
             {notice && (

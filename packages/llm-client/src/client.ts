@@ -7,7 +7,7 @@
  * fallback, and truncated-reasoning promotion — all via stream.ts.
  */
 
-import type { LlmEndpointConfig } from "./config.js";
+import { isLocalUrl, type LlmEndpointConfig } from "./config.js";
 import {
   chunksToEvents,
   parseSseStream,
@@ -72,6 +72,34 @@ export interface LlmClientInit {
   fetch?: typeof fetch;
   /** Injectable for tests. Defaults to real setTimeout sleep. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * 只许本地端点。**默认 true**：安全的那一侧必须是默认值，
+   * 否则每次新增一个客户端都可能悄悄把数据发出去。
+   */
+  localOnly?: boolean;
+  /** 每次真正发往非本地端点前回调一次（审计落盘用；本地请求不触发） */
+  audit?: (event: LlmAuditEvent) => void;
+}
+
+/** 拿到了非本地端点，而 LOCAL_ONLY 是开的（D5 的硬约束） */
+export class LocalOnlyViolationError extends Error {
+  readonly baseUrl: string;
+
+  constructor(baseUrl: string) {
+    super(
+      `LOCAL_ONLY 开启时拒绝非本地模型端点：${baseUrl}。` +
+        `所有孩子的对话与作业都只许留在本机/局域网；确实要用云端，请显式设置 LOCAL_ONLY=0（会留审计）。`,
+    );
+    this.name = "LocalOnlyViolationError";
+    this.baseUrl = baseUrl;
+  }
+}
+
+/** 越界请求的审计事件：**不含 apiKey**，只留足以对账的字段 */
+export interface LlmAuditEvent {
+  at: string;
+  baseUrl: string;
+  model: string;
 }
 
 export class LlmHttpError extends Error {
@@ -129,6 +157,8 @@ export class LlmClient {
   private readonly disableThinkingWithTools: boolean;
   private readonly fetchFn: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly local: boolean;
+  private readonly audit?: (event: LlmAuditEvent) => void;
 
   constructor(init: LlmClientInit) {
     this.baseUrl = init.baseUrl.replace(/\/+$/, "");
@@ -143,6 +173,12 @@ export class LlmClient {
     this.disableThinkingWithTools = init.disableThinkingWithTools ?? true;
     this.fetchFn = init.fetch ?? globalThis.fetch;
     this.sleep = init.sleep ?? defaultSleep;
+    this.audit = init.audit;
+    this.local = isLocalUrl(this.baseUrl);
+    // 在构造时就炸，而不是等第一次请求：配错了要在启动日志里立刻看见
+    if ((init.localOnly ?? true) && !this.local) {
+      throw new LocalOnlyViolationError(this.baseUrl);
+    }
   }
 
   static fromEndpoint(
@@ -228,6 +264,9 @@ export class LlmClient {
   ): Promise<Response> {
     let delay = this.retryInitialDelayMs;
     let lastError: unknown = new Error("LLM call failed without an exception");
+
+    // 越界请求留审计（只记一次调用，不按重试次数重复记）
+    if (!this.local) this.audit?.({ at: new Date().toISOString(), baseUrl: this.baseUrl, model: this.model });
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       let response: Response | null = null;

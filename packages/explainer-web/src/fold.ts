@@ -1,3 +1,4 @@
+import { defaultVisuals, type VisualRegistry } from "./visuals.js";
 import type { SceneSpec } from "@mathtutor/schema";
 import { collectRefs, num } from "./refs.js";
 
@@ -135,13 +136,8 @@ export interface RenderObject {
 export const MAX_UNITS_PER_GROUP = 200;
 
 /** 这些图元不是「数量」，即使 params 里有 total/value 也不展开成单位 */
-const NON_QUANTITY_PRIMITIVES = new Set([
-  "axes",
-  "number_line",
-  "function_curve",
-  "balance",
-  "relation_node",
-]);
+// 分类搬到 visuals.ts：图元是不是"可数量"由词表说了算，不再散在这里
+
 
 /**
  * 「量」与「集」是两种东西，画法必须不同：
@@ -153,7 +149,7 @@ const NON_QUANTITY_PRIMITIVES = new Set([
  * （宽度按全 spec 最大值归一化），visual_plan 提示词也明确要求总量超过 64 时
  * 改用 `quantity_bar.value` 而非罗列单位——Web 播放器此前是唯一画错的消费者。
  */
-const MAGNITUDE_PRIMITIVES = new Set(["quantity_bar"]);
+
 
 /**
  * 引入类动作：spec 一旦用它们点名某个对象，该对象就要「按需登场」。
@@ -292,7 +288,11 @@ function expandUnits(
  * - emphasis 每拍重置；removedCount 跨拍累计；
  * - 未知 op 忽略但不破坏可见性、不抛异常。
  */
-export function foldBeats(spec: SceneSpec): BeatState[] {
+export function foldBeats(
+  spec: SceneSpec,
+  /** 视觉词表：缺省用内置数学图元。学科新增图元从这里注入 */
+  visuals: VisualRegistry = defaultVisuals,
+): BeatState[] {
   const declared = spec.visual_objects;
   /**
    * 被 spec 明确「引入」过的对象集合：这些对象一开始不在场，等到那一拍才登场。
@@ -370,13 +370,13 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
       expandBalance(group);
     } else if (group.attachPerUnit !== undefined) {
       // 附属组自己不展开单位——它的量由宿主的单位数乘出来
-    } else if (!NON_QUANTITY_PRIMITIVES.has(obj.primitive)) {
+    } else if (visuals.isQuantity(obj.primitive)) {
       const n = declaredQuantity(params);
       if (n !== undefined) {
         group.declaredCount = n;
         // 条 + value/total = 量（画成长短）；条 + count = 仍然是可数的集（单位照常展开）。
         // 与引擎 Manim 通道同口径：那边也是 value 优先、count 兜底。
-        if (MAGNITUDE_PRIMITIVES.has(obj.primitive) && integerQuantity(params.count) === undefined) {
+        if (visuals.isMagnitude(obj.primitive) && integerQuantity(params.count) === undefined) {
           // 量：不展开成单位，交给播放器画成条（长短即大小）
           group.magnitude = n;
         } else {
@@ -790,6 +790,34 @@ export function foldBeats(spec: SceneSpec): BeatState[] {
               ...(perUnitAfter !== undefined ? { perUnitAfter } : {}),
               ...(totalAfter !== undefined ? { totalAfter } : {}),
             };
+          }
+          break;
+        }
+
+        case "set_value": {
+          /*
+           * 改一根"条"的量。
+           *
+           * 这是让数量条随叙事变长变短的唯一入口：magnitude 平时在建组时从 params
+           * 读一次就再不变了，于是「吃掉 3 个，条缩短」这类过程在画面上根本发生不了
+           * （只有可数记号那一路能动）。
+           *
+           * 只对量（magnitude）生效。可数记号组不走这条路——那边的数量由 units 决定，
+           * 凭空改一个数会让"看得见的个数"与声明的数打架，而验算存在的意义正是
+           * 让这两者必须一致。要减就把单位取走（take_from）。
+           */
+          const targets = (
+            strList(rec.targets).length > 0 ? strList(rec.targets) : strList(rec.target).concat(refs)
+          ).filter((id, i, arr) => arr.indexOf(id) === i);
+          const raw = num(rec.value ?? rec.total ?? rec.to, Number.NaN);
+          if (!Number.isFinite(raw)) break;
+          const next = Math.max(0, raw);
+          for (const id of targets) {
+            const group = touch(id);
+            if (!group || group.magnitude === undefined) continue;
+            group.magnitude = next;
+            group.visible = true;
+            group.emphasis = true;
           }
           break;
         }

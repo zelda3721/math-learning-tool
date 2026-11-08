@@ -55,6 +55,8 @@ const LEVEL_LABEL: Record<string, string> = {
 }
 const STATUS_LABEL: Record<string, string> = { extracted: '待抽检', verified: '已核对' }
 
+import { ProblemTypeProposals } from './ProblemTypeProposals'
+
 export function BankPage() {
     const [list, setList] = useState<BankList | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -314,6 +316,8 @@ export function BankPage() {
                         体检查的是结构（id 在不在、学段对不对），秒回；语义核查要逐题问模型，几百道要二十来分钟。
                     </p>
                 </div>
+
+                <ProblemTypeProposals onApplied={() => void load()} />
 
                 {semantic && (
                     <div className="rounded-[10px] border border-rule bg-paper p-3 space-y-2">

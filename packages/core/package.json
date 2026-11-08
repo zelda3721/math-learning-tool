@@ -1,0 +1,28 @@
+{
+  "name": "@mathtutor/core",
+  "version": "0.1.0",
+  "description": "学科无关内核：学科注册表（题型 / 判卷器 / 验证器 / 视觉词汇）与解析",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mathtutor/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}

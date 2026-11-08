@@ -6,13 +6,14 @@
  *    否则「根在曲线与 x 轴交点」这种最基本的数学关系画面上就是错位的。
  * 2. 算不出来就不画。函数编译/采样失败一律产出 issue，绝不退化成装饰性曲线。
  */
+import { defaultVisuals, type VisualRegistry } from "../visuals.js";
 import type { BeatState, GroupState } from "../fold.js";
 import { compileExpression } from "../math/expr.js";
 import { sampleFunction } from "../math/sample.js";
 import { buildCoordSystem, unionExtents, type CoordSystem, type Extents } from "../math/coords.js";
 
 export interface SceneIssue {
-  kind: "uncomputable-curve" | "unknown-primitive" | "inconsistent-count";
+  kind: "uncomputable-curve" | "unknown-primitive" | "inconsistent-count" | "semantic";
   detail: string;
   objectId?: string;
 }
@@ -131,6 +132,31 @@ export interface LabelShape {
 }
 
 /**
+ * 一句英文，其中一段是「这节课在练的形式」（`en.sentence_highlight`）。
+ *
+ * 为什么按**字符区间**给而不是按标记语言：句子来自教材原文，里面本来就可能有
+ * 撇号、破折号、省略号；再引入一层 `**…**` 标记，教材料子里的星号就得转义，
+ * 迟早出错。区间由这里按原文算好，渲染层只负责画。
+ *
+ * 找不到要高亮的那一段时**返回空数组**：句子照常显示、就是不高亮，
+ * 绝不退而求其次高亮个"看起来差不多"的词——那是在教错的语法。
+ */
+export interface SentenceShape {
+  kind: "sentence";
+  id: string;
+  text: string;
+  highlights: { start: number; end: number }[];
+}
+
+/** 英语词汇卡（`en.vocab_card`）：正面一个词/短语，背面一句中文或例句 */
+export interface CardShape {
+  kind: "card";
+  id: string;
+  head: string;
+  sub?: string;
+}
+
+/**
  * 讲义原图的转写重画：点（带字母）+ 线段 + 阴影区域。
  * 坐标由引擎按原图量出并注入（figure_transcription），数学坐标 y 向上；
  * 渲染走 figure/render 的保形投影——SceneSpec 坐标系不保形，画几何图会被拉伸。
@@ -178,6 +204,8 @@ export type Shape =
   | MagnitudeShape
   | ExtentShape
   | LabelShape
+  | SentenceShape
+  | CardShape
   | FigureShape;
 
 export interface Scene {
@@ -199,6 +227,44 @@ export interface Scene {
 
 const num = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
+
+/** 参数里取一段非空文字；不是字符串或空串一律当"没给" */
+const textOf = (v: unknown): string | undefined => {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t.length > 0 ? t : undefined;
+};
+
+/**
+ * 在句子里找要高亮的那一段（全部出现处，忽略大小写）。
+ *
+ * 只做**整词**匹配：要高亮 `work` 时不该把 `working` 里的 `work` 也框上——
+ * 那正好把"这两种形式不一样"这件事教反了。
+ */
+export function highlightSpans(text: string, needle: string | undefined): { start: number; end: number }[] {
+  if (!needle) return [];
+  /*
+   * 撇号统一：教材例句用的是弯撇号 `don’t`，参考答案里常写直撇号 `don't`。
+   * 两者是**同一个词**，只是排版字符不同；不归一化，正在练的形式永远框不上。
+   * 归一化是逐字符替换（都是单字符），所以索引仍与原文一一对应。
+   */
+  const norm = (s: string): string => s.replace(/[‘’]/g, "'").toLowerCase();
+  const hay = norm(text);
+  const part = norm(needle.trim());
+  if (part.length === 0) return [];
+  const isWordChar = (ch: string | undefined): boolean => ch !== undefined && /[a-z0-9']/.test(ch);
+  const spans: { start: number; end: number }[] = [];
+  let from = 0;
+  for (;;) {
+    const i = hay.indexOf(part, from);
+    if (i < 0) break;
+    const before = i === 0 ? undefined : hay[i - 1];
+    const after = hay[i + part.length];
+    if (!isWordChar(before) && !isWordChar(after)) spans.push({ start: i, end: i + part.length });
+    from = i + part.length;
+  }
+  return spans;
+}
 
 /** figure 图元的参数校验：点不够或引用了不存在的字母就整体不画（宁缺毋错） */
 function figureShapeOf(g: GroupState): FigureShape | null {
@@ -281,15 +347,20 @@ const pair = (v: unknown): [number, number] | null =>
 const range = (v: unknown): [number, number] | null => pair(v);
 
 /** 数量型（展开成单位记号）还是几何型（进坐标系） */
-const PLOTTED_PRIMITIVES = new Set([
-  "function_curve", "axes", "number_line", "dot", "line", "arrow", "polygon",
-  "tangent_line", "secant_line", "riemann_rects", "limit_approach", "composition_chain",
-]);
+// 分类搬到 visuals.ts：是不是画在坐标系里由词表说了算
+
 
 /**
  * 解算一拍。samples 控制曲线采样密度（按画布宽度自适应）。
  */
-export function solveScene(beat: BeatState, width: number, height: number, samples = 600): Scene {
+export function solveScene(
+  beat: BeatState,
+  width: number,
+  height: number,
+  samples = 600,
+  /** 视觉词表：缺省用内置数学图元 */
+  visuals: VisualRegistry = defaultVisuals,
+): Scene {
   const issues: SceneIssue[] = [];
   const plotted: Shape[] = [];
   const flowed: Shape[] = [];
@@ -312,14 +383,14 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
 
   for (const g of beat.groups) {
     if (g.attachPerUnit !== undefined) continue; // 已经变成宿主身上的结构
-    if (g.primitive === "figure") {
+    if (visuals.isFigure(g.primitive)) {
       const fig = figureShapeOf(g);
       if (fig) flowed.push(fig);
       else
         flowed.push({ kind: "label", id: g.id, text: g.label ?? "讲义原图", placeholder: true });
       continue;
     }
-    if (!PLOTTED_PRIMITIVES.has(g.primitive)) {
+    if (!visuals.isPlotted(g.primitive)) {
       // 数量型：展开成可数记号
       if (g.units.length > 0 || g.quantity !== undefined) {
         const shape = unitsShape(g);
@@ -351,6 +422,26 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
           ...(g.color !== undefined ? { color: g.color } : {}),
           ...(g.emphasis ? { emphasis: true as const } : {}),
         });
+      } else if (g.primitive === "en.sentence_highlight") {
+        const text = textOf(g.params?.text) ?? g.label ?? "";
+        if (!text) {
+          issues.push({ kind: "semantic", detail: "句子图元没有文字", objectId: g.id });
+          continue;
+        }
+        flowed.push({
+          kind: "sentence",
+          id: g.id,
+          text,
+          highlights: highlightSpans(text, textOf(g.params?.highlight)),
+        });
+      } else if (g.primitive === "en.vocab_card") {
+        const head = textOf(g.params?.term ?? g.params?.text) ?? g.label;
+        if (!head) {
+          issues.push({ kind: "semantic", detail: "词汇卡没有正面内容", objectId: g.id });
+          continue;
+        }
+        const sub = textOf(g.params?.meaning ?? g.params?.example);
+        flowed.push({ kind: "card", id: g.id, head, ...(sub ? { sub } : {}) });
       } else if (g.primitive === "relation_node" || g.label) {
         flowed.push({ kind: "label", id: g.id, text: g.label ?? g.meaning ?? g.id });
       } else {
@@ -395,8 +486,7 @@ export function solveScene(beat: BeatState, width: number, height: number, sampl
 }
 
 /** 声明了正的宽高才算几何矩形；缺一个就不是（不猜） */
-function extentOf(g: GroupState): [number, number] | null {
-  const w = num(g.params?.width, Number.NaN);
+function extentOf(g: GroupState): [number, number] | null {  const w = num(g.params?.width, Number.NaN);
   const h = num(g.params?.height, Number.NaN);
   return w > 0 && h > 0 ? [w, h] : null;
 }

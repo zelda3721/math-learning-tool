@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-11-05T09:41:01",
+  "set": "engine",
+  "label": "oMLX Qwen3.8-Flash-Next 冒烟",
+  "base_url": "http://127.0.0.1:8001",
+  "summary": {
+    "cases": 1,
+    "ran": 1,
+    "errored": 0,
+    "answer_correct": 1,
+    "answer_accuracy": 1.0,
+    "median_s": 522.8,
+    "p90_s": 522.8,
+    "compiled": 1,
+    "done": 0
+  },
+  "cases": [
+    {
+      "id": "eng-001",
+      "ok": false,
+      "status": "ok",
+      "answer_expected": "3",
+      "answer_got": "3个",
+      "answer_correct": true,
+      "compiled": true,
+      "gate": "成片复审通过：视觉评审：good B=12/12，问题 1 条",
+      "total_s": 522.8,
+      "stages": [
+        {
+          "name": "solve_problem",
+          "ok": true,
+          "s": 30.4,
+          "summary": "问题简报与解题完成：通过从总数中减去消耗的数量，直接计算剩余量。，3 步，答案：3个"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 47.4,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": false,
+          "s": 21.8,
+          "summary": "自校验：失败（模型预期：通过）——执行错误: KeyError: '题目数值'"
+        },
+        {
+          "name": "verify_solution",
+          "ok": true,
+          "s": 41.9,
+          "summary": "逻辑审计通过"
+        },
+        {
+          "name": "direct_video",
+          "ok": true,
+          "s": 0.0,
+          "summary": "已从独立数学证据直接构造可执行图形计划（quantity_story）；无需模型猜测表达式或重写视觉计划"
+        },
+        {
+          "name": "compile_video",
+          "ok": true,
+          "s": 0.1,
+          "summary": "编译成功：已验证 Visual IR 首次确定性渲染通过"
+        },
+        {
+          "name": "watch_video",
+          "ok": true,
+          "s": 381.1,
+          "summary": "成片复审通过：视觉评审：good B=12/12，问题 1 条"
+        }
+      ]
+    }
+  ]
+}

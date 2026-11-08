@@ -37,6 +37,7 @@ ENV/
 !/data/knowledge/
 !/data/bench/
 !/data/figure_bench/
+!/data/golden/
 /services/video-engine/data/
 *.sqlite
 *.sqlite-shm
@@ -61,4 +62,11 @@ node_modules/
 .venv/
 data/bench/engine-bench.log
 data/bench/*.jsonl
+
+# 冒烟沙箱与产物（.auth 里是登录 cookie，绝不能进库）
+/data/.e2e
+/e2e/.auth/
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/report/
 

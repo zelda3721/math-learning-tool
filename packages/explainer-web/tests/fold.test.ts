@@ -121,6 +121,64 @@ describe("foldBeats: 单位展开", () => {
     expect(group(beat, "axes").units).toEqual([]);
   });
 
+  /**
+   * 条的量只能由 set_value 改，搬运类动作碰不到它。
+   *
+   * magnitude 建组时从 params 读一次；take_from 动的是 units，平衡类动作动的是
+   * live 值，都不落在 magnitude 上。把这条写下来，是为了区分两种"条不动"：
+   * 一种是设计如此（搬运不该改总量），一种是真的坏了。
+   */
+  it("搬运类动作不改条的量（要改就明说 set_value）", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [{ id: "basket", primitive: "quantity_bar", params: { total: 12 } }],
+        scenes: [
+          { actions: [{ op: "appear", target: "basket" }] },
+          { actions: [{ op: "take_from", source: "basket", count: 4 }] },
+        ],
+      }),
+    );
+    expect(group(beats[0]!, "basket").magnitude).toBe(12);
+    expect(group(beats[1]!, "basket").magnitude).toBe(12);
+  });
+
+  it("set_value 让条的量跨拍变化（播放器的条补间因此有了用武之地）", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [
+          { id: "basket", primitive: "quantity_bar", params: { total: 12 } },
+          { id: "other", primitive: "quantity_bar", params: { total: 5 } },
+        ],
+        scenes: [
+          { actions: [{ op: "appear", target: "basket" }], teaching_line: "12 个" },
+          {
+            actions: [{ op: "set_value", target: "basket", value: 9 }],
+            teaching_line: "吃掉 3 个，还剩 9 个",
+          },
+          { actions: [{ op: "set_value", targets: ["basket"], value: 0 }] },
+        ],
+      }),
+    );
+    expect(beats.map((b) => group(b, "basket").magnitude)).toEqual([12, 9, 0]);
+    // 没被点名的条纹丝不动
+    expect(beats.map((b) => group(b, "other").magnitude)).toEqual([5, 5, 5]);
+  });
+
+  it("set_value 不改可数记号组：那边的数量由 units 说了算", () => {
+    const beats = foldBeats(
+      parse({
+        visual_objects: [{ id: "dots", primitive: "unit_grid", params: { count: 6 } }],
+        scenes: [
+          { actions: [{ op: "appear", target: "dots" }] },
+          { actions: [{ op: "set_value", target: "dots", value: 3 }] },
+        ],
+      }),
+    );
+    // 单位数不变——凭空改一个数会让"看得见的个数"和声明的数打架
+    expect(beats[1]!.groups.find((g) => g.id === "dots")!.units).toHaveLength(6);
+    expect(beats[1]!.groups.find((g) => g.id === "dots")!.magnitude).toBeUndefined();
+  });
+
   it("quantity_bar 的 value 是「量」不是「集」：给 magnitude，不摊成一堆点", () => {
     // 70 只脚摊成 70 个点，既数不清也比不出 70 与 94 的差——量的意义就在长短对比。
     // 引擎 Manim 通道一直把 quantity_bar 画成长度正比于 value 的条，这里补齐同一语义。

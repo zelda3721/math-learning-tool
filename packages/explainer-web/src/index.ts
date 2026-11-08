@@ -8,6 +8,20 @@ export {
   type RenderObject,
 } from "./fold.js";
 export { ExplainerPlayer, type PlayerOptions, type PlayerOptions as ExplainerPlayerOptions } from "./player.js";
+export {
+  buildTimeline,
+  Playhead,
+  DEFAULT_BEAT_MS,
+  DEFAULT_TRANSITION_MS,
+  type Timeline,
+  type TimelineFrame,
+  type TimelineOptions,
+} from "./timeline.js";
+export { gateBeats, type SemanticCode, type SemanticFinding } from "./gate.js";
+export { BUILTIN_VISUALS, VisualRegistry, defaultVisuals, type VisualDefinition } from "./visuals.js";
+export { atomOpacity, revealedAtoms } from "./formulas.js";
+export { buildChannels, cuesForBeat, intensityAt, revealOpacityAt, stateValueAt, type ChannelCue, type ChannelKind } from "./channels.js";
+export { tweenPoint, tweenPositions, tweenBarGeometry, easeOutCubic, type Point, type BarGeometry } from "./motion.js";
 export { solveScene, type Scene, type SceneIssue, type Shape } from "./render/scene.js";
 export { KNOWN_PRIMITIVES, KNOWN_OPS } from "./refs.js";
 /** 数学核心：调用方可独立复算校验引擎给的数值（曲线、斜率、面积） */
@@ -18,3 +32,5 @@ export * from "./figure/solve.js";
 export * from "./figure/render.js";
 // 配图类型从这里转出：apps/web 只依赖本包，不必再挂一个 schema 依赖
 export type { FigureSpec, FigureConstraint, FigurePoint, FigureSegment } from "@mathtutor/schema";
+// SceneSpec 也从这里转出：调用方渲染/构造 spec 时不必额外挂一个 schema 依赖
+export type { SceneSpec } from "@mathtutor/schema";

@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   source TEXT NOT NULL DEFAULT 'daily',
   duration_s REAL,
   needs_review INTEGER NOT NULL DEFAULT 0,
+  -- 这条证据的验证等级（宪法第 5 条）：ai_unverified 不进掌握度
+  verification TEXT NOT NULL DEFAULT 'executable',
   parent_verdict TEXT,
   parent_note TEXT,
   at TEXT NOT NULL
@@ -175,6 +177,37 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
   result_json TEXT,
   error TEXT
 );
+-- 阶段 4 导师长期记忆：导师"记住了什么"必须可解释、可删、只存在本地。
+-- 软删除（deleted_at）而不是物理删除：家长删掉之后，召回一律过滤掉它，
+-- 但审计上仍留着"这里曾经有一条记忆、什么时候被删的"。
+CREATE TABLE IF NOT EXISTS tutor_memories (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  kind TEXT NOT NULL,               -- 'struggle'（卡住的）| 'strength'（拿手的）| 'preference'（偏好）| 'goal'（目标）
+  text TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,         -- 同一件事只留一条：重复出现时更新计数，不堆成一串
+  hit_count INTEGER NOT NULL DEFAULT 1,
+  source TEXT NOT NULL,             -- 'derived'（从作答/错因派生）| 'profile'（孩子/家长手填）
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (learner_id, dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS idx_memories_learner ON tutor_memories(learner_id, updated_at);
+-- 阶段 4 对话转写：家长可查看，**默认关闭**。
+-- 为什么默认关：开放对话里孩子说的话，本来就带着"没人在旁边听"的信任；
+-- 默认录音等于把这份信任换成监控。要看得由家长显式打开，且只存在本机这个库里。
+-- 被安全层拦下的那一轮 role 记 'blocked'、content 留空，只留原因——
+-- 拦下的原话连日志都不留（见 safety.ts），转写里自然也不能有。
+CREATE TABLE IF NOT EXISTS explore_transcripts (
+  id TEXT PRIMARY KEY,
+  learner_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  role TEXT NOT NULL,              -- 'user' | 'assistant' | 'blocked'
+  content TEXT NOT NULL DEFAULT '',
+  safety_reason TEXT               -- 被拦下时的原因/位置（input|output:reason）
+);
+CREATE INDEX IF NOT EXISTS idx_transcripts_learner ON explore_transcripts(learner_id, ts);
 `;
 
 /** 旧库容错迁移（列已存在则跳过；node:sqlite 没有 IF NOT EXISTS 语法） */
@@ -183,6 +216,14 @@ const MIGRATIONS = [
   "ALTER TABLE explanations ADD COLUMN grounding_source TEXT",
   "ALTER TABLE explanations ADD COLUMN html_url TEXT",
   "ALTER TABLE explain_jobs ADD COLUMN note TEXT",
+  // 证据的验证等级（宪法第 5 条）。旧库里的作答都来自确定性判卷，默认 executable 即事实
+  "ALTER TABLE attempts ADD COLUMN verification TEXT NOT NULL DEFAULT 'executable'",
+  /*
+   * 谁在作答：'child' 是孩子本人，'parent' 是家长在孩子的页面上试做。
+   * 家长试做要留痕（他自己能看到做了些什么），但**不能进孩子的掌握度**——
+   * 否则家长点两下就把孩子的星点亮了。旧库默认 child。
+   */
+  "ALTER TABLE attempts ADD COLUMN actor TEXT NOT NULL DEFAULT 'child'",
 ];
 
 function migrate(db: DatabaseSync): void {

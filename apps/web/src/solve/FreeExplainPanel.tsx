@@ -18,6 +18,7 @@ import {
 import { GeneratedExplanation } from '../practice/GeneratedExplanation'
 import { ExplanationCompare } from '../practice/ExplanationCompare'
 import { LoadingState } from '../ui'
+import { renderMathAtoms } from '../math/katexAtoms'
 
 type Phase =
     | { kind: 'generating'; jobId?: string }
@@ -174,6 +175,8 @@ function SpecPlayer({ specUrl }: { specUrl: string }) {
                 player = new ExplainerPlayer(containerRef.current, spec, {
                     // 不自动播放：能拨的画面应当等学生动手，而不是自己走完
                     autoPlay: false,
+                    // 公式由 KaTeX 渲染：播放器本身零依赖，渲染器从这里注入
+                    math: renderMathAtoms,
                     onBeatChange: (i, total) => setBeat({ i, total }),
                 })
             })

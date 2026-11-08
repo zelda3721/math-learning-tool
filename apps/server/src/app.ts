@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import type { EngineContract } from "@mathtutor/schema";
 import { SESSION_COOKIE, type AuthStore, type AuthUser } from "./auth.js";
 import { authRoutes } from "./routes/auth.js";
-import type { Knowledge } from "@mathtutor/knowledge";
+import type { ConceptExtractionProvider, Knowledge } from "@mathtutor/knowledge";
 import type { ServerConfig } from "./config.js";
 import type { Repo } from "./repo.js";
 import type { QuestionStore } from "./questions.js";
@@ -11,6 +11,7 @@ import type { HintProvider } from "./hint.js";
 import type { ExtractionProvider } from "./ingest/extraction.js";
 import { proxyToEngine } from "./proxy.js";
 import { effectiveP, masteryBand } from "./mastery.js";
+import { loadEvidenceStats } from "./evidence.js";
 import type { JobStore } from "./ingest/jobs.js";
 import { learnerRoutes } from "./routes/learners.js";
 import { practiceRoutes } from "./routes/practice.js";
@@ -23,8 +24,17 @@ import { ingestRoutes } from "./ingest/routes.js";
 import { exploreRoutes } from "./explore.js";
 import { askRoutes } from "./ask.js";
 import { bankRoutes } from "./bank.js";
+import { textbookRoutes } from "./textbook.js";
+import { classroomRoutes } from "./classroom/routes.js";
+import { labRoutes } from "./lab.js";
+import { crossSubjectMembers, SUBJECT_LABEL } from "@mathtutor/knowledge";
 import { loadFigure } from "./figures.js";
 import { notesRoutes } from "./notes.js";
+import { plannerRoutes } from "./routes/planner.js";
+import { widgetRoutes } from "./routes/widgets.js";
+import { englishRoutes } from "./routes/english.js";
+import { usageRoutes } from "./routes/usage.js";
+import type { SubjectRegistry } from "@mathtutor/core";
 
 export interface AppState {
   config: ServerConfig;
@@ -37,6 +47,12 @@ export interface AppState {
   judge?: import("./semanticJudge.js").AnswerJudge | null;
   /** 上传抽取 LLM Provider；null/缺省时 text 走离线兜底、image/pdf 返回 501 */
   extraction?: ExtractionProvider | null;
+  /**
+   * 教材概念编译的模型端（知识编译）。null/缺省时整本走离线兜底并标 degraded。
+   * 单独一个端口而不是复用 extraction：两者提示词与失效方式都不同
+   * （抽取题面 vs 编译概念），混用会让调一个坏掉另一个。
+   */
+  textbookProvider?: ConceptExtractionProvider | null;
   /** P1b 批量抽取任务存储；未提供时批量端点返回 503 */
   jobs?: JobStore;
   /** 可注入的引擎 fetch（测试 mock 引擎 SSE 用）；缺省 globalThis.fetch */
@@ -46,6 +62,11 @@ export interface AppState {
   /** 账户体系；authDisabled=true 时全开放（单测用） */
   auth?: AuthStore | null;
   authDisabled?: boolean;
+  /**
+   * 学科注册表（判卷器/验证器/题型的唯一来源）。
+   * 可省略：省略时用默认装配（数学 + 英语），所以单测不必逐个注入。
+   */
+  subjects?: SubjectRegistry;
 }
 
 /** 引擎既有 API 中经 server 透传的路径前缀（学生设备永不直连引擎）。 */
@@ -101,6 +122,7 @@ export function createApp(state: AppState): Hono {
   };
   app.use("/api/v1/parent/*", parentOnly);
   app.use("/api/v1/ingest/*", parentOnly);
+  app.use("/api/v1/textbook/*", parentOnly);
   app.use("/api/v1/knowledge/verify-node", parentOnly);
   app.use("/api/v1/chat", parentOnly);
   app.use("/api/v1/chat/*", parentOnly);
@@ -140,15 +162,39 @@ export function createApp(state: AppState): Hono {
     const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     const mastery: Record<string, { p: number; evidenceN: number; band: string }> = {};
     if (learnerId) {
+      const evidence = loadEvidenceStats(state.repo, state.questions, learnerId);
       for (const row of state.repo.allMastery(learnerId)) {
         const p = effectiveP(row);
-        mastery[row.nodeId] = { p, evidenceN: row.evidenceN, band: masteryBand(p, row.evidenceN) };
+        mastery[row.nodeId] = {
+          p,
+          evidenceN: row.evidenceN,
+          band: masteryBand(p, row.evidenceN, evidence.get(row.nodeId)),
+        };
       }
     }
     return c.json({
       graph: state.knowledge.graph,
       problemTypes: state.knowledge.problemTypes,
       mastery,
+    });
+  });
+
+  /**
+   * 跨学科：这个知识点在别的学科里怎么用。
+   *
+   * 只回**两边节点都存在**的连接——点不开的链接比没有更糟。
+   * note 是 links.json 里手写的具体说明（哪一步用上、错了会错在哪），
+   * 不是现场生成的套话。
+   */
+  app.get("/api/v1/atlas/cross-subject", (c) => {
+    const nodeId = c.req.query("nodeId");
+    if (!nodeId) return c.json({ error: "需要 nodeId" }, 400);
+    if (!state.knowledge.index.getNode(nodeId)) return c.json({ error: "图谱里没有这个节点" }, 404);
+    const members = crossSubjectMembers(state.knowledge.index, state.knowledge.links, nodeId);
+    return c.json({
+      nodeId,
+      members: members.map((m) => ({ ...m, subjectLabel: SUBJECT_LABEL[m.subject] ?? m.subject })),
+      note: "跨学科连接来自 data/knowledge/links.json：每条都写明在哪一步用上",
     });
   });
 
@@ -164,6 +210,10 @@ export function createApp(state: AppState): Hono {
   app.route("/api/v1/ask", askRoutes(state));
   // 题库管理（家长专属）：列出全部题、就地修改、删除、整批撤回
   app.route("/api/v1/bank", bankRoutes(state));
+  // 教材编译（家长专属）：PDF 文本 → 章节 → 知识点 → 图谱候选，只出提案
+  app.route("/api/v1/textbook", textbookRoutes(state));
+  app.route("/api/v1/classroom", classroomRoutes(state));
+  app.route("/api/v1/lab", labRoutes(state));
 
   /**
    * 题目原图。**不设家长门**——孩子做题时看的就是这张图，
@@ -181,6 +231,10 @@ export function createApp(state: AppState): Hono {
       },
     });
   });
+  app.route("/api/v1/usage", usageRoutes(state));
+  app.route("/api/v1/planner", plannerRoutes(state));
+  app.route("/api/v1/widgets", widgetRoutes(state));
+  app.route("/api/v1/en", englishRoutes(state));
   app.route("/api/v1/notes", notesRoutes(state));
 
   // 引擎透传（SSE 流式）
