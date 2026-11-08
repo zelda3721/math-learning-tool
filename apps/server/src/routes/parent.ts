@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppState } from "../app.js";
 import { applyAttempt, countsTowardMastery, effectiveP, masteryBand } from "../mastery.js";
+import { loadEvidenceStats } from "../evidence.js";
 import { chatBudgetReport } from "../chatBudget.js";
 import { readProfile, writeProfile } from "../tutorMemory.js";
 import { MODULES, readModules, writeModules, type ModuleState } from "../modules.js";
@@ -53,8 +54,10 @@ export function parentRoutes(state: AppState): Hono {
 
     // 掌握度总览
     const mastery = state.repo.allMastery(learnerId);
+    const evidence = loadEvidenceStats(state.repo, state.questions, learnerId);
     const bands = { lit: 0, glow: 0, dim: 0 };
-    for (const m of mastery) bands[masteryBand(effectiveP(m), m.evidenceN) as keyof typeof bands]++;
+    for (const m of mastery)
+      bands[masteryBand(effectiveP(m), m.evidenceN, evidence.get(m.nodeId)) as keyof typeof bands]++;
 
     /**
      * 卡住的题：直接从作答记录汇总，**不经错题本**。
@@ -103,7 +106,7 @@ export function parentRoutes(state: AppState): Hono {
     /** 薄弱知识点：按有效掌握度从低到高，带名字——只给 dim/glow 的计数看不出是哪里弱 */
     const weakNodes = mastery
       .map((m) => ({ nodeId: m.nodeId, p: effectiveP(m), evidenceN: m.evidenceN }))
-      .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN) !== "lit")
+      .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN, evidence.get(m.nodeId)) !== "lit")
       .sort((a, b) => a.p - b.p)
       .slice(0, 10)
       .map((m) => ({
@@ -111,7 +114,7 @@ export function parentRoutes(state: AppState): Hono {
         nodeName: state.knowledge.index.getNode(m.nodeId)?.name ?? m.nodeId,
         p: Math.round(m.p * 100) / 100,
         evidenceN: m.evidenceN,
-        band: masteryBand(m.p, m.evidenceN),
+        band: masteryBand(m.p, m.evidenceN, evidence.get(m.nodeId)),
       }));
 
     return c.json({
@@ -454,7 +457,8 @@ export function parentRoutes(state: AppState): Hono {
           evidenceN: next.evidenceN,
           lastEvidenceAt: new Date().toISOString(),
         });
-        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN) });
+        const stats = loadEvidenceStats(state.repo, state.questions, attempt.learnerId);
+        masteryChanges.push({ nodeId, p: next.p, band: masteryBand(next.p, next.evidenceN, stats.get(nodeId)) });
       }
     }
     state.repo.appendEvent(attempt.learnerId, "feedback", {

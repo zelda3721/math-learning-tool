@@ -4,6 +4,7 @@ import type { GraphIndex } from "@mathtutor/knowledge";
 import type { Repo } from "./repo.js";
 import { practiceReady, type QuestionStore } from "./questions.js";
 import { effectiveP, masteryBand } from "./mastery.js";
+import { loadEvidenceStats } from "./evidence.js";
 import { pickReviewQuestion } from "./review.js";
 
 const LEVEL_ORDER: EducationLevel[] = [
@@ -88,9 +89,10 @@ export function composeToday(
 
   // 3) 弱点节点：有证据且有效掌握度最低的节点，取其未做对的题
   const mastery = repo.allMastery(learnerId);
+  const evidence = loadEvidenceStats(repo, store, learnerId);
   const weakNodes = mastery
     .map((m) => ({ nodeId: m.nodeId, p: effectiveP(m), evidenceN: m.evidenceN }))
-    .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN) !== "lit")
+    .filter((m) => m.evidenceN > 0 && masteryBand(m.p, m.evidenceN, evidence.get(m.nodeId)) !== "lit")
     .sort((a, b) => a.p - b.p);
   // 难度 ≥4 的题保留为挑战池，不进核心槽（否则挑战题会被弱点/新题槽提前吃掉）
   const isChallengePool = (q: Question) => q.difficulty >= 4;
@@ -100,7 +102,7 @@ export function composeToday(
     if (picked.length >= target) break;
     // 选题顺序不变（最弱的知识点先练）；标签看孩子和这道题的关系：
     // 没做过的题就是新题，弱点/巩固只贴在重做的题上
-    const band = masteryBand(weak.p, weak.evidenceN) === "dim" ? "weak" : "consolidate";
+    const band = masteryBand(weak.p, weak.evidenceN, evidence.get(weak.nodeId)) === "dim" ? "weak" : "consolidate";
     for (const q of store.byNode.get(weak.nodeId) ?? []) {
       if (picked.length >= target) break;
       if (isChallengePool(q)) continue;

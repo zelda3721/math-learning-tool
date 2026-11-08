@@ -41,7 +41,13 @@ type Feedback =
      * 所以文案不能说"学会了"——说了就是在教错人。
      */
     | { kind: 'correct-unverified' }
-    | { kind: 'review' }
+    /**
+     * 判不准：交家长确认。**不算完成**——孩子还能再答一次或要提示，
+     * 早先这里直接跳下一题，等于"乱填"也是零代价的。
+     */
+    | { kind: 'pending' }
+    /** 只写了「不会」这类话：不算一次作答，题留在原地 */
+    | { kind: 'nudge' }
     | { kind: 'wrong'; canHint: boolean }
     | null
 
@@ -99,8 +105,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
 
     const finished =
         feedback?.kind === 'correct' ||
-        feedback?.kind === 'correct-unverified' ||
-        feedback?.kind === 'review'
+        feedback?.kind === 'correct-unverified'
     const wrongExhausted = feedback?.kind === 'wrong' && hintLevel >= 3
 
     const handleSubmit = async () => {
@@ -119,8 +124,16 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                 reviewCardId: item.reviewCardId,
             })
             masteryRef.current.push(...result.mastery)
-            if (result.needsReview) {
-                setFeedback({ kind: 'review' })
+            if (result.notAnAnswer) {
+                /*
+                 * 乱填、只写「不会」不算一次作答：题留在原地，让他再试或者要提示。
+                 * 早先这里直接跳下一题——等于给孩子一条零代价的跳题捷径，
+                 * 比认真答错还划算。
+                 */
+                setFeedback({ kind: 'nudge' })
+            } else if (result.needsReview) {
+                // 判不准（等家长）也不再自动跳题：孩子可以再答一次，或要提示
+                setFeedback({ kind: 'pending' })
             } else if (result.correct) {
                 setFeedback(
                     result.verification === 'ai_unverified'
@@ -129,7 +142,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                 )
             } else {
                 lastWrongRef.current = trimmed
-                lastAttemptIdRef.current = result.attemptId
+                lastAttemptIdRef.current = result.attemptId ?? undefined
                 setFeedback({ kind: 'wrong', canHint: result.hintAvailable })
             }
         } catch (err) {
@@ -167,12 +180,12 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
             masteryRef.current.push(...result.mastery)
             if (result.extractedAnswer) setAnswer(result.extractedAnswer)
             if (result.needsReview) {
-                setFeedback({ kind: 'review' })
+                setFeedback({ kind: 'pending' })
             } else if (result.correct) {
                 setFeedback({ kind: 'correct' })
             } else {
                 lastWrongRef.current = result.extractedAnswer || undefined
-                lastAttemptIdRef.current = result.attemptId
+                lastAttemptIdRef.current = result.attemptId ?? undefined
                 setFeedback({ kind: 'wrong', canHint: result.hintAvailable })
             }
         } catch (err) {
@@ -213,7 +226,7 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
         // AI 判断的"对"也算答对了（作答本身是对的），只是没进掌握度——
         // 这一句说的是孩子这次的表现，不是说系统记住了多少
         correct: feedback?.kind === 'correct' || feedback?.kind === 'correct-unverified',
-        review: feedback?.kind === 'review',
+        review: feedback?.kind === 'pending',
         skipped,
         hintLevel,
         mastery: masteryRef.current,
@@ -376,9 +389,14 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                     再用老师教的方法答一遍，这颗星才是真的亮了。
                 </div>
             )}
-            {feedback?.kind === 'review' && (
+            {feedback?.kind === 'pending' && (
                 <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
-                    这道题已交给家长确认，先继续下一题吧。
+                    这道题判不准，已经记下来给家长确认。你可以再答一次，或者要个提示。
+                </div>
+            )}
+            {feedback?.kind === 'nudge' && (
+                <div className="rounded-[10px] bg-paper border border-rule px-4 py-3 text-ink-soft font-medium">
+                    这还不算一次作答——先想一想，实在想不出来可以要提示。
                 </div>
             )}
             {feedback?.kind === 'wrong' && (
@@ -423,6 +441,23 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                         </Button>
                     </>
                 )}
+                {/* 诚实的出口：卡住了可以直接要提示，不必先交一个错答案 */}
+                {!finished && hintLevel < 3 && feedback?.kind !== 'wrong' && (
+                    <Button
+                        size="lg"
+                        variant="ghost"
+                        onClick={() => void handleHint()}
+                        disabled={hintLoading || submitting}
+                    >
+                        {hintLoading ? (
+                            '提示生成中……'
+                        ) : (
+                            <>
+                                我卡住了 <span className="numeric">({hintLevel + 1}/3)</span>
+                            </>
+                        )}
+                    </Button>
+                )}
                 {feedback?.kind === 'wrong' && feedback.canHint && hintLevel < 3 && (
                     <Button
                         size="lg"
@@ -437,6 +472,12 @@ export function QuestionCard({ item, index, total, learnerId, onDone }: Props) {
                                 要提示吗 <span className="numeric">({hintLevel + 1}/3)</span>
                             </>
                         )}
+                    </Button>
+                )}
+                {/* 判不准时给一个说明白了的退路：跳过，且这次算"待确认" */}
+                {feedback?.kind === 'pending' && (
+                    <Button size="lg" variant="ghost" onClick={() => onDone(makeRecord(false))}>
+                        先跳过这题
                     </Button>
                 )}
                 {finished && (

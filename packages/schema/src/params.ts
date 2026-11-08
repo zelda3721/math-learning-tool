@@ -16,6 +16,20 @@ export const MASTERY_PARAMS = {
   /** 节点点亮判据 */
   litThresholdP: 0.7,
   litThresholdEvidence: 3,
+  /*
+   * 点亮还要有"独立证据"（宪法第 1 条：理解由行为验证，不由观看验证）。
+   *
+   * 只有次数和阈值时，同一道题重交三次就能点亮——测到的是记忆，不是理解。
+   * 独立证据 = 首次见的题 + 零提示 + 作答前没看过这道题的解析 + 题目主节点。
+   */
+  /** 至少几条独立证据 */
+  litThresholdIndependent: 3,
+  /** 独立证据至少覆盖几道不同的题（同一道题刷三遍不算） */
+  litThresholdDistinctQuestions: 2,
+  /** 独立证据至少跨几天（当天连对三题不算隔天还能做出来） */
+  litThresholdSpanDays: 1,
+  /** 作答前看过这道题的解析时，答对的增益折扣（回忆不是理解） */
+  afterAnalysisGainFactor: 0.3,
   /** 星图分档：< dim 暗 / dim..lit 微光 / ≥ lit 点亮 */
   dimThresholdP: 0.4,
   /** 归因候选阈值：祖先节点 p < 该值或 evidenceN = 0 */

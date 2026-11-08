@@ -23,6 +23,22 @@ export interface MasteryRow {
   lastEvidenceAt: string | null;
 }
 
+/** 事件 payload 是外部写入的 JSON：坏了一行不该让整个查询抛错 */
+function safeJson(raw: unknown): unknown {
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** 本地时间的零点：孩子是"今天"用完了，不是"UTC 今天" */
+function localDayStart(at: Date): Date {
+  const d = new Date(at);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 export class Repo {
   constructor(private readonly db: DatabaseSync) {}
 
@@ -60,7 +76,12 @@ export class Repo {
    * 确定性判卷器，缺省值就是事实。新学科要写 `ai_unverified` 时必须显式传。
    */
   insertAttempt(
-    a: Omit<Attempt, "id" | "at" | "verification"> & { at?: string; verification?: Attempt["verification"] },
+    a: Omit<Attempt, "id" | "at" | "verification"> & {
+      at?: string;
+      verification?: Attempt["verification"];
+      /** 谁在作答：缺省孩子本人；家长试做记为 parent，不进掌握度但留痕 */
+      actor?: "child" | "parent";
+    },
   ): Attempt {
     const id = randomUUID();
     const at = a.at ?? new Date().toISOString();
@@ -68,7 +89,7 @@ export class Repo {
     this.db
       .prepare(
         `INSERT INTO attempts (id, learner_id, question_id, answer, correct, hint_level_used,
-          source, duration_s, needs_review, verification, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          source, duration_s, needs_review, verification, actor, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -81,12 +102,145 @@ export class Repo {
         a.durationS ?? null,
         a.needsReview ? 1 : 0,
         verification,
+        a.actor ?? "child",
         at,
       );
     return { ...a, id, at, verification, needsReview: a.needsReview };
   }
 
-  getAttempt(id: string): (Attempt & { at: string }) | undefined {
+  /**
+   * 证据账本的原料：一次读全部作答（不截断）。
+   *
+   * 为什么不复用 recentAttempts：那个有 limit，且不带 verification/needs_review/actor，
+   * 而这三样正是"这条证据算不算数"的判据。推导在 evidence.ts 里做，这里只负责取数。
+   */
+  attemptsForEvidence(learnerId: string): {
+    questionId: string;
+    correct: boolean;
+    hintLevelUsed: number;
+    at: string;
+    source: string;
+    verification: string;
+    needsReview: boolean;
+    actor: string;
+  }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT question_id, correct, hint_level_used, at, source, verification, needs_review, actor
+         FROM attempts WHERE learner_id = ? ORDER BY at`,
+      )
+      .all(learnerId);
+    return rows.map((r) => ({
+      questionId: String(r.question_id),
+      correct: Boolean(r.correct),
+      hintLevelUsed: Number(r.hint_level_used),
+      at: String(r.at),
+      source: String(r.source),
+      verification: String(r.verification ?? "executable"),
+      needsReview: Boolean(r.needs_review),
+      actor: String(r.actor ?? "child"),
+    }));
+  }
+
+  /** 看过的题目解析：questionId → 时刻（升序）。用来区分"回忆"和"理解" */
+  analysisViews(learnerId: string): Map<string, string[]> {
+    const views = new Map<string, string[]>();
+    const rows = this.db
+      .prepare(
+        `SELECT ts, payload_json FROM learner_events
+         WHERE learner_id = ? AND type = 'analysis_view' ORDER BY ts`,
+      )
+      .all(learnerId);
+    for (const r of rows) {
+      const payload = safeJson(r.payload_json) as { questionId?: unknown } | null;
+      const questionId = typeof payload?.questionId === "string" ? payload.questionId : undefined;
+      if (!questionId) continue;
+      const list = views.get(questionId) ?? [];
+      list.push(String(r.ts));
+      views.set(questionId, list);
+    }
+    return views;
+  }
+
+  /** 这道题上一次作答前是否看过解析（决定增益折扣） */
+  viewedAnalysisBefore(learnerId: string, questionId: string, at: string): boolean {
+    const views = this.analysisViews(learnerId).get(questionId) ?? [];
+    return views.some((t) => t <= at);
+  }
+
+  /**
+   * 今天这道题已经计过几次证据：对错各算各的。
+   *
+   * 为什么要分开：同一道题一天里最多认「一次错」和「一次对」。
+   * - 反复交错答案不再连续 ×0.6 扣分（订正过程本来就被按错扣分，旧口径能把
+   *   一颗点亮的星打回暗）；
+   * - 但真的订正成功了还是一次真实的作答，不能假装没发生。
+   */
+  todayAttemptCounts(learnerId: string, questionId: string, at = new Date()): { correct: number; wrong: number } {
+    const day = localDayStart(at).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT correct, COUNT(*) AS n FROM attempts
+         WHERE learner_id = ? AND question_id = ? AND at >= ?
+           AND needs_review = 0 AND verification != 'ai_unverified' AND actor = 'child'
+         GROUP BY correct`,
+      )
+      .all(learnerId, questionId, day);
+    let correct = 0;
+    let wrong = 0;
+    for (const r of rows) {
+      if (Boolean(r.correct)) correct = Number(r.n);
+      else wrong = Number(r.n);
+    }
+    return { correct, wrong };
+  }
+
+  /** 这道题今天是否已经答对（"看过解析再答"的折扣只需要知道这一件事） */
+  correctToday(learnerId: string, questionId: string, at = new Date()): boolean {
+    const day = localDayStart(at).toISOString();
+    const r = this.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM attempts WHERE learner_id = ? AND question_id = ? AND at >= ? AND correct = 1",
+      )
+      .get(learnerId, questionId, day);
+    return Number((r as { n?: number } | undefined)?.n ?? 0) > 0;
+  }
+
+  /** 这道题已经拿到过的最高提示级（服务端记账，不信客户端自报） */
+  maxHintLevel(learnerId: string, questionId: string): number {
+    const rows = this.db
+      .prepare(
+        `SELECT payload_json FROM learner_events
+         WHERE learner_id = ? AND type = 'attempt' AND json_extract(payload_json, '$.kind') = 'hint'
+           AND json_extract(payload_json, '$.questionId') = ?`,
+      )
+      .all(learnerId, questionId);
+    let max = 0;
+    for (const r of rows) {
+      const payload = safeJson(r.payload_json) as { level?: unknown } | null;
+      const level = typeof payload?.level === "number" ? payload.level : 0;
+      if (level > max) max = level;
+    }
+    return max;
+  }
+
+  /** 这孩子对这道题是否已经"走过一遍"（答对过，或走完了三级提示） */
+  workedThrough(learnerId: string, questionId: string): boolean {
+    const correct = this.db
+      .prepare("SELECT COUNT(*) AS n FROM attempts WHERE learner_id = ? AND question_id = ? AND correct = 1")
+      .get(learnerId, questionId);
+    if (Number((correct as { n?: number } | undefined)?.n ?? 0) > 0) return true;
+    return this.maxHintLevel(learnerId, questionId) >= 3;
+  }
+
+  /** 队列项的 kind：探针的来源由服务端按它判定，不信客户端传的 source */
+  getQueueItem(id: string): { id: string; kind: string; questionId: string } | undefined {
+    const r = this.db.prepare("SELECT id, kind, question_id FROM queue_items WHERE id = ?").get(id);
+    if (!r) return undefined;
+    return { id: String(r.id), kind: String(r.kind), questionId: String(r.question_id) };
+  }
+
+  getAttempt(id: string): (Attempt & { at: string; actor?: string }) | undefined {
     const r = this.db.prepare("SELECT * FROM attempts WHERE id = ?").get(id);
     if (!r) return undefined;
     return {
@@ -100,6 +254,8 @@ export class Repo {
       durationS: r.duration_s === null ? undefined : Number(r.duration_s),
       needsReview: Boolean(r.needs_review),
       verification: (r.verification ?? "executable") as Attempt["verification"],
+      /** 谁在作答（家长试做记为 parent）：归因判断"这条证据算不算"要用 */
+      actor: String(r.actor ?? "child"),
       parentVerdict: (r.parent_verdict ?? undefined) as Attempt["parentVerdict"],
       parentNote: (r.parent_note ?? undefined) as string | undefined,
       at: String(r.at),
