@@ -11,6 +11,7 @@ import type { HintProvider } from "./hint.js";
 import type { ExtractionProvider } from "./ingest/extraction.js";
 import { proxyToEngine } from "./proxy.js";
 import { effectiveP, masteryBand } from "./mastery.js";
+import { loadEvidenceStats } from "./evidence.js";
 import type { JobStore } from "./ingest/jobs.js";
 import { learnerRoutes } from "./routes/learners.js";
 import { practiceRoutes } from "./routes/practice.js";
@@ -161,9 +162,14 @@ export function createApp(state: AppState): Hono {
     const learnerId = effectiveLearnerId(c, state, c.req.query("learnerId"));
     const mastery: Record<string, { p: number; evidenceN: number; band: string }> = {};
     if (learnerId) {
+      const evidence = loadEvidenceStats(state.repo, state.questions, learnerId);
       for (const row of state.repo.allMastery(learnerId)) {
         const p = effectiveP(row);
-        mastery[row.nodeId] = { p, evidenceN: row.evidenceN, band: masteryBand(p, row.evidenceN) };
+        mastery[row.nodeId] = {
+          p,
+          evidenceN: row.evidenceN,
+          band: masteryBand(p, row.evidenceN, evidence.get(row.nodeId)),
+        };
       }
     }
     return c.json({

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -7,6 +7,8 @@ import { EducationLevelSchema, QuestionSchema, SceneSpecSchema, type Question } 
 import { matchOffline, matchProblemTypesOffline } from "@mathtutor/knowledge";
 import { effectiveLearnerId, type AppState } from "./app.js";
 import { screenLearnerInput } from "./safety.js";
+import { checkChatBudget } from "./chatBudget.js";
+import { moduleBlockedBody, moduleEnabled } from "./modules.js";
 import { appendQuestions, contentHashOf } from "./questions.js";
 import { figureDataUrl, storeFigure } from "./figures.js";
 import { latexToPlainText } from "./latexText.js";
@@ -315,12 +317,36 @@ export function keepPhotoSample(
 export function askRoutes(state: AppState): Hono {
   const app = new Hono();
 
+  /**
+   * 「问一道题」的两道闸：家长可以关掉，且和练习共用同一个每日时长。
+   *
+   * 早先这个入口两样都没有——它是全系统最依赖模型的一条路（引擎完整解题），
+   * 却在孩子时长用完之后仍然开着，家长也关不掉。
+   */
+  const askGate = (c: Context, learnerId: string | undefined): Response | undefined => {
+    if (!learnerId || !state.repo.getLearner(learnerId)) return undefined;
+    if (!moduleEnabled(state.repo, learnerId, "ask")) return c.json(moduleBlockedBody("ask"), 403);
+    const budget = checkChatBudget(state.repo, learnerId);
+    if (!budget.allowed) {
+      return c.json(
+        {
+          error: `今天的时间用完了（每天 ${budget.limitMinutes} 分钟）。明天再来，或者先去和家长说一声。`,
+          budget,
+        },
+        429,
+      );
+    }
+    return undefined;
+  };
+
   app.post("/", async (c) => {
     const parsed = AskSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, 400);
     // 孩子只能给自己提问（请求里传别人的 learnerId 会被会话覆盖）
     const learnerId = effectiveLearnerId(c, state, parsed.data.learnerId);
     if (learnerId && !state.repo.getLearner(learnerId)) return c.json({ error: "learner 不存在" }, 404);
+    const gated = askGate(c, learnerId);
+    if (gated) return gated;
     const problem = parsed.data.problem.trim();
     if (problem.length < 4) return c.json({ error: "题目太短了，把题目完整写下来" }, 400);
 
@@ -443,6 +469,10 @@ export function askRoutes(state: AppState): Hono {
       await c.req.json().catch(() => null),
     );
     if (!parsed.success) return c.json({ error: "需要 {content}（单题图 data URL，最大 4MB）" }, 400);
+    // 识题也走模型，也就该受同一道闸管；否则关掉模块后仍能借它读题
+    const photoLearnerId = effectiveLearnerId(c, state, (parsed.data as { learnerId?: string }).learnerId);
+    const photoGated = askGate(c, photoLearnerId);
+    if (photoGated) return photoGated;
     const provider = state.extraction;
     if (!provider?.questionFromImage) return c.json({ error: "当前抽取端点不支持拍照识题" }, 501);
     const { base64, mime } = stripDataUrl(parsed.data.content);

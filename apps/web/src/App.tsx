@@ -125,7 +125,8 @@ function AuthedApp() {
     const navItems = NAV_ITEMS.filter((item) => item.roles.includes(role))
     const { learner } = useLearner()
     // 使用时长：只在标签页可见时计时，服务端按真实流逝封顶（见 routes/usage.ts）
-    const usage = useActiveUsage(learner?.id)
+    // 只给孩子计时：家长在孩子页面上试做、停留，不该扣孩子的时长额度
+    const usage = useActiveUsage(role === 'child' ? learner?.id : undefined)
     // 待批改只对家长有意义——孩子不该给自己判卷
     const pendingVerdicts = usePendingVerdicts(role === 'parent', learner?.id)
 

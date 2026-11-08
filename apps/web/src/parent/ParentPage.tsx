@@ -242,7 +242,7 @@ function MistakePatterns({ summary }: { summary: ParentSummary }) {
                             <div className="h-2 rounded-full bg-rule overflow-hidden">
                                 <div
                                     className="h-full rounded-full bg-beam"
-                                    style={{ width: `${Math.max(4, Math.round(p.share * 100))}%` }}
+                                    style={{ width: `${Math.max(4, Math.round(p.share))}%` }}
                                 />
                             </div>
                         </li>

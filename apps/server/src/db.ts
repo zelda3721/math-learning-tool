@@ -218,6 +218,12 @@ const MIGRATIONS = [
   "ALTER TABLE explain_jobs ADD COLUMN note TEXT",
   // 证据的验证等级（宪法第 5 条）。旧库里的作答都来自确定性判卷，默认 executable 即事实
   "ALTER TABLE attempts ADD COLUMN verification TEXT NOT NULL DEFAULT 'executable'",
+  /*
+   * 谁在作答：'child' 是孩子本人，'parent' 是家长在孩子的页面上试做。
+   * 家长试做要留痕（他自己能看到做了些什么），但**不能进孩子的掌握度**——
+   * 否则家长点两下就把孩子的星点亮了。旧库默认 child。
+   */
+  "ALTER TABLE attempts ADD COLUMN actor TEXT NOT NULL DEFAULT 'child'",
 ];
 
 function migrate(db: DatabaseSync): void {

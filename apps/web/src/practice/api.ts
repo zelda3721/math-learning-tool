@@ -48,7 +48,8 @@ export interface ReviewProgress {
 }
 
 export interface SubmitResult {
-    attemptId: string
+    /** 只写了「不会」这类话时没有 attempt（它本来就不是一次作答） */
+    attemptId: string | null
     correct: boolean
     method: 'numeric' | 'expression' | 'string' | 'pending'
     needsReview: boolean
@@ -59,6 +60,12 @@ export interface SubmitResult {
     verification?: 'executable' | 'reference' | 'ai_unverified'
     /** 是否计入掌握度；false 时界面上不能显示成"学会了" */
     countedTowardMastery?: boolean
+    /** 只写了「不会」这类话：不算一次作答，题留在原地 */
+    notAnAnswer?: boolean
+    /** 家长在孩子的页面上试做：留痕但不进掌握度 */
+    trial?: boolean
+    /** 同一道题同一天重复作答：照常记录，但不计入证据 */
+    repeat?: boolean
     hintAvailable: boolean
     mastery: MasteryChange[]
     review?: ReviewProgress
