@@ -27,7 +27,7 @@
     "answer": "24",
     "answerType": "numeric",
     "analysis": "平行四边形的面积等于底乘高，即$8 \\times 3 = 24$平方厘米。",
-    "figureImage": "a729a4fd7f7837805c0c07601ff8381f.jpg",
+    "figureImage": "08f6cf3c074c4b9deb685543ad5cd41e.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -46,7 +46,7 @@
     "answer": "64",
     "answerType": "numeric",
     "analysis": "根据梯形面积公式：（上底+下底）×高÷2，代入数据计算即可。",
-    "figureImage": "ea4fa12fe4f0aaf8e80779db9ca76123.jpg",
+    "figureImage": "555d00b3d5d58bb3914b473bb586396f.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -64,7 +64,7 @@
     "answer": "91",
     "answerType": "numeric",
     "analysis": "阴影平行四边形的底是$10-3=7$厘米，高是$10+3=13$厘米，面积为$7 \\times 13 = 91$平方厘米。",
-    "figureImage": "166c6c87d8be43ae5d1256ac1978ae0f.jpg",
+    "figureImage": "3162cff7a6f14a2255ee2a6bcd5ca971.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -82,7 +82,7 @@
     "answer": "6",
     "answerType": "numeric",
     "analysis": "根据平行四边形面积公式$S=ah$，已知面积和高，底$CD=48\\div8=6$厘米。",
-    "figureImage": "a813d562cb9d50211df1506c3e060f81.jpg",
+    "figureImage": "178e425c2a79bc432c4e0cc56784c7f0.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -101,7 +101,7 @@
     "answer": "6",
     "answerType": "numeric",
     "analysis": "根据梯形面积公式 $S=(a+b)h\\div2$，逆推得高 $h=2S\\div(a+b)$，代入数据计算即可。",
-    "figureImage": "8e3d61f94d0f94fe15359dc742be47ef.jpg",
+    "figureImage": "2d9494fca9bed2988fb7095df254fe4d.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -120,7 +120,7 @@
     "answer": "6",
     "answerType": "numeric",
     "analysis": "根据平行四边形面积公式求出底边$AD$的长，进而求出$DE$的长，最后利用三角形面积公式计算阴影部分面积。",
-    "figureImage": "0bc07ebbe4edf166be0d1b100cb91e6e.jpg",
+    "figureImage": "e16a9db8282cf4da467404e2840bfe11.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -139,7 +139,7 @@
     "answer": "24, 144",
     "answerType": "numeric",
     "analysis": "先根据平行四边形$ABEF$的面积和底$AF$求出高，再利用该高和底$FD$求出平行四边形$CDFG$的面积，最后根据梯形上下底和高求梯形面积。",
-    "figureImage": "c6cd8ae1e7e2c21af034879e76d9c6c4.jpg",
+    "figureImage": "a35d6ee3880b742b60829ec6a8cc1b98.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -158,7 +158,7 @@
     "answer": "17",
     "answerType": "numeric",
     "analysis": "阴影部分面积等于直角梯形OEFC的面积，即(7+10)×2÷2=17。",
-    "figureImage": "55972bc4627657db90b6b0a0a166fdae.jpg",
+    "figureImage": "94109cf50c67804e231fa4c1db9705ee.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -197,7 +197,7 @@
     "answer": "100",
     "answerType": "numeric",
     "analysis": "平行四边形$BCEF$和平行四边形$ABCD$的底相等，平行四边形$BCEF$的高比平行四边形$ABCD$的高多$FG$，所以面积差为底$BC$乘以$FG$，即$10 \\times 10 = 100$平方厘米。",
-    "figureImage": "6c7eef561db5417cc59b12e1f0015814.jpg",
+    "figureImage": "c77a5818c6348af35eacd8eca8e5c427.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -217,7 +217,7 @@
     "answer": "200",
     "answerType": "numeric",
     "analysis": "根据题意，直角梯形ABCD中，三角形ABE和三角形CDE均为等腰直角三角形，可知上底AB等于高AE，下底CD等于高DE，因此梯形的高AD等于上底与下底之和（AD=AB+CD），利用梯形面积公式S=(AB+CD)×AD÷2，代入BC=20（即AD=20）计算得出面积为200平方厘米。",
-    "figureImage": "66351ac575014c89eb54c9484f9c2aac.jpg",
+    "figureImage": "80a835459df08075d05ea6e06df49026.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -236,8 +236,8 @@
     "answer": "98",
     "answerType": "numeric",
     "analysis": "先由梯形$AEHD$的面积和上底求出下底$EH$，进而得到大正方形边长，再求出梯形$AFGD$的高与下底，最后利用梯形面积公式求解。",
-    "figureImage": "9e1887f5001c86bf7fa7bb7f2f3d7352.jpg",
-    "analysisImage": "b69a69cfcee5c1ba1a87f809009f6f66.jpg",
+    "figureImage": "9dbf2bd9cb37180d454135dd7064935e.png",
+    "analysisImage": "d307666132f8d94e638d15aed411ca5c.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -307,7 +307,7 @@
     "answer": "18",
     "answerType": "numeric",
     "analysis": "利用年龄差不变原理，通过线段图分析可知，兄弟俩今年的年龄和相当于5份，其中哥哥占3份，即 30 \\div 5 \times 3 = 18 岁。",
-    "analysisImage": "813983d150c2cb3d74bfe1f26d7c14f9.jpg",
+    "analysisImage": "8b0f299b777ee0b71b4890008feb6265.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -396,7 +396,7 @@
     "answer": "4，16",
     "answerType": "numeric",
     "analysis": "设弟弟今年x岁，田田今年4x岁，根据20年后的年龄关系列方程求解。",
-    "analysisImage": "98d4b1f471e7992c01c908c57269f385.jpg",
+    "analysisImage": "e220f0275022b140994ab84a061eb197.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -449,7 +449,7 @@
     "answer": "5,30",
     "answerType": "numeric",
     "analysis": "图片内容为‘练习13’的题干部分，属于一道新的年龄问题，未包含上一题（父子年龄）的答案或解析。",
-    "analysisImage": "86e8aa71c91e74dfcc0a1bc624550e49.jpg",
+    "analysisImage": "999583565e0491415e181983622034d5.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -468,7 +468,7 @@
     "answer": "28, 21",
     "answerType": "numeric",
     "analysis": "设甲乙分别x、y岁，根据年龄差不变列方程组求解，或利用年龄差倍数关系分析。",
-    "analysisImage": "605b0b13a571992752291c6b32bb243c.jpg",
+    "analysisImage": "0152850fbd22938c5e7e258e755f4cdf.png",
     "difficulty": 4,
     "source": {
       "role": "upload"

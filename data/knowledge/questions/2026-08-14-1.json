@@ -10,7 +10,7 @@
     "answer": "445,135",
     "answerType": "numeric",
     "analysis": "（1）求平均数：(450+300+585)÷3=445；（2）求差值：585-450=135。",
-    "figureImage": "d2e5567027e0da55a4fa7d253c0265c9.jpg",
+    "figureImage": "c17f0fceab881305de47bca0cb551e46.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -29,7 +29,7 @@
     "answer": "258,234,280,207,305,268,1552",
     "answerType": "numeric",
     "analysis": "将一至六年级人数相加（258+234+280+207+305+268）得出总计1552人。",
-    "figureImage": "5084436d05a3a3dcb24d7fa99bf42016.jpg",
+    "figureImage": "03c8c78cffebac9aacf06b5766443d0f.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -47,7 +47,7 @@
     "answer": "446, 100, 164",
     "answerType": "numeric",
     "analysis": "（1）求6个月产量的平均数；（2）用6月产量减去1月产量；（3）分别计算第一季度（1-3月）和第二季度（4-6月）的总产量，再求差值。",
-    "figureImage": "27058b5c38e25681ec126255041fe5ad.jpg",
+    "figureImage": "3289500c29bab129c722ddf9a84212f8.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -65,8 +65,8 @@
     "answer": "92",
     "answerType": "numeric",
     "analysis": "根据折线统计图读出五次成绩分别为90、95、85、90、100分，求和除以5即可得到平均分。",
-    "figureImage": "53d15414b19520fa7294ac2b5631571e.jpg",
-    "analysisImage": "066bd926617adb22676deb5a4d6f5365.jpg",
+    "figureImage": "81b1152efa2de597bb5541747dc596ca.png",
+    "analysisImage": "6b618321e86784118671725cae4b8d92.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -86,7 +86,7 @@
     "answer": "1月份, 3月到4月, 11月到12月",
     "answerType": "numeric",
     "analysis": "通过观察折线统计图，1月份拐点最低，3月到4月折线上升最陡峭，11月到12月折线下降最陡峭。",
-    "figureImage": "7d0208053a77bf6814471e9b88659256.jpg",
+    "figureImage": "7b2a8807abc43b6d658e1c534217ea96.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -104,7 +104,7 @@
     "answer": "57；五年级；合理即可，如六个年级喜欢看科普读物的同学总共有多少人",
     "answerType": "numeric",
     "analysis": "观察折线统计图，找到横轴“四年级”对应的数据点，其数值为57。",
-    "figureImage": "43f3b42d8fc0275fab0aea637c44168e.jpg",
+    "figureImage": "904c83e78a1359230014e5c0cd11b2f3.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -126,7 +126,7 @@
     "answer": "A；80,70",
     "answerType": "expression",
     "analysis": "观察折线统计图可知，两个超市的销售额随月份变化而波动，说明季节变化对销售额有影响。",
-    "figureImage": "4391c7f6cd12405df20c378d06be7294.jpg",
+    "figureImage": "3ac2ee953fb16323105fc727809f9f15.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -144,8 +144,8 @@
     "answer": "12",
     "answerType": "numeric",
     "analysis": "根据条形统计图，利用加权平均数公式计算得出平均每个工人生产了12件产品。",
-    "figureImage": "dc7c7f86d685a15699b94519fdd60f28.jpg",
-    "analysisImage": "8835bc6e5df1ab266c18df4a94711b51.jpg",
+    "figureImage": "ec747e8d7acc51481db4cffc31df5b25.png",
+    "analysisImage": "b72b8df138e51160917dd518e02157ec.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -164,8 +164,8 @@
     "answer": "植物标本",
     "answerType": "steps",
     "analysis": "通过计算各类标本的总数（昆虫40件，植物72件，矿石56件），比较得出植物标本数量最多。",
-    "figureImage": "63263c813dfc5fca3cc66816c1dd42e9.jpg",
-    "analysisImage": "ed58e65f5415ac96a6cb0c3ff265268d.jpg",
+    "figureImage": "85afb3a27871ec50b59a626d7ca86558.png",
+    "analysisImage": "1308b7f2416df9fb8b2b60e3c0cb18a6.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -185,7 +185,7 @@
     "answer": "64,77",
     "answerType": "numeric",
     "analysis": "先利用平均数求出5天的总产量，减去已知的三天产量得到周三和周四的总和，再结合表格中给出的十位和个位数字特征进行推理求解。",
-    "figureImage": "67d95f2ed8a4558ff0effd1d229a9425.jpg",
+    "figureImage": "1b9a671dc4424b9902cde83634a552a6.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -204,7 +204,7 @@
     "answer": "3, 10, 12, 5; 3; 5; 20至30次",
     "answerType": "numeric",
     "analysis": "根据统计图读取各区间人数填表，直接读取少于20次和不少于30次的人数，通过计算20至30次区间人数之和判断集中范围。",
-    "figureImage": "28d5226db99c5c963dd9f03ff1950a52.jpg",
+    "figureImage": "930ea16d6221cc4da46d8dd2d6e25c46.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -224,7 +224,7 @@
     "answer": "32人；31人",
     "answerType": "numeric",
     "analysis": "先求出二、三班总人数和总邮票数，利用二、三班平均每人集邮张数（从图中读出）的差，通过鸡兔同笼方法（或方程）求解。",
-    "figureImage": "30b0645e74da61a6b2e70d9ce36606f9.jpg",
+    "figureImage": "04e8f06d0495110e5a88b6b523db2f0f.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -243,7 +243,7 @@
     "answer": "13分钟；75米/分，60米/分；50米/分，50米/分；两次；8点12分",
     "answerType": "numeric",
     "analysis": "休息时间$33-20=13$分钟；休息前速度$1500\\div20=75$，休息后速度$1500\\div(58-33)=60$。",
-    "figureImage": "8bcecbf5d54eb3fc6043f4e29385ad82.jpg",
+    "figureImage": "bb0d415a03ec16e116c82d75bf6cf4f5.png",
     "difficulty": 3,
     "source": {
       "role": "upload"

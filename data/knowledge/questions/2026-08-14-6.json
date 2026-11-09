@@ -196,7 +196,7 @@
     "answer": "4",
     "answerType": "numeric",
     "analysis": "从第一次相遇到第二次相遇，两人合走了$2$个全程，即$38 \\times 2 = 76$千米，除以速度和即可求得时间。",
-    "analysisImage": "e7245abc00688c24c4e5c02a95291a24.jpg",
+    "analysisImage": "d7df6af62650509ba16de224865c95bb.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
