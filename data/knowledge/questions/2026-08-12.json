@@ -46,7 +46,7 @@
     "answer": "4",
     "answerType": "numeric",
     "analysis": "通过计算萝卜增加量与青菜增加量的差值（14-11=3），从原有的差值中减去该差值（7-3=4），得出青菜仍多4筐。",
-    "figureImage": "620fcb2f43079e657bfe89e7b0d6bf19.jpg",
+    "analysisImage": "978137954d9ede898aa373b37d38d9d0.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -244,7 +244,7 @@
     "answer": "∠AOB，∠BOC，∠AOC",
     "answerType": "steps",
     "analysis": "以O为顶点的角有：∠AOB，∠BOC，∠AOC。",
-    "figureImage": "f4d6c76be40823091a98dbceb5558d64.jpg",
+    "figureImage": "4c6f636282fae43936b033b6f72c52ad.png",
     "difficulty": 1,
     "source": {
       "role": "upload"
@@ -281,7 +281,7 @@
     "answer": "150°",
     "answerType": "numeric",
     "analysis": "由OE⊥OF得∠EOF=90°，结合∠EOA=2∠AOF求出∠AOF=30°，再利用平角定义得∠BOF=150°．",
-    "figureImage": "1e85d4f84a657287f2e7b23e14912232.jpg",
+    "figureImage": "149acf520afeaa716556a0cc47345803.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -300,7 +300,7 @@
     "answer": "70°",
     "answerType": "numeric",
     "analysis": "利用正方形的角是90°，先求出重叠部分∠2=90°-70°=20°，再求∠3=90°-20°=70°。",
-    "figureImage": "eea1526b95a817a64ebc33e7085e9354.jpg",
+    "figureImage": "29bc11f8facd347f32dd080ac0769d4e.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -319,7 +319,7 @@
     "answer": "120°",
     "answerType": "numeric",
     "analysis": "利用多边形外角和为360°，由∠4=360°-(∠1+∠3)-∠2计算得出。",
-    "figureImage": "fb5cffbba47a13c2ac3124ee2587f698.jpg",
+    "figureImage": "9affa2723e705e53ec4b86bbf04b6f75.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -338,7 +338,7 @@
     "answer": "∠1=100°；∠2=50°",
     "answerType": "numeric",
     "analysis": "利用多边形外角和为360°，结合已知条件列方程求解。",
-    "figureImage": "923bbeeea7369a7dcd17f071899bfd4d.jpg",
+    "figureImage": "52292c4d3f428e38d54b3e28ababcbf9.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -374,7 +374,7 @@
     "answer": "40°",
     "answerType": "numeric",
     "analysis": "由角平分线性质得∠DOF=70°，进而∠DOE=140°，利用邻补角关系求得∠COD=40°．",
-    "figureImage": "f09fbd53719e97e7818d13fa3126349f.jpg",
+    "figureImage": "3787db1bc77a46d094cd568c458884cc.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -393,7 +393,7 @@
     "answer": "60°",
     "answerType": "numeric",
     "analysis": "根据旋转性质，对应角相等，即∠BAC=∠B'A'C，由图可知∠B'A'C=90°-30°=60°。",
-    "figureImage": "046b72b8f435f53cdb8b727b867678fa.jpg",
+    "figureImage": "769880d894af3081d9373a27b91a5b31.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -662,7 +662,7 @@
     "answer": "36, 7",
     "answerType": "numeric",
     "analysis": "通过观察前两个三角形可以发现，下面两个数乘积等于上面的一个数，如：5×6=30，7×8=56。所以可以得出a=4×9=36；3×b=21，b=7。",
-    "figureImage": "ca2a85fd56919dfd41fb2fbb3733b912.jpg",
+    "figureImage": "30b942a93cd93593b3e6d5676dc9de41.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -1098,7 +1098,7 @@
     "answer": "3",
     "answerType": "numeric",
     "analysis": "采用逆推法（还原问题），从最后剩下的1个苹果出发，依次倒推丙、乙、甲取之前的数量，算出苹果总数为22个，最后用总价66元除以22个得出单价。",
-    "analysisImage": "68de3abf403f0fb383c0031d7e6104d6.jpg",
+    "analysisImage": "2e53baf725646b2c4d0477a224768281.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1116,7 +1116,7 @@
     "answer": "1700",
     "answerType": "numeric",
     "analysis": "利用倒推法，从最后剩余的煤（1200÷2=600吨）出发，逆序还原第三次运出、第二次运进及第一次运出的过程，求得原有煤的吨数。",
-    "analysisImage": "76059be44436b4219fc9d174ef0d5b36.jpg",
+    "analysisImage": "18d048f094c84cca4625b321c1095aab.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1135,7 +1135,7 @@
     "answer": "67，73",
     "answerType": "numeric",
     "analysis": "利用两堆和始终不变（140只），得出最终每组70只，再根据甲给乙5只、乙给甲8只的过程逆推还原。",
-    "analysisImage": "c5e0ffdf96b7a29a726ddb09aeb8d071.jpg",
+    "analysisImage": "03c5b5f918d48cb6ddc71b6dca6e8d5e.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1154,7 +1154,7 @@
     "answer": "10",
     "answerType": "numeric",
     "analysis": "通过逆推法或寻找周期规律，发现三个和尚的水量变化以3次操作为一个周期循环，且总量不变，最终状态与初始状态一致，故最初大和尚的水量为10升。",
-    "analysisImage": "aaa214de96ebe2ecbb8a8ce23faa9d03.jpg",
+    "analysisImage": "459031b8e741f5612c8a72477eb54d67.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1244,7 +1244,7 @@
     "answer": "44，20",
     "answerType": "numeric",
     "analysis": "采用逆推法（还原问题），从最后一步两堆均为32个的状态倒推，依次还原第三次、第二次、第一次移动前的数量，最终得出甲堆原有44个，乙堆原有20个。",
-    "analysisImage": "ab7c60da7a1ea94b86fdfb33a15bf0bb.jpg",
+    "analysisImage": "46fdd98103faa7df30e19207157433f0.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1262,7 +1262,7 @@
     "answer": "260，80，140",
     "answerType": "numeric",
     "analysis": "设最后每人有x个棋子，根据三局输赢翻倍的过程逆推，结合牛牛输掉100个的条件列方程求解。",
-    "analysisImage": "e5a435c9ac11bcff23c5d133e7269a22.jpg",
+    "analysisImage": "d66639aeb10a9b51ae33ce88e9104df1.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -1280,7 +1280,7 @@
     "answer": "114",
     "answerType": "numeric",
     "analysis": "本题采用倒推法（还原问题），从最终每人256颗珠子开始，逆序还原G、F、E、D、C、B、A的操作过程，即可求得D原先的珠子数。",
-    "analysisImage": "78e8f03f0437f5fb44365c4a656fed11.jpg",
+    "analysisImage": "25e186d8a156df0aaf0eb22717980228.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -1352,7 +1352,7 @@
     "answerType": "steps",
     "answerUnverified": true,
     "analysis": "根据“兄妹二人不许搭档”的规则，通过列表排除法：刘刚不和小丽、小红是兄妹，故刘刚的妹妹是小红；李强不和小英、小红是兄妹，故李强的妹妹是小丽；剩下的马辉的妹妹是小英。",
-    "analysisImage": "277d4232e04fbbc185908b72cb202233.jpg",
+    "analysisImage": "f90e60f00658efc683086baba3629990.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1388,7 +1388,7 @@
     "answerType": "steps",
     "answerUnverified": true,
     "analysis": "根据条件（2）可知广西人是教师，结合（1）乙不是广西人，（3）乙不是工人，推知乙是演员；由（2）辽宁人不是演员，故乙不是辽宁人，乙只能是山东人；由（1）甲不是辽宁人，故甲是广西人（教师）；最后丙是辽宁人（工人）。",
-    "analysisImage": "92e684aab81b7be404ac10b115281ee9.jpg",
+    "analysisImage": "7109caac6080fd78b79bbf4a48d6456c.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1458,7 +1458,7 @@
     "answer": "丁丁拿了阿普的试卷，丁丁的试卷被小乐拿走了",
     "answerType": "steps",
     "analysis": "通过列表格法（或假设法）进行逻辑推理，利用排除法确定每个人拿到的试卷归属，最终得出丁丁拿了阿普的试卷，丁丁的试卷被小乐拿走了。",
-    "analysisImage": "4539c20fb5858ac94ddd3b19694c0cce.jpg",
+    "analysisImage": "8ab34ccc580191b1354e8700965a9f8a.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1477,7 +1477,7 @@
     "answer": "甲会中、日语，乙会中、法语，丙会英、法语，丁会中、英语",
     "answerType": "steps",
     "analysis": "通过列表法（表格法）进行逻辑推理，利用假设法排除矛盾情况，最终确定甲会中、日语，乙会中、法语，丙会英、法语，丁会中、英语。",
-    "analysisImage": "51a7b72b8aaec437947b2fb62d8fce99.jpg",
+    "analysisImage": "58755a29d148f86b10912adcbcd9abcb.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -1495,7 +1495,7 @@
     "answer": "丁丁在二小，爱好打乒乓球；田田在三小，爱好打羽毛球；牛牛在一小，爱好游泳．",
     "answerType": "steps",
     "analysis": "根据条件(4)爱好游泳的在一小，结合(5)爱好游泳的不是田田，以及(1)丁丁不在一小，可推断出牛牛爱好游泳去一小；再结合(3)爱好乒乓球的不去三小，可推断田田爱好乒乓球去三小，最后剩下丁丁爱好羽毛球去二小。",
-    "analysisImage": "76424f72ac17e7384b95cb28934b2a06.jpg",
+    "analysisImage": "37513ca72683ca1b6ef05e2aeb16eae9.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1624,7 +1624,7 @@
     "answerType": "numeric",
     "answerUnverified": true,
     "analysis": "原方阵每边12颗，变为两层空心方阵需每边13颗，外层增加半层需25颗，内层增加半层需19颗，共需44颗。",
-    "analysisImage": "e86b25df657611a791b09de015c6a446.jpg",
+    "analysisImage": "7806ef6219d339ee27d3f77bbffa710c.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -1738,7 +1738,7 @@
     "answer": "80个、32个或56个",
     "answerType": "numeric",
     "analysis": "根据空心方阵相邻两层数量差为8的规律，分三种情况（单层在内、单层在外、内外各加半圈）讨论，分别计算得出80、32或56。",
-    "analysisImage": "aa78176007463cbe3cb26674e5c7a834.jpg",
+    "analysisImage": "845a72fbc986734ad93466af7ee178ff.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -2114,7 +2114,7 @@
     "answer": "145.67：百位1，十位4，个位5，十分位6，百分位7；14.567：十位1，个位4，十分位5，百分位6，千分位7",
     "answerType": "numeric",
     "analysis": "小数点左边从低位到高位依次是个位、十位、百位；小数点右边从高位到低位依次是十分位、百分位、千分位。",
-    "analysisImage": "05c9919903156409ad1cb6a9ae930d67.jpg",
+    "analysisImage": "f35d03e1d85354d83f2db71230bfdd4a.png",
     "difficulty": 1,
     "source": {
       "role": "upload"

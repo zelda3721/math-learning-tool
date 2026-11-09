@@ -10,7 +10,7 @@
     "answerType": "numeric",
     "analysis": "利用标数法（加法原理）计算，到达终点的路径数为20种。",
     "figureImage": "4032f8eed0dc6c9ff512c38e12c5f573.jpg",
-    "analysisImage": "e4bcf09a429ae6c71d75263f275f92a9.jpg",
+    "analysisImage": "06739906247d6a01143db00336b859f9.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -28,7 +28,8 @@
     "answer": "12",
     "answerType": "numeric",
     "analysis": "利用标数法计算从A到D的最短路线，通过路径分析可知共有12条不同的最短路线。",
-    "analysisImage": "bebddc1899b256f90de47dd8a3ddbcd7.jpg",
+    "figureImage": "f6ca38672df4ba96c6f6e473f5a5ec56.png",
+    "analysisImage": "0f2c449772381ed6586586ebe47bd50e.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -46,8 +47,8 @@
     "answer": "60",
     "answerType": "numeric",
     "analysis": "利用标数法，从A点出发，只能向上或向右走，到达M点有10种走法，到达N点有10种走法，最终到达B点共有60种走法。",
-    "figureImage": "7f8e6ac4d6b7ce825245249ce0e8ff6c.jpg",
-    "analysisImage": "5898b67bd9e7d1282dadfadfc559275f.jpg",
+    "figureImage": "e51b956917d230074988191d2a7b3413.png",
+    "analysisImage": "68727761c08083114cd349af2a3ddd92.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -65,8 +66,8 @@
     "answer": "70",
     "answerType": "numeric",
     "analysis": "利用标数法（加法原理），分别计算从$A$到$B$和从$B$到$C$的最短路径数，最后将两段路径数相乘即可。",
-    "figureImage": "69ce707744355fce87e07de42794c726.jpg",
-    "analysisImage": "88bfaf55c16a1f33c25245620849119e.jpg",
+    "figureImage": "7fe04734595ccd0d2206001521a8f32f.png",
+    "analysisImage": "e5f98a5779cf70bed3a6630dbf217660.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -84,8 +85,8 @@
     "answer": "15",
     "answerType": "numeric",
     "analysis": "利用标数法，将到达每个房间的路径数相加，最终到达8号房间的路径数为15种。",
-    "figureImage": "ee164c6d9700aac6722ae77cd5be3ebb.jpg",
-    "analysisImage": "c15ad71ecbd9fe1b3faa782e5872ef7d.jpg",
+    "figureImage": "bc417978a20de2cc6b27525eca438ef3.png",
+    "analysisImage": "642e53c9f016349c45be76bcb44335f4.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -103,8 +104,8 @@
     "answer": "11",
     "answerType": "numeric",
     "analysis": "利用标数法（加法原理），将到达前一个节点的路径数相加，最终求得终点的路径总数为11种。",
-    "figureImage": "c3ae9c033a0bd7e7a8f3dabc1561621a.jpg",
-    "analysisImage": "e2281fe2270e0239632e709fef2aec92.jpg",
+    "figureImage": "a4c14fb301e0ea863e876cf38d4dbec4.png",
+    "analysisImage": "d5bd1be9221793e1889943b21bd1383e.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -122,8 +123,8 @@
     "answer": "15",
     "answerType": "numeric",
     "analysis": "从$A$到$B$只能向上或向右，根据“标数法”可知，共有15种走法。",
-    "figureImage": "a97644cca1d99ece5688df46c40474bb.jpg",
-    "analysisImage": "1ebca7dff78006c2c0f83f8fbb0e9ab5.jpg",
+    "figureImage": "b0a983cf1ae6d19d667ddfe9daebb74a.png",
+    "analysisImage": "5daa452456cc698617ff17f20e55e144.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -141,7 +142,8 @@
     "answer": "78",
     "answerType": "numeric",
     "analysis": "由于不能经过线段CD和EF，需在网格图中拆除CD和EF，然后在拆除后的网格图中标数，D点和F点只能由前一个相邻点到达，最终得出满足条件的最短路线共有78条。",
-    "analysisImage": "e10dac243339d60b7b64e01511989181.jpg",
+    "figureImage": "0407cc78d68057426a9b919dd2340107.png",
+    "analysisImage": "3fe0ec1f38736edc8fa747aee4136758.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -160,8 +162,8 @@
     "answer": "经过C点的走法多，相差15种",
     "answerType": "steps",
     "analysis": "利用标数法分别计算经过C点和D点的走法，前者为60种，后者为45种，两者相差15种。",
-    "figureImage": "2be40e1613ef0c58d8fb064def5fce25.jpg",
-    "analysisImage": "4b52456c055ab8ab5d26ab9c47a8cba1.jpg",
+    "figureImage": "fe38922715406481a6f3afb2f6f903d5.png",
+    "analysisImage": "6af433dcc06b4405feac8d1de9538753.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -179,8 +181,8 @@
     "answer": "286",
     "answerType": "numeric",
     "analysis": "运用标数法，从起点 $A$ 开始，每个格子的走法数等于所有相邻且号码较小的格子走法数之和，最终累加至 $B$ 点。",
-    "figureImage": "1ca3bf2046c050ed101e1e2bcd2ff784.jpg",
-    "analysisImage": "26a9af4fe556116b3eeb628308f69d72.jpg",
+    "figureImage": "635b5be87a10a9981d1ddf5ed4a56560.png",
+    "analysisImage": "5f490bb6f24c7c677cfd1cfab9a2f483.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
@@ -199,8 +201,8 @@
     "answer": "24",
     "answerType": "numeric",
     "analysis": "按题目要求求从$P$到$Q$的最短路径，方向只能向后、向右或向下，只能在看见的三个面上标数，用标数法可得从$P$到$Q$有24条路径。",
-    "figureImage": "0978037945b4e514d984d154ff6689d3.jpg",
-    "analysisImage": "6756c55cbfdb18ddeab6f63f08d38a8b.jpg",
+    "figureImage": "1ca4930d2a4ca58411bbbdc9a1f73d58.png",
+    "analysisImage": "f8b7f38ebf307f6e0bec50e4202043a6.png",
     "difficulty": 3,
     "source": {
       "role": "upload"
@@ -218,8 +220,8 @@
     "answer": "16",
     "answerType": "numeric",
     "analysis": "利用标数法，从A出发，每步向右或向右下方走，计算到达E的路径总数。",
-    "figureImage": "f01fc033a7ca9e3d95af4c1bbadff0dc.jpg",
-    "analysisImage": "86f7b8c30cf600aa40123727cce70406.jpg",
+    "figureImage": "13302e50b4b3500a57dfb7aee2d55424.png",
+    "analysisImage": "3acddd8881caf12f57aa135bfb98755e.png",
     "difficulty": 2,
     "source": {
       "role": "upload"
@@ -238,7 +240,7 @@
     "answer": "42",
     "answerType": "numeric",
     "analysis": "利用标数法，从个位开始，依次计算每一位上每个数字对应的路径数，最后将万位上所有数字对应的路径数相加即可。",
-    "analysisImage": "b704187dadb77dd0550fa7d0d7e40a3c.jpg",
+    "analysisImage": "f431fc954d7253215e124b02aa61798c.png",
     "difficulty": 4,
     "source": {
       "role": "upload"
